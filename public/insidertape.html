@@ -1,1 +1,1929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INSIDERTAPE — Follow the Smart Money</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.3/lightweight-charts.standalone.production.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg:        #080b0f;
+    --bg2:       #0d1117;
+    --bg3:       #111820;
+    --border:    #1e2d3d;
+    --border2:   #253447;
+    --text:      #c9d8e8;
+    --muted:     #4a6580;
+    --accent:    #00d4ff;
+    --accent2:   #0099cc;
+    --buy:       #00ff88;
+    --buy-dim:   #00993a;
+    --sell:      #ff4466;
+    --sell-dim:  #992233;
+    --option:    #ffaa00;
+    --header-h:  64px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    overflow-x: hidden;
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* ── HEADER ── */
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    height: var(--header-h);
+    background: rgba(8,11,15,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    gap: 16px;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,212,255,0.4);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .logo span { color: var(--text); opacity: 0.5; }
+
+  /* ── SEARCH ── */
+  .search-wrap {
+    position: relative;
+    flex: 1; max-width: 420px;
+  }
+  .search-wrap input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 16px 9px 42px;
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .search-wrap input::placeholder { color: var(--muted); text-transform: none; letter-spacing: 0; font-family: 'DM Sans', sans-serif; }
+  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,0.1); }
+  .search-icon {
+    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+    color: var(--muted); pointer-events: none;
+  }
+  .search-btn {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: var(--accent); color: var(--bg);
+    border: none; border-radius: 4px;
+    padding: 5px 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .search-btn:hover { background: #33ddff; }
+
+  /* ── NAV TABS ── */
+  .nav-tabs {
+    display: flex; gap: 4px; flex-shrink: 0;
+  }
+  .nav-tab {
+    padding: 7px 16px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    transition: all .2s;
+    color: var(--muted);
+    background: transparent;
+    white-space: nowrap;
+  }
+  .nav-tab:hover { color: var(--text); border-color: var(--border); }
+  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+
+  /* ── MAIN LAYOUT ── */
+  main {
+    margin-top: var(--header-h);
+    min-height: calc(100vh - var(--header-h));
+  }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── SCREENER VIEW ── */
+  .screener-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 0;
+    min-height: calc(100vh - var(--header-h));
+  }
+
+  .filter-panel {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    position: sticky;
+    top: var(--header-h);
+    height: calc(100vh - var(--header-h));
+    overflow-y: auto;
+  }
+
+  .filter-section { margin-bottom: 24px; }
+  .filter-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all .15s;
+    color: var(--muted);
+    background: transparent;
+  }
+  .chip:hover { border-color: var(--border2); color: var(--text); }
+  .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+  .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
+  .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
+  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(255,170,0,0.08); }
+
+  .filter-range { display: flex; flex-direction: column; gap: 8px; }
+  .filter-range select, .filter-range input[type=number] {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 7px 10px;
+    color: var(--text);
+    font-size: 12px;
+    outline: none;
+    width: 100%;
+  }
+  .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
+
+  .apply-btn {
+    width: 100%;
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    border-radius: 6px;
+    padding: 10px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: background .2s;
+    margin-top: 8px;
+  }
+  .apply-btn:hover { background: #33ddff; }
+
+  /* ── SCREENER TABLE ── */
+  .screener-content { padding: 20px; }
+
+  .screener-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .screener-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--text);
+  }
+  .screener-meta {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .live-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    background: rgba(0,255,136,0.1);
+    border: 1px solid rgba(0,255,136,0.3);
+    border-radius: 20px;
+    font-size: 11px;
+    color: var(--buy);
+  }
+  .live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--buy);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .table-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead tr {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    padding: 11px 14px;
+    text-align: left;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: color .15s;
+  }
+  th:hover { color: var(--text); }
+  th.sorted { color: var(--accent); }
+  th .sort-arrow { margin-left: 4px; opacity: 0.5; }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background .12s;
+    cursor: pointer;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+  td { padding: 11px 14px; font-size: 13px; white-space: nowrap; }
+
+  .ticker-cell {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 13px;
+  }
+  .ticker-cell:hover { text-decoration: underline; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .badge-buy  { background: rgba(0,255,136,0.15); color: var(--buy); border: 1px solid rgba(0,255,136,0.3); }
+  .badge-sell { background: rgba(255,68,102,0.15); color: var(--sell); border: 1px solid rgba(255,68,102,0.3); }
+  .badge-option { background: rgba(255,170,0,0.15); color: var(--option); border: 1px solid rgba(255,170,0,0.3); }
+
+  .val-positive { color: var(--buy); font-weight: 500; }
+  .val-negative { color: var(--sell); font-weight: 500; }
+  .val-neutral  { color: var(--option); font-weight: 500; }
+
+  .insider-name { color: var(--text); }
+  .insider-title { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
+
+  .pagination {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .page-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 12px;
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .page-btn:hover, .page-btn.active { border-color: var(--accent); color: var(--accent); }
+  .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* ── STOCK VIEW ── */
+  .stock-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    min-height: calc(100vh - var(--header-h));
+  }
+
+  .stock-header-bar {
+    grid-column: 1 / -1;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex; align-items: flex-start; gap: 32px; flex-wrap: wrap;
+  }
+
+  .stock-ticker-big {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    line-height: 1;
+    color: var(--accent);
+    letter-spacing: 3px;
+  }
+  .stock-name-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .stock-price-block { display: flex; flex-direction: column; justify-content: center; }
+  .stock-price {
+    font-family: 'Space Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .stock-change {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    margin-top: 3px;
+  }
+  .stat-grid {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    align-items: center;
+    margin-left: auto;
+  }
+  .stat-item { text-align: right; }
+  .stat-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .stat-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    margin-top: 2px;
+  }
+
+  .chart-area {
+    background: var(--bg);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .chart-controls {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tf-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .tf-btn:hover { color: var(--text); }
+  .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+
+  #chartContainer {
+    width: 100%;
+    height: 480px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  /* ── INSIDER SIDEBAR ── */
+  .insider-sidebar {
+    background: var(--bg2);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--header-h) - 110px);
+    overflow: hidden;
+  }
+
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .sidebar-tab {
+    flex: 1;
+    padding: 12px 8px;
+    text-align: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .15s;
+    text-transform: uppercase;
+  }
+  .sidebar-tab:hover { color: var(--text); }
+  .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
+
+  .trade-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .trade-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+  }
+  .trade-card.buy::before  { background: var(--buy); }
+  .trade-card.sell::before { background: var(--sell); }
+  .trade-card.option::before { background: var(--option); }
+  .trade-card:hover { border-color: var(--border2); background: rgba(255,255,255,0.02); }
+
+  .trade-card-top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .trade-type-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .trade-card.buy  .trade-type-label { color: var(--buy); }
+  .trade-card.sell .trade-type-label { color: var(--sell); }
+  .trade-card.option .trade-type-label { color: var(--option); }
+
+  .trade-date {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .trade-insider { font-size: 12px; font-weight: 500; color: var(--text); }
+  .trade-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .trade-numbers {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .trade-num-item { }
+  .trade-num-label {
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-family: 'Space Mono', monospace;
+  }
+  .trade-num-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    margin-top: 2px;
+  }
+
+  /* ── STOCK TRADES TABLE ── */
+  .stock-trades-section {
+    grid-column: 1 / -1;
+    padding: 0 16px 24px;
+  }
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px;
+    letter-spacing: 2px;
+    color: var(--text);
+    margin-bottom: 12px;
+    margin-top: 20px;
+  }
+
+  /* ── LOADING / EMPTY ── */
+  .loading-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 60px 20px;
+    color: var(--muted);
+    gap: 12px;
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 60px 20px; gap: 12px; color: var(--muted); text-align: center;
+  }
+  .empty-icon { font-size: 36px; opacity: 0.3; }
+
+  /* ── INSIDER PROFILE ── */
+  .insider-profile-layout { padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 14px;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+    margin-bottom: 20px;
+  }
+  .back-btn:hover { color: var(--text); border-color: var(--border2); }
+
+  .insider-hero {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap;
+    position: relative; overflow: hidden;
+  }
+  .insider-hero::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+
+  .insider-avatar {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent2), var(--bg3));
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    color: var(--bg);
+    flex-shrink: 0;
+    border: 2px solid var(--border2);
+  }
+
+  .insider-hero-info { flex: 1; min-width: 200px; }
+  .insider-hero-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 32px;
+    letter-spacing: 2px;
+    color: var(--text);
+    line-height: 1;
+  }
+  .insider-hero-title {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 5px;
+  }
+  .insider-hero-companies {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .company-tag {
+    padding: 3px 10px;
+    background: rgba(0,212,255,0.08);
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 20px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .company-tag:hover { background: rgba(0,212,255,0.15); }
+
+  .insider-hero-stats {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    align-items: center; margin-left: auto;
+  }
+  .insider-stat {
+    text-align: center;
+    padding: 12px 16px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    min-width: 100px;
+  }
+  .insider-stat-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .insider-stat-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 18px;
+    margin-top: 4px;
+  }
+
+  .profile-grid {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .activity-chart-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .activity-chart-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  /* Bar chart for buy/sell by ticker */
+  .ticker-breakdown {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .ticker-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .ticker-row:hover .ticker-bar-label { color: var(--accent); }
+  .ticker-bar-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--text);
+    width: 50px;
+    flex-shrink: 0;
+    transition: color .15s;
+  }
+  .ticker-bar-track {
+    flex: 1; height: 8px;
+    background: var(--bg3);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .ticker-bar-fill {
+    height: 100%; border-radius: 4px;
+    transition: width .4s ease;
+  }
+  .ticker-bar-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    width: 70px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .insider-name-link {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+    transition: opacity .15s;
+    border-bottom: 1px solid rgba(0,212,255,0.3);
+    padding-bottom: 1px;
+  }
+  .insider-name-link:hover { opacity: 0.75; }
+
+  /* Timeline dots on activity chart */
+  #insiderActivityChart {
+    width: 100%; height: 160px;
+    border-radius: 4px;
+  }
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 999;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 13px;
+    color: var(--text);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all .3s;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.error { border-color: var(--sell); }
+
+  /* ── LEGEND ── */
+  .chart-legend {
+    display: flex; gap: 16px; align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--muted);
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+  .legend-tri-up { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--buy); }
+  .legend-tri-dn { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 9px solid var(--sell); }
+  .legend-tri-opt { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--option); }
+
+  /* ── SUMMARY STATS ── */
+  .summary-bar {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .summary-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    flex: 1; min-width: 120px;
+  }
+  .summary-card-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .summary-card-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 18px;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header>
+  <div class="logo">INSIDER<span>TAPE</span></div>
+
+  <div class="search-wrap">
+    <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input type="text" id="tickerInput" placeholder="Search ticker  (e.g. AAPL)" maxlength="10">
+    <button class="search-btn" onclick="searchTicker()">GO</button>
+  </div>
+
+  <nav class="nav-tabs">
+    <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
+    <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
+    <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)" style="display:none">INSIDER</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ═══════════════════ SCREENER VIEW ═══════════════════ -->
+<div id="view-screener" class="view active">
+  <div class="screener-layout">
+
+    <!-- Filter Panel -->
+    <aside class="filter-panel">
+      <span class="filter-label">Trade Type</span>
+      <div class="filter-chips" style="margin-bottom:20px">
+        <div class="chip buy-chip active"  data-type="P" onclick="toggleChip(this)">Buy</div>
+        <div class="chip sell-chip active" data-type="S" onclick="toggleChip(this)">Sell</div>
+        <div class="chip opt-chip active"  data-type="A" onclick="toggleChip(this)">Option Ex.</div>
+        <div class="chip opt-chip active"  data-type="M" onclick="toggleChip(this)">Other</div>
+      </div>
+
+      <div class="filter-section">
+        <span class="filter-label">Insider Role</span>
+        <div class="filter-chips">
+          <div class="chip active" data-role="all"  onclick="toggleRole(this)">All</div>
+          <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
+          <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
+          <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
+          <div class="chip" data-role="10%"  onclick="toggleRole(this)">10%+ Owner</div>
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <span class="filter-label">Min Transaction Value</span>
+        <div class="filter-range">
+          <select id="minVal">
+            <option value="0">Any amount</option>
+            <option value="50000">$50,000+</option>
+            <option value="100000" selected>$100,000+</option>
+            <option value="500000">$500,000+</option>
+            <option value="1000000">$1,000,000+</option>
+            <option value="5000000">$5,000,000+</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="filter-section">
+        <span class="filter-label">Time Period</span>
+        <div class="filter-chips">
+          <div class="chip active" data-days="7"   onclick="toggleDays(this)">7D</div>
+          <div class="chip" data-days="30"  onclick="toggleDays(this)">30D</div>
+          <div class="chip" data-days="90"  onclick="toggleDays(this)">90D</div>
+          <div class="chip" data-days="365" onclick="toggleDays(this)">1Y</div>
+        </div>
+      </div>
+
+      <button class="apply-btn" onclick="loadScreener()">APPLY FILTERS</button>
+
+      <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border)">
+        <span class="filter-label">Data Source</span>
+        <p style="font-size:11px; color:var(--muted); line-height:1.6">
+          Insider filings sourced from SEC Form 4 data via OpenInsider.com.<br><br>
+          Price data via Yahoo Finance.<br><br>
+          <span style="color:var(--accent)">Note:</span> Data may be delayed up to 48hrs from SEC filing.
+        </p>
+      </div>
+    </aside>
+
+    <!-- Screener Content -->
+    <div class="screener-content">
+      <div class="screener-header">
+        <div>
+          <div class="screener-title">RECENT INSIDER TRADES</div>
+          <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+        </div>
+      </div>
+
+      <div class="summary-bar" id="summaryBar"></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortTable('date')" class="sorted">DATE <span class="sort-arrow">↓</span></th>
+              <th onclick="sortTable('ticker')">TICKER</th>
+              <th onclick="sortTable('insider')">INSIDER</th>
+              <th onclick="sortTable('type')">TYPE</th>
+              <th onclick="sortTable('shares')">SHARES</th>
+              <th onclick="sortTable('price')">PRICE</th>
+              <th onclick="sortTable('value')">VALUE</th>
+              <th onclick="sortTable('owned')">OWNED AFTER</th>
+              <th>FILING</th>
+            </tr>
+          </thead>
+          <tbody id="screenerBody">
+            <tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Fetching insider filings...</span></div></td></tr>
+          </tbody>
+        </table>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ STOCK VIEW ═══════════════════ -->
+<div id="view-stock" class="view">
+  <div id="stockContent">
+    <div class="empty-state">
+      <div class="empty-icon">📈</div>
+      <div style="font-size:15px;color:var(--text)">Search a ticker to get started</div>
+      <div style="font-size:12px">Enter a stock symbol in the search bar above</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ INSIDER PROFILE VIEW ═══════════════════ -->
+<div id="view-insider" class="view">
+  <div id="insiderContent">
+    <div class="empty-state">
+      <div class="empty-icon">👤</div>
+      <div>Click an insider's name to view their profile</div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+const state = {
+  screenerData: [],
+  currentPage: 1,
+  pageSize: 25,
+  sortCol: 'date',
+  sortDir: -1,
+  activeTypes: new Set(['P','S','A','M']),
+  activeRole: 'all',
+  minVal: 100000,
+  days: 7,
+  currentTicker: null,
+  tickerTrades: [],
+  chart: null,
+  candleSeries: null,
+  markers: [],
+};
+
+// ═══════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════
+function fmt(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (Math.abs(n) >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+  if (Math.abs(n) >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+  if (Math.abs(n) >= 1e3) return '$' + (n/1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(2);
+}
+function fmtShares(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1)+'K';
+  return n.toLocaleString();
+}
+function fmtDate(d) {
+  if (!d) return '—';
+  const dt = new Date(d);
+  return dt.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'});
+}
+function tradeClass(type) {
+  if (!type) return '';
+  const t = type.toUpperCase();
+  if (t === 'P') return 'buy';
+  if (t === 'S' || t === 'S-') return 'sell';
+  return 'option';
+}
+function tradeLabel(type) {
+  if (!type) return 'Unknown';
+  const t = type.toUpperCase();
+  const map = {
+    'P': 'Open Buy', 'S': 'Open Sell', 'S-': 'Sell', 'A': 'Option Ex.',
+    'M': 'Transfer', 'C': 'Conv.', 'F': 'Tax Sale', 'G': 'Gift',
+    'J': 'Other', 'L': 'Gift', 'W': 'Will', 'Z': 'Trust'
+  };
+  return map[t] || type;
+}
+function badgeClass(type) {
+  const c = tradeClass(type);
+  if (c === 'buy') return 'badge-buy';
+  if (c === 'sell') return 'badge-sell';
+  return 'badge-option';
+}
+
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 3500);
+}
+
+// ═══════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════
+function switchView(view, btn) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + view).classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+function searchTicker() {
+  const val = document.getElementById('tickerInput').value.trim().toUpperCase();
+  if (!val) return showToast('Please enter a ticker symbol', true);
+  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
+  document.querySelectorAll('.nav-tab')[1].classList.add('active');
+  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
+  loadStockView(val);
+}
+
+document.getElementById('tickerInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchTicker();
+});
+
+// ═══════════════════════════════════════════════════════
+// DATA FETCHING — OpenInsider via CORS proxy
+// ═══════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+//  API — all data comes from our own server (server.js)
+//  No CORS issues, no proxies, no third-party rate limits
+// ─────────────────────────────────────────────────────────────
+const API_BASE = ''; // blank = same origin (correct for production)
+
+async function apiFetch(path) {
+  const resp = await fetch(API_BASE + path);
+  if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
+  return resp.json();
+}
+
+async function fetchInsiderForTicker(ticker) {
+  return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`);
+}
+
+async function fetchInsiderByName(name) {
+  // Use already-loaded data if available (instant, saves a server round-trip)
+  const fromState = [
+    ...(state.screenerData || []),
+    ...(state.tickerTrades || [])
+  ].filter(t => t.insider === name);
+  if (fromState.length) return fromState;
+  return apiFetch(`/api/insider?name=${encodeURIComponent(name)}`);
+}
+
+// ═══════════════════════════════════════════════════════
+// SCREENER
+// ═══════════════════════════════════════════════════════
+function toggleChip(el) {
+  el.classList.toggle('active');
+  const type = el.dataset.type;
+  if (el.classList.contains('active')) state.activeTypes.add(type);
+  else state.activeTypes.delete(type);
+}
+function toggleRole(el) {
+  document.querySelectorAll('[data-role]').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  state.activeRole = el.dataset.role;
+}
+function toggleDays(el) {
+  document.querySelectorAll('[data-days]').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  state.days = parseInt(el.dataset.days);
+}
+
+async function loadScreener() {
+  state.minVal = parseInt(document.getElementById('minVal').value) || 0;
+
+  document.getElementById('screenerBody').innerHTML =
+    `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div>
+     <span>Fetching insider filings from SEC...</span></div></td></tr>`;
+  document.getElementById('summaryBar').innerHTML = '';
+
+  try {
+    const trades = await apiFetch('/api/screener');
+
+    if (!trades || !trades.length) {
+      document.getElementById('screenerBody').innerHTML =
+        `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div>
+         <div>No filings found for this period</div></div></td></tr>`;
+      return;
+    }
+
+    // Apply client-side filters
+    let filtered = trades;
+    if (state.activeTypes.size > 0) {
+      filtered = filtered.filter(t => state.activeTypes.has(t.type));
+    }
+    if (state.minVal > 0) {
+      filtered = filtered.filter(t => t.value >= state.minVal);
+    }
+
+    state.screenerData = filtered;
+    state.currentPage  = 1;
+    renderScreener();
+
+  } catch(e) {
+    console.error('loadScreener error:', e);
+    document.getElementById('screenerBody').innerHTML =
+      `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div>
+       <div style="color:var(--sell)">Could not load data: ${e.message}</div>
+       <div style="color:var(--muted);font-size:11px">Make sure the server is running</div>
+       </div></td></tr>`;
+  }
+}
+
+
+function renderScreener() {
+  const data = state.screenerData;
+
+  // Summary
+  const buys = data.filter(t => t.type === 'P');
+  const sells = data.filter(t => t.type === 'S' || t.type === 'S-');
+  const totalBuyVal = buys.reduce((s,t) => s+t.value, 0);
+  const totalSellVal = sells.reduce((s,t) => s+t.value, 0);
+
+  document.getElementById('summaryBar').innerHTML = `
+    <div class="summary-card">
+      <div class="summary-card-label">Total Trades</div>
+      <div class="summary-card-val" style="color:var(--text)">${data.length}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card-label">Buy Volume</div>
+      <div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card-label">Sell Volume</div>
+      <div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card-label">Buy/Sell Ratio</div>
+      <div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length ? (buys.length/sells.length).toFixed(2) : '∞'}x</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-card-label">Unique Tickers</div>
+      <div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div>
+    </div>
+  `;
+
+  document.getElementById('screenerMeta').textContent =
+    `${data.length} filings · Last updated ${new Date().toLocaleTimeString()}`;
+
+  // Sort
+  const sorted = [...data].sort((a,b) => {
+    let av = a[state.sortCol], bv = b[state.sortCol];
+    if (state.sortCol === 'date' || state.sortCol === 'filing') { av = new Date(av||0); bv = new Date(bv||0); }
+    if (av < bv) return state.sortDir;
+    if (av > bv) return -state.sortDir;
+    return 0;
+  });
+
+  // Paginate
+  const start = (state.currentPage-1) * state.pageSize;
+  const page  = sorted.slice(start, start + state.pageSize);
+  const total = sorted.length;
+  const pages = Math.ceil(total / state.pageSize);
+
+  const tbody = document.getElementById('screenerBody');
+  if (!page.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = page.map(t => `
+    <tr onclick="openTickerFromScreener('${t.ticker}')">
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
+      <td class="ticker-cell">${t.ticker}</td>
+      <td onclick="event.stopPropagation()">
+        <span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span>
+        <span class="insider-title">${t.title}</span>
+      </td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
+      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
+      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+    </tr>
+  `).join('');
+
+  // Pagination
+  const pg = document.getElementById('pagination');
+  if (pages <= 1) { pg.innerHTML = ''; return; }
+  let pgHtml = `<button class="page-btn" onclick="changePage(${state.currentPage-1})" ${state.currentPage===1?'disabled':''}>← Prev</button>`;
+  for (let i = 1; i <= Math.min(pages,7); i++) {
+    pgHtml += `<button class="page-btn ${i===state.currentPage?'active':''}" onclick="changePage(${i})">${i}</button>`;
+  }
+  if (pages > 7) pgHtml += `<span style="color:var(--muted);padding:0 8px">...</span>`;
+  pgHtml += `<button class="page-btn" onclick="changePage(${state.currentPage+1})" ${state.currentPage===pages?'disabled':''}>Next →</button>`;
+  pg.innerHTML = pgHtml;
+}
+
+function changePage(p) {
+  state.currentPage = p;
+  renderScreener();
+  document.querySelector('.screener-content').scrollTop = 0;
+}
+
+function sortTable(col) {
+  if (state.sortCol === col) state.sortDir *= -1;
+  else { state.sortCol = col; state.sortDir = -1; }
+  document.querySelectorAll('th').forEach(th => th.classList.remove('sorted'));
+  renderScreener();
+}
+
+function openTickerFromScreener(ticker) {
+  document.getElementById('tickerInput').value = ticker;
+  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
+  document.querySelectorAll('.nav-tab')[1].classList.add('active');
+  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
+  loadStockView(ticker);
+}
+
+// ═══════════════════════════════════════════════════════
+// STOCK VIEW — TradingView widget + insider trade timeline
+// ═══════════════════════════════════════════════════════
+async function loadStockView(ticker) {
+  state.currentTicker = ticker;
+  document.getElementById('stockContent').innerHTML = `
+    <div class="loading-state" style="height:400px">
+      <div class="spinner"></div>
+      <span>Loading ${ticker}...</span>
+    </div>`;
+
+  const insiderData = await fetchInsiderForTicker(ticker);
+  state.tickerTrades = insiderData;
+
+  const buys  = insiderData.filter(t => t.type === 'P').length;
+  const sells = insiderData.filter(t => t.type === 'S' || t.type === 'S-').length;
+  const totalVal = insiderData.reduce((s,t)=>s+t.value,0);
+
+  document.getElementById('stockContent').innerHTML = `
+    <div class="stock-layout">
+      <div class="stock-header-bar">
+        <div>
+          <div class="stock-ticker-big">${ticker}</div>
+          <div class="stock-name-sub">Common Stock</div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-item">
+            <div class="stat-label">Insider Trades</div>
+            <div class="stat-val" style="color:var(--accent)">${insiderData.length}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Buys</div>
+            <div class="stat-val" style="color:var(--buy)">${buys}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Sells</div>
+            <div class="stat-val" style="color:var(--sell)">${sells}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Total Value</div>
+            <div class="stat-val">${fmt(totalVal)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-area">
+
+        <!-- TradingView Advanced Chart -->
+        <div id="tv-chart-wrap" style="
+          width:100%; height:500px;
+          border-radius:6px; overflow:hidden;
+          border:1px solid var(--border);
+          position:relative;
+        ">
+          <div class="tradingview-widget-container" style="width:100%;height:100%">
+            <div id="tradingview_chart" style="width:100%;height:100%"></div>
+          </div>
+        </div>
+
+        <!-- Insider Trade Timeline — pinned below the chart, aligned by date -->
+        <div style="margin-top:6px">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:10px">
+            <span>INSIDER ACTIVITY TIMELINE</span>
+            <span style="color:var(--border2)">— hover a marker for details</span>
+            <div style="margin-left:auto;display:flex;gap:12px">
+              <span style="color:var(--buy)">▲ Buy</span>
+              <span style="color:var(--sell)">▼ Sell</span>
+              <span style="color:var(--option)">◆ Option/Other</span>
+            </div>
+          </div>
+          <div id="tradeTimeline" style="
+            background:var(--bg2);
+            border:1px solid var(--border);
+            border-radius:6px;
+            height:72px;
+            position:relative;
+            overflow:hidden;
+          "></div>
+        </div>
+
+        <!-- Trade pill list -->
+        <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+
+      <div class="insider-sidebar">
+        <div class="sidebar-tabs">
+          <div class="sidebar-tab active" onclick="switchSidebarTab('trades',this)">TRADES (${insiderData.length})</div>
+          <div class="sidebar-tab" onclick="switchSidebarTab('summary',this)">SUMMARY</div>
+        </div>
+        <div class="sidebar-content" id="sidebarContent"></div>
+      </div>
+
+      <div class="stock-trades-section">
+        <div class="section-title">ALL INSIDER TRANSACTIONS — ${ticker}</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>TRADE DATE</th>
+                <th>INSIDER</th>
+                <th>TITLE</th>
+                <th>TYPE</th>
+                <th>SHARES</th>
+                <th>PRICE</th>
+                <th>VALUE</th>
+                <th>OWNED AFTER</th>
+                <th>FILING DATE</th>
+              </tr>
+            </thead>
+            <tbody id="stockTradesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  buildTVChart(ticker);
+  buildTradeTimeline(insiderData);
+  renderSidebarTrades(insiderData);
+  renderStockTradesTable(insiderData);
+  renderTradeMarkerList(insiderData);
+}
+
+// ═══════════════════════════════════════════════════════
+// TRADINGVIEW ADVANCED CHART WIDGET
+// Free embed — no API key — full professional chart
+// ═══════════════════════════════════════════════════════
+function buildTVChart(ticker) {
+  // Remove any previously injected TV script
+  const oldScript = document.getElementById('tv-widget-script');
+  if (oldScript) oldScript.remove();
+
+  const script = document.createElement('script');
+  script.id  = 'tv-widget-script';
+  script.type = 'text/javascript';
+  script.src  = 'https://s3.tradingview.com/tv.js';
+
+  script.onload = () => {
+    try {
+      new TradingView.widget({
+        autosize:            true,
+        symbol:              ticker,
+        interval:            'D',
+        timezone:            'America/New_York',
+        theme:               'dark',
+        style:               '1',
+        locale:              'en',
+        toolbar_bg:          '#0d1117',
+        enable_publishing:   false,
+        hide_top_toolbar:    false,
+        hide_side_toolbar:   false,
+        allow_symbol_change: false,
+        save_image:          false,
+        withdateranges:      true,
+        container_id:        'tradingview_chart',
+        backgroundColor:     '#080b0f',
+        gridColor:           '#1e2d3d',
+        studies:             ['Volume@tv-basicstudies'],
+      });
+    } catch(e) {
+      console.warn('TradingView widget error:', e);
+      document.getElementById('tv-chart-wrap').innerHTML = `
+        <div class="empty-state" style="height:500px">
+          <div class="empty-icon">📡</div>
+          <div style="color:var(--text)">Chart unavailable in this environment</div>
+          <div>Open the HTML file directly in your browser for full chart support</div>
+        </div>`;
+    }
+  };
+
+  script.onerror = () => {
+    document.getElementById('tv-chart-wrap').innerHTML = `
+      <div class="empty-state" style="height:500px">
+        <div class="empty-icon">📡</div>
+        <div style="color:var(--text)">TradingView script blocked</div>
+        <div>Open the HTML file directly in your browser for full chart support</div>
+      </div>`;
+  };
+
+  // If TV already loaded from a previous search, init directly
+  if (window.TradingView && window.TradingView.widget) {
+    script.onload();
+  } else {
+    document.head.appendChild(script);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// INSIDER TRADE TIMELINE
+// CSS/HTML bar below the chart showing trade markers by date
+// ═══════════════════════════════════════════════════════
+function buildTradeTimeline(trades) {
+  const el = document.getElementById('tradeTimeline');
+  if (!el || !trades.length) return;
+
+  const sorted = [...trades].sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
+  const dates  = sorted.map(t => new Date(t.trade||t.filing).getTime()).filter(Boolean);
+  if (!dates.length) return;
+
+  const minT = Math.min(...dates);
+  const maxT = Math.max(...dates);
+  // Pad the range so markers at edges aren't clipped
+  const pad  = (maxT - minT) * 0.04 || 86400000 * 7;
+  const span = (maxT - minT) + pad * 2;
+
+  // Year labels
+  const firstYear = new Date(minT).getFullYear();
+  const lastYear  = new Date(maxT).getFullYear();
+  let html = '';
+
+  for (let y = firstYear; y <= lastYear; y++) {
+    const yt  = new Date(y, 0, 1).getTime();
+    const pct = Math.max(0, Math.min(100, ((yt - minT + pad) / span) * 100));
+    html += `<div style="position:absolute;left:${pct.toFixed(2)}%;top:0;bottom:0;width:1px;background:rgba(30,45,61,0.7)">
+      <span style="position:absolute;bottom:3px;left:3px;font-size:9px;color:#4a6580;font-family:'Space Mono',monospace">${y}</span>
+    </div>`;
+  }
+
+  // Centre axis
+  html += `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#1e2d3d;transform:translateY(-50%)"></div>`;
+
+  // Trade markers
+  sorted.forEach((t, idx) => {
+    const d    = new Date(t.trade||t.filing).getTime();
+    const pct  = ((d - minT + pad) / span) * 100;
+    const tc   = tradeClass(t.type);
+    const isBuy = tc === 'buy';
+    const isOpt = tc === 'option';
+    const color = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
+    const size  = Math.min(12, Math.max(7, 6 + Math.log10(t.value||1) - 3));
+    const stemH = isBuy ? 18 : 18;
+
+    const tooltip = `${t.insider} — ${tradeLabel(t.type)} ${fmt(t.value)} on ${fmtDate(t.trade||t.filing)}`;
+
+    html += `
+      <div title="${tooltip}"
+           style="position:absolute;left:${pct.toFixed(2)}%;transform:translateX(-50%);
+                  ${isBuy ? 'bottom:calc(50%)' : 'top:calc(50%)'};
+                  display:flex;flex-direction:column;align-items:center;
+                  cursor:pointer;z-index:2;"
+           onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
+        ${isBuy
+          ? `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}55;flex-shrink:0"></div>
+             <div style="width:1.5px;height:${stemH}px;background:${color}66"></div>`
+          : `<div style="width:1.5px;height:${stemH}px;background:${color}66"></div>
+             <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}55;flex-shrink:0"></div>`
+        }
+      </div>`;
+  });
+
+  el.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// TRADE PILL LIST (below timeline)
+// ═══════════════════════════════════════════════════════
+function renderTradeMarkerList(trades) {
+  const el = document.getElementById('tradeMarkerList');
+  if (!el) return;
+  const sorted = [...trades].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing));
+  el.innerHTML = sorted.slice(0,15).map(t => {
+    const tc = tradeClass(t.type);
+    const color  = tc==='buy' ? 'var(--buy)'  : tc==='sell' ? 'var(--sell)'  : 'var(--option)';
+    const border = tc==='buy' ? 'rgba(0,255,136,0.3)' : tc==='sell' ? 'rgba(255,68,102,0.3)' : 'rgba(255,170,0,0.3)';
+    const bg     = tc==='buy' ? 'rgba(0,255,136,0.07)' : tc==='sell' ? 'rgba(255,68,102,0.07)' : 'rgba(255,170,0,0.07)';
+    return `
+      <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
+                  background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer"
+           onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
+        <span style="color:${color};font-size:10px;font-weight:700">${tc==='buy'?'▲':'▼'} ${tradeLabel(t.type)}</span>
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade||t.filing)}</span>
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
+        <span style="font-size:10px;color:var(--muted)">${t.insider.split(' ').slice(-1)[0]}</span>
+      </div>`;
+  }).join('');
+  if (trades.length > 15) {
+    el.innerHTML += `<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length-15} more — see table below</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// SIDEBAR
+// ═══════════════════════════════════════════════════════
+function switchSidebarTab(tab, el) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  if (tab === 'trades') renderSidebarTrades(state.tickerTrades);
+  else renderSidebarSummary(state.tickerTrades);
+}
+
+function renderSidebarTrades(trades) {
+  const el = document.getElementById('sidebarContent');
+  if (!el) return;
+  if (!trades.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;
+    return;
+  }
+  el.innerHTML = trades.map(t => `
+    <div class="trade-card ${tradeClass(t.type)}">
+      <div class="trade-card-top">
+        <span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span>
+        <span class="trade-date">${fmtDate(t.trade||t.filing)}</span>
+      </div>
+      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</div>
+      <div class="trade-role">${t.title}</div>
+      <div class="trade-numbers">
+        <div class="trade-num-item">
+          <div class="trade-num-label">Shares</div>
+          <div class="trade-num-val">${fmtShares(t.qty)}</div>
+        </div>
+        <div class="trade-num-item">
+          <div class="trade-num-label">Price</div>
+          <div class="trade-num-val">$${(t.price||0).toFixed(2)}</div>
+        </div>
+        <div class="trade-num-item" style="grid-column:1/-1">
+          <div class="trade-num-label">Total Value</div>
+          <div class="trade-num-val" style="color:${tradeClass(t.type)==='buy'?'var(--buy)':tradeClass(t.type)==='sell'?'var(--sell)':'var(--option)'}">${fmt(t.value)}</div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderSidebarSummary(trades) {
+  const el = document.getElementById('sidebarContent');
+  if (!el) return;
+
+  const buys  = trades.filter(t => t.type === 'P');
+  const sells = trades.filter(t => t.type === 'S' || t.type === 'S-');
+  const opts  = trades.filter(t => t.type === 'A');
+
+  const buyVal  = buys.reduce((s,t)=>s+t.value,0);
+  const sellVal = sells.reduce((s,t)=>s+t.value,0);
+
+  // Unique insiders
+  const insiderMap = {};
+  trades.forEach(t => {
+    if (!insiderMap[t.insider]) insiderMap[t.insider] = {name:t.insider, title:t.title, trades:0, netVal:0};
+    insiderMap[t.insider].trades++;
+    insiderMap[t.insider].netVal += t.type==='P' ? t.value : -t.value;
+  });
+  const topInsiders = Object.values(insiderMap).sort((a,b) => Math.abs(b.netVal)-Math.abs(a.netVal)).slice(0,5);
+
+  el.innerHTML = `
+    <div style="margin-bottom:16px">
+      <div class="trade-num-label" style="margin-bottom:8px">ACTIVITY BREAKDOWN</div>
+      <div style="display:grid;gap:6px">
+        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(0,255,136,0.07);border-radius:4px;border:1px solid rgba(0,255,136,0.2)">
+          <span style="color:var(--buy);font-size:12px">▲ Buys (${buys.length})</span>
+          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,68,102,0.07);border-radius:4px;border:1px solid rgba(255,68,102,0.2)">
+          <span style="color:var(--sell);font-size:12px">▼ Sells (${sells.length})</span>
+          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,170,0,0.07);border-radius:4px;border:1px solid rgba(255,170,0,0.2)">
+          <span style="color:var(--option);font-size:12px">◆ Options/Other (${opts.length + trades.length - buys.length - sells.length})</span>
+          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
+    ${topInsiders.map(ins => `
+      <div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px">
+        <div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div>
+        <div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">
+          Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function renderStockTradesTable(trades) {
+  const el = document.getElementById('stockTradesBody');
+  if (!el) return;
+  if (!trades.length) {
+    el.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;
+    return;
+  }
+  el.innerHTML = trades.map(t => `
+    <tr>
+      <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span></td>
+      <td style="color:var(--muted);font-size:12px">${t.title}</td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
+      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+      <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
+      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+    </tr>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════════════════
+// INSIDER PROFILE
+// ═══════════════════════════════════════════════════════
+
+function escName(str) {
+  return (str||'').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+async function openInsiderProfile(name, title) {
+  // Show tab and switch view FIRST so DOM is visible before we render
+  const tab = document.getElementById('insiderTab');
+  tab.style.display = '';
+  tab.textContent = name.split(' ').slice(-1)[0].toUpperCase();
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  tab.classList.add('active');
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-insider').classList.add('active');
+
+  document.getElementById('insiderContent').innerHTML = `
+    <div class="loading-state" style="height:400px">
+      <div class="spinner"></div>
+      <span>Loading profile for ${name}...</span>
+    </div>`;
+
+  const trades = await fetchInsiderByName(name);
+  renderInsiderProfile(name, title, trades);
+}
+
+
+
+function renderInsiderProfile(name, title, trades) {
+  const buys  = trades.filter(t => t.type === 'P');
+  const sells = trades.filter(t => t.type === 'S' || t.type === 'S-');
+  const buyVal  = buys.reduce((s,t)=>s+t.value,0);
+  const sellVal = sells.reduce((s,t)=>s+t.value,0);
+  const netVal  = buyVal - sellVal;
+
+  // Unique companies/tickers
+  const tickerMap = {};
+  trades.forEach(t => {
+    if (!tickerMap[t.ticker]) tickerMap[t.ticker] = { ticker: t.ticker, company: t.company||t.ticker, buyVal:0, sellVal:0, count:0 };
+    if (t.type==='P') tickerMap[t.ticker].buyVal += t.value;
+    else tickerMap[t.ticker].sellVal += t.value;
+    tickerMap[t.ticker].count++;
+  });
+  const tickerList = Object.values(tickerMap).sort((a,b) => (b.buyVal+b.sellVal)-(a.buyVal+a.sellVal));
+  const maxTickerVal = Math.max(...tickerList.map(t => t.buyVal + t.sellVal), 1);
+
+  // Initials for avatar
+  const initials = name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
+
+  // Most recent title
+  const latestTitle = trades[0]?.title || title || 'Executive';
+
+  // Date of first and most recent trade
+  const dates = trades.map(t=>new Date(t.trade||t.filing)).filter(Boolean).sort((a,b)=>a-b);
+  const firstTrade = dates[0] ? fmtDate(dates[0].toISOString().split('T')[0]) : '—';
+  const lastTrade  = dates[dates.length-1] ? fmtDate(dates[dates.length-1].toISOString().split('T')[0]) : '—';
+
+  document.getElementById('insiderContent').innerHTML = `
+    <div class="insider-profile-layout">
+
+      <button class="back-btn" onclick="goBack()">← Back</button>
+
+      <!-- Hero -->
+      <div class="insider-hero">
+        <div class="insider-avatar">${initials}</div>
+        <div class="insider-hero-info">
+          <div class="insider-hero-name">${name}</div>
+          <div class="insider-hero-title">${latestTitle}</div>
+          <div class="insider-hero-companies">
+            ${tickerList.map(t => `<span class="company-tag" onclick="openTickerFromScreener('${t.ticker}')">${t.ticker}</span>`).join('')}
+          </div>
+        </div>
+        <div class="insider-hero-stats">
+          <div class="insider-stat">
+            <div class="insider-stat-label">Total Trades</div>
+            <div class="insider-stat-val" style="color:var(--text)">${trades.length}</div>
+          </div>
+          <div class="insider-stat">
+            <div class="insider-stat-label">Total Bought</div>
+            <div class="insider-stat-val" style="color:var(--buy)">${fmt(buyVal)}</div>
+          </div>
+          <div class="insider-stat">
+            <div class="insider-stat-label">Total Sold</div>
+            <div class="insider-stat-val" style="color:var(--sell)">${fmt(sellVal)}</div>
+          </div>
+          <div class="insider-stat">
+            <div class="insider-stat-label">Net Position</div>
+            <div class="insider-stat-val" style="color:${netVal>=0?'var(--buy)':'var(--sell)'}">${netVal>=0?'+':''}${fmt(netVal)}</div>
+          </div>
+          <div class="insider-stat">
+            <div class="insider-stat-label">Active Since</div>
+            <div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="profile-grid">
+        <!-- Left: timeline chart + full trade table -->
+        <div>
+          <!-- Mini activity timeline -->
+          <div class="activity-chart-wrap">
+            <div class="activity-chart-title">Trade Activity Timeline</div>
+            <div id="insiderActivityChart" style="position:relative;height:160px;overflow:hidden;">
+              ${buildCSSTimeline(trades)}
+            </div>
+          </div>
+
+          <!-- Full trade history table -->
+          <div class="section-title">FULL TRANSACTION HISTORY</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>TRADE DATE</th>
+                  <th>TICKER</th>
+                  <th>TYPE</th>
+                  <th>SHARES</th>
+                  <th>PRICE</th>
+                  <th>VALUE</th>
+                  <th>OWNED AFTER</th>
+                  <th>FILING</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${trades.map(t => `
+                  <tr style="cursor:pointer" onclick="openTickerFromScreener('${t.ticker}')">
+                    <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+                    <td class="ticker-cell">${t.ticker}</td>
+                    <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
+                    <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+                    <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+                    <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
+                    <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
+                    <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Right: ticker breakdown -->
+        <div>
+          <div class="ticker-breakdown">
+            <div class="activity-chart-title" style="margin-bottom:14px">Activity by Ticker</div>
+            ${tickerList.map(t => {
+              const total = t.buyVal + t.sellVal;
+              const buyW  = total ? (t.buyVal/total*100).toFixed(1) : 0;
+              const sellW = total ? (t.sellVal/total*100).toFixed(1) : 0;
+              const barW  = (total/maxTickerVal*100).toFixed(1);
+              return `
+              <div class="ticker-row" onclick="openTickerFromScreener('${t.ticker}')">
+                <div class="ticker-bar-label">${t.ticker}</div>
+                <div style="flex:1">
+                  <div class="ticker-bar-track" title="Buy: ${fmt(t.buyVal)} / Sell: ${fmt(t.sellVal)}">
+                    <div style="display:flex;height:100%;width:${barW}%">
+                      <div class="ticker-bar-fill" style="width:${buyW}%;background:var(--buy-dim)"></div>
+                      <div class="ticker-bar-fill" style="width:${sellW}%;background:var(--sell-dim)"></div>
+                    </div>
+                  </div>
+                  <div style="display:flex;gap:6px;margin-top:3px">
+                    ${t.buyVal  ? `<span style="font-size:9px;color:var(--buy)">${fmt(t.buyVal)}</span>` : ''}
+                    ${t.sellVal ? `<span style="font-size:9px;color:var(--sell)">${fmt(t.sellVal)}</span>` : ''}
+                  </div>
+                </div>
+                <div class="ticker-bar-val">${t.count} trade${t.count!==1?'s':''}</div>
+              </div>`;
+            }).join('')}
+          </div>
+
+          <!-- Buy vs Sell donut summary -->
+          <div class="ticker-breakdown" style="margin-top:16px">
+            <div class="activity-chart-title">Buy vs Sell Breakdown</div>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
+              <div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                  <span style="font-size:11px;color:var(--buy)">▲ Open Buys (${buys.length})</span>
+                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy)">${fmt(buyVal)}</span>
+                </div>
+                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+                  <div style="height:100%;width:${buyVal+sellVal?((buyVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--buy);border-radius:3px;transition:width .5s"></div>
+                </div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                  <span style="font-size:11px;color:var(--sell)">▼ Open Sells (${sells.length})</span>
+                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--sell)">${fmt(sellVal)}</span>
+                </div>
+                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+                  <div style="height:100%;width:${buyVal+sellVal?((sellVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--sell);border-radius:3px;transition:width .5s"></div>
+                </div>
+              </div>
+              <div style="padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
+                <span style="font-size:11px;color:var(--muted)">Net Conviction</span>
+                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${netVal>=0?'var(--buy)':'var(--sell)'}">
+                  ${netVal>=0?'NET BUYER':'NET SELLER'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // profile rendered — no canvas needed
+}
+
+function buildCSSTimeline(trades) {
+  if (!trades.length) return '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">No trade history</div>';
+
+  const sorted = [...trades].sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
+  const minT = new Date(sorted[0].trade||sorted[0].filing).getTime();
+  const maxT = new Date(sorted[sorted.length-1].trade||sorted[sorted.length-1].filing).getTime();
+  const span = maxT - minT || 86400000 * 30;
+
+  const maxVal = Math.max(...trades.map(t => t.value||1));
+
+  // Year markers
+  const firstYear = new Date(minT).getFullYear();
+  const lastYear  = new Date(maxT).getFullYear();
+  let yearMarkers = '';
+  for (let y = firstYear; y <= lastYear; y++) {
+    const yt = new Date(y, 0, 1).getTime();
+    const pct = Math.max(0, Math.min(100, ((yt - minT) / span) * 100));
+    yearMarkers += `<div style="position:absolute;left:${pct}%;top:0;bottom:0;width:1px;background:rgba(30,45,61,0.8);">
+      <span style="position:absolute;bottom:2px;left:3px;font-size:9px;color:#4a6580;font-family:'Space Mono',monospace;white-space:nowrap">${y}</span>
+    </div>`;
+  }
+
+  // Centre line
+  const centreLine = `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#1e2d3d;transform:translateY(-50%)"></div>`;
+
+  // Lollipop dots
+  let dots = '';
+  sorted.forEach(t => {
+    const d = new Date(t.trade||t.filing).getTime();
+    const pct = ((d - minT) / span) * 100;
+    const isBuy = t.type === 'P';
+    const isOpt = tradeClass(t.type) === 'option';
+    const color = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
+    // Size: 6px min, 14px max based on value
+    const size = 6 + Math.min(8, (Math.log10(t.value||1) - 3) * 2);
+    // Stem height: proportional to value vs max
+    const stemH = 20 + ((t.value||0) / maxVal) * 40;
+    const above = !isBuy; // buys below midline stem goes up, sells above stem goes down
+
+    dots += `
+      <div title="${t.insider} — ${tradeLabel(t.type)} ${fmt(t.value)} on ${fmtDate(t.trade||t.filing)}"
+           style="position:absolute;left:${pct}%;transform:translateX(-50%);
+                  ${isBuy ? `bottom:calc(50%)` : `top:calc(50%)`};
+                  display:flex;flex-direction:column;align-items:center;cursor:pointer"
+           onclick="openTickerFromScreener('${t.ticker}')">
+        ${isBuy ? `
+          <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}66;flex-shrink:0"></div>
+          <div style="width:1.5px;height:${stemH}px;background:${color}66;flex-shrink:0"></div>
+        ` : `
+          <div style="width:1.5px;height:${stemH}px;background:${color}66;flex-shrink:0"></div>
+          <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}66;flex-shrink:0"></div>
+        `}
+      </div>`;
+  });
+
+  return `
+    <div style="position:relative;width:100%;height:100%;padding:0 8px;">
+      ${centreLine}
+      ${yearMarkers}
+      ${dots}
+      <div style="position:absolute;left:8px;top:4px;font-size:9px;color:#00ff88;font-family:'Space Mono',monospace">▲ BUYS</div>
+      <div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:#ff4466;font-family:'Space Mono',monospace">▼ SELLS</div>
+    </div>`;
+}
+
+function goBack() {
+  // Return to whichever view made sense — default screener
+  const tab = document.getElementById('insiderTab');
+  tab.style.display = 'none';
+  const screenerTab = document.querySelectorAll('.nav-tab')[0];
+  switchView('screener', screenerTab);
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  screenerTab.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+loadScreener();
+</script>
+</body>
+</html>
 
