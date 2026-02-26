@@ -1,594 +1,480 @@
 // ─────────────────────────────────────────────────────────────
-//  INSIDERTAPE — Backend Server v2
-//  Data: SEC EDGAR data.sec.gov JSON API (no XML parsing)
-//  Price: Stooq CSV → Yahoo Finance fallback
+//  INSIDERTAPE — Backend Server
+//  Source: SEC EDGAR (primary source for ALL Form 4 filings)
+//
+//  SEC EDGAR API rules:
+//  1. User-Agent MUST be: "Company/App contact@email.com"
+//  2. Max 10 requests/second to EDGAR endpoints
+//  3. data.sec.gov for structured JSON (submissions, facts)
+//  4. efts.sec.gov for full-text search
+//  5. www.sec.gov/Archives for actual filing documents
 // ─────────────────────────────────────────────────────────────
+
+'use strict';
 
 const express = require('express');
 const cors    = require('cors');
 const https   = require('https');
-const http    = require('http');
 const path    = require('path');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ─────────────────────────────────────────────────────────────
-//  FETCH HELPER
+//  RATE LIMITER — SEC allows max 10 req/sec
 // ─────────────────────────────────────────────────────────────
-function fetchURL(url, extraHeaders = {}) {
+const _queue = [];
+let _active  = 0;
+const MAX_CONCURRENT = 5;
+
+function rateLimit(fn) {
   return new Promise((resolve, reject) => {
-    const lib = url.startsWith('https') ? https : http;
+    _queue.push({ fn, resolve, reject });
+    processQueue();
+  });
+}
+
+function processQueue() {
+  while (_active < MAX_CONCURRENT && _queue.length > 0) {
+    const { fn, resolve, reject } = _queue.shift();
+    _active++;
+    fn()
+      .then(v => { _active--; resolve(v); processQueue(); })
+      .catch(e => { _active--; reject(e);  processQueue(); });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  HTTP FETCH — correct SEC User-Agent
+// ─────────────────────────────────────────────────────────────
+function get(url) {
+  return rateLimit(() => new Promise((resolve, reject) => {
     const opts = {
       headers: {
-        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept':          'text/html,application/xhtml+xml,application/xml,text/csv,application/json,*/*;q=0.9',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent':      'InsiderTape/1.0 admin@insidertape.com',
+        'Accept':          'application/json, text/plain, */*',
         'Accept-Encoding': 'identity',
-        'Cache-Control':   'no-cache',
-        'Pragma':          'no-cache',
-        ...extraHeaders,
+        'Host':            new URL(url).hostname,
       },
-      timeout: 25000,
+      timeout: 20000,
     };
-    const req = lib.get(url, opts, (res) => {
-      if (res.statusCode === 301 || res.statusCode === 302) {
-        return fetchURL(res.headers.location, extraHeaders).then(resolve).catch(reject);
+    const req = https.get(url, opts, res => {
+      if ([301, 302, 303].includes(res.statusCode) && res.headers.location) {
+        return get(res.headers.location).then(resolve).catch(reject);
       }
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', c => data += c);
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        body:   Buffer.concat(chunks).toString('utf8'),
+      }));
     });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-  });
-}
-
-// ─────────────────────────────────────────────────────────────
-//  OPENINSIDER CSV PARSER
-//  Columns: X,Filing Date,Trade Date,Ticker,Company Name,
-//  Insider Name,Title,Trade Type,Price,Qty,Owned,ΔOwn,Value,SEC Filing
-// ─────────────────────────────────────────────────────────────
-function parseOpenInsiderCSV(csv) {
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return [];
-  const trades = [];
-  // Find header row
-  const headerIdx = lines.findIndex(l => l.toLowerCase().includes('filing date') || l.toLowerCase().includes('trade date'));
-  const start = headerIdx >= 0 ? headerIdx + 1 : 1;
-  for (let i = start; i < lines.length; i++) {
-    const row = lines[i].trim();
-    if (!row) continue;
-    // Handle quoted CSV fields
-    const cols = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(c => c.replace(/^"|"$/g, '').trim()) || row.split(',').map(s => s.trim());
-    if (cols.length < 10) continue;
-    // OpenInsider CSV: X, Filing Date, Trade Date, Ticker, Company, Insider Name, Title, Trade Type, Price, Qty, Owned, DeltaOwn, Value, ...
-    const filingDate = cols[1] || '';
-    const tradeDate  = cols[2] || '';
-    const ticker     = (cols[3] || '').toUpperCase();
-    const company    = cols[4] || '';
-    const insider    = cols[5] || '';
-    const title      = cols[6] || '';
-    const tradeType  = cols[7] || '';
-    const price      = parseFloat((cols[8] || '0').replace(/[$,]/g, '')) || 0;
-    const qty        = parseInt((cols[9]  || '0').replace(/[,+]/g, ''))  || 0;
-    const owned      = parseInt((cols[10] || '0').replace(/[,+]/g, ''))  || 0;
-    const value      = parseFloat((cols[12] || '0').replace(/[$,]/g, '')) || Math.abs(qty * price);
-
-    if (!ticker || !tradeDate || !insider) continue;
-
-    // Map OpenInsider trade type codes to our format
-    const typeMap = { 'P - Purchase': 'P', 'S - Sale': 'S', 'S - Sale+OE': 'S', 'A - Grant': 'A', 'M - Option Exercise': 'M', 'F - Tax': 'F', 'G - Gift': 'G' };
-    const type = typeMap[tradeType] || (tradeType.startsWith('P') ? 'P' : tradeType.startsWith('S') ? 'S' : tradeType.charAt(0) || 'A');
-
-    trades.push({ ticker, company, insider, title, trade: tradeDate, filing: filingDate, type, qty: Math.abs(qty), price, value: Math.abs(value), owned });
-  }
-  return trades;
-}
-
-// Fetch from OpenInsider with browser-like headers + Referer
-async function fetchOpenInsider(url) {
-  const { status, body } = await fetchURL(url, {
-    'Referer':    'https://openinsider.com/',
-    'Host':       'openinsider.com',
-    'Connection': 'keep-alive',
-  });
-  if (status !== 200) throw new Error(`OpenInsider returned \${status}`);
-  if (!body || body.includes('Access Denied') || body.includes('Cloudflare')) {
-    throw new Error('OpenInsider blocked request');
-  }
-  return body;
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout: ' + url)); });
+  }));
 }
 
 // ─────────────────────────────────────────────────────────────
 //  CACHE
 // ─────────────────────────────────────────────────────────────
-const cache = {};
-const getCache = k => { const c = cache[k]; return c && Date.now() < c.exp ? c.val : null; };
-const setCache = (k, v, ms) => { cache[k] = { val: v, exp: Date.now() + ms }; };
+const _cache = new Map();
+function fromCache(key) {
+  const c = _cache.get(key);
+  return c && Date.now() < c.exp ? c.val : null;
+}
+function toCache(key, val, ms) {
+  _cache.set(key, { val, exp: Date.now() + ms });
+}
 
 // ─────────────────────────────────────────────────────────────
-//  TICKER → CIK  (uses SEC company tickers JSON)
+//  TICKER → CIK  (SEC company_tickers.json — official mapping)
 // ─────────────────────────────────────────────────────────────
-let tickerMap = null;
-async function getTickerMap() {
-  if (tickerMap) return tickerMap;
-  const cached = getCache('tickerMap');
-  if (cached) { tickerMap = cached; return tickerMap; }
-  try {
-    const { body } = await fetchURL('https://www.sec.gov/files/company_tickers.json');
-    const data = JSON.parse(body);
-    tickerMap = {};
-    for (const v of Object.values(data)) {
-      tickerMap[v.ticker.toUpperCase()] = {
+let _tickerMap = null;
+
+async function tickerToCIK(symbol) {
+  if (!_tickerMap) {
+    console.log('Loading SEC ticker map...');
+    const { status, body } = await get('https://www.sec.gov/files/company_tickers.json');
+    if (status !== 200) throw new Error(`SEC ticker map: HTTP ${status}`);
+    const raw = JSON.parse(body);
+    _tickerMap = {};
+    for (const v of Object.values(raw)) {
+      _tickerMap[v.ticker.toUpperCase()] = {
         cik:  String(v.cik_str).padStart(10, '0'),
         name: v.title,
       };
     }
-    setCache('tickerMap', tickerMap, 24 * 60 * 60 * 1000); // 24h
-    return tickerMap;
-  } catch(e) {
-    console.error('tickerMap error:', e.message);
-    return {};
+    console.log(`Ticker map: ${Object.keys(_tickerMap).length} entries`);
   }
+  return _tickerMap[symbol.toUpperCase()] || null;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  PARSE FORM 4 XML  (only called for actual filing XML)
+//  PARSE FORM 4 XML
+//  Handles all SEC XML nesting patterns:
+//    <tag><value>123</value></tag>
+//    <tag>123</tag>
 // ─────────────────────────────────────────────────────────────
-function getXmlVal(block, tag) {
-  const m = block.match(new RegExp(`<${tag}[^>]*>\\s*(?:<value>)?\\s*([\\d.\\-]+)\\s*(?:</value>)?\\s*</${tag}>`, 'i'))
-         || block.match(new RegExp(`<${tag}[^>]*>([^<]+)<`, 'i'));
-  return m ? m[1].trim() : '';
+function xmlGet(xml, tag) {
+  const patterns = [
+    new RegExp(`<${tag}[^>]*>\\s*<value>\\s*([^<]+?)\\s*<\\/value>`, 'is'),
+    new RegExp(`<${tag}[^>]*>\\s*([^<\\s][^<]*?)\\s*<\\/${tag}>`, 'i'),
+  ];
+  for (const re of patterns) {
+    const m = xml.match(re);
+    if (m?.[1]?.trim()) return m[1].trim();
+  }
+  return '';
 }
 
-function parseForm4XML(xml, fallbackTicker) {
-  const trades = [];
-  const insiderName  = (xml.match(/<rptOwnerName>([^<]+)<\/rptOwnerName>/)  || [])[1]?.trim() || '';
-  const insiderTitle = (xml.match(/<officerTitle>([^<]+)<\/officerTitle>/)  || [])[1]?.trim() || '';
-  const ticker       = (xml.match(/<issuerTradingSymbol>([^<]+)<\/issuerTradingSymbol>/) || [])[1]?.trim() || fallbackTicker || '';
-  const company      = (xml.match(/<issuerName>([^<]+)<\/issuerName>/)      || [])[1]?.trim() || '';
-  const filingDate   = (xml.match(/<periodOfReport>([^<]+)<\/periodOfReport>/) || [])[1]?.trim() || '';
+function parseForm4(xml, fallbackTicker) {
+  const trades  = [];
+  const insider = xmlGet(xml, 'rptOwnerName');
+  const title   = xmlGet(xml, 'officerTitle');
+  const ticker  = xmlGet(xml, 'issuerTradingSymbol') || fallbackTicker || '';
+  const company = xmlGet(xml, 'issuerName');
+  const filed   = xmlGet(xml, 'periodOfReport');
 
-  if (!ticker) return trades;
+  if (!insider || !ticker) return trades;
 
-  const parseBlock = (block, isDeriv) => {
-    const code  = getXmlVal(block, 'transactionCode') || (isDeriv ? 'A' : '');
-    const date  = getXmlVal(block, 'transactionDate');
-    const sharesRaw = getXmlVal(block, 'transactionShares') || (isDeriv ? getXmlVal(block, 'underlyingSecurityShares') : '');
-    const priceRaw  = getXmlVal(block, 'transactionPricePerShare') || (isDeriv ? getXmlVal(block, 'exercisePrice') : '');
-    const ownedRaw  = getXmlVal(block, 'sharesOwnedFollowingTransaction');
-    if (!date || !code) return null;
-    const shares = parseFloat(sharesRaw) || 0;
-    const price  = parseFloat(priceRaw)  || 0;
-    return {
-      ticker, company,
-      insider: insiderName,
-      title:   insiderTitle,
-      trade:   date,
-      filing:  filingDate || date,
-      type:    code,
-      qty:     Math.round(Math.abs(shares)),
-      price:   +price.toFixed(2),
-      value:   Math.round(Math.abs(shares * price)),
-      owned:   Math.round(parseFloat(ownedRaw) || 0),
-    };
-  };
+  function parseBlock(block, isDeriv) {
+    const code   = xmlGet(block, 'transactionCode') || (isDeriv ? 'A' : '');
+    const date   = xmlGet(block, 'transactionDate');
+    if (!code || !date) return;
 
+    const sharesStr = xmlGet(block, 'transactionShares') ||
+                      (isDeriv ? xmlGet(block, 'underlyingSecurityShares') : '') || '0';
+    const priceStr  = xmlGet(block, 'transactionPricePerShare') ||
+                      (isDeriv ? xmlGet(block, 'exercisePrice') : '') || '0';
+    const ownedStr  = xmlGet(block, 'sharesOwnedFollowingTransaction') || '0';
+
+    const shares = Math.abs(parseFloat(sharesStr) || 0);
+    const price  = Math.abs(parseFloat(priceStr)  || 0);
+    const owned  = Math.abs(parseFloat(ownedStr)  || 0);
+
+    trades.push({
+      ticker,
+      company,
+      insider,
+      title,
+      trade:  date,
+      filing: filed || date,
+      type:   code,
+      qty:    Math.round(shares),
+      price:  +price.toFixed(2),
+      value:  Math.round(shares * price),
+      owned:  Math.round(owned),
+    });
+  }
+
+  let m;
   const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/g;
   const dRe  = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/g;
-  let m;
-  while ((m = ndRe.exec(xml)) !== null) { const t = parseBlock(m[1], false); if (t) trades.push(t); }
-  while ((m = dRe.exec(xml))  !== null) { const t = parseBlock(m[1], true);  if (t) trades.push(t); }
+  while ((m = ndRe.exec(xml)) !== null) parseBlock(m[1], false);
+  while ((m = dRe.exec(xml))  !== null) parseBlock(m[1], true);
+
   return trades;
 }
 
 // ─────────────────────────────────────────────────────────────
-//  FETCH ALL FORM 4 FILINGS FOR A CIK  (using submissions API)
-//  data.sec.gov/submissions/CIK########.json returns structured
-//  JSON list of every filing — no XML scraping needed for the list
+//  FETCH + PARSE ONE FORM 4 FILING
+//  accession: "0001234567-24-000001" or "000123456724000001"
+//  cik: numeric string (with or without leading zeros)
 // ─────────────────────────────────────────────────────────────
-async function fetchAllForm4sForCIK(cik, symbol) {
-  const url  = `https://data.sec.gov/submissions/CIK${cik}.json`;
-  const { body } = await fetchURL(url);
-  const data = JSON.parse(body);
+async function fetchFiling(accession, cik, fallbackTicker) {
+  // Normalise accession: remove dashes, ensure 18 digits
+  const clean  = accession.replace(/-/g, '').replace(/^0+/, '').padStart(18, '0');
+  const cikInt = parseInt(cik, 10);
+  const base   = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${clean}/`;
 
-  const recent = data.filings?.recent || {};
-  const forms  = recent.form        || [];
-  const accNos = recent.accessionNumber || [];
-  const dates  = recent.filingDate  || [];
+  // Get filing index to find the XML document
+  const { status: idxStatus, body: idxBody } = await get(base + 'index.json');
+  if (idxStatus !== 200) return [];
 
-  // Collect all Form 4 accession numbers
+  const items   = JSON.parse(idxBody)?.directory?.item || [];
+  // Find primary Form 4 XML (not stylesheet, not _htm.xml)
+  const xmlFile = items.find(f =>
+    typeof f.name === 'string' &&
+    f.name.endsWith('.xml') &&
+    !f.name.toLowerCase().includes('xsl') &&
+    !f.name.toLowerCase().includes('style') &&
+    !f.name.endsWith('_htm.xml')
+  );
+  if (!xmlFile) return [];
+
+  const { status: xmlStatus, body: xml } = await get(base + xmlFile.name);
+  if (xmlStatus !== 200) return [];
+
+  return parseForm4(xml, fallbackTicker);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET ALL FORM 4s FOR A COMPANY
+//  Uses data.sec.gov/submissions — returns structured JSON
+//  with full filing history (not just recent 40)
+// ─────────────────────────────────────────────────────────────
+async function getAllForm4s(cik, symbol) {
+  const paddedCIK = String(cik).padStart(10, '0');
+  const url       = `https://data.sec.gov/submissions/CIK${paddedCIK}.json`;
+
+  const { status, body } = await get(url);
+  if (status !== 200) throw new Error(`Submissions API: HTTP ${status} for CIK ${cik}`);
+
+  const data    = JSON.parse(body);
+  const recent  = data.filings?.recent || {};
+  const forms   = recent.form             || [];
+  const accNos  = recent.accessionNumber  || [];
+  const dates   = recent.filingDate       || [];
+
+  // Collect Form 4 + 4/A accession numbers from recent batch
   const form4s = [];
   for (let i = 0; i < forms.length; i++) {
     if (forms[i] === '4' || forms[i] === '4/A') {
-      form4s.push({ accNo: accNos[i], date: dates[i] });
+      form4s.push({ acc: accNos[i], date: dates[i] });
     }
   }
 
-  // Also check older filings files if they exist
+  // Also fetch older filing batches (SEC paginates after ~1000 filings)
   if (data.filings?.files?.length) {
     for (const file of data.filings.files) {
       try {
-        const { body: fb } = await fetchURL(`https://data.sec.gov/submissions/${file.name}`);
+        const { status: fs, body: fb } =
+          await get(`https://data.sec.gov/submissions/${file.name}`);
+        if (fs !== 200) continue;
         const fd = JSON.parse(fb);
-        const ff = fd.form || [], fa = fd.accessionNumber || [], fdt = fd.filingDate || [];
+        const ff = fd.form || [], fa = fd.accessionNumber || [], fd2 = fd.filingDate || [];
         for (let i = 0; i < ff.length; i++) {
           if (ff[i] === '4' || ff[i] === '4/A') {
-            form4s.push({ accNo: fa[i], date: fdt[i] });
+            form4s.push({ acc: fa[i], date: fd2[i] });
           }
         }
-      } catch(e) {}
+      } catch(e) { /* skip bad batch */ }
     }
   }
 
-  console.log(`CIK ${cik} (${symbol}): found ${form4s.length} Form 4 filings`);
+  console.log(`${symbol} (CIK ${cik}): ${form4s.length} Form 4 filings total`);
 
-  // Fetch and parse each filing XML in parallel (limit 60 most recent)
+  // Sort newest first, take up to 100 most recent
+  form4s.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const toFetch = form4s.slice(0, 100);
+
+  // Fetch all in parallel (rate limiter handles concurrency)
   const allTrades = [];
-  await Promise.allSettled(form4s.slice(0, 60).map(async ({ accNo, date }) => {
+  await Promise.allSettled(toFetch.map(async ({ acc }) => {
     try {
-      const clean   = accNo.replace(/-/g, '');
-      const baseUrl = `https://www.sec.gov/Archives/edgar/data/${parseInt(cik)}/${clean}/`;
-
-      // Get filing index to find the XML file
-      const { body: idxBody } = await fetchURL(baseUrl + 'index.json');
-      const idx   = JSON.parse(idxBody);
-      const files = idx?.directory?.item || [];
-      const xmlF  = files.find(f =>
-        typeof f.name === 'string' &&
-        f.name.endsWith('.xml') &&
-        !f.name.toLowerCase().includes('xsl') &&
-        !f.name.toLowerCase().includes('style')
-      );
-      if (!xmlF) return;
-
-      const { body: xml } = await fetchURL(baseUrl + xmlF.name);
-      const trades = parseForm4XML(xml, symbol);
+      const trades = await fetchFiling(acc, cik, symbol);
       allTrades.push(...trades);
-    } catch(e) {}
+    } catch(e) { /* skip failed filings */ }
   }));
 
   return allTrades;
 }
 
 // ─────────────────────────────────────────────────────────────
+//  DEDUPLICATE trades
+// ─────────────────────────────────────────────────────────────
+function dedup(trades) {
+  const seen = new Set();
+  return trades.filter(t => {
+    const k = `${t.insider}|${t.ticker}|${t.trade}|${t.type}|${t.qty}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
 //  ROUTE 1: GET /api/screener
-//  Latest Form 4 filings across all companies (last 7 days)
+//  Latest Form 4 filings across all tickers (last 5 days)
+//  Uses EDGAR EFTS full-text search (confirmed working)
 // ─────────────────────────────────────────────────────────────
 app.get('/api/screener', async (req, res) => {
   try {
-    const cached = getCache('screener');
+    const cached = fromCache('screener');
     if (cached) return res.json(cached);
 
-    let trades = [];
+    const start = new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0];
+    const end   = new Date().toISOString().split('T')[0];
+    const url   = `https://efts.sec.gov/LATEST/search-index?forms=4&dateRange=custom&startdt=${start}&enddt=${end}`;
 
-    // ── Try OpenInsider latest purchases/sales ───────────────
-    try {
-      // Latest cluster buys + latest purchases feed
-      const urls = [
-        'https://openinsider.com/screener?s=&o=fd&pl=&ph=&ll=&lh=&fd=7&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=1&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&sortcol=0&cnt=200&Action=1&filetype=csv',
-      ];
-      for (const url of urls) {
-        const csv = await fetchOpenInsider(url);
-        const parsed = parseOpenInsiderCSV(csv);
-        trades.push(...parsed);
-        console.log(`Screener OpenInsider: ${parsed.length} trades from ${url.includes('xp=1') ? 'purchases' : 'all'}`);
-      }
-    } catch(e) {
-      console.log('OpenInsider screener failed, falling back to EDGAR:', e.message);
-    }
+    const { status, body } = await get(url);
+    if (status !== 200) throw new Error(`EFTS: HTTP ${status}`);
 
-    // ── Fallback: EDGAR search ───────────────────────────────
-    if (trades.length < 5) {
-      const start = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-      const end   = new Date().toISOString().split('T')[0];
-      const { body } = await fetchURL(`https://efts.sec.gov/LATEST/search-index?forms=4&dateRange=custom&startdt=${start}&enddt=${end}`);
-      const hits = JSON.parse(body)?.hits?.hits || [];
-      const allTrades = [];
-      await Promise.allSettled(hits.slice(0, 40).map(async (hit) => {
-        try {
-          const src = hit._source || {};
-          const accession = (hit._id || '').replace(/:/g, '');
-          const cik = src.entity_id || src.ciks?.[0] || '';
-          if (!accession || !cik) return;
-          const clean = accession.padStart(18, '0');
-          const baseUrl = `https://www.sec.gov/Archives/edgar/data/${parseInt(cik)}/${clean}/`;
-          const { body: idxBody } = await fetchURL(baseUrl + 'index.json');
-          const files = JSON.parse(idxBody)?.directory?.item || [];
-          const xmlF = files.find(f => typeof f.name === 'string' && f.name.endsWith('.xml') && !f.name.toLowerCase().includes('xsl'));
-          if (!xmlF) return;
-          const { body: xml } = await fetchURL(baseUrl + xmlF.name);
-          allTrades.push(...parseForm4XML(xml, ''));
-        } catch(e) {}
-      }));
-      trades = allTrades.filter(t => t.ticker && t.trade);
-    }
+    const hits = JSON.parse(body)?.hits?.hits || [];
+    console.log(`Screener: ${hits.length} filings from EFTS`);
 
-    const result = trades.sort((a, b) => new Date(b.trade) - new Date(a.trade));
-    console.log(`Screener: ${result.length} total trades`);
-    setCache('screener', result, 15 * 60 * 1000);
+    const allTrades = [];
+    await Promise.allSettled(hits.slice(0, 60).map(async hit => {
+      try {
+        const src = hit._source || {};
+        // _id format: "0001234567:24:000001" or similar
+        const acc = (hit._id || '').replace(/:/g, '-');
+        const cik = String(src.entity_id || (src.ciks || [])[0] || '').replace(/\D/g, '');
+        if (!acc || !cik) return;
+        const trades = await fetchFiling(acc, cik, '');
+        allTrades.push(...trades);
+      } catch(e) { /* skip */ }
+    }));
+
+    const result = dedup(allTrades)
+      .filter(t => t.ticker && t.trade)
+      .sort((a, b) => b.trade.localeCompare(a.trade));
+
+    console.log(`Screener: ${result.length} trades`);
+    toCache('screener', result, 15 * 60 * 1000);
     res.json(result);
   } catch(e) {
-    console.error('/api/screener error:', e.message);
+    console.error('Screener error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────
 //  ROUTE 2: GET /api/ticker?symbol=AAPL
-//  All insider trades for a company using submissions API
+//  All insider trades for a company — full history
 // ─────────────────────────────────────────────────────────────
 app.get('/api/ticker', async (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
   try {
-    const cacheKey = 'ticker_' + symbol;
-    const cached   = getCache(cacheKey);
+    const cacheKey = 'ticker:' + symbol;
+    const cached   = fromCache(cacheKey);
     if (cached) return res.json(cached);
 
-    let trades = [];
+    // Resolve ticker → CIK
+    const co = await tickerToCIK(symbol);
+    if (!co) return res.status(404).json({ error: `${symbol} not found in SEC database` });
 
-    // ── Try OpenInsider ticker page CSV (2 years of data) ───
-    try {
-      const url = `https://openinsider.com/screener?s=${encodeURIComponent(symbol)}&o=fd&pl=&ph=&ll=&lh=&fd=730&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=1&xa=1&xd=1&xm=1&xc=1&xw=1&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&sortcol=0&cnt=500&Action=1&filetype=csv`;
-      const csv = await fetchOpenInsider(url);
-      trades = parseOpenInsiderCSV(csv);
-      console.log(`Ticker ${symbol}: ${trades.length} trades from OpenInsider`);
-    } catch(e) {
-      console.log(`OpenInsider ticker failed for ${symbol}, falling back to EDGAR:`, e.message);
-    }
+    console.log(`Ticker ${symbol}: CIK ${co.cik}, name: ${co.name}`);
 
-    // ── Fallback: SEC data.sec.gov submissions API ───────────
-    if (trades.length < 1) {
-      const map = await getTickerMap();
-      const co  = map[symbol];
-      if (co) {
-        const secTrades = await fetchAllForm4sForCIK(co.cik, symbol);
-        trades = secTrades.filter(t => t.trade);
-      }
-    }
+    const allTrades = await getAllForm4s(co.cik, symbol);
+    const result    = dedup(allTrades)
+      .filter(t => t.trade)
+      .sort((a, b) => b.trade.localeCompare(a.trade));
 
-    // Deduplicate
-    const seen = new Set();
-    const deduped = trades
-      .sort((a, b) => new Date(b.trade) - new Date(a.trade))
-      .filter(t => {
-        const k = `${t.insider}${t.trade}${t.type}${t.qty}`;
-        if (seen.has(k)) return false;
-        seen.add(k); return true;
-      });
-
-    console.log(`Ticker ${symbol}: ${deduped.length} trades final`);
-    setCache(cacheKey, deduped, 30 * 60 * 1000);
-    res.json(deduped);
+    console.log(`Ticker ${symbol}: ${result.length} trades after dedup`);
+    toCache(cacheKey, result, 30 * 60 * 1000);
+    res.json(result);
   } catch(e) {
-    console.error('/api/ticker error:', e.message);
+    console.error(`Ticker ${symbol} error:`, e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────
 //  ROUTE 3: GET /api/insider?name=Tim+Cook
-//  Search EDGAR full-text for a person's filings
+//  All trades by a specific person across all their companies
 // ─────────────────────────────────────────────────────────────
 app.get('/api/insider', async (req, res) => {
   const name = (req.query.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name required' });
 
   try {
-    const cacheKey = 'insider_' + name.toLowerCase();
-    const cached   = getCache(cacheKey);
+    const cacheKey = 'insider:' + name.toLowerCase();
+    const cached   = fromCache(cacheKey);
     if (cached) return res.json(cached);
 
     const start = new Date(Date.now() - 2 * 365 * 86400000).toISOString().split('T')[0];
-    const url   = `https://efts.sec.gov/LATEST/search-index?q=${encodeURIComponent('"' + name + '"')}&forms=4&dateRange=custom&startdt=${start}&enddt=${new Date().toISOString().split('T')[0]}`;
+    const end   = new Date().toISOString().split('T')[0];
+    const url   = `https://efts.sec.gov/LATEST/search-index?q=${
+      encodeURIComponent('"' + name + '"')
+    }&forms=4&dateRange=custom&startdt=${start}&enddt=${end}`;
 
-    const { body } = await fetchURL(url);
-    const data  = JSON.parse(body);
-    const hits  = data?.hits?.hits || [];
-    console.log(`Insider "${name}": ${hits.length} filings found`);
+    const { status, body } = await get(url);
+    if (status !== 200) throw new Error(`EFTS insider search: HTTP ${status}`);
 
+    const hits = JSON.parse(body)?.hits?.hits || [];
+    console.log(`Insider "${name}": ${hits.length} filings from EFTS`);
+
+    const lastName  = name.split(' ').pop().toLowerCase();
     const allTrades = [];
-    await Promise.allSettled(hits.slice(0, 30).map(async (hit) => {
-      try {
-        const src       = hit._source || {};
-        const accession = (hit._id || '').replace(/:/g, '');
-        const cik       = src.entity_id || src.ciks?.[0] || '';
-        if (!accession || !cik) return;
 
-        const clean   = accession.padStart(18, '0');
-        const baseUrl = `https://www.sec.gov/Archives/edgar/data/${parseInt(cik)}/${clean}/`;
-        const { body: idxBody } = await fetchURL(baseUrl + 'index.json');
-        const idx   = JSON.parse(idxBody);
-        const files = idx?.directory?.item || [];
-        const xmlF  = files.find(f =>
-          typeof f.name === 'string' && f.name.endsWith('.xml') &&
-          !f.name.toLowerCase().includes('xsl')
-        );
-        if (!xmlF) return;
-        const { body: xml } = await fetchURL(baseUrl + xmlF.name);
-        const trades = parseForm4XML(xml, '');
-        // Only keep trades from this person
+    await Promise.allSettled(hits.slice(0, 50).map(async hit => {
+      try {
+        const src = hit._source || {};
+        const acc = (hit._id || '').replace(/:/g, '-');
+        const cik = String(src.entity_id || (src.ciks || [])[0] || '').replace(/\D/g, '');
+        if (!acc || !cik) return;
+        const trades = await fetchFiling(acc, cik, '');
+        // Filter to only trades from this person
         allTrades.push(...trades.filter(t =>
-          t.insider.toLowerCase().includes(name.toLowerCase().split(' ').pop())
+          t.insider.toLowerCase().includes(lastName)
         ));
-      } catch(e) {}
+      } catch(e) { /* skip */ }
     }));
 
-    const seen = new Set();
-    const result = allTrades
-      .filter(t => {
-        const k = `${t.ticker}${t.trade}${t.type}${t.qty}`;
-        if (seen.has(k)) return false;
-        seen.add(k); return t.trade;
-      })
-      .sort((a, b) => new Date(b.trade) - new Date(a.trade));
+    const result = dedup(allTrades)
+      .filter(t => t.trade)
+      .sort((a, b) => b.trade.localeCompare(a.trade));
 
     console.log(`Insider "${name}": ${result.length} trades`);
-    setCache(cacheKey, result, 60 * 60 * 1000);
+    toCache(cacheKey, result, 60 * 60 * 1000);
     res.json(result);
   } catch(e) {
-    console.error('/api/insider error:', e.message);
+    console.error(`Insider "${name}" error:`, e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────
-//  ROUTE 4: GET /api/price?symbol=AAPL
-//  Stooq CSV first, Yahoo Finance fallback
-// ─────────────────────────────────────────────────────────────
-function parseStooqCSV(csv) {
-  const lines = csv.trim().split('\n');
-  if (lines.length < 2) return [];
-  const bars = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].trim().split(',');
-    if (cols.length < 5) continue;
-    const [date, open, high, low, close] = cols;
-    if (!date || date === 'Date') continue;
-    const ts = Math.floor(new Date(date + 'T12:00:00Z').getTime() / 1000);
-    const o = parseFloat(open), h = parseFloat(high),
-          l = parseFloat(low),  c = parseFloat(close);
-    if (!ts || !c || c <= 0) continue;
-    bars.push({ time: ts, open: +o.toFixed(4), high: +h.toFixed(4),
-                low: +l.toFixed(4), close: +c.toFixed(4) });
-  }
-  return bars.reverse();
-}
-
-app.get('/api/price', async (req, res) => {
-  const symbol = (req.query.symbol || '').toUpperCase().trim();
-  if (!symbol) return res.status(400).json({ error: 'symbol required' });
-
-  try {
-    const cacheKey = 'price_' + symbol;
-    const cached   = getCache(cacheKey);
-    if (cached) return res.json(cached);
-
-    let bars = [];
-
-    // Try 1: Stooq
-    try {
-      const { body: csv } = await fetchURL(
-        `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=d`
-      );
-      if (csv && !csv.includes('No data') && csv.includes(',')) {
-        bars = parseStooqCSV(csv);
-      }
-    } catch(e) {}
-
-    // Try 2: Yahoo Finance
-    if (bars.length < 10) {
-      const to = Math.floor(Date.now() / 1000);
-      const from = to - 2 * 365 * 86400;
-      for (const host of ['query1', 'query2']) {
-        try {
-          const { body } = await fetchURL(
-            `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${from}&period2=${to}&includePrePost=false`
-          );
-          const d = JSON.parse(body);
-          const r = d?.chart?.result?.[0];
-          if (!r?.timestamp?.length) continue;
-          const q = r.indicators?.quote?.[0] || {};
-          bars = r.timestamp
-            .map((t, i) => ({
-              time: t,
-              open:  +((q.open?.[i]  || 0).toFixed(4)),
-              high:  +((q.high?.[i]  || 0).toFixed(4)),
-              low:   +((q.low?.[i]   || 0).toFixed(4)),
-              close: +((q.close?.[i] || 0).toFixed(4)),
-            }))
-            .filter(d => d.close > 0);
-          if (bars.length > 10) break;
-        } catch(e) {}
-      }
-    }
-
-    if (bars.length < 5) return res.status(404).json({ error: `No price data for ${symbol}` });
-
-    console.log(`Price ${symbol}: ${bars.length} bars`);
-    setCache(cacheKey, bars, 60 * 60 * 1000);
-    res.json(bars);
-  } catch(e) {
-    console.error('/api/price error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────
-//  HEALTH CHECK
-// ─────────────────────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
-});
-
-// ─────────────────────────────────────────────────────────────
-//  DIAGNOSTIC — tests each data source and reports what works
-//  Visit /api/diag to see what's failing
+//  DIAGNOSTIC — test every component individually
 // ─────────────────────────────────────────────────────────────
 app.get('/api/diag', async (req, res) => {
-  const results = {};
+  const out = {};
 
-  // Test 1: OpenInsider screener CSV
+  // 1. Ticker map
   try {
-    const url = 'https://openinsider.com/screener?s=&o=fd&pl=&ph=&ll=&lh=&fd=7&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=1&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&sortcol=0&cnt=50&Action=1&filetype=csv';
-    const { status, body } = await fetchURL(url, { 'Referer': 'https://openinsider.com/', 'Host': 'openinsider.com' });
-    const parsed = parseOpenInsiderCSV(body);
-    results.openinsider_screener = { status, bodyLen: body.length, first200: body.slice(0, 200), trades: parsed.length };
-  } catch(e) { results.openinsider_screener = { error: e.message }; }
+    const co = await tickerToCIK('AAPL');
+    out.ticker_map = { ok: true, aapl_cik: co?.cik, entries: Object.keys(_tickerMap || {}).length };
+  } catch(e) { out.ticker_map = { ok: false, error: e.message }; }
 
-  // Test 2: OpenInsider ticker CSV (AAPL)
+  // 2. EFTS search
   try {
-    const url = 'https://openinsider.com/screener?s=AAPL&o=fd&pl=&ph=&ll=&lh=&fd=730&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=1&xa=1&xd=1&xm=1&xc=1&xw=1&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&sortcol=0&cnt=100&Action=1&filetype=csv';
-    const { status, body } = await fetchURL(url, { 'Referer': 'https://openinsider.com/', 'Host': 'openinsider.com' });
-    const parsed = parseOpenInsiderCSV(body);
-    results.openinsider_aapl = { status, bodyLen: body.length, first200: body.slice(0, 200), trades: parsed.length };
-  } catch(e) { results.openinsider_aapl = { error: e.message }; }
-
-  // Test 3: SEC ticker map
-  try {
-    const map = await getTickerMap();
-    const aapl = map['AAPL'];
-    results.sec_ticker_map = { entries: Object.keys(map).length, aapl };
-  } catch(e) { results.sec_ticker_map = { error: e.message }; }
-
-  // Test 4: EDGAR submissions API for AAPL
-  try {
-    const map = await getTickerMap();
-    const cik = map['AAPL']?.cik;
-    if (!cik) throw new Error('AAPL CIK not found');
-    const { status, body } = await fetchURL(`https://data.sec.gov/submissions/CIK${cik}.json`);
-    const data = JSON.parse(body);
-    const forms = data.filings?.recent?.form || [];
-    const form4count = forms.filter(f => f === '4' || f === '4/A').length;
-    results.edgar_submissions = { status, form4count, name: data.name };
-  } catch(e) { results.edgar_submissions = { error: e.message }; }
-
-  // Test 5: EDGAR EFTS search
-  try {
-    const start = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-    const end   = new Date().toISOString().split('T')[0];
-    const { status, body } = await fetchURL(`https://efts.sec.gov/LATEST/search-index?forms=4&dateRange=custom&startdt=${start}&enddt=${end}`);
+    const start = new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0];
+    const { status, body } = await get(`https://efts.sec.gov/LATEST/search-index?forms=4&dateRange=custom&startdt=${start}&enddt=${new Date().toISOString().split('T')[0]}`);
     const hits = JSON.parse(body)?.hits?.hits || [];
-    results.edgar_efts = { status, hits: hits.length };
-  } catch(e) { results.edgar_efts = { error: e.message }; }
+    out.efts_search = { ok: status === 200, status, hits: hits.length, sample_id: hits[0]?._id };
+  } catch(e) { out.efts_search = { ok: false, error: e.message }; }
 
-  // Test 6: Stooq price
+  // 3. Submissions API for AAPL
   try {
-    const { status, body } = await fetchURL('https://stooq.com/q/d/l/?s=aapl.us&i=d');
-    const lines = body.trim().split('\n');
-    results.stooq_price = { status, lines: lines.length, first: lines[0], second: lines[1] };
-  } catch(e) { results.stooq_price = { error: e.message }; }
+    const co  = await tickerToCIK('AAPL');
+    const { status, body } = await get(`https://data.sec.gov/submissions/CIK${co.cik}.json`);
+    const d   = JSON.parse(body);
+    const f4s = (d.filings?.recent?.form || []).filter(f => f === '4' || f === '4/A').length;
+    out.submissions_api = { ok: status === 200, status, name: d.name, form4s_in_recent: f4s };
+  } catch(e) { out.submissions_api = { ok: false, error: e.message }; }
 
-  res.json(results);
+  // 4. Parse one real AAPL filing
+  try {
+    const co  = await tickerToCIK('AAPL');
+    const { body } = await get(`https://data.sec.gov/submissions/CIK${co.cik}.json`);
+    const d   = JSON.parse(body);
+    const forms  = d.filings?.recent?.form || [];
+    const accNos = d.filings?.recent?.accessionNumber || [];
+    const idx4   = forms.findIndex(f => f === '4');
+    if (idx4 >= 0) {
+      const trades = await fetchFiling(accNos[idx4], co.cik, 'AAPL');
+      out.xml_parse = { ok: true, acc: accNos[idx4], trades: trades.length, sample: trades[0] };
+    } else {
+      out.xml_parse = { ok: false, error: 'No Form 4 found in recent AAPL filings' };
+    }
+  } catch(e) { out.xml_parse = { ok: false, error: e.message }; }
+
+  res.json(out);
 });
 
-app.listen(PORT, () => console.log(`InsiderTape server running on port ${PORT}`));
+// ─────────────────────────────────────────────────────────────
+//  HEALTH
+// ─────────────────────────────────────────────────────────────
+app.get('/api/health', (req, res) =>
+  res.json({ status: 'ok', version: 'final', time: new Date().toISOString() }));
+
+app.listen(PORT, () =>
+  console.log(`InsiderTape running on port ${PORT}`));
