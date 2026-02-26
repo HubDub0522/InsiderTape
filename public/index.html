@@ -1622,9 +1622,9 @@ function drawCircles(canvas, chart, series, groups) {
       y = isBuy ? Math.min(y + r + 6, paneH - r - 2) : Math.max(y - r - 6, r + 2);
 
       // Colors
-      const fillColor   = isBuy ? 'rgba(0,255,136,0.85)' : isOpt ? 'rgba(255,170,0,0.85)' : 'rgba(255,68,102,0.85)';
+      const fillColor   = isBuy ? 'rgba(0,255,136,0.25)' : isOpt ? 'rgba(255,170,0,0.25)' : 'rgba(255,68,102,0.25)';
       const strokeColor = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
-      const glowColor   = isBuy ? 'rgba(0,255,136,0.3)' : isOpt ? 'rgba(255,170,0,0.3)' : 'rgba(255,68,102,0.3)';
+      const glowColor   = isBuy ? 'rgba(0,255,136,0.1)' : isOpt ? 'rgba(255,170,0,0.1)' : 'rgba(255,68,102,0.1)';
 
       // Glow ring
       ctx.beginPath();
