@@ -313,6 +313,53 @@ app.get('/api/insider', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  ROUTE 4: GET /api/price?symbol=AAPL
+//  Fetches 2 years of daily OHLC from Yahoo Finance (server-side,
+//  so no CORS issues). Returns array of {time,open,high,low,close}
+// ─────────────────────────────────────────────────────────────
+app.get('/api/price', async (req, res) => {
+  const symbol = (req.query.symbol || '').toUpperCase().trim();
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+
+  try {
+    const cacheKey = 'price_' + symbol;
+    const cached   = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    const to   = Math.floor(Date.now() / 1000);
+    const from = to - 2 * 365 * 86400;
+    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${from}&period2=${to}&events=history`;
+
+    const raw  = await fetchURL(url);
+    const data = JSON.parse(raw);
+
+    const result = data?.chart?.result?.[0];
+    if (!result) return res.status(404).json({ error: 'No price data found for ' + symbol });
+
+    const timestamps = result.timestamp || [];
+    const quote      = result.indicators?.quote?.[0] || {};
+
+    const bars = timestamps
+      .map((t, i) => ({
+        time:  t,
+        open:  +((quote.open?.[i]  || 0).toFixed(4)),
+        high:  +((quote.high?.[i]  || 0).toFixed(4)),
+        low:   +((quote.low?.[i]   || 0).toFixed(4)),
+        close: +((quote.close?.[i] || 0).toFixed(4)),
+      }))
+      .filter(d => d.open > 0 && d.close > 0);
+
+    console.log(`Price ${symbol}: ${bars.length} bars`);
+    setCache(cacheKey, bars, 60 * 60 * 1000); // cache 1 hour
+    res.json(bars);
+
+  } catch(e) {
+    console.error('/api/price error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  HEALTH CHECK
 // ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
