@@ -477,7 +477,7 @@ app.get('/api/diag', async (req, res) => {
     out.submissions_api = { ok: status === 200, status, name: d.name, form4s_in_recent: f4s };
   } catch(e) { out.submissions_api = { ok: false, error: e.message }; }
 
-  // 4. Parse one real AAPL filing
+  // 4. Parse one real AAPL filing — with raw XML trace
   try {
     const co  = await tickerToCIK('AAPL');
     const { body } = await get(`https://data.sec.gov/submissions/CIK${co.cik}.json`);
@@ -486,10 +486,35 @@ app.get('/api/diag', async (req, res) => {
     const accNos = d.filings?.recent?.accessionNumber || [];
     const idx4   = forms.findIndex(f => f === '4');
     if (idx4 >= 0) {
-      const trades = await fetchFiling(accNos[idx4], co.cik, 'AAPL');
-      out.xml_parse = { ok: true, acc: accNos[idx4], trades: trades.length, sample: trades[0] };
+      const acc   = accNos[idx4];
+      const clean = acc.replace(/-/g, '').padStart(18, '0');
+      const filerCIK = parseInt(clean.slice(0, 10), 10);
+      const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/index.json`;
+      const { status: is, body: ib } = await get(idxUrl);
+      const items = JSON.parse(ib)?.directory?.item || [];
+      const xmlFile = items.find(f => typeof f.name === 'string' && f.name.endsWith('.xml') && !f.name.includes('xsl') && !f.name.endsWith('_htm.xml'));
+      if (xmlFile) {
+        const { status: xs, body: xml } = await get(`https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/${xmlFile.name}`);
+        // Test xmlGet directly
+        const insider = xmlGet(xml, 'rptOwnerName');
+        const ticker  = xmlGet(xml, 'issuerTradingSymbol');
+        const code    = xml.match(/<transactionCode[^>]*>([\s\S]*?)<\/transactionCode>/i)?.[1]?.slice(0,100);
+        const date    = xml.match(/<transactionDate[^>]*>([\s\S]*?)<\/transactionDate>/i)?.[1]?.slice(0,100);
+        const ndCount = (xml.match(/<nonDerivativeTransaction>/g) || []).length;
+        const dCount  = (xml.match(/<derivativeTransaction>/g) || []).length;
+        const trades  = parseForm4(xml, 'AAPL');
+        out.xml_parse = {
+          ok: true, acc, xml_status: xs, xml_length: xml.length,
+          insider, ticker, nd_blocks: ndCount, d_blocks: dCount,
+          raw_code_block: code, raw_date_block: date,
+          trades: trades.length, sample: trades[0],
+          xml_snippet: xml.slice(0, 500)
+        };
+      } else {
+        out.xml_parse = { ok: false, error: 'No XML file found', files: items.map(f=>f.name) };
+      }
     } else {
-      out.xml_parse = { ok: false, error: 'No Form 4 found in recent AAPL filings' };
+      out.xml_parse = { ok: false, error: 'No Form 4 found' };
     }
   } catch(e) { out.xml_parse = { ok: false, error: e.message }; }
 
