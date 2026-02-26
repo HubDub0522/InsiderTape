@@ -1457,11 +1457,11 @@ function buildChart(priceData, trades) {
   state.volSeries        = volSeries;
   state.currentPriceData = priceData;
 
-  // Build separate pressure chart
-  buildPressureChart(trades, display, chart);
+  // Build separate pressure chart (wrapped so any error can't kill circles)
+  try { buildPressureChart(trades, display, chart); } catch(e) { console.warn('Pressure chart error:', e); }
 
-  // Build the canvas overlay for circle markers
-  buildCircleOverlay(container, chart, candleSeries, trades, display);
+  // Build the canvas overlay for circle markers (always runs regardless)
+  try { buildCircleOverlay(container, chart, candleSeries, trades, display); } catch(e) { console.warn('Circle overlay error:', e); }
 
   // Resize observer
   const ro = new ResizeObserver(() => {
@@ -1856,24 +1856,25 @@ function setRange(days, btn) {
       color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
     })));
   }
-  // Sync pressure chart time scale
-  buildPressureChart(state.tickerTrades, data, state.chart);
+  // Sync pressure chart
+  try { buildPressureChart(state.tickerTrades, data, state.chart); } catch(e) { console.warn('Pressure rebuild error:', e); }
   state.chart.timeScale().fitContent();
 
-  // Rebuild circle overlay with new data range
-  const container = document.getElementById('chartContainer');
-  const oldCanvas = document.getElementById('markerCanvas');
-  if (oldCanvas) oldCanvas.remove();
-  if (container && state.markerGroups) {
-    const canvas = document.createElement('canvas');
-    canvas.id = 'markerCanvas';
-    canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
-    canvas.width  = container.clientWidth || 800;
-    canvas.height = 500;
-    container.appendChild(canvas);
-    // Regroup for new visible data range
-    buildCircleOverlay(container, state.chart, state.candleSeries, state.tickerTrades, data);
-  }
+  // Rebuild circle overlay
+  try {
+    const container = document.getElementById('chartContainer');
+    const oldCanvas = document.getElementById('markerCanvas');
+    if (oldCanvas) oldCanvas.remove();
+    if (container) {
+      const canvas = document.createElement('canvas');
+      canvas.id = 'markerCanvas';
+      canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+      canvas.width  = container.clientWidth || 800;
+      canvas.height = 500;
+      container.appendChild(canvas);
+      buildCircleOverlay(container, state.chart, state.candleSeries, state.tickerTrades, data);
+    }
+  } catch(e) { console.warn('Circle rebuild error:', e); }
 }
 
 // ═══════════════════════════════════════════════════════
