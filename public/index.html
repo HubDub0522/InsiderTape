@@ -1327,14 +1327,15 @@ async function loadStockView(ticker) {
             <div class="legend-item"><div class="legend-tri-opt"></div>Option</div>
           </div>
         </div>
-        <div id="chartContainer" style="width:100%;height:620px;border-radius:6px;overflow:hidden;border:1px solid var(--border);background:#080b0f;position:relative;">
-          <div style="position:absolute;bottom:22px;left:8px;z-index:5;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;user-select:none">
-            INSIDER PRESSURE
-          </div>
+        <div id="chartContainer" style="width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;position:relative;">
           ${!priceData.length ? `<div class="empty-state" style="height:500px">
             <div class="empty-icon">📡</div>
             <div style="color:var(--text)">Price data unavailable for ${ticker}</div>
           </div>` : ''}
+        </div>
+        <div style="position:relative;width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
+          <div style="position:absolute;top:6px;left:10px;z-index:5;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;user-select:none">INSIDER PRESSURE</div>
+          <div id="pressureContainer" style="width:100%;height:120px;"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
@@ -1401,7 +1402,7 @@ function buildChart(priceData, trades) {
   // Make container relative so canvas can overlay
   container.style.position = 'relative';
 
-  const CHART_H = 620;
+  const CHART_H = 500;
   const chart = LightweightCharts.createChart(container, {
     width:  container.clientWidth || 800,
     height: CHART_H,
@@ -1434,20 +1435,7 @@ function buildChart(priceData, trades) {
   const volSeries = chart.addHistogramSeries({
     priceFormat:  { type: 'volume' },
     priceScaleId: 'vol',
-    scaleMargins: { top: 0.72, bottom: 0.28 },
-  });
-
-  // Insider Pressure indicator — separate pane at the bottom
-  const pressureSeries = chart.addHistogramSeries({
-    priceFormat:  { type: 'price', precision: 0, minMove: 1 },
-    priceScaleId: 'pressure',
     scaleMargins: { top: 0.82, bottom: 0 },
-    lastValueVisible: false,
-    priceLineVisible: false,
-  });
-  chart.priceScale('pressure').applyOptions({
-    scaleMargins: { top: 0.82, bottom: 0 },
-    borderColor:  '#1e2d3d',
   });
 
   // Default 6-month view
@@ -1462,16 +1450,15 @@ function buildChart(priceData, trades) {
     color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
   })));
 
-  const pressureData = buildPressureData(display, trades);
-  pressureSeries.setData(pressureData);
-
   chart.timeScale().fitContent();
 
   state.chart            = chart;
   state.candleSeries     = candleSeries;
   state.volSeries        = volSeries;
-  state.pressureSeries   = pressureSeries;
   state.currentPriceData = priceData;
+
+  // Build separate pressure chart
+  buildPressureChart(trades, display, chart);
 
   // Build the canvas overlay for circle markers
   buildCircleOverlay(container, chart, candleSeries, trades, display);
@@ -1492,72 +1479,177 @@ function buildChart(priceData, trades) {
 }
 
 
-// ── Build Insider Pressure indicator data ──────────────────
-// Each bar: net buy pressure minus sell pressure, normalised to 0-100.
-// Days with no trades = 0. Smoothed with 3-day EMA to look fluid.
+// ── Build Insider Pressure signal data ────────────────────────
+// Returns array of {time, value} for a line series.
+// Positive = net buy pressure, negative = net sell pressure, 0 = no trades.
+// Smoothed with EMA so it flows like RSI rather than hard spikes.
 function buildPressureData(priceData, trades) {
-  if (!priceData.length || !trades.length) return [];
+  if (!priceData.length || !trades.length) {
+    return priceData.map(d => ({ time: d.time, value: 0 }));
+  }
 
-  // Map trade totals per bar timestamp
+  // Aggregate buy/sell value per snapped bar
   const byDay = {};
   trades.forEach(t => {
     const dateStr = t.trade || t.filing;
     if (!dateStr) return;
     const ts = Math.floor(new Date(dateStr + 'T12:00:00Z').getTime() / 1000);
-
-    // Snap to nearest bar within 14 days
     let best = null, minDiff = Infinity;
     priceData.forEach(d => {
       const diff = Math.abs(d.time - ts);
       if (diff < minDiff) { minDiff = diff; best = d; }
     });
     if (!best || minDiff > 14 * 86400) return;
-
-    const key = best.time;
-    if (!byDay[key]) byDay[key] = { buyVal: 0, sellVal: 0, optVal: 0 };
+    if (!byDay[best.time]) byDay[best.time] = { buy: 0, sell: 0, opt: 0 };
     const tc = tradeClass(t.type);
-    if (tc === 'buy')  byDay[key].buyVal  += t.value || 0;
-    else if (tc === 'sell') byDay[key].sellVal += t.value || 0;
-    else               byDay[key].optVal  += t.value || 0;
+    if (tc === 'buy')       byDay[best.time].buy  += t.value || 0;
+    else if (tc === 'sell') byDay[best.time].sell += t.value || 0;
+    else                    byDay[best.time].opt  += t.value || 0;
   });
 
-  // Find max total value for normalisation
+  // Normalise to -100..+100
   let maxVal = 0;
   Object.values(byDay).forEach(d => {
-    maxVal = Math.max(maxVal, d.buyVal + d.sellVal + d.optVal);
+    maxVal = Math.max(maxVal, d.buy + d.sell + d.opt);
   });
-  if (!maxVal) return priceData.map(d => ({ time: d.time, value: 0, color: 'rgba(0,212,255,0.2)' }));
+  if (!maxVal) return priceData.map(d => ({ time: d.time, value: 0 }));
 
-  // Build raw signal: +ve = net buy, -ve = net sell
+  // Raw signal per bar
   const raw = priceData.map(d => {
     const day = byDay[d.time];
-    if (!day) return { time: d.time, raw: 0 };
-    const net = day.buyVal - day.sellVal;
-    // Normalise magnitude to 0-100, sign preserved
-    const mag = (day.buyVal + day.sellVal + day.optVal) / maxVal * 100;
-    return { time: d.time, raw: net >= 0 ? mag : -mag };
+    if (!day) return 0;
+    const net = day.buy - day.sell;
+    const mag = (day.buy + day.sell + day.opt) / maxVal * 100;
+    return net >= 0 ? mag : -mag;
   });
 
-  // 3-day EMA smoothing so spikes decay naturally
-  const k = 2 / (3 + 1);
+  // 5-period EMA — decays back toward zero naturally
+  const k = 2 / (5 + 1);
   let ema = 0;
-  const smoothed = raw.map(d => {
-    ema = d.raw !== 0 ? d.raw * k + ema * (1 - k) : ema * (1 - k);
-    return { time: d.time, value: ema };
+  return priceData.map((d, i) => {
+    if (raw[i] !== 0) {
+      ema = raw[i] * k + ema * (1 - k);
+    } else {
+      ema = ema * (1 - k); // decay toward zero
+    }
+    return { time: d.time, value: +ema.toFixed(2) };
   });
-
-  // Colour: green for positive (net buy), red for negative (net sell), grey for zero
-  return smoothed.map(d => ({
-    time:  d.time,
-    value: Math.abs(d.value) < 0.1 ? 0 : d.value,
-    color: d.value > 0.5
-      ? `rgba(0,255,136,${Math.min(0.9, 0.2 + Math.abs(d.value) / 100 * 0.7)})`
-      : d.value < -0.5
-      ? `rgba(255,68,102,${Math.min(0.9, 0.2 + Math.abs(d.value) / 100 * 0.7)})`
-      : 'rgba(100,120,140,0.15)',
-  }));
 }
 
+// ── Build the separate Insider Pressure chart pane ─────────
+function buildPressureChart(trades, priceData, mainChart) {
+  const pc = document.getElementById('pressureContainer');
+  if (!pc) return;
+
+  // Destroy previous
+  if (state.pressureChart) {
+    try { state.pressureChart.remove(); } catch(e) {}
+    state.pressureChart = null;
+  }
+
+  const pressureChart = LightweightCharts.createChart(pc, {
+    width:  pc.clientWidth || 800,
+    height: 120,
+    layout: {
+      background: { type: 'solid', color: '#080b0f' },
+      textColor:  '#4a6580',
+    },
+    grid: {
+      vertLines: { color: '#1e2d3d' },
+      horzLines: { color: 'transparent' },
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { color: '#00d4ff', labelBackgroundColor: '#0d1117' },
+      horzLine: { color: '#1e2d3d',  labelBackgroundColor: '#0d1117' },
+    },
+    rightPriceScale: {
+      borderColor: '#1e2d3d',
+      scaleMargins: { top: 0.1, bottom: 0.1 },
+      autoScale: true,
+    },
+    timeScale: {
+      borderColor:  '#1e2d3d',
+      timeVisible:  false, // hide time axis — main chart shows it
+      visible: false,
+    },
+    handleScroll: false,
+    handleScale:  false,
+  });
+
+  // Zero baseline
+  const zeroLine = pressureChart.addLineSeries({
+    color:           '#1e2d3d',
+    lineWidth:       1,
+    lineStyle:       LightweightCharts.LineStyle.Dashed,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+  });
+  zeroLine.setData(priceData.map(d => ({ time: d.time, value: 0 })));
+
+  // Main pressure line — colour shifts green/red based on value
+  const lineSeries = pressureChart.addLineSeries({
+    lineWidth:        2,
+    color:            '#00d4ff',
+    priceLineVisible: false,
+    lastValueVisible: true,
+    crosshairMarkerVisible: true,
+    crosshairMarkerRadius:  4,
+  });
+
+  const pressureData = buildPressureData(priceData, trades);
+
+  // Build coloured segments: green above zero, red below
+  // LWC line series doesn't support per-point colour natively,
+  // so we use two area series layered
+  const posArea = pressureChart.addAreaSeries({
+    topColor:         'rgba(0,255,136,0.3)',
+    bottomColor:      'rgba(0,255,136,0)',
+    lineColor:        '#00ff88',
+    lineWidth:        2,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+  });
+  const negArea = pressureChart.addAreaSeries({
+    topColor:         'rgba(255,68,102,0)',
+    bottomColor:      'rgba(255,68,102,0.3)',
+    lineColor:        '#ff4466',
+    lineWidth:        2,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+    invertFilledArea: true,
+  });
+
+  // Pos area: clip values below 0 to 0
+  posArea.setData(pressureData.map(d => ({ time: d.time, value: Math.max(0, d.value) })));
+  // Neg area: clip values above 0 to 0
+  negArea.setData(pressureData.map(d => ({ time: d.time, value: Math.min(0, d.value) })));
+
+  pressureChart.timeScale().fitContent();
+
+  // Sync time range with main chart
+  if (mainChart) {
+    mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (range && state.pressureChart) {
+        try { state.pressureChart.timeScale().setVisibleLogicalRange(range); } catch(e) {}
+      }
+    });
+  }
+
+  state.pressureChart = pressureChart;
+
+  // Resize observer
+  const ro = new ResizeObserver(() => {
+    const w = pc.clientWidth;
+    if (w > 0 && state.pressureChart) state.pressureChart.applyOptions({ width: w });
+  });
+  ro.observe(pc);
+}
+
+// ── Group trades by date+type, then draw coloured circles ──
 // ── Group trades by date+type, then draw coloured circles ──
 function buildCircleOverlay(container, chart, series, trades, priceData) {
   // Group trades by their snapped price-bar timestamp
@@ -1595,7 +1687,7 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
     z-index:10;
   `;
   canvas.width  = container.clientWidth || 800;
-  canvas.height = CHART_H || 620;
+  canvas.height = CHART_H || 500;
   container.appendChild(canvas);
 
   // Create tooltip div
@@ -1683,7 +1775,7 @@ function drawCircles(canvas, chart, series, groups) {
   const minVal  = values.length ? Math.min(...values) : 1;
 
   // Chart pane height (exclude volume area ~15%)
-  const paneH   = canvas.height * 0.68; // stay within candle pane only
+  const paneH   = canvas.height * 0.82;
 
   const hitAreas = [];
 
@@ -1764,9 +1856,8 @@ function setRange(days, btn) {
       color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
     })));
   }
-  if (state.pressureSeries) {
-    state.pressureSeries.setData(buildPressureData(data, state.tickerTrades));
-  }
+  // Sync pressure chart time scale
+  buildPressureChart(state.tickerTrades, data, state.chart);
   state.chart.timeScale().fitContent();
 
   // Rebuild circle overlay with new data range
@@ -1778,7 +1869,7 @@ function setRange(days, btn) {
     canvas.id = 'markerCanvas';
     canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
     canvas.width  = container.clientWidth || 800;
-    canvas.height = 620;
+    canvas.height = 500;
     container.appendChild(canvas);
     // Regroup for new visible data range
     buildCircleOverlay(container, state.chart, state.candleSeries, state.tickerTrades, data);
