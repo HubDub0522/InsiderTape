@@ -121,14 +121,14 @@ async function tickerToCIK(symbol) {
 //    <tag>123</tag>
 // ─────────────────────────────────────────────────────────────
 function xmlGet(xml, tag) {
-  const patterns = [
-    new RegExp(`<${tag}[^>]*>\\s*<value>\\s*([^<]+?)\\s*<\\/value>`, 'is'),
-    new RegExp(`<${tag}[^>]*>\\s*([^<\\s][^<]*?)\\s*<\\/${tag}>`, 'i'),
-  ];
-  for (const re of patterns) {
-    const m = xml.match(re);
-    if (m?.[1]?.trim()) return m[1].trim();
-  }
+  // Try <tag><value>X</value></tag> first (SEC standard nesting)
+  let re = new RegExp('<' + tag + '[^>]*>\\s*<value>\\s*([^<]+?)\\s*<\\/value>', 'is');
+  let m  = xml.match(re);
+  if (m?.[1]?.trim()) return m[1].trim();
+  // Try <tag>X</tag> direct content
+  re = new RegExp('<' + tag + '[^>]*>\\s*([^<\\s][^<]*?)\\s*<\\/' + tag + '>', 'i');
+  m  = xml.match(re);
+  if (m?.[1]?.trim()) return m[1].trim();
   return '';
 }
 
@@ -143,9 +143,9 @@ function parseForm4(xml, fallbackTicker) {
   if (!insider || !ticker) return trades;
 
   function parseBlock(block, isDeriv) {
-    const code   = xmlGet(block, 'transactionCode') || (isDeriv ? 'A' : '');
-    const date   = xmlGet(block, 'transactionDate');
-    if (!code || !date) return;
+    const code   = xmlGet(block, 'transactionCode') || (isDeriv ? 'A' : 'P');
+    const date   = xmlGet(block, 'transactionDate') || xmlGet(block, 'exerciseDate') || filed || '';
+    if (!date) return; // date is required; code defaults above
 
     const sharesStr = xmlGet(block, 'transactionShares') ||
                       (isDeriv ? xmlGet(block, 'underlyingSecurityShares') : '') || '0';
@@ -559,6 +559,15 @@ app.get('/api/test', async (req, res) => {
     out.error = e.message;
   }
 
+  // FMP price test
+  try {
+    const fmpUrl = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=AAPL&apikey=${FMP_KEY}`;
+    const { status: fs, body: fb } = await get(fmpUrl);
+    const fd = JSON.parse(fb);
+    const raw = Array.isArray(fd) ? fd : (fd?.historical || fd?.data || []);
+    out.fmp_price = { ok: fs === 200 && raw.length > 0, status: fs, bars: raw.length, sample: raw[0] };
+  } catch(e) { out.fmp_price = { ok: false, error: e.message }; }
+
   res.json(out);
 });
 // ─────────────────────────────────────────────────────────────
@@ -578,27 +587,29 @@ app.get('/api/price', async (req, res) => {
     if (cached) return res.json(cached);
 
     // FMP daily historical — returns 5 years by default, newest first
-    const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${encodeURIComponent(symbol)}?apikey=${FMP_KEY}`;
+    const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&apikey=${FMP_KEY}`;
     const { status, body } = await get(url);
 
     if (status !== 200) return res.status(502).json({ error: `FMP returned ${status}` });
 
     const data = JSON.parse(body);
-    if (!data?.historical?.length) return res.status(404).json({ error: `No price data for ${symbol}` });
+    // New stable API returns { symbol, historical: [...] } or just [...]
+    const raw = Array.isArray(data) ? data : (data?.historical || data?.data || []);
+    if (!raw.length) return res.status(404).json({ error: `No price data for ${symbol}` });
 
     // FMP returns newest-first — reverse to oldest-first for charting
-    const bars = data.historical
+    const bars = raw
       .slice()
       .reverse()
       .map(d => ({
-        time:   d.date,          // YYYY-MM-DD string — perfect for Lightweight Charts
-        open:   +d.open.toFixed(2),
-        high:   +d.high.toFixed(2),
-        low:    +d.low.toFixed(2),
-        close:  +d.close.toFixed(2),
+        time:   d.date,
+        open:   +(+d.open).toFixed(2),
+        high:   +(+d.high).toFixed(2),
+        low:    +(+d.low).toFixed(2),
+        close:  +(+d.close).toFixed(2),
         volume: d.volume || 0,
       }))
-      .filter(d => d.close > 0);
+      .filter(d => d.close > 0 && d.time);
 
     console.log(`Price ${symbol}: ${bars.length} bars from FMP`);
     toCache(cacheKey, bars, 60 * 60 * 1000); // cache 1 hour
