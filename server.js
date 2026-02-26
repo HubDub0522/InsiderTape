@@ -18,6 +18,10 @@ app.use(express.json());
 // Serve the frontend HTML file from the same folder
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // ─────────────────────────────────────────────────────────────
 //  HELPER: fetch a URL server-side (no CORS issues)
 // ─────────────────────────────────────────────────────────────
