@@ -1382,21 +1382,28 @@ function waitForLWC(cb, attempts = 0) {
 }
 
 // ═══════════════════════════════════════════════════════
-// LIGHTWEIGHT CHARTS — candlesticks + insider markers
+// LIGHTWEIGHT CHARTS — candlesticks + circle overlay markers
 // ═══════════════════════════════════════════════════════
 function buildChart(priceData, trades) {
   const container = document.getElementById('chartContainer');
   if (!container) return;
 
-  // Destroy previous chart instance
+  // Destroy previous chart + canvas
   if (state.chart) { try { state.chart.remove(); } catch(e) {} state.chart = null; }
+  const oldCanvas = document.getElementById('markerCanvas');
+  if (oldCanvas) oldCanvas.remove();
+  const oldTooltip = document.getElementById('markerTooltip');
+  if (oldTooltip) oldTooltip.remove();
+
+  // Make container relative so canvas can overlay
+  container.style.position = 'relative';
 
   const chart = LightweightCharts.createChart(container, {
-    width:  container.clientWidth  || 800,
+    width:  container.clientWidth || 800,
     height: 500,
     layout: {
       background: { type: 'solid', color: '#080b0f' },
-      textColor: '#4a6580',
+      textColor:  '#4a6580',
     },
     grid: {
       vertLines: { color: '#1e2d3d' },
@@ -1437,10 +1444,6 @@ function buildChart(priceData, trades) {
     value: d.volume || 0,
     color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
   })));
-
-  const markers = buildMarkers(trades, display);
-  if (markers.length) candleSeries.setMarkers(markers);
-
   chart.timeScale().fitContent();
 
   state.chart            = chart;
@@ -1448,47 +1451,210 @@ function buildChart(priceData, trades) {
   state.volSeries        = volSeries;
   state.currentPriceData = priceData;
 
+  // Build the canvas overlay for circle markers
+  buildCircleOverlay(container, chart, candleSeries, trades, display);
+
   // Resize observer
-  const ro = new ResizeObserver(entries => {
-    const w = entries[0].contentRect.width;
-    if (w > 0 && state.chart) state.chart.applyOptions({ width: w });
+  const ro = new ResizeObserver(() => {
+    const w = container.clientWidth;
+    if (w > 0 && state.chart) {
+      state.chart.applyOptions({ width: w });
+      // Redraw canvas on resize
+      setTimeout(() => {
+        const c = document.getElementById('markerCanvas');
+        if (c) { c.width = w; drawCircles(c, state.chart, state.candleSeries, state.markerGroups); }
+      }, 50);
+    }
   });
   ro.observe(container);
 }
 
-function buildMarkers(trades, priceData) {
-  if (!priceData.length) return [];
-  const markers = [];
-
+// ── Group trades by date+type, then draw coloured circles ──
+function buildCircleOverlay(container, chart, series, trades, priceData) {
+  // Group trades by their snapped price-bar timestamp
+  const groups = {};
   trades.forEach(t => {
     const dateStr = t.trade || t.filing;
     if (!dateStr) return;
     const ts = Math.floor(new Date(dateStr + 'T12:00:00Z').getTime() / 1000);
 
-    // Snap to nearest available price bar
+    // Snap to nearest bar within 14 days
     let best = null, minDiff = Infinity;
     priceData.forEach(d => {
       const diff = Math.abs(d.time - ts);
-      if (diff < minDiff) { minDiff = diff; best = d.time; }
+      if (diff < minDiff) { minDiff = diff; best = d; }
     });
     if (!best || minDiff > 14 * 86400) return;
 
-    const tc    = tradeClass(t.type);
-    const isBuy = tc === 'buy';
-    const isOpt = tc === 'option';
-
-    markers.push({
-      time:     best,
-      position: isBuy ? 'belowBar' : 'aboveBar',
-      color:    isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466',
-      shape:    isBuy ? 'arrowUp' : 'arrowDown',
-      text:     `${t.insider ? t.insider.split(' ').slice(-1)[0] : ''} ${fmt(t.value)}`,
-      size:     Math.min(3, Math.max(1, Math.log10(t.value || 1) - 3.5)),
-    });
+    const tc  = tradeClass(t.type);
+    const key = best.time + '_' + tc;
+    if (!groups[key]) groups[key] = { time: best.time, bar: best, tc, trades: [], totalValue: 0 };
+    groups[key].trades.push(t);
+    groups[key].totalValue += t.value || 0;
   });
 
-  markers.sort((a, b) => a.time - b.time);
-  return markers;
+  const groupList = Object.values(groups);
+  state.markerGroups = groupList;
+
+  // Create canvas overlay
+  const canvas = document.createElement('canvas');
+  canvas.id = 'markerCanvas';
+  canvas.style.cssText = `
+    position:absolute;top:0;left:0;
+    width:100%;height:100%;
+    pointer-events:none;
+    z-index:10;
+  `;
+  canvas.width  = container.clientWidth || 800;
+  canvas.height = 500;
+  container.appendChild(canvas);
+
+  // Create tooltip div
+  const tooltip = document.createElement('div');
+  tooltip.id = 'markerTooltip';
+  tooltip.style.cssText = `
+    position:fixed;display:none;
+    background:#0d1117;border:1px solid #00d4ff;border-radius:8px;
+    padding:10px 14px;font-family:'Space Mono',monospace;font-size:11px;
+    color:#e6edf3;z-index:9999;pointer-events:none;
+    box-shadow:0 4px 24px rgba(0,0,0,0.7);max-width:280px;line-height:1.6;
+  `;
+  document.body.appendChild(tooltip);
+
+  // Draw circles after chart renders
+  setTimeout(() => drawCircles(canvas, chart, series, groupList), 200);
+
+  // Redraw when time scale changes (pan/zoom)
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+    setTimeout(() => drawCircles(canvas, chart, series, groupList), 30);
+  });
+
+  // Mouse interactions on the container (not canvas, since pointer-events:none)
+  container.addEventListener('mousemove', (e) => {
+    const rect  = canvas.getBoundingClientRect();
+    const mx    = e.clientX - rect.left;
+    const my    = e.clientY - rect.top;
+    const hit   = state._circleHitAreas?.find(c => {
+      const dx = mx - c.x, dy = my - c.y;
+      return Math.sqrt(dx*dx + dy*dy) <= c.r + 4;
+    });
+
+    if (hit) {
+      container.style.cursor = 'pointer';
+      const g     = hit.group;
+      const color = g.tc === 'buy' ? '#00ff88' : g.tc === 'sell' ? '#ff4466' : '#ffaa00';
+      const label = g.tc === 'buy' ? '● BUY' : g.tc === 'sell' ? '● SELL' : '● OPTION/OTHER';
+
+      const insiderLines = g.trades
+        .sort((a, b) => b.value - a.value)
+        .map(t => `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:3px">
+          <span style="color:#7d8590">${t.insider || 'Unknown'}</span>
+          <span style="color:${color}">${fmt(t.value)}</span>
+        </div>`)
+        .join('');
+
+      tooltip.innerHTML = `
+        <div style="color:${color};font-weight:700;margin-bottom:6px;letter-spacing:1px">${label}</div>
+        <div style="color:#7d8590;font-size:10px;margin-bottom:8px">${fmtDate(g.trades[0]?.trade || g.trades[0]?.filing)}</div>
+        ${insiderLines}
+        <div style="border-top:1px solid #1e2d3d;margin-top:8px;padding-top:6px;display:flex;justify-content:space-between">
+          <span style="color:#7d8590">TOTAL</span>
+          <span style="color:${color};font-weight:700">${fmt(g.totalValue)}</span>
+        </div>
+      `;
+      tooltip.style.display = 'block';
+      // Position tooltip near cursor, keep on screen
+      const tx = e.clientX + 16;
+      const ty = e.clientY - 10;
+      const tw = 280, th = 30 + g.trades.length * 20;
+      tooltip.style.left = (tx + tw > window.innerWidth ? e.clientX - tw - 8 : tx) + 'px';
+      tooltip.style.top  = (ty + th > window.innerHeight ? e.clientY - th : ty) + 'px';
+    } else {
+      container.style.cursor = '';
+      tooltip.style.display = 'none';
+    }
+  });
+
+  container.addEventListener('mouseleave', () => {
+    tooltip.style.display = 'none';
+    container.style.cursor = '';
+  });
+}
+
+// ── Actually draw the circles on the canvas ──
+function drawCircles(canvas, chart, series, groups) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!groups?.length) return;
+
+  // Min/max value for sizing
+  const values  = groups.map(g => g.totalValue).filter(v => v > 0);
+  const maxVal  = values.length ? Math.max(...values) : 1;
+  const minVal  = values.length ? Math.min(...values) : 1;
+
+  // Chart pane height (exclude volume area ~15%)
+  const paneH   = canvas.height * 0.82;
+
+  const hitAreas = [];
+
+  groups.forEach(g => {
+    try {
+      // Get X coordinate from time scale
+      const x = chart.timeScale().timeToCoordinate(g.time);
+      if (x === null || x < 0 || x > canvas.width) return;
+
+      // Get Y coordinate from price — buys below bar, sells above
+      const isBuy  = g.tc === 'buy';
+      const isOpt  = g.tc === 'option';
+      const price  = isBuy ? g.bar.low : g.bar.high;
+      let   y      = series.priceToCoordinate(price);
+      if (y === null) return;
+
+      // Circle size: 8px min, 22px max based on log-scaled value
+      const logMin = Math.log10(Math.max(minVal, 1));
+      const logMax = Math.log10(Math.max(maxVal, 2));
+      const logVal = Math.log10(Math.max(g.totalValue, 1));
+      const t      = logMax > logMin ? (logVal - logMin) / (logMax - logMin) : 0.5;
+      const r      = 8 + t * 14;
+
+      // Offset so circle clears the candle wick
+      y = isBuy ? Math.min(y + r + 6, paneH - r - 2) : Math.max(y - r - 6, r + 2);
+
+      // Colors
+      const fillColor   = isBuy ? 'rgba(0,255,136,0.85)' : isOpt ? 'rgba(255,170,0,0.85)' : 'rgba(255,68,102,0.85)';
+      const strokeColor = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
+      const glowColor   = isBuy ? 'rgba(0,255,136,0.3)' : isOpt ? 'rgba(255,170,0,0.3)' : 'rgba(255,68,102,0.3)';
+
+      // Glow ring
+      ctx.beginPath();
+      ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+      ctx.fillStyle = glowColor;
+      ctx.fill();
+
+      // Main circle
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth   = 1.5;
+      ctx.stroke();
+
+      // Dollar sign inside larger circles
+      if (r >= 13) {
+        ctx.fillStyle   = 'rgba(0,0,0,0.7)';
+        ctx.font        = `bold ${Math.round(r * 0.9)}px Arial`;
+        ctx.textAlign   = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('$', x, y);
+      }
+
+      hitAreas.push({ x, y, r, group: g });
+    } catch(e) {}
+  });
+
+  state._circleHitAreas = hitAreas;
 }
 
 function setRange(days, btn) {
@@ -1509,8 +1675,22 @@ function setRange(days, btn) {
       color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
     })));
   }
-  state.candleSeries.setMarkers(buildMarkers(state.tickerTrades, data));
   state.chart.timeScale().fitContent();
+
+  // Rebuild circle overlay with new data range
+  const container = document.getElementById('chartContainer');
+  const oldCanvas = document.getElementById('markerCanvas');
+  if (oldCanvas) oldCanvas.remove();
+  if (container && state.markerGroups) {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'markerCanvas';
+    canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+    canvas.width  = container.clientWidth || 800;
+    canvas.height = 500;
+    container.appendChild(canvas);
+    // Regroup for new visible data range
+    buildCircleOverlay(container, state.chart, state.candleSeries, state.tickerTrades, data);
+  }
 }
 
 // ═══════════════════════════════════════════════════════
