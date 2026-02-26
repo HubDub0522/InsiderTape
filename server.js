@@ -530,4 +530,65 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+// ─────────────────────────────────────────────────────────────
+//  DIAGNOSTIC — tests each data source and reports what works
+//  Visit /api/diag to see what's failing
+// ─────────────────────────────────────────────────────────────
+app.get('/api/diag', async (req, res) => {
+  const results = {};
+
+  // Test 1: OpenInsider screener CSV
+  try {
+    const url = 'https://openinsider.com/screener?s=&o=fd&pl=&ph=&ll=&lh=&fd=7&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=1&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&sortcol=0&cnt=50&Action=1&filetype=csv';
+    const { status, body } = await fetchURL(url, { 'Referer': 'https://openinsider.com/', 'Host': 'openinsider.com' });
+    const parsed = parseOpenInsiderCSV(body);
+    results.openinsider_screener = { status, bodyLen: body.length, first200: body.slice(0, 200), trades: parsed.length };
+  } catch(e) { results.openinsider_screener = { error: e.message }; }
+
+  // Test 2: OpenInsider ticker CSV (AAPL)
+  try {
+    const url = 'https://openinsider.com/screener?s=AAPL&o=fd&pl=&ph=&ll=&lh=&fd=730&fdr=&td=0&tdr=&fdlyl=&fdlyh=&daysago=&xp=1&xs=1&xa=1&xd=1&xm=1&xc=1&xw=1&vl=&vh=&ocl=&och=&sic1=-1&sicl=100&sich=9999&grp=0&nfl=&nfh=&nil=&nih=&nol=&noh=&v2l=&v2h=&oc2l=&oc2h=&sortcol=0&cnt=100&Action=1&filetype=csv';
+    const { status, body } = await fetchURL(url, { 'Referer': 'https://openinsider.com/', 'Host': 'openinsider.com' });
+    const parsed = parseOpenInsiderCSV(body);
+    results.openinsider_aapl = { status, bodyLen: body.length, first200: body.slice(0, 200), trades: parsed.length };
+  } catch(e) { results.openinsider_aapl = { error: e.message }; }
+
+  // Test 3: SEC ticker map
+  try {
+    const map = await getTickerMap();
+    const aapl = map['AAPL'];
+    results.sec_ticker_map = { entries: Object.keys(map).length, aapl };
+  } catch(e) { results.sec_ticker_map = { error: e.message }; }
+
+  // Test 4: EDGAR submissions API for AAPL
+  try {
+    const map = await getTickerMap();
+    const cik = map['AAPL']?.cik;
+    if (!cik) throw new Error('AAPL CIK not found');
+    const { status, body } = await fetchURL(`https://data.sec.gov/submissions/CIK${cik}.json`);
+    const data = JSON.parse(body);
+    const forms = data.filings?.recent?.form || [];
+    const form4count = forms.filter(f => f === '4' || f === '4/A').length;
+    results.edgar_submissions = { status, form4count, name: data.name };
+  } catch(e) { results.edgar_submissions = { error: e.message }; }
+
+  // Test 5: EDGAR EFTS search
+  try {
+    const start = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    const end   = new Date().toISOString().split('T')[0];
+    const { status, body } = await fetchURL(`https://efts.sec.gov/LATEST/search-index?forms=4&dateRange=custom&startdt=${start}&enddt=${end}`);
+    const hits = JSON.parse(body)?.hits?.hits || [];
+    results.edgar_efts = { status, hits: hits.length };
+  } catch(e) { results.edgar_efts = { error: e.message }; }
+
+  // Test 6: Stooq price
+  try {
+    const { status, body } = await fetchURL('https://stooq.com/q/d/l/?s=aapl.us&i=d');
+    const lines = body.trim().split('\n');
+    results.stooq_price = { status, lines: lines.length, first: lines[0], second: lines[1] };
+  } catch(e) { results.stooq_price = { error: e.message }; }
+
+  res.json(results);
+});
+
 app.listen(PORT, () => console.log(`InsiderTape server running on port ${PORT}`));
