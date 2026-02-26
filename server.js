@@ -221,7 +221,7 @@ async function fetchFiling(accession, cik, fallbackTicker) {
       if (xmlStatus !== 200) continue;
 
       const trades = parseForm4(xml, fallbackTicker);
-      if (trades.length > 0 || xml.length > 500) return trades;
+      return trades; // return even if empty — filing was valid
     } catch(e) { continue; }
   }
 
@@ -278,22 +278,21 @@ async function getAllForm4s(cik, symbol) {
   form4s.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const toFetch = form4s.slice(0, 100);
 
-  // Fetch all in parallel (rate limiter handles concurrency)
+  // Process in batches of 10 to avoid overwhelming the rate limiter
   const allTrades = [];
-  let errCount = 0;
-  const results = await Promise.allSettled(toFetch.map(async ({ acc }) => {
-    // Pass null CIK — fetchFiling extracts the real filer CIK from the accession number
-    const trades = await fetchFiling(acc, null, symbol);
-    allTrades.push(...trades);
-    return trades.length;
-  }));
-  results.forEach((r, i) => {
-    if (r.status === 'rejected') {
-      errCount++;
-      if (errCount <= 3) console.log(`  Filing error ${toFetch[i]?.acc}: ${r.reason?.message}`);
-    }
-  });
-  console.log(`${symbol}: ${results.filter(r=>r.status==='fulfilled').length} ok, ${errCount} errors, ${allTrades.length} raw trades`);
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
+    const batch = toFetch.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(batch.map(async ({ acc }) => {
+      try {
+        const trades = await fetchFiling(acc, null, symbol);
+        allTrades.push(...trades);
+      } catch(e) { /* skip */ }
+    }));
+    console.log(`  ${symbol} batch ${Math.floor(i/BATCH_SIZE)+1}/${Math.ceil(toFetch.length/BATCH_SIZE)}: ${allTrades.length} trades so far`);
+  }
+
+  console.log(`${symbol}: done — ${allTrades.length} total raw trades`);
   return allTrades;
 }
 
