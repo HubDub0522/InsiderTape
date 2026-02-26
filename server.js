@@ -195,9 +195,11 @@ async function fetchFiling(accession, cik, fallbackTicker) {
   // But for company submissions, the issuer CIK is what we have.
   // Try both: the passed CIK and the one embedded in the accession number.
   const filerCIKFromAcc = parseInt(clean.slice(0, 10), 10);
-  const passedCIK       = parseInt(cik, 10);
+  const passedCIK       = cik ? parseInt(cik, 10) : null;
 
-  const cikCandidates = [...new Set([passedCIK, filerCIKFromAcc])].filter(Boolean);
+  // Always try the CIK embedded in accession first (it IS the filer's CIK)
+  // Only add passedCIK as fallback if it differs
+  const cikCandidates = [...new Set([filerCIKFromAcc, passedCIK])].filter(Boolean);
 
   for (const cikInt of cikCandidates) {
     try {
@@ -280,7 +282,8 @@ async function getAllForm4s(cik, symbol) {
   const allTrades = [];
   let errCount = 0;
   const results = await Promise.allSettled(toFetch.map(async ({ acc }) => {
-    const trades = await fetchFiling(acc, cik, symbol);
+    // Pass null CIK — fetchFiling extracts the real filer CIK from the accession number
+    const trades = await fetchFiling(acc, null, symbol);
     allTrades.push(...trades);
     return trades.length;
   }));
@@ -335,7 +338,8 @@ app.get('/api/screener', async (req, res) => {
         const acc = (hit._id || '').replace(/:/g, '-');
         const cik = String(src.entity_id || (src.ciks || [])[0] || '').replace(/\D/g, '');
         if (!acc || !cik) return;
-        const trades = await fetchFiling(acc, cik, '');
+        // CIK embedded in accession is the filer — pass null so fetchFiling uses it
+        const trades = await fetchFiling(acc, null, '');
         allTrades.push(...trades);
       } catch(e) { /* skip */ }
     }));
@@ -420,7 +424,7 @@ app.get('/api/insider', async (req, res) => {
         const acc = (hit._id || '').replace(/:/g, '-');
         const cik = String(src.entity_id || (src.ciks || [])[0] || '').replace(/\D/g, '');
         if (!acc || !cik) return;
-        const trades = await fetchFiling(acc, cik, '');
+        const trades = await fetchFiling(acc, null, '');
         // Filter to only trades from this person
         allTrades.push(...trades.filter(t =>
           t.insider.toLowerCase().includes(lastName)
