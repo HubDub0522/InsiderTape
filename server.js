@@ -562,6 +562,54 @@ app.get('/api/test', async (req, res) => {
   res.json(out);
 });
 // ─────────────────────────────────────────────────────────────
+//  ROUTE: GET /api/price?symbol=AAPL
+//  Financial Modeling Prep — free tier, no server blocking
+//  Returns [{time, open, high, low, close, volume}] oldest→newest
+// ─────────────────────────────────────────────────────────────
+const FMP_KEY = 'OJfv9bPVEMrnwPX7noNpJLZCFLLFTmlu';
+
+app.get('/api/price', async (req, res) => {
+  const symbol = (req.query.symbol || '').toUpperCase().trim();
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+
+  try {
+    const cacheKey = 'price:' + symbol;
+    const cached   = fromCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    // FMP daily historical — returns 5 years by default, newest first
+    const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${encodeURIComponent(symbol)}?apikey=${FMP_KEY}`;
+    const { status, body } = await get(url);
+
+    if (status !== 200) return res.status(502).json({ error: `FMP returned ${status}` });
+
+    const data = JSON.parse(body);
+    if (!data?.historical?.length) return res.status(404).json({ error: `No price data for ${symbol}` });
+
+    // FMP returns newest-first — reverse to oldest-first for charting
+    const bars = data.historical
+      .slice()
+      .reverse()
+      .map(d => ({
+        time:   d.date,          // YYYY-MM-DD string — perfect for Lightweight Charts
+        open:   +d.open.toFixed(2),
+        high:   +d.high.toFixed(2),
+        low:    +d.low.toFixed(2),
+        close:  +d.close.toFixed(2),
+        volume: d.volume || 0,
+      }))
+      .filter(d => d.close > 0);
+
+    console.log(`Price ${symbol}: ${bars.length} bars from FMP`);
+    toCache(cacheKey, bars, 60 * 60 * 1000); // cache 1 hour
+    res.json(bars);
+  } catch(e) {
+    console.error(`Price ${symbol} error:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  HEALTH
 // ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) =>
