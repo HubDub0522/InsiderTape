@@ -66,27 +66,43 @@ function parseForm4(xml, fallbackTicker) {
 
   if (!insiderName || !ticker) return trades;
 
+  // Robust value extractor — handles all SEC XML nesting patterns:
+  //   <tag><value>123</value></tag>
+  //   <tag>123</tag>
+  //   <tag footnotesId="F1"><value>123</value></tag>
   const getVal = (block, tag) => {
-    const m = block.match(new RegExp(`<${tag}[^>]*>\\s*<value>([^<]+)<\\/value>`, 'i'))
-           || block.match(new RegExp(`<${tag}>([^<]+)<\\/`, 'i'));
-    return m ? m[1].trim() : '';
+    const patterns = [
+      new RegExp(`<${tag}[^>]*>\s*<value>\s*([^<]+?)\s*<\/value>`, 'is'),
+      new RegExp(`<${tag}[^>]*>\s*([\d.\-]+)\s*<\/`, 'i'),
+    ];
+    for (const re of patterns) {
+      const m = block.match(re);
+      if (m && m[1].trim()) return m[1].trim();
+    }
+    return '';
   };
 
-  // Non-derivative (actual stock purchases/sales)
+  // Non-derivative transactions (actual share purchases/sales)
   const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/g;
   let m;
   while ((m = ndRe.exec(xml)) !== null) {
     const block     = m[1];
     const transCode = getVal(block, 'transactionCode');
     const date      = getVal(block, 'transactionDate');
-    const shares    = parseFloat(getVal(block, 'transactionShares'))            || 0;
-    const price     = parseFloat(getVal(block, 'transactionPricePerShare'))     || 0;
-    const owned     = parseFloat(getVal(block, 'sharesOwnedFollowingTransaction')) || 0;
-    if (!date || !shares || !transCode) continue;
+    const sharesRaw = getVal(block, 'transactionShares');
+    const priceRaw  = getVal(block, 'transactionPricePerShare');
+    const ownedRaw  = getVal(block, 'sharesOwnedFollowingTransaction');
+
+    if (!date || !transCode) continue;
+
+    const shares = parseFloat(sharesRaw) || 0;
+    const price  = parseFloat(priceRaw)  || 0;
+    const owned  = parseFloat(ownedRaw)  || 0;
+
     trades.push({
       ticker, company, insider: insiderName, title: insiderTitle,
       trade: date, filing: filingDate || date,
-      type: transCode,
+      type:  transCode,
       qty:   Math.round(Math.abs(shares)),
       price: +price.toFixed(2),
       value: Math.round(Math.abs(shares * price)),
@@ -94,19 +110,26 @@ function parseForm4(xml, fallbackTicker) {
     });
   }
 
-  // Derivative (options, warrants)
+  // Derivative transactions (options, warrants, convertibles)
   const dRe = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/g;
   while ((m = dRe.exec(xml)) !== null) {
     const block     = m[1];
     const transCode = getVal(block, 'transactionCode') || 'A';
     const date      = getVal(block, 'transactionDate');
-    const shares    = parseFloat(getVal(block, 'transactionShares')) || 0;
-    const price     = parseFloat(getVal(block, 'exercisePrice') || getVal(block, 'transactionPricePerShare') || '0');
-    if (!date || !shares) continue;
+    const sharesRaw = getVal(block, 'transactionShares')
+                   || getVal(block, 'underlyingSecurityShares');
+    const priceRaw  = getVal(block, 'exercisePrice')
+                   || getVal(block, 'transactionPricePerShare');
+
+    if (!date) continue;
+
+    const shares = parseFloat(sharesRaw) || 0;
+    const price  = parseFloat(priceRaw)  || 0;
+
     trades.push({
       ticker, company, insider: insiderName, title: insiderTitle,
       trade: date, filing: filingDate || date,
-      type: transCode,
+      type:  transCode,
       qty:   Math.round(Math.abs(shares)),
       price: +price.toFixed(2),
       value: Math.round(Math.abs(shares * price)),
@@ -189,7 +212,7 @@ app.get('/api/screener', async (req, res) => {
     }));
 
     const result = allTrades
-      .filter(t => t.ticker && t.trade && t.qty > 0)
+      .filter(t => t.ticker && t.trade)
       .sort((a, b) => new Date(b.trade) - new Date(a.trade));
 
     console.log(`Screener: parsed ${result.length} trades`);
@@ -242,7 +265,7 @@ app.get('/api/ticker', async (req, res) => {
     }));
 
     const result = allTrades
-      .filter(t => t.trade && t.qty > 0)
+      .filter(t => t.trade)
       .sort((a, b) => new Date(b.trade) - new Date(a.trade));
 
     console.log(`Ticker ${symbol}: parsed ${result.length} trades`);
@@ -298,7 +321,7 @@ app.get('/api/insider', async (req, res) => {
         const key = `${t.ticker}${t.trade}${t.type}${t.qty}`;
         if (seen.has(key)) return false;
         seen.add(key);
-        return t.trade && t.qty > 0;
+        return !!t.trade;
       })
       .sort((a, b) => new Date(b.trade) - new Date(a.trade));
 
@@ -314,9 +337,33 @@ app.get('/api/insider', async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 //  ROUTE 4: GET /api/price?symbol=AAPL
-//  Fetches 2 years of daily OHLC from Yahoo Finance (server-side,
-//  so no CORS issues). Returns array of {time,open,high,low,close}
+//  Fetches 2 years of daily OHLC. Tries Stooq first (no auth
+//  needed, very reliable), then Yahoo Finance as fallback.
+//  Returns array of {time,open,high,low,close}
 // ─────────────────────────────────────────────────────────────
+
+// Parse Stooq CSV response into bar array
+function parseStooqCSV(csv) {
+  const lines = csv.trim().split('\n');
+  if (lines.length < 2) return [];
+  const bars = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].trim().split(',');
+    if (cols.length < 5) continue;
+    // Stooq format: Date,Open,High,Low,Close,Volume
+    const [date, open, high, low, close] = cols;
+    if (!date || date === 'Date') continue;
+    const ts = Math.floor(new Date(date + 'T12:00:00Z').getTime() / 1000);
+    const o = parseFloat(open), h = parseFloat(high),
+          l = parseFloat(low),  c = parseFloat(close);
+    if (!ts || !c || c <= 0) continue;
+    bars.push({ time: ts, open: +o.toFixed(4), high: +h.toFixed(4),
+                low:  +l.toFixed(4), close: +c.toFixed(4) });
+  }
+  // Stooq returns newest first — reverse to oldest first
+  return bars.reverse();
+}
+
 app.get('/api/price', async (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
@@ -326,35 +373,99 @@ app.get('/api/price', async (req, res) => {
     const cached   = getCache(cacheKey);
     if (cached) return res.json(cached);
 
-    const to   = Math.floor(Date.now() / 1000);
-    const from = to - 2 * 365 * 86400;
-    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${from}&period2=${to}&events=history`;
+    let bars = [];
 
-    const raw  = await fetchURL(url);
-    const data = JSON.parse(raw);
+    // ── Try 1: Stooq (free, no auth, very stable) ──────────
+    try {
+      const stooqUrl = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol.toLowerCase())}.us&i=d`;
+      const csv      = await fetchURL(stooqUrl);
+      if (csv && !csv.includes('No data') && csv.includes(',')) {
+        bars = parseStooqCSV(csv);
+        if (bars.length > 10) console.log(`Price ${symbol}: ${bars.length} bars from Stooq`);
+      }
+    } catch(e) { console.log(`Stooq failed for ${symbol}:`, e.message); }
 
-    const result = data?.chart?.result?.[0];
-    if (!result) return res.status(404).json({ error: 'No price data found for ' + symbol });
+    // ── Try 2: Yahoo Finance v8 ─────────────────────────────
+    if (bars.length < 10) {
+      const to   = Math.floor(Date.now() / 1000);
+      const from = to - 2 * 365 * 86400;
+      const yhUrls = [
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${from}&period2=${to}&events=history&includePrePost=false`,
+        `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&period1=${from}&period2=${to}&events=history&includePrePost=false`,
+      ];
+      for (const url of yhUrls) {
+        try {
+          const raw    = await fetchURL(url);
+          const data   = JSON.parse(raw);
+          const result = data?.chart?.result?.[0];
+          if (!result?.timestamp?.length) continue;
+          const timestamps = result.timestamp;
+          const quote      = result.indicators?.quote?.[0] || {};
+          bars = timestamps
+            .map((t, i) => ({
+              time:  t,
+              open:  +((quote.open?.[i]  || 0).toFixed(4)),
+              high:  +((quote.high?.[i]  || 0).toFixed(4)),
+              low:   +((quote.low?.[i]   || 0).toFixed(4)),
+              close: +((quote.close?.[i] || 0).toFixed(4)),
+            }))
+            .filter(d => d.open > 0 && d.close > 0);
+          if (bars.length > 10) {
+            console.log(`Price ${symbol}: ${bars.length} bars from Yahoo`);
+            break;
+          }
+        } catch(e) { continue; }
+      }
+    }
 
-    const timestamps = result.timestamp || [];
-    const quote      = result.indicators?.quote?.[0] || {};
+    if (bars.length < 5) return res.status(404).json({ error: `No price data found for ${symbol}` });
 
-    const bars = timestamps
-      .map((t, i) => ({
-        time:  t,
-        open:  +((quote.open?.[i]  || 0).toFixed(4)),
-        high:  +((quote.high?.[i]  || 0).toFixed(4)),
-        low:   +((quote.low?.[i]   || 0).toFixed(4)),
-        close: +((quote.close?.[i] || 0).toFixed(4)),
-      }))
-      .filter(d => d.open > 0 && d.close > 0);
-
-    console.log(`Price ${symbol}: ${bars.length} bars`);
-    setCache(cacheKey, bars, 60 * 60 * 1000); // cache 1 hour
+    setCache(cacheKey, bars, 60 * 60 * 1000);
     res.json(bars);
 
   } catch(e) {
     console.error('/api/price error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────
+//  DEBUG: GET /api/debug?symbol=AAPL
+//  Returns the first raw Form 4 XML for a symbol — dev use only
+// ─────────────────────────────────────────────────────────────
+app.get('/api/debug', async (req, res) => {
+  const symbol = (req.query.symbol || 'AAPL').toUpperCase().trim();
+  try {
+    const cikUrl  = `https://www.sec.gov/cgi-bin/browse-edgar?company=&CIK=${encodeURIComponent(symbol)}&type=4&dateb=&owner=include&count=5&search_text=&action=getcompany&output=atom`;
+    const feedXml = await fetchURL(cikUrl);
+    const linkMatch = feedXml.match(/<link[^>]+href="([^"]+\/Archives\/[^"]+)"/);
+    if (!linkMatch) return res.json({ error: 'No filing links found', feedXml: feedXml.slice(0, 2000) });
+
+    const link      = linkMatch[1];
+    const urlMatch  = link.match(/\/data\/(\d+)\/(\d+)\//);
+    if (!urlMatch) return res.json({ error: 'Could not parse filing URL', link });
+
+    const cik       = urlMatch[1];
+    const accession = urlMatch[2];
+    const baseUrl   = `https://www.sec.gov/Archives/edgar/data/${cik}/${accession}/`;
+    const indexJson = await fetchURL(baseUrl + 'index.json');
+    const index     = JSON.parse(indexJson);
+    const files     = index?.directory?.item || [];
+    const xmlFile   = files.find(f => typeof f.name === 'string' && f.name.endsWith('.xml') && !f.name.includes('xsl'));
+
+    if (!xmlFile) return res.json({ error: 'No XML file found', files });
+
+    const xml    = await fetchURL(baseUrl + xmlFile.name);
+    const parsed = parseForm4(xml, symbol);
+
+    res.json({
+      symbol, cik, accession,
+      xmlFile: xmlFile.name,
+      parsedTrades: parsed,
+      rawXmlSnippet: xml.slice(0, 3000),
+    });
+  } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
