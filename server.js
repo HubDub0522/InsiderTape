@@ -187,30 +187,43 @@ function parseForm4(xml, fallbackTicker) {
 //  cik: numeric string (with or without leading zeros)
 // ─────────────────────────────────────────────────────────────
 async function fetchFiling(accession, cik, fallbackTicker) {
-  // Normalise accession: remove dashes, ensure 18 digits
-  const clean  = accession.replace(/-/g, '').replace(/^0+/, '').padStart(18, '0');
-  const cikInt = parseInt(cik, 10);
-  const base   = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${clean}/`;
+  // Normalise accession to no-dash 18-digit format
+  const clean = accession.replace(/-/g, '').padStart(18, '0');
 
-  // Get filing index to find the XML document
-  const { status: idxStatus, body: idxBody } = await get(base + 'index.json');
-  if (idxStatus !== 200) return [];
+  // The filer CIK is embedded in the accession number (first 10 digits)
+  // e.g. "0001059235-26-000002" -> filer CIK = 1059235
+  // But for company submissions, the issuer CIK is what we have.
+  // Try both: the passed CIK and the one embedded in the accession number.
+  const filerCIKFromAcc = parseInt(clean.slice(0, 10), 10);
+  const passedCIK       = parseInt(cik, 10);
 
-  const items   = JSON.parse(idxBody)?.directory?.item || [];
-  // Find primary Form 4 XML (not stylesheet, not _htm.xml)
-  const xmlFile = items.find(f =>
-    typeof f.name === 'string' &&
-    f.name.endsWith('.xml') &&
-    !f.name.toLowerCase().includes('xsl') &&
-    !f.name.toLowerCase().includes('style') &&
-    !f.name.endsWith('_htm.xml')
-  );
-  if (!xmlFile) return [];
+  const cikCandidates = [...new Set([passedCIK, filerCIKFromAcc])].filter(Boolean);
 
-  const { status: xmlStatus, body: xml } = await get(base + xmlFile.name);
-  if (xmlStatus !== 200) return [];
+  for (const cikInt of cikCandidates) {
+    try {
+      const base = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${clean}/`;
+      const { status: idxStatus, body: idxBody } = await get(base + 'index.json');
+      if (idxStatus !== 200) continue;
 
-  return parseForm4(xml, fallbackTicker);
+      const items   = JSON.parse(idxBody)?.directory?.item || [];
+      const xmlFile = items.find(f =>
+        typeof f.name === 'string' &&
+        f.name.endsWith('.xml') &&
+        !f.name.toLowerCase().includes('xsl') &&
+        !f.name.toLowerCase().includes('style') &&
+        !f.name.endsWith('_htm.xml')
+      );
+      if (!xmlFile) continue;
+
+      const { status: xmlStatus, body: xml } = await get(base + xmlFile.name);
+      if (xmlStatus !== 200) continue;
+
+      const trades = parseForm4(xml, fallbackTicker);
+      if (trades.length > 0 || xml.length > 500) return trades;
+    } catch(e) { continue; }
+  }
+
+  return [];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -265,13 +278,19 @@ async function getAllForm4s(cik, symbol) {
 
   // Fetch all in parallel (rate limiter handles concurrency)
   const allTrades = [];
-  await Promise.allSettled(toFetch.map(async ({ acc }) => {
-    try {
-      const trades = await fetchFiling(acc, cik, symbol);
-      allTrades.push(...trades);
-    } catch(e) { /* skip failed filings */ }
+  let errCount = 0;
+  const results = await Promise.allSettled(toFetch.map(async ({ acc }) => {
+    const trades = await fetchFiling(acc, cik, symbol);
+    allTrades.push(...trades);
+    return trades.length;
   }));
-
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      errCount++;
+      if (errCount <= 3) console.log(`  Filing error ${toFetch[i]?.acc}: ${r.reason?.message}`);
+    }
+  });
+  console.log(`${symbol}: ${results.filter(r=>r.status==='fulfilled').length} ok, ${errCount} errors, ${allTrades.length} raw trades`);
   return allTrades;
 }
 
