@@ -99,7 +99,7 @@ async function fetchOpenInsider(url) {
     'Host':       'openinsider.com',
     'Connection': 'keep-alive',
   });
-  if (status !== 200) throw new Error(\`OpenInsider returned \${status}\`);
+  if (status !== 200) throw new Error(`OpenInsider returned \${status}`);
   if (!body || body.includes('Access Denied') || body.includes('Cloudflare')) {
     throw new Error('OpenInsider blocked request');
   }
