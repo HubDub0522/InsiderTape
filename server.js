@@ -1,7 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 //  INSIDERTAPE — Backend Server
-//  Built with Node.js + Express
-//  Data source: SEC EDGAR (official US government API, free, no key)
+//  Data source: SEC EDGAR (official US government API, free)
 // ─────────────────────────────────────────────────────────────
 
 const express = require('express');
@@ -14,8 +13,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-
-// Serve the frontend HTML file from the same folder
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
@@ -23,176 +20,180 @@ app.get('/', (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-//  HELPER: fetch a URL server-side (no CORS issues)
+//  HELPER: fetch a URL server-side
 // ─────────────────────────────────────────────────────────────
 function fetchURL(url) {
   return new Promise((resolve, reject) => {
     const options = {
       headers: {
         'User-Agent': 'InsiderTape/1.0 contact@insidertape.com',
-        'Accept': 'application/json, text/html, text/plain',
+        'Accept':     'application/json, text/html, text/plain, */*',
+        'Accept-Encoding': 'identity',
       },
-      timeout: 10000,
+      timeout: 15000,
     };
     https.get(url, options, (res) => {
+      // Follow redirects
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        return fetchURL(res.headers.location).then(resolve).catch(reject);
+      }
       let data = '';
+      res.setEncoding('utf8');
       res.on('data', chunk => data += chunk);
       res.on('end', () => resolve(data));
-    }).on('error', reject).on('timeout', () => reject(new Error('Timeout')));
+    }).on('error', reject).on('timeout', () => reject(new Error('Request timed out')));
   });
 }
 
 // ─────────────────────────────────────────────────────────────
-//  SIMPLE IN-MEMORY CACHE (avoids hammering SEC)
+//  CACHE
 // ─────────────────────────────────────────────────────────────
 const cache = {};
-function getCache(key)         { const c = cache[key]; return c && Date.now() < c.exp ? c.val : null; }
+function getCache(key)          { const c = cache[key]; return c && Date.now() < c.exp ? c.val : null; }
 function setCache(key, val, ms) { cache[key] = { val, exp: Date.now() + ms }; }
 
 // ─────────────────────────────────────────────────────────────
-//  PARSE SEC EDGAR FORM 4 — converts raw XML/JSON to trade objects
+//  PARSE FORM 4 XML
 // ─────────────────────────────────────────────────────────────
-function parseForm4(xml, ticker, companyName) {
+function parseForm4(xml, fallbackTicker) {
   const trades = [];
-  try {
-    // Extract non-derivative transactions (actual stock buys/sells)
-    const nonDerivRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/g;
-    let match;
-    while ((match = nonDerivRe.exec(xml)) !== null) {
-      const block = match[1];
-      const get = (tag) => {
-        const m = block.match(new RegExp(`<${tag}[^>]*>\\s*<value>([^<]*)<\\/value>`, 'i'))
-                 || block.match(new RegExp(`<${tag}[^>]*>([^<]*)<\\/`, 'i'));
-        return m ? m[1].trim() : '';
-      };
 
-      const transCode = get('transactionCode');
-      const date      = get('transactionDate');
-      const shares    = parseFloat(get('transactionShares')) || 0;
-      const price     = parseFloat(get('transactionPricePerShare')) || 0;
-      const sharesAfter = parseFloat(get('sharesOwnedFollowingTransaction')) || 0;
+  const insiderName  = (xml.match(/<rptOwnerName>([^<]+)<\/rptOwnerName>/)  || [])[1]?.trim() || '';
+  const insiderTitle = (xml.match(/<officerTitle>([^<]+)<\/officerTitle>/)  || [])[1]?.trim() || '';
+  const ticker       = (xml.match(/<issuerTradingSymbol>([^<]+)<\/issuerTradingSymbol>/) || [])[1]?.trim() || fallbackTicker || '';
+  const company      = (xml.match(/<issuerName>([^<]+)<\/issuerName>/)      || [])[1]?.trim() || '';
+  const filingDate   = (xml.match(/<periodOfReport>([^<]+)<\/periodOfReport>/) || [])[1]?.trim() || '';
 
-      if (!date || !shares) continue;
+  if (!insiderName || !ticker) return trades;
 
-      trades.push({
-        ticker,
-        company:  companyName,
-        trade:    date,
-        filing:   date,
-        type:     transCode,  // P=buy, S=sell, etc.
-        qty:      Math.abs(shares),
-        price,
-        value:    Math.abs(shares * price),
-        owned:    sharesAfter,
-        insider:  '',   // filled in by caller
-        title:    '',
-      });
-    }
+  const getVal = (block, tag) => {
+    const m = block.match(new RegExp(`<${tag}[^>]*>\\s*<value>([^<]+)<\\/value>`, 'i'))
+           || block.match(new RegExp(`<${tag}>([^<]+)<\\/`, 'i'));
+    return m ? m[1].trim() : '';
+  };
 
-    // Also grab derivative transactions (options)
-    const derivRe = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/g;
-    while ((match = derivRe.exec(xml)) !== null) {
-      const block = match[1];
-      const get = (tag) => {
-        const m = block.match(new RegExp(`<${tag}[^>]*>\\s*<value>([^<]*)<\\/value>`, 'i'))
-                 || block.match(new RegExp(`<${tag}[^>]*>([^<]*)<\\/`, 'i'));
-        return m ? m[1].trim() : '';
-      };
-      const transCode = get('transactionCode');
-      const date      = get('transactionDate');
-      const shares    = parseFloat(get('transactionShares')) || 0;
-      const price     = parseFloat(get('exercisePrice') || get('transactionPricePerShare')) || 0;
-      if (!date || !shares) continue;
-
-      trades.push({
-        ticker, company: companyName,
-        trade: date, filing: date,
-        type: transCode || 'A',
-        qty: Math.abs(shares), price,
-        value: Math.abs(shares * price),
-        owned: 0, insider: '', title: '',
-      });
-    }
-  } catch(e) {
-    console.error('Form4 parse error:', e.message);
+  // Non-derivative (actual stock purchases/sales)
+  const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/g;
+  let m;
+  while ((m = ndRe.exec(xml)) !== null) {
+    const block     = m[1];
+    const transCode = getVal(block, 'transactionCode');
+    const date      = getVal(block, 'transactionDate');
+    const shares    = parseFloat(getVal(block, 'transactionShares'))            || 0;
+    const price     = parseFloat(getVal(block, 'transactionPricePerShare'))     || 0;
+    const owned     = parseFloat(getVal(block, 'sharesOwnedFollowingTransaction')) || 0;
+    if (!date || !shares || !transCode) continue;
+    trades.push({
+      ticker, company, insider: insiderName, title: insiderTitle,
+      trade: date, filing: filingDate || date,
+      type: transCode,
+      qty:   Math.round(Math.abs(shares)),
+      price: +price.toFixed(2),
+      value: Math.round(Math.abs(shares * price)),
+      owned: Math.round(owned),
+    });
   }
+
+  // Derivative (options, warrants)
+  const dRe = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/g;
+  while ((m = dRe.exec(xml)) !== null) {
+    const block     = m[1];
+    const transCode = getVal(block, 'transactionCode') || 'A';
+    const date      = getVal(block, 'transactionDate');
+    const shares    = parseFloat(getVal(block, 'transactionShares')) || 0;
+    const price     = parseFloat(getVal(block, 'exercisePrice') || getVal(block, 'transactionPricePerShare') || '0');
+    if (!date || !shares) continue;
+    trades.push({
+      ticker, company, insider: insiderName, title: insiderTitle,
+      trade: date, filing: filingDate || date,
+      type: transCode,
+      qty:   Math.round(Math.abs(shares)),
+      price: +price.toFixed(2),
+      value: Math.round(Math.abs(shares * price)),
+      owned: 0,
+    });
+  }
+
   return trades;
 }
 
 // ─────────────────────────────────────────────────────────────
+//  FETCH AND PARSE A SINGLE FILING INDEX → trades
+// ─────────────────────────────────────────────────────────────
+async function fetchFiling(accessionRaw, cik) {
+  try {
+    // Normalize accession number: 0001234567-24-000001
+    const accession = accessionRaw.replace(/[^0-9]/g, '');
+    const formatted = `${accession.slice(0,10)}-${accession.slice(10,12)}-${accession.slice(12)}`;
+    const paddedCik = String(cik).padStart(10, '0');
+    const baseUrl   = `https://www.sec.gov/Archives/edgar/data/${cik}/${accession}/`;
+    const indexUrl  = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${paddedCik}&type=4&dateb=&owner=include&count=1&search_text=`;
+
+    // Fetch the filing index JSON
+    const indexJson = await fetchURL(`${baseUrl}index.json`);
+    const index     = JSON.parse(indexJson);
+    const files     = index?.directory?.item || [];
+
+    // Find the primary XML (Form 4 data file, not the stylesheet)
+    const xmlFile = files.find(f =>
+      typeof f.name === 'string' &&
+      f.name.endsWith('.xml') &&
+      !f.name.includes('xsl') &&
+      !f.name.includes('stylesheet')
+    );
+    if (!xmlFile) return [];
+
+    const xml = await fetchURL(baseUrl + xmlFile.name);
+    return parseForm4(xml);
+  } catch(e) {
+    return [];
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 //  ROUTE 1: GET /api/screener
-//  Latest insider transactions across all companies
-//  Source: SEC EDGAR recent filings RSS feed
+//  Uses EDGAR full-text search to find recent Form 4 filings
 // ─────────────────────────────────────────────────────────────
 app.get('/api/screener', async (req, res) => {
   try {
-    const cacheKey = 'screener';
-    const cached = getCache(cacheKey);
+    const cached = getCache('screener');
     if (cached) return res.json(cached);
 
-    // SEC EDGAR full-text search for recent Form 4 filings
-    const url = 'https://efts.sec.gov/LATEST/search-index?q=%22form+4%22&dateRange=custom&startdt=' +
-      new Date(Date.now() - 7*86400000).toISOString().split('T')[0] +
-      '&enddt=' + new Date().toISOString().split('T')[0] +
-      '&forms=4&hits.hits.total.value=true&hits.hits._source.period_of_report=true';
+    const days  = 7;
+    const start = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+    const end   = new Date().toISOString().split('T')[0];
 
-    // Use the EDGAR company search to get recent Form 4s
-    const feedUrl = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=100&search_text=&output=atom';
-    const feedXml = await fetchURL(feedUrl);
+    // EDGAR full-text search API — returns recent Form 4 filings as JSON
+    const searchUrl = `https://efts.sec.gov/LATEST/search-index?q=%22form+4%22&forms=4&dateRange=custom&startdt=${start}&enddt=${end}&hits.hits._source=period_of_report,display_names,file_date,entity_id,file_num&hits.hits.total.value=true`;
 
-    const trades = [];
-    const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
-    let m;
-    const filingUrls = [];
+    // Use the simpler EDGAR search endpoint
+    const url  = `https://efts.sec.gov/LATEST/search-index?forms=4&dateRange=custom&startdt=${start}&enddt=${end}`;
+    const raw  = await fetchURL(url);
+    const data = JSON.parse(raw);
 
-    while ((m = entryRe.exec(feedXml)) !== null && filingUrls.length < 40) {
-      const entry  = m[1];
-      const link   = (entry.match(/<link[^>]*href="([^"]*)"/) || [])[1] || '';
-      const title  = (entry.match(/<title>([^<]*)<\/title>/) || [])[1] || '';
-      if (link && link.includes('Archives')) filingUrls.push({ link, title });
-    }
+    const hits = data?.hits?.hits || [];
+    console.log(`Screener: found ${hits.length} filings from EDGAR`);
 
-    // Fetch a sample of filings in parallel (limit to 20 for speed)
-    const sample = filingUrls.slice(0, 20);
-    await Promise.allSettled(sample.map(async ({ link, title }) => {
+    const allTrades = [];
+    // Process up to 30 filings in parallel
+    await Promise.allSettled(hits.slice(0, 30).map(async (hit) => {
       try {
-        // Convert index URL to the actual .xml filing
-        const indexUrl = link.endsWith('/') ? link + 'index.json' : link + '/index.json';
-        const indexData = JSON.parse(await fetchURL(indexUrl));
-        const files = indexData?.filings?.files || indexData?.directory?.item || [];
+        const src        = hit._source || {};
+        const accession  = (hit._id || '').replace(/:/g, '');
+        const cik        = src.entity_id || src.ciks?.[0] || '';
+        if (!accession || !cik) return;
 
-        // Find the Form 4 XML file
-        const xmlFile = files.find(f => (f.name||f).match(/\.xml$/i) && !(f.name||f).match(/xsl/i));
-        if (!xmlFile) return;
-
-        const baseUrl = 'https://www.sec.gov' + (indexData.filings ? 
-          link.replace('https://www.sec.gov','').replace(/\/?$/, '/') :
-          link.replace('https://www.sec.gov','').replace(/index\.json.*/, ''));
-        
-        const xmlUrl  = baseUrl + (xmlFile.name || xmlFile);
-        const xml     = await fetchURL(xmlUrl);
-
-        // Extract insider name and title from XML
-        const insiderName  = (xml.match(/<rptOwnerName>([^<]*)<\/rptOwnerName>/) || [])[1]?.trim() || 'Unknown';
-        const insiderTitle = (xml.match(/<officerTitle>([^<]*)<\/officerTitle>/) || [])[1]?.trim() || '';
-        const ticker       = (xml.match(/<issuerTradingSymbol>([^<]*)<\/issuerTradingSymbol>/) || [])[1]?.trim() || '';
-        const company      = (xml.match(/<issuerName>([^<]*)<\/issuerName>/) || [])[1]?.trim() || '';
-        const filingDate   = (xml.match(/<periodOfReport>([^<]*)<\/periodOfReport>/) || [])[1]?.trim() || '';
-
-        if (!ticker) return;
-
-        const parsed = parseForm4(xml, ticker, company);
-        parsed.forEach(t => {
-          t.insider = insiderName;
-          t.title   = insiderTitle;
-          t.filing  = filingDate || t.filing;
-          trades.push(t);
-        });
-      } catch(e) { /* skip bad filings */ }
+        const trades = await fetchFiling(accession, cik);
+        allTrades.push(...trades);
+      } catch(e) {}
     }));
 
-    const result = trades.filter(t => t.ticker && t.trade);
-    setCache(cacheKey, result, 15 * 60 * 1000); // cache 15 min
+    const result = allTrades
+      .filter(t => t.ticker && t.trade && t.qty > 0)
+      .sort((a, b) => new Date(b.trade) - new Date(a.trade));
+
+    console.log(`Screener: parsed ${result.length} trades`);
+    setCache('screener', result, 15 * 60 * 1000);
     res.json(result);
 
   } catch(e) {
@@ -203,69 +204,49 @@ app.get('/api/screener', async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 //  ROUTE 2: GET /api/ticker?symbol=AAPL
-//  All insider trades for a specific stock
-//  Source: SEC EDGAR company search → Form 4 filings
 // ─────────────────────────────────────────────────────────────
 app.get('/api/ticker', async (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
   try {
-    const cacheKey = 'ticker_' + symbol;
-    const cached = getCache(cacheKey);
+    const cached = getCache('ticker_' + symbol);
     if (cached) return res.json(cached);
 
-    // Step 1: Look up CIK for this ticker
-    const searchUrl = `https://efts.sec.gov/LATEST/search-index?q=%22${symbol}%22&forms=4&dateRange=custom&startdt=${
-      new Date(Date.now() - 365*86400000).toISOString().split('T')[0]}&enddt=${
-      new Date().toISOString().split('T')[0]}`;
+    // Step 1: Get the company CIK from the ticker
+    const cikUrl  = `https://www.sec.gov/cgi-bin/browse-edgar?company=&CIK=${encodeURIComponent(symbol)}&type=4&dateb=&owner=include&count=40&search_text=&action=getcompany&output=atom`;
+    const feedXml = await fetchURL(cikUrl);
 
-    // Use the company search to get CIK
-    const companyUrl = `https://www.sec.gov/cgi-bin/browse-edgar?company=&CIK=${encodeURIComponent(symbol)}&type=4&dateb=&owner=include&count=40&search_text=&action=getcompany&output=atom`;
-    const companyXml = await fetchURL(companyUrl);
-
-    const trades = [];
+    // Pull filing links from the Atom feed
+    const filingLinks = [];
     const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
-    const filingUrls = [];
     let m;
-
-    while ((m = entryRe.exec(companyXml)) !== null && filingUrls.length < 30) {
-      const entry = m[1];
-      const link  = (entry.match(/<link[^>]*href="([^"]*)"/) || [])[1] || '';
-      if (link && link.includes('Archives')) filingUrls.push(link);
+    while ((m = entryRe.exec(feedXml)) !== null && filingLinks.length < 40) {
+      const href = (m[1].match(/<link[^>]+href="([^"]+)"/) || [])[1] || '';
+      if (href.includes('/Archives/')) filingLinks.push(href);
     }
 
-    await Promise.allSettled(filingUrls.map(async (link) => {
+    console.log(`Ticker ${symbol}: found ${filingLinks.length} filing links`);
+
+    const allTrades = [];
+    await Promise.allSettled(filingLinks.map(async (link) => {
       try {
-        const indexUrl = (link.endsWith('/') ? link : link + '/') + 'index.json';
-        const indexData = JSON.parse(await fetchURL(indexUrl));
-        const files = indexData?.directory?.item || [];
-
-        const xmlFile = files.find(f => (f.name||'').match(/\.xml$/i) && !(f.name||'').match(/xsl/i));
-        if (!xmlFile) return;
-
-        const base   = link.replace('https://www.sec.gov', '').replace(/\/?$/, '/');
-        const xmlUrl = 'https://www.sec.gov' + base + xmlFile.name;
-        const xml    = await fetchURL(xmlUrl);
-
-        const insiderName  = (xml.match(/<rptOwnerName>([^<]*)<\/rptOwnerName>/) || [])[1]?.trim() || 'Unknown';
-        const insiderTitle = (xml.match(/<officerTitle>([^<]*)<\/officerTitle>/) || [])[1]?.trim() || '';
-        const ticker       = (xml.match(/<issuerTradingSymbol>([^<]*)<\/issuerTradingSymbol>/) || [])[1]?.trim() || symbol;
-        const company      = (xml.match(/<issuerName>([^<]*)<\/issuerName>/) || [])[1]?.trim() || '';
-        const filingDate   = (xml.match(/<periodOfReport>([^<]*)<\/periodOfReport>/) || [])[1]?.trim() || '';
-
-        const parsed = parseForm4(xml, ticker, company);
-        parsed.forEach(t => {
-          t.insider = insiderName;
-          t.title   = insiderTitle;
-          t.filing  = filingDate || t.filing;
-          trades.push(t);
-        });
-      } catch(e) { /* skip */ }
+        // Extract CIK and accession from the URL
+        const urlMatch = link.match(/\/data\/(\d+)\/(\d+)\//);
+        if (!urlMatch) return;
+        const cik       = urlMatch[1];
+        const accession = urlMatch[2];
+        const trades    = await fetchFiling(accession, cik);
+        allTrades.push(...trades);
+      } catch(e) {}
     }));
 
-    const result = trades.filter(t => t.trade).sort((a,b) => new Date(b.trade) - new Date(a.trade));
-    setCache(cacheKey, result, 30 * 60 * 1000); // cache 30 min
+    const result = allTrades
+      .filter(t => t.trade && t.qty > 0)
+      .sort((a, b) => new Date(b.trade) - new Date(a.trade));
+
+    console.log(`Ticker ${symbol}: parsed ${result.length} trades`);
+    setCache('ticker_' + symbol, result, 30 * 60 * 1000);
     res.json(result);
 
   } catch(e) {
@@ -276,7 +257,6 @@ app.get('/api/ticker', async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 //  ROUTE 3: GET /api/insider?name=Tim+Cook
-//  All trades filed by a specific person
 // ─────────────────────────────────────────────────────────────
 app.get('/api/insider', async (req, res) => {
   const name = (req.query.name || '').trim();
@@ -284,56 +264,46 @@ app.get('/api/insider', async (req, res) => {
 
   try {
     const cacheKey = 'insider_' + name.toLowerCase();
-    const cached = getCache(cacheKey);
+    const cached   = getCache(cacheKey);
     if (cached) return res.json(cached);
 
-    const searchUrl = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(name)}%22&forms=4&dateRange=custom&startdt=${
-      new Date(Date.now() - 2*365*86400000).toISOString().split('T')[0]}&enddt=${
-      new Date().toISOString().split('T')[0]}&hits.hits._source=period_of_report,display_names,file_date`;
+    // Search EDGAR for Form 4 filings mentioning this person's name
+    const url  = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(name)}%22&forms=4&dateRange=custom&startdt=${
+      new Date(Date.now() - 2 * 365 * 86400000).toISOString().split('T')[0]}&enddt=${
+      new Date().toISOString().split('T')[0]}`;
+    const raw  = await fetchURL(url);
+    const data = JSON.parse(raw);
+    const hits = data?.hits?.hits || [];
 
-    const searchData = JSON.parse(await fetchURL(searchUrl));
-    const hits = searchData?.hits?.hits || [];
+    console.log(`Insider "${name}": found ${hits.length} filings`);
 
-    const trades = [];
+    const allTrades = [];
     await Promise.allSettled(hits.slice(0, 25).map(async (hit) => {
       try {
-        const accNo   = hit._id.replace(/:/g, '-');
-        const baseUrl = `https://www.sec.gov/Archives/edgar/data/${hit._source?.entity_id || ''}/${accNo.replace(/-/g,'')}/`;
-        const indexUrl = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=&State=0&SIC=&dateb=&owner=include&count=1&search_text=&action=getcompany`;
-
-        // Fetch filing index directly
-        const xmlSearchUrl = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(name)}%22&forms=4&dateRange=custom&startdt=2020-01-01&enddt=${new Date().toISOString().split('T')[0]}`;
-        // Use EDGAR full text search API instead
-        const ftUrl = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(name)}%22&forms=4`;
-        const ftData = JSON.parse(await fetchURL(ftUrl));
-        const ftHits = ftData?.hits?.hits || [];
-
-        for (const fh of ftHits.slice(0, 20)) {
-          const src = fh._source || {};
-          trades.push({
-            ticker:  (src.period_of_report || '').substring(0,4),
-            company: (src.display_names || [''])[0] || '',
-            trade:   src.period_of_report || src.file_date || '',
-            filing:  src.file_date || '',
-            insider: name,
-            title:   '',
-            type:    'P',
-            qty:     0, price: 0, value: 0, owned: 0,
-          });
-        }
+        const src       = hit._source || {};
+        const accession = (hit._id || '').replace(/:/g, '');
+        const cik       = src.entity_id || src.ciks?.[0] || '';
+        if (!accession || !cik) return;
+        const trades = await fetchFiling(accession, cik);
+        // Only include trades by this person
+        allTrades.push(...trades.filter(t =>
+          t.insider.toLowerCase().includes(name.toLowerCase().split(' ')[0])
+        ));
       } catch(e) {}
     }));
 
-    // De-duplicate and filter
-    const seen = new Set();
-    const result = trades.filter(t => {
-      const k = t.ticker + t.trade;
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return t.trade;
-    });
+    const seen   = new Set();
+    const result = allTrades
+      .filter(t => {
+        const key = `${t.ticker}${t.trade}${t.type}${t.qty}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return t.trade && t.qty > 0;
+      })
+      .sort((a, b) => new Date(b.trade) - new Date(a.trade));
 
-    setCache(cacheKey, result, 60 * 60 * 1000); // cache 1 hr
+    console.log(`Insider "${name}": parsed ${result.length} trades`);
+    setCache(cacheKey, result, 60 * 60 * 1000);
     res.json(result);
 
   } catch(e) {
