@@ -330,18 +330,22 @@ app.get('/api/screener', async (req, res) => {
     console.log(`Screener: ${hits.length} filings from EFTS`);
 
     const allTrades = [];
-    await Promise.allSettled(hits.slice(0, 60).map(async hit => {
-      try {
-        const src = hit._source || {};
-        // _id format: "0001234567:24:000001" or similar
-        const acc = (hit._id || '').replace(/:/g, '-');
-        const cik = String(src.entity_id || (src.ciks || [])[0] || '').replace(/\D/g, '');
-        if (!acc || !cik) return;
-        // CIK embedded in accession is the filer — pass null so fetchFiling uses it
-        const trades = await fetchFiling(acc, null, '');
-        allTrades.push(...trades);
-      } catch(e) { /* skip */ }
-    }));
+    const hitsToUse = hits.slice(0, 60);
+    const BATCH = 10;
+    for (let i = 0; i < hitsToUse.length; i += BATCH) {
+      const batch = hitsToUse.slice(i, i + BATCH);
+      await Promise.allSettled(batch.map(async hit => {
+        try {
+          const src = hit._source || {};
+          // EFTS _id: "0001234567:26:000004:filename.xml" — take first 3 colon-parts as accession
+          const idParts = (hit._id || '').split(':');
+          const acc = idParts.slice(0, 3).join('-'); // "0001234567-26-000004"
+          if (!acc || acc === '--') return;
+          const trades = await fetchFiling(acc, null, '');
+          allTrades.push(...trades);
+        } catch(e) { /* skip */ }
+      }));
+    }
 
     const result = dedup(allTrades)
       .filter(t => t.ticker && t.trade)
