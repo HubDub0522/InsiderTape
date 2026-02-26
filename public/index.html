@@ -1263,8 +1263,9 @@ async function loadStockView(ticker) {
   const chg      = last && prev ? last.close - prev.close : 0;
   const chgPct   = prev?.close ? (chg / prev.close * 100) : 0;
   const chgColor = chg >= 0 ? 'var(--buy)' : 'var(--sell)';
-  const h52      = priceData.length ? Math.max(...priceData.slice(-252).map(d => d.high)) : 0;
-  const l52      = priceData.length ? Math.min(...priceData.slice(-252).map(d => d.low))  : 0;
+  const last252  = priceData.slice(-252);
+  const h52      = last252.length ? last252.reduce((m, d) => d.high > m ? d.high : m, 0) : 0;
+  const l52      = last252.length ? last252.reduce((m, d) => d.low  < m ? d.low  : m, Infinity) : 0;
   const buys     = insiderData.filter(t => t.type === 'P').length;
   const sells    = insiderData.filter(t => t.type === 'S' || t.type === 'S-').length;
   const totalVal = insiderData.reduce((s, t) => s + t.value, 0);
