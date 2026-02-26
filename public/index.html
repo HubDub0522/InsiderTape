@@ -4,28 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>INSIDERTAPE — Follow the Smart Money</title>
-<script>
-// Load LightweightCharts with fallback CDNs
-(function() {
-  const urls = [
-    'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
-    'https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.3/lightweight-charts.standalone.production.js',
-  ];
-  let idx = 0;
-  function load() {
-    if (idx >= urls.length) {
-      console.error('All LightweightCharts CDNs failed');
-      return;
-    }
-    const s = document.createElement('script');
-    s.src = urls[idx++];
-    s.onerror = load; // try next on failure
-    document.head.appendChild(s);
-  }
-  load();
-})();
-</script>
+<script src="https://s3.tradingview.com/tv.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
 
@@ -1260,7 +1239,7 @@ function openTickerFromScreener(ticker) {
 }
 
 // ═══════════════════════════════════════════════════════
-// STOCK VIEW — Lightweight Charts + insider markers
+// STOCK VIEW — TradingView widget + insider markers
 // ═══════════════════════════════════════════════════════
 async function loadStockView(ticker) {
   state.currentTicker = ticker;
@@ -1270,72 +1249,46 @@ async function loadStockView(ticker) {
       <span>Loading ${ticker}...</span>
     </div>`;
 
-  // Fetch price data and insider trades in parallel
-  const [priceData, insiderData] = await Promise.all([
-    apiFetch('/api/price?symbol=' + encodeURIComponent(ticker)).catch(() => []),
-    fetchInsiderForTicker(ticker).catch(() => []),
-  ]);
+  // Only fetch insider trades — no price API needed (TradingView handles it)
+  const insiderData = await fetchInsiderForTicker(ticker).catch(() => []);
 
   state.tickerTrades     = insiderData;
-  state.currentPriceData = priceData;
+  state.currentPriceData = [];
 
-  const last     = priceData.length ? priceData[priceData.length - 1] : null;
-  const prev     = priceData.length > 1 ? priceData[priceData.length - 2] : last;
-  const chg      = last && prev ? last.close - prev.close : 0;
-  const chgPct   = prev?.close ? (chg / prev.close * 100) : 0;
-  const chgColor = chg >= 0 ? 'var(--buy)' : 'var(--sell)';
-  const last252  = priceData.slice(-252);
-  const h52      = last252.length ? last252.reduce((m, d) => d.high > m ? d.high : m, 0) : 0;
-  const l52      = last252.length ? last252.reduce((m, d) => d.low  < m ? d.low  : m, Infinity) : 0;
   const buys     = insiderData.filter(t => t.type === 'P').length;
   const sells    = insiderData.filter(t => t.type === 'S' || t.type === 'S-').length;
   const totalVal = insiderData.reduce((s, t) => s + t.value, 0);
+  const company  = insiderData[0]?.company || '';
 
   document.getElementById('stockContent').innerHTML = `
     <div class="stock-layout">
       <div class="stock-header-bar">
         <div>
           <div class="stock-ticker-big">${ticker}</div>
-          <div class="stock-name-sub">Common Stock</div>
-        </div>
-        <div class="stock-price-block">
-          <div class="stock-price">${last ? '$' + last.close.toFixed(2) : '—'}</div>
-          <div class="stock-change" style="color:${chgColor}">
-            ${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${chg >= 0 ? '+' : ''}${chgPct.toFixed(2)}%) Today
-          </div>
+          <div class="stock-name-sub">${company}</div>
         </div>
         <div class="stat-grid">
-          <div class="stat-item"><div class="stat-label">52W High</div><div class="stat-val">$${h52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">52W Low</div><div class="stat-val">$${l52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">Buys</div><div class="stat-val" style="color:var(--buy)">${buys}</div></div>
-          <div class="stat-item"><div class="stat-label">Sells</div><div class="stat-val" style="color:var(--sell)">${sells}</div></div>
-          <div class="stat-item"><div class="stat-label">Insider Value</div><div class="stat-val">${fmt(totalVal)}</div></div>
+          <div class="stat-item"><div class="stat-label">Insider Buys</div><div class="stat-val" style="color:var(--buy)">${buys}</div></div>
+          <div class="stat-item"><div class="stat-label">Insider Sells</div><div class="stat-val" style="color:var(--sell)">${sells}</div></div>
+          <div class="stat-item"><div class="stat-label">Total Value</div><div class="stat-val">${fmt(totalVal)}</div></div>
+          <div class="stat-item"><div class="stat-label">Total Filings</div><div class="stat-val">${insiderData.length}</div></div>
         </div>
       </div>
 
       <div class="chart-area">
-        <div class="chart-controls">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
-          <button class="tf-btn" onclick="setRange(30,this)">1M</button>
-          <button class="tf-btn" onclick="setRange(90,this)">3M</button>
-          <button class="tf-btn active" onclick="setRange(180,this)">6M</button>
-          <button class="tf-btn" onclick="setRange(365,this)">1Y</button>
-          <button class="tf-btn" onclick="setRange(99999,this)">ALL</button>
-          <div style="margin-left:auto" class="chart-legend">
-            <div class="legend-item"><div class="legend-tri-up"></div>Buy</div>
-            <div class="legend-item"><div class="legend-tri-dn"></div>Sell</div>
-            <div class="legend-item"><div class="legend-tri-opt"></div>Option</div>
-          </div>
+        <div class="chart-legend" style="margin-bottom:6px;justify-content:flex-end">
+          <div class="legend-item"><div class="legend-tri-up"></div>Buy</div>
+          <div class="legend-item"><div class="legend-tri-dn"></div>Sell</div>
+          <div class="legend-item"><div class="legend-tri-opt"></div>Option</div>
         </div>
-        <div id="chartContainer" style="width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;position:relative;">
-          ${!priceData.length ? `<div class="empty-state" style="height:500px">
-            <div class="empty-icon">📡</div>
-            <div style="color:var(--text)">Price data unavailable for ${ticker}</div>
-          </div>` : ''}
+        <!-- TradingView chart widget -->
+        <div id="tvChartWrapper" style="width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;">
+          <div id="tvWidget" style="height:500px;"></div>
         </div>
+        <!-- Insider Pressure pane -->
         <div style="position:relative;width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
           <div style="position:absolute;top:6px;left:10px;z-index:5;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;user-select:none">INSIDER PRESSURE</div>
-          <div id="pressureContainer" style="width:100%;height:120px;"></div>
+          <div id="pressureContainer" style="width:100%;height:140px;"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
@@ -1369,177 +1322,76 @@ async function loadStockView(ticker) {
   renderStockTradesTable(insiderData);
   renderTradeMarkerList(insiderData);
 
-  if (priceData.length) {
-    // Wait for LightweightCharts to finish loading if it hasn't yet
-    waitForLWC(() => buildChart(priceData, insiderData));
-  }
-}
+  // Build TradingView widget
+  buildTVChart(ticker);
 
-function waitForLWC(cb, attempts = 0) {
-  if (window.LightweightCharts) return cb();
-  if (attempts > 40) {
-    document.getElementById('chartContainer').innerHTML =
-      '<div class="empty-state" style="height:500px"><div class="empty-icon">⚠️</div><div>Chart library failed to load</div><div style="color:var(--muted);font-size:11px">Check your internet connection and refresh</div></div>';
-    return;
-  }
-  setTimeout(() => waitForLWC(cb, attempts + 1), 150);
+  // Build insider pressure indicator (uses trade dates, no price data needed)
+  buildPressureFromTrades(insiderData);
 }
 
 // ═══════════════════════════════════════════════════════
-// LIGHTWEIGHT CHARTS — candlesticks + circle overlay markers
+// TRADINGVIEW WIDGET
 // ═══════════════════════════════════════════════════════
-function buildChart(priceData, trades) {
-  const container = document.getElementById('chartContainer');
+function buildTVChart(ticker) {
+  const container = document.getElementById('tvWidget');
   if (!container) return;
 
-  // Destroy previous chart + canvas
-  if (state.chart) { try { state.chart.remove(); } catch(e) {} state.chart = null; }
-  const oldCanvas = document.getElementById('markerCanvas');
-  if (oldCanvas) oldCanvas.remove();
-  const oldTooltip = document.getElementById('markerTooltip');
-  if (oldTooltip) oldTooltip.remove();
-
-  // Make container relative so canvas can overlay
-  container.style.position = 'relative';
-
-  const CHART_H = 500;
-  const chart = LightweightCharts.createChart(container, {
-    width:  container.clientWidth || 800,
-    height: CHART_H,
-    layout: {
-      background: { type: 'solid', color: '#080b0f' },
-      textColor:  '#4a6580',
-    },
-    grid: {
-      vertLines: { color: '#1e2d3d' },
-      horzLines: { color: '#1e2d3d' },
-    },
-    crosshair: {
-      mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { color: '#00d4ff', labelBackgroundColor: '#0d1117' },
-      horzLine: { color: '#00d4ff', labelBackgroundColor: '#0d1117' },
-    },
-    rightPriceScale: { borderColor: '#1e2d3d' },
-    timeScale:       { borderColor: '#1e2d3d', timeVisible: true },
-  });
-
-  const candleSeries = chart.addCandlestickSeries({
-    upColor:         '#00ff88',
-    downColor:       '#ff4466',
-    borderUpColor:   '#00ff88',
-    borderDownColor: '#ff4466',
-    wickUpColor:     '#00993a',
-    wickDownColor:   '#992233',
-  });
-
-  const volSeries = chart.addHistogramSeries({
-    priceFormat:  { type: 'volume' },
-    priceScaleId: 'vol',
-    scaleMargins: { top: 0.82, bottom: 0 },
-  });
-
-  // Default 6-month view
-  const cutoff  = Date.now() / 1000 - 180 * 86400;
-  const visible = priceData.filter(d => d.time >= cutoff);
-  const display = visible.length > 10 ? visible : priceData;
-
-  candleSeries.setData(display);
-  volSeries.setData(display.map(d => ({
-    time:  d.time,
-    value: d.volume || 0,
-    color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
-  })));
-
-  chart.timeScale().fitContent();
-
-  state.chart            = chart;
-  state.candleSeries     = candleSeries;
-  state.volSeries        = volSeries;
-  state.currentPriceData = priceData;
-
-  // Build separate pressure chart (wrapped so any error can't kill circles)
-  try { buildPressureChart(trades, display, chart); } catch(e) { console.warn('Pressure chart error:', e); }
-
-  // Build the canvas overlay for circle markers (always runs regardless)
-  try { buildCircleOverlay(container, chart, candleSeries, trades, display); } catch(e) { console.warn('Circle overlay error:', e); }
-
-  // Resize observer
-  const ro = new ResizeObserver(() => {
-    const w = container.clientWidth;
-    if (w > 0 && state.chart) {
-      state.chart.applyOptions({ width: w });
-      // Redraw canvas on resize
-      setTimeout(() => {
-        const c = document.getElementById('markerCanvas');
-        if (c) { c.width = w; drawCircles(c, state.chart, state.candleSeries, state.markerGroups); }
-      }, 50);
-    }
-  });
-  ro.observe(container);
-}
-
-
-// ── Build Insider Pressure signal data ────────────────────────
-// Returns array of {time, value} for a line series.
-// Positive = net buy pressure, negative = net sell pressure, 0 = no trades.
-// Smoothed with EMA so it flows like RSI rather than hard spikes.
-function buildPressureData(priceData, trades) {
-  if (!priceData.length || !trades.length) {
-    return priceData.map(d => ({ time: d.time, value: 0 }));
+  if (state.tvWidget) {
+    try { state.tvWidget.remove(); } catch(e) {}
+    state.tvWidget = null;
   }
+  container.innerHTML = '';
 
-  // Aggregate buy/sell value per snapped bar
-  const byDay = {};
-  trades.forEach(t => {
-    const dateStr = t.trade || t.filing;
-    if (!dateStr) return;
-    const ts = Math.floor(new Date(dateStr + 'T12:00:00Z').getTime() / 1000);
-    let best = null, minDiff = Infinity;
-    priceData.forEach(d => {
-      const diff = Math.abs(d.time - ts);
-      if (diff < minDiff) { minDiff = diff; best = d; }
-    });
-    if (!best || minDiff > 14 * 86400) return;
-    if (!byDay[best.time]) byDay[best.time] = { buy: 0, sell: 0, opt: 0 };
-    const tc = tradeClass(t.type);
-    if (tc === 'buy')       byDay[best.time].buy  += t.value || 0;
-    else if (tc === 'sell') byDay[best.time].sell += t.value || 0;
-    else                    byDay[best.time].opt  += t.value || 0;
-  });
-
-  // Normalise to -100..+100
-  let maxVal = 0;
-  Object.values(byDay).forEach(d => {
-    maxVal = Math.max(maxVal, d.buy + d.sell + d.opt);
-  });
-  if (!maxVal) return priceData.map(d => ({ time: d.time, value: 0 }));
-
-  // Raw signal per bar
-  const raw = priceData.map(d => {
-    const day = byDay[d.time];
-    if (!day) return 0;
-    const net = day.buy - day.sell;
-    const mag = (day.buy + day.sell + day.opt) / maxVal * 100;
-    return net >= 0 ? mag : -mag;
-  });
-
-  // 5-period EMA — decays back toward zero naturally
-  const k = 2 / (5 + 1);
-  let ema = 0;
-  return priceData.map((d, i) => {
-    if (raw[i] !== 0) {
-      ema = raw[i] * k + ema * (1 - k);
+  // Wait up to 5s for TradingView library to load, then init
+  let attempts = 0;
+  const tryInit = () => {
+    if (typeof TradingView !== 'undefined') {
+      _initTVWidget(ticker);
+    } else if (attempts++ < 50) {
+      setTimeout(tryInit, 100);
     } else {
-      ema = ema * (1 - k); // decay toward zero
+      container.innerHTML = '<div class="empty-state" style="height:500px"><div class="empty-icon">📡</div><div style="color:var(--text)">Chart failed to load</div><div style="color:var(--muted);font-size:11px;margin-top:4px">TradingView unavailable — try refreshing</div></div>';
     }
-    return { time: d.time, value: +ema.toFixed(2) };
-  });
+  };
+  tryInit();
 }
 
-// ── Build the separate Insider Pressure chart pane ─────────
-function buildPressureChart(trades, priceData, mainChart) {
+function _initTVWidget(ticker) {
+  const container = document.getElementById('tvWidget');
+  if (!container) return;
+  try {
+    state.tvWidget = new TradingView.widget({
+      container_id:        'tvWidget',
+      symbol:              ticker,
+      interval:            'D',
+      timezone:            'America/New_York',
+      theme:               'dark',
+      style:               '1',
+      locale:              'en',
+      toolbar_bg:          '#080b0f',
+      hide_top_toolbar:    false,
+      hide_legend:         false,
+      save_image:          false,
+      allow_symbol_change: false,
+      width:               '100%',
+      height:              500,
+      backgroundColor:     '#080b0f',
+      gridColor:           '#1e2d3d',
+      hide_volume:         false,
+    });
+  } catch(e) {
+    console.warn('TradingView widget error:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// INSIDER PRESSURE INDICATOR
+// Standalone chart below the TradingView widget.
+// Built purely from trade dates — no price data needed.
+// ═══════════════════════════════════════════════════════
+function buildPressureFromTrades(trades) {
   const pc = document.getElementById('pressureContainer');
-  if (!pc) return;
+  if (!pc || !trades.length) return;
 
   // Destroy previous
   if (state.pressureChart) {
@@ -1547,338 +1399,125 @@ function buildPressureChart(trades, priceData, mainChart) {
     state.pressureChart = null;
   }
 
-  const pressureChart = LightweightCharts.createChart(pc, {
+  if (typeof LightweightCharts === 'undefined') {
+    // Dynamically load LWC just for the pressure chart
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
+    s.onload = () => _buildPressureChart(pc, trades);
+    document.head.appendChild(s);
+  } else {
+    _buildPressureChart(pc, trades);
+  }
+}
+
+function _buildPressureChart(pc, trades) {
+  if (!window.LightweightCharts) return;
+
+  // Build a daily timeline from oldest to newest trade
+  const dateSet = new Set(trades.map(t => t.trade || t.filing).filter(Boolean));
+  const dates   = [...dateSet].sort();
+  if (!dates.length) return;
+
+  // Expand to full range with zero-fill
+  const start = new Date(dates[0]);
+  const end   = new Date(dates[dates.length - 1]);
+  // Add 30 days padding on each side
+  start.setDate(start.getDate() - 30);
+  end.setDate(end.getDate() + 30);
+
+  // Aggregate buy/sell value per day
+  const byDay = {};
+  trades.forEach(t => {
+    const d = t.trade || t.filing;
+    if (!d) return;
+    if (!byDay[d]) byDay[d] = { buy: 0, sell: 0, opt: 0 };
+    const tc = tradeClass(t.type);
+    if (tc === 'buy')       byDay[d].buy  += t.value || 0;
+    else if (tc === 'sell') byDay[d].sell += t.value || 0;
+    else                    byDay[d].opt  += t.value || 0;
+  });
+
+  // Normalise to ±100
+  let maxVal = 0;
+  Object.values(byDay).forEach(d => maxVal = Math.max(maxVal, d.buy + d.sell + d.opt));
+  if (!maxVal) return;
+
+  // Build day-by-day series with EMA decay
+  const timePoints = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    const key = cur.toISOString().split('T')[0];
+    const day = byDay[key];
+    const ts  = Math.floor(cur.getTime() / 1000);
+    const raw = day
+      ? ((day.buy - day.sell) >= 0 ? 1 : -1) * (day.buy + day.sell + day.opt) / maxVal * 100
+      : 0;
+    timePoints.push({ time: ts, raw });
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  // 5-period EMA
+  const k = 2 / 6;
+  let ema = 0;
+  const smoothed = timePoints.map(p => {
+    ema = p.raw !== 0 ? p.raw * k + ema * (1 - k) : ema * (1 - k);
+    return { time: p.time, value: +ema.toFixed(2) };
+  });
+
+  const chart = LightweightCharts.createChart(pc, {
     width:  pc.clientWidth || 800,
-    height: 120,
-    layout: {
-      background: { type: 'solid', color: '#080b0f' },
-      textColor:  '#4a6580',
-    },
-    grid: {
-      vertLines: { color: '#1e2d3d' },
-      horzLines: { color: 'transparent' },
-    },
+    height: 140,
+    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
+    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: 'transparent' } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
       vertLine: { color: '#00d4ff', labelBackgroundColor: '#0d1117' },
-      horzLine: { color: '#1e2d3d',  labelBackgroundColor: '#0d1117' },
+      horzLine: { color: '#1e2d3d', labelBackgroundColor: '#0d1117' },
     },
-    rightPriceScale: {
-      borderColor: '#1e2d3d',
-      scaleMargins: { top: 0.1, bottom: 0.1 },
-      autoScale: true,
-    },
-    timeScale: {
-      borderColor:  '#1e2d3d',
-      timeVisible:  false, // hide time axis — main chart shows it
-      visible: false,
-    },
-    handleScroll: false,
-    handleScale:  false,
+    rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.1, bottom: 0.1 } },
+    timeScale: { borderColor: '#1e2d3d', timeVisible: true },
+    handleScroll: true,
+    handleScale:  true,
   });
 
-  // Zero baseline
-  const zeroLine = pressureChart.addLineSeries({
-    color:           '#1e2d3d',
-    lineWidth:       1,
-    lineStyle:       LightweightCharts.LineStyle.Dashed,
-    priceLineVisible: false,
-    lastValueVisible: false,
-    crosshairMarkerVisible: false,
-  });
-  zeroLine.setData(priceData.map(d => ({ time: d.time, value: 0 })));
+  // Zero line
+  chart.addLineSeries({ color: '#1e2d3d', lineWidth: 1,
+    lineStyle: LightweightCharts.LineStyle.Dashed,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  }).setData(smoothed.map(d => ({ time: d.time, value: 0 })));
 
-  // Main pressure line — colour shifts green/red based on value
-  const lineSeries = pressureChart.addLineSeries({
-    lineWidth:        2,
-    color:            '#00d4ff',
-    priceLineVisible: false,
-    lastValueVisible: true,
-    crosshairMarkerVisible: true,
-    crosshairMarkerRadius:  4,
-  });
+  // Positive area (buy pressure)
+  chart.addAreaSeries({
+    topColor: 'rgba(0,255,136,0.3)', bottomColor: 'rgba(0,255,136,0)',
+    lineColor: '#00ff88', lineWidth: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  }).setData(smoothed.map(d => ({ time: d.time, value: Math.max(0, d.value) })));
 
-  const pressureData = buildPressureData(priceData, trades);
-
-  // Build coloured segments: green above zero, red below
-  // LWC line series doesn't support per-point colour natively,
-  // so we use two area series layered
-  const posArea = pressureChart.addAreaSeries({
-    topColor:         'rgba(0,255,136,0.3)',
-    bottomColor:      'rgba(0,255,136,0)',
-    lineColor:        '#00ff88',
-    lineWidth:        2,
-    priceLineVisible: false,
-    lastValueVisible: false,
-    crosshairMarkerVisible: false,
-  });
-  const negArea = pressureChart.addAreaSeries({
-    topColor:         'rgba(255,68,102,0)',
-    bottomColor:      'rgba(255,68,102,0.3)',
-    lineColor:        '#ff4466',
-    lineWidth:        2,
-    priceLineVisible: false,
-    lastValueVisible: false,
-    crosshairMarkerVisible: false,
+  // Negative area (sell pressure)
+  chart.addAreaSeries({
+    topColor: 'rgba(255,68,102,0)', bottomColor: 'rgba(255,68,102,0.3)',
+    lineColor: '#ff4466', lineWidth: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     invertFilledArea: true,
-  });
+  }).setData(smoothed.map(d => ({ time: d.time, value: Math.min(0, d.value) })));
 
-  // Pos area: clip values below 0 to 0
-  posArea.setData(pressureData.map(d => ({ time: d.time, value: Math.max(0, d.value) })));
-  // Neg area: clip values above 0 to 0
-  negArea.setData(pressureData.map(d => ({ time: d.time, value: Math.min(0, d.value) })));
+  chart.timeScale().fitContent();
+  state.pressureChart = chart;
 
-  pressureChart.timeScale().fitContent();
-
-  // Sync time range with main chart
-  if (mainChart) {
-    mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (range && state.pressureChart) {
-        try { state.pressureChart.timeScale().setVisibleLogicalRange(range); } catch(e) {}
-      }
-    });
-  }
-
-  state.pressureChart = pressureChart;
-
-  // Resize observer
-  const ro = new ResizeObserver(() => {
-    const w = pc.clientWidth;
-    if (w > 0 && state.pressureChart) state.pressureChart.applyOptions({ width: w });
-  });
-  ro.observe(pc);
+  new ResizeObserver(() => {
+    if (state.pressureChart) state.pressureChart.applyOptions({ width: pc.clientWidth });
+  }).observe(pc);
 }
 
-// ── Group trades by date+type, then draw coloured circles ──
-// ── Group trades by date+type, then draw coloured circles ──
-function buildCircleOverlay(container, chart, series, trades, priceData) {
-  // Group trades by their snapped price-bar timestamp
-  const groups = {};
-  trades.forEach(t => {
-    const dateStr = t.trade || t.filing;
-    if (!dateStr) return;
-    const ts = Math.floor(new Date(dateStr + 'T12:00:00Z').getTime() / 1000);
-
-    // Snap to nearest bar within 14 days
-    let best = null, minDiff = Infinity;
-    priceData.forEach(d => {
-      const diff = Math.abs(d.time - ts);
-      if (diff < minDiff) { minDiff = diff; best = d; }
-    });
-    if (!best || minDiff > 14 * 86400) return;
-
-    const tc  = tradeClass(t.type);
-    const key = best.time + '_' + tc;
-    if (!groups[key]) groups[key] = { time: best.time, bar: best, tc, trades: [], totalValue: 0 };
-    groups[key].trades.push(t);
-    groups[key].totalValue += t.value || 0;
-  });
-
-  const groupList = Object.values(groups);
-  state.markerGroups = groupList;
-
-  // Create canvas overlay
-  const canvas = document.createElement('canvas');
-  canvas.id = 'markerCanvas';
-  canvas.style.cssText = `
-    position:absolute;top:0;left:0;
-    width:100%;height:100%;
-    pointer-events:none;
-    z-index:10;
-  `;
-  canvas.width  = container.clientWidth || 800;
-  canvas.height = 500;
-  container.appendChild(canvas);
-
-  // Create tooltip div
-  const tooltip = document.createElement('div');
-  tooltip.id = 'markerTooltip';
-  tooltip.style.cssText = `
-    position:fixed;display:none;
-    background:#0d1117;border:1px solid #00d4ff;border-radius:8px;
-    padding:10px 14px;font-family:'Space Mono',monospace;font-size:11px;
-    color:#e6edf3;z-index:9999;pointer-events:none;
-    box-shadow:0 4px 24px rgba(0,0,0,0.7);max-width:280px;line-height:1.6;
-  `;
-  document.body.appendChild(tooltip);
-
-  // Draw circles after chart renders
-  setTimeout(() => drawCircles(canvas, chart, series, groupList), 200);
-
-  // Redraw when time scale changes (pan/zoom)
-  chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-    setTimeout(() => drawCircles(canvas, chart, series, groupList), 30);
-  });
-
-  // Mouse interactions on the container (not canvas, since pointer-events:none)
-  container.addEventListener('mousemove', (e) => {
-    const rect  = canvas.getBoundingClientRect();
-    const mx    = e.clientX - rect.left;
-    const my    = e.clientY - rect.top;
-    const hit   = state._circleHitAreas?.find(c => {
-      const dx = mx - c.x, dy = my - c.y;
-      return Math.sqrt(dx*dx + dy*dy) <= c.r + 4;
-    });
-
-    if (hit) {
-      container.style.cursor = 'pointer';
-      const g     = hit.group;
-      const color = g.tc === 'buy' ? '#00ff88' : g.tc === 'sell' ? '#ff4466' : '#ffaa00';
-      const label = g.tc === 'buy' ? '● BUY' : g.tc === 'sell' ? '● SELL' : '● OPTION/OTHER';
-
-      const insiderLines = g.trades
-        .sort((a, b) => b.value - a.value)
-        .map(t => `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:3px">
-          <span style="color:#7d8590">${t.insider || 'Unknown'}</span>
-          <span style="color:${color}">${fmt(t.value)}</span>
-        </div>`)
-        .join('');
-
-      tooltip.innerHTML = `
-        <div style="color:${color};font-weight:700;margin-bottom:6px;letter-spacing:1px">${label}</div>
-        <div style="color:#7d8590;font-size:10px;margin-bottom:8px">${fmtDate(g.trades[0]?.trade || g.trades[0]?.filing)}</div>
-        ${insiderLines}
-        <div style="border-top:1px solid #1e2d3d;margin-top:8px;padding-top:6px;display:flex;justify-content:space-between">
-          <span style="color:#7d8590">TOTAL</span>
-          <span style="color:${color};font-weight:700">${fmt(g.totalValue)}</span>
-        </div>
-      `;
-      tooltip.style.display = 'block';
-      // Position tooltip near cursor, keep on screen
-      const tx = e.clientX + 16;
-      const ty = e.clientY - 10;
-      const tw = 280, th = 30 + g.trades.length * 20;
-      tooltip.style.left = (tx + tw > window.innerWidth ? e.clientX - tw - 8 : tx) + 'px';
-      tooltip.style.top  = (ty + th > window.innerHeight ? e.clientY - th : ty) + 'px';
-    } else {
-      container.style.cursor = '';
-      tooltip.style.display = 'none';
-    }
-  });
-
-  container.addEventListener('mouseleave', () => {
-    tooltip.style.display = 'none';
-    container.style.cursor = '';
-  });
-}
-
-// ── Actually draw the circles on the canvas ──
-function drawCircles(canvas, chart, series, groups) {
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (!groups?.length) return;
-
-  // Min/max value for sizing
-  const values  = groups.map(g => g.totalValue).filter(v => v > 0);
-  const maxVal  = values.length ? Math.max(...values) : 1;
-  const minVal  = values.length ? Math.min(...values) : 1;
-
-  // Chart pane height (exclude volume area ~15%)
-  const paneH   = canvas.height * 0.82;
-
-  const hitAreas = [];
-
-  groups.forEach(g => {
-    try {
-      // Get X coordinate from time scale
-      const x = chart.timeScale().timeToCoordinate(g.time);
-      if (x === null || x < 0 || x > canvas.width) return;
-
-      // Get Y coordinate from price — buys below bar, sells above
-      const isBuy  = g.tc === 'buy';
-      const isOpt  = g.tc === 'option';
-      const price  = isBuy ? g.bar.low : g.bar.high;
-      let   y      = series.priceToCoordinate(price);
-      if (y === null) return;
-
-      // Circle size: 8px min, 22px max based on log-scaled value
-      const logMin = Math.log10(Math.max(minVal, 1));
-      const logMax = Math.log10(Math.max(maxVal, 2));
-      const logVal = Math.log10(Math.max(g.totalValue, 1));
-      const t      = logMax > logMin ? (logVal - logMin) / (logMax - logMin) : 0.5;
-      const r      = 8 + t * 14;
-
-      // Offset so circle clears the candle wick
-      y = isBuy ? Math.min(y + r + 6, paneH - r - 2) : Math.max(y - r - 6, r + 2);
-
-      // Colors
-      const fillColor   = isBuy ? 'rgba(0,255,136,0.25)' : isOpt ? 'rgba(255,170,0,0.25)' : 'rgba(255,68,102,0.25)';
-      const strokeColor = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
-      const glowColor   = isBuy ? 'rgba(0,255,136,0.1)' : isOpt ? 'rgba(255,170,0,0.1)' : 'rgba(255,68,102,0.1)';
-
-      // Glow ring
-      ctx.beginPath();
-      ctx.arc(x, y, r + 4, 0, Math.PI * 2);
-      ctx.fillStyle = glowColor;
-      ctx.fill();
-
-      // Main circle
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = fillColor;
-      ctx.fill();
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth   = 1.5;
-      ctx.stroke();
-
-      // Dollar sign inside larger circles
-      if (r >= 13) {
-        ctx.fillStyle   = 'rgba(0,0,0,0.7)';
-        ctx.font        = `bold ${Math.round(r * 0.9)}px Arial`;
-        ctx.textAlign   = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('$', x, y);
-      }
-
-      hitAreas.push({ x, y, r, group: g });
-    } catch(e) {}
-  });
-
-  state._circleHitAreas = hitAreas;
-}
-
+// setRange is no longer used (TradingView handles its own range)
 function setRange(days, btn) {
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  if (!state.chart || !state.candleSeries || !state.currentPriceData) return;
-
-  const cutoff  = Date.now() / 1000 - days * 86400;
-  const display = days >= 9000
-    ? state.currentPriceData
-    : state.currentPriceData.filter(d => d.time >= cutoff);
-  const data = display.length > 10 ? display : state.currentPriceData;
-
-  state.candleSeries.setData(data);
-  if (state.volSeries) {
-    state.volSeries.setData(data.map(d => ({
-      time: d.time, value: d.volume || 0,
-      color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
-    })));
-  }
-  // Sync pressure chart
-  try { buildPressureChart(state.tickerTrades, data, state.chart); } catch(e) { console.warn('Pressure rebuild error:', e); }
-  state.chart.timeScale().fitContent();
-
-  // Rebuild circle overlay
-  try {
-    const container = document.getElementById('chartContainer');
-    const oldCanvas = document.getElementById('markerCanvas');
-    if (oldCanvas) oldCanvas.remove();
-    if (container) {
-      const canvas = document.createElement('canvas');
-      canvas.id = 'markerCanvas';
-      canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
-      canvas.width  = container.clientWidth || 800;
-      canvas.height = 500;
-      container.appendChild(canvas);
-      buildCircleOverlay(container, state.chart, state.candleSeries, state.tickerTrades, data);
-    }
-  } catch(e) { console.warn('Circle rebuild error:', e); }
 }
 
 // ═══════════════════════════════════════════════════════
 // TRADE PILL LIST
+
 // ═══════════════════════════════════════════════════════
 function renderTradeMarkerList(trades) {
   const el = document.getElementById('tradeMarkerList');
