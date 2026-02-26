@@ -493,6 +493,71 @@ app.get('/api/diag', async (req, res) => {
   res.json(out);
 });
 
+
+// ─────────────────────────────────────────────────────────────
+//  TEST — step by step trace for one ticker
+// ─────────────────────────────────────────────────────────────
+app.get('/api/test', async (req, res) => {
+  const symbol = (req.query.s || 'AAPL').toUpperCase();
+  const out = { symbol, steps: [] };
+
+  try {
+    // Step 1: CIK lookup
+    const co = await tickerToCIK(symbol);
+    out.steps.push({ step: '1_cik', ok: !!co, cik: co?.cik, name: co?.name });
+    if (!co) return res.json(out);
+
+    // Step 2: Submissions fetch
+    const paddedCIK = String(co.cik).padStart(10, '0');
+    const { status, body } = await get(`https://data.sec.gov/submissions/CIK${paddedCIK}.json`);
+    const data = JSON.parse(body);
+    const forms  = data.filings?.recent?.form || [];
+    const accNos = data.filings?.recent?.accessionNumber || [];
+    const dates  = data.filings?.recent?.filingDate || [];
+    const form4s = [];
+    for (let i = 0; i < forms.length; i++) {
+      if (forms[i] === '4' || forms[i] === '4/A') form4s.push({ acc: accNos[i], date: dates[i] });
+    }
+    out.steps.push({ step: '2_submissions', ok: status === 200, status, total_filings: forms.length, form4s: form4s.length, sample_acc: form4s[0]?.acc });
+    if (!form4s.length) return res.json(out);
+
+    // Step 3: Try fetching first filing — show exact URL tried
+    const { acc } = form4s[0];
+    const clean = acc.replace(/-/g, '').padStart(18, '0');
+    const filerCIK = parseInt(clean.slice(0, 10), 10);
+    const companyCIK = parseInt(co.cik, 10);
+    out.steps.push({ step: '3_acc_parse', acc, clean, filerCIK, companyCIK });
+
+    // Step 4: Try index.json with filer CIK
+    const url1 = `https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/index.json`;
+    const url2 = `https://www.sec.gov/Archives/edgar/data/${companyCIK}/${clean}/index.json`;
+    const r1 = await get(url1).catch(e => ({ status: 0, body: e.message }));
+    const r2 = await get(url2).catch(e => ({ status: 0, body: e.message }));
+    out.steps.push({
+      step: '4_index_fetch',
+      filerCIK_url: url1, filerCIK_status: r1.status,
+      companyCIK_url: url2, companyCIK_status: r2.status,
+      filerCIK_items: r1.status === 200 ? (JSON.parse(r1.body)?.directory?.item?.length || 0) : 'N/A',
+    });
+
+    // Step 5: If index worked, try getting the XML
+    if (r1.status === 200) {
+      const items = JSON.parse(r1.body)?.directory?.item || [];
+      const xmlFile = items.find(f => typeof f.name === 'string' && f.name.endsWith('.xml') && !f.name.includes('xsl') && !f.name.endsWith('_htm.xml'));
+      out.steps.push({ step: '5_xml_file', found: !!xmlFile, name: xmlFile?.name, all_files: items.map(f => f.name) });
+      if (xmlFile) {
+        const { status: xs, body: xml } = await get(`https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/${xmlFile.name}`);
+        const trades = parseForm4(xml, symbol);
+        out.steps.push({ step: '6_parse', xml_status: xs, xml_length: xml.length, trades: trades.length, sample: trades[0] });
+      }
+    }
+
+  } catch(e) {
+    out.error = e.message;
+  }
+
+  res.json(out);
+});
 // ─────────────────────────────────────────────────────────────
 //  HEALTH
 // ─────────────────────────────────────────────────────────────
