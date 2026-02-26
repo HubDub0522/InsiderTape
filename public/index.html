@@ -1239,7 +1239,7 @@ function openTickerFromScreener(ticker) {
 }
 
 // ═══════════════════════════════════════════════════════
-// STOCK VIEW — TradingView widget + insider trade timeline
+// STOCK VIEW — Lightweight Charts + insider markers
 // ═══════════════════════════════════════════════════════
 async function loadStockView(ticker) {
   state.currentTicker = ticker;
@@ -1249,12 +1249,25 @@ async function loadStockView(ticker) {
       <span>Loading ${ticker}...</span>
     </div>`;
 
-  const insiderData = await fetchInsiderForTicker(ticker);
-  state.tickerTrades = insiderData;
+  // Fetch price data and insider trades in parallel
+  const [priceData, insiderData] = await Promise.all([
+    apiFetch('/api/price?symbol=' + encodeURIComponent(ticker)).catch(() => []),
+    fetchInsiderForTicker(ticker).catch(() => []),
+  ]);
 
-  const buys  = insiderData.filter(t => t.type === 'P').length;
-  const sells = insiderData.filter(t => t.type === 'S' || t.type === 'S-').length;
-  const totalVal = insiderData.reduce((s,t)=>s+t.value,0);
+  state.tickerTrades     = insiderData;
+  state.currentPriceData = priceData;
+
+  const last     = priceData.length ? priceData[priceData.length - 1] : null;
+  const prev     = priceData.length > 1 ? priceData[priceData.length - 2] : last;
+  const chg      = last && prev ? last.close - prev.close : 0;
+  const chgPct   = prev?.close ? (chg / prev.close * 100) : 0;
+  const chgColor = chg >= 0 ? 'var(--buy)' : 'var(--sell)';
+  const h52      = priceData.length ? Math.max(...priceData.slice(-252).map(d => d.high)) : 0;
+  const l52      = priceData.length ? Math.min(...priceData.slice(-252).map(d => d.low))  : 0;
+  const buys     = insiderData.filter(t => t.type === 'P').length;
+  const sells    = insiderData.filter(t => t.type === 'S' || t.type === 'S-').length;
+  const totalVal = insiderData.reduce((s, t) => s + t.value, 0);
 
   document.getElementById('stockContent').innerHTML = `
     <div class="stock-layout">
@@ -1263,62 +1276,41 @@ async function loadStockView(ticker) {
           <div class="stock-ticker-big">${ticker}</div>
           <div class="stock-name-sub">Common Stock</div>
         </div>
+        <div class="stock-price-block">
+          <div class="stock-price">${last ? '$' + last.close.toFixed(2) : '—'}</div>
+          <div class="stock-change" style="color:${chgColor}">
+            ${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${chg >= 0 ? '+' : ''}${chgPct.toFixed(2)}%) Today
+          </div>
+        </div>
         <div class="stat-grid">
-          <div class="stat-item">
-            <div class="stat-label">Insider Trades</div>
-            <div class="stat-val" style="color:var(--accent)">${insiderData.length}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Buys</div>
-            <div class="stat-val" style="color:var(--buy)">${buys}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Sells</div>
-            <div class="stat-val" style="color:var(--sell)">${sells}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Total Value</div>
-            <div class="stat-val">${fmt(totalVal)}</div>
-          </div>
+          <div class="stat-item"><div class="stat-label">52W High</div><div class="stat-val">$${h52.toFixed(2)}</div></div>
+          <div class="stat-item"><div class="stat-label">52W Low</div><div class="stat-val">$${l52.toFixed(2)}</div></div>
+          <div class="stat-item"><div class="stat-label">Buys</div><div class="stat-val" style="color:var(--buy)">${buys}</div></div>
+          <div class="stat-item"><div class="stat-label">Sells</div><div class="stat-val" style="color:var(--sell)">${sells}</div></div>
+          <div class="stat-item"><div class="stat-label">Insider Value</div><div class="stat-val">${fmt(totalVal)}</div></div>
         </div>
       </div>
 
       <div class="chart-area">
-
-        <!-- TradingView Advanced Chart -->
-        <div id="tv-chart-wrap" style="
-          width:100%; height:500px;
-          border-radius:6px; overflow:hidden;
-          border:1px solid var(--border);
-          position:relative;
-        ">
-          <div class="tradingview-widget-container" style="width:100%;height:100%">
-            <div id="tradingview_chart" style="width:100%;height:100%"></div>
+        <div class="chart-controls">
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
+          <button class="tf-btn" onclick="setRange(30,this)">1M</button>
+          <button class="tf-btn" onclick="setRange(90,this)">3M</button>
+          <button class="tf-btn active" onclick="setRange(180,this)">6M</button>
+          <button class="tf-btn" onclick="setRange(365,this)">1Y</button>
+          <button class="tf-btn" onclick="setRange(99999,this)">ALL</button>
+          <div style="margin-left:auto" class="chart-legend">
+            <div class="legend-item"><div class="legend-tri-up"></div>Buy</div>
+            <div class="legend-item"><div class="legend-tri-dn"></div>Sell</div>
+            <div class="legend-item"><div class="legend-tri-opt"></div>Option</div>
           </div>
         </div>
-
-        <!-- Insider Trade Timeline — pinned below the chart, aligned by date -->
-        <div style="margin-top:6px">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;gap:10px">
-            <span>INSIDER ACTIVITY TIMELINE</span>
-            <span style="color:var(--border2)">— hover a marker for details</span>
-            <div style="margin-left:auto;display:flex;gap:12px">
-              <span style="color:var(--buy)">▲ Buy</span>
-              <span style="color:var(--sell)">▼ Sell</span>
-              <span style="color:var(--option)">◆ Option/Other</span>
-            </div>
-          </div>
-          <div id="tradeTimeline" style="
-            background:var(--bg2);
-            border:1px solid var(--border);
-            border-radius:6px;
-            height:72px;
-            position:relative;
-            overflow:hidden;
-          "></div>
+        <div id="chartContainer" style="width:100%;height:500px;border-radius:6px;overflow:hidden;border:1px solid var(--border);background:#080b0f;">
+          ${!priceData.length ? `<div class="empty-state" style="height:500px">
+            <div class="empty-icon">📡</div>
+            <div style="color:var(--text)">Price data unavailable for ${ticker}</div>
+          </div>` : ''}
         </div>
-
-        <!-- Trade pill list -->
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
 
@@ -1336,15 +1328,8 @@ async function loadStockView(ticker) {
           <table>
             <thead>
               <tr>
-                <th>TRADE DATE</th>
-                <th>INSIDER</th>
-                <th>TITLE</th>
-                <th>TYPE</th>
-                <th>SHARES</th>
-                <th>PRICE</th>
-                <th>VALUE</th>
-                <th>OWNED AFTER</th>
-                <th>FILING DATE</th>
+                <th>TRADE DATE</th><th>INSIDER</th><th>TITLE</th><th>TYPE</th>
+                <th>SHARES</th><th>PRICE</th><th>VALUE</th><th>OWNED AFTER</th><th>FILING DATE</th>
               </tr>
             </thead>
             <tbody id="stockTradesBody"></tbody>
@@ -1354,167 +1339,168 @@ async function loadStockView(ticker) {
     </div>
   `;
 
-  buildTVChart(ticker);
-  buildTradeTimeline(insiderData);
+  if (priceData.length) buildChart(priceData, insiderData);
   renderSidebarTrades(insiderData);
   renderStockTradesTable(insiderData);
   renderTradeMarkerList(insiderData);
 }
 
 // ═══════════════════════════════════════════════════════
-// TRADINGVIEW ADVANCED CHART WIDGET
-// Free embed — no API key — full professional chart
+// LIGHTWEIGHT CHARTS — candlesticks + insider markers
 // ═══════════════════════════════════════════════════════
-function buildTVChart(ticker) {
-  // Remove any previously injected TV script
-  const oldScript = document.getElementById('tv-widget-script');
-  if (oldScript) oldScript.remove();
+function buildChart(priceData, trades) {
+  const container = document.getElementById('chartContainer');
+  if (!container) return;
 
-  const script = document.createElement('script');
-  script.id  = 'tv-widget-script';
-  script.type = 'text/javascript';
-  script.src  = 'https://s3.tradingview.com/tv.js';
+  // Destroy previous chart instance
+  if (state.chart) { try { state.chart.remove(); } catch(e) {} state.chart = null; }
 
-  script.onload = () => {
-    try {
-      new TradingView.widget({
-        autosize:            true,
-        symbol:              ticker,
-        interval:            'D',
-        timezone:            'America/New_York',
-        theme:               'dark',
-        style:               '1',
-        locale:              'en',
-        toolbar_bg:          '#0d1117',
-        enable_publishing:   false,
-        hide_top_toolbar:    false,
-        hide_side_toolbar:   false,
-        allow_symbol_change: false,
-        save_image:          false,
-        withdateranges:      true,
-        container_id:        'tradingview_chart',
-        backgroundColor:     '#080b0f',
-        gridColor:           '#1e2d3d',
-        studies:             ['Volume@tv-basicstudies'],
-      });
-    } catch(e) {
-      console.warn('TradingView widget error:', e);
-      document.getElementById('tv-chart-wrap').innerHTML = `
-        <div class="empty-state" style="height:500px">
-          <div class="empty-icon">📡</div>
-          <div style="color:var(--text)">Chart unavailable in this environment</div>
-          <div>Open the HTML file directly in your browser for full chart support</div>
-        </div>`;
-    }
-  };
-
-  script.onerror = () => {
-    document.getElementById('tv-chart-wrap').innerHTML = `
-      <div class="empty-state" style="height:500px">
-        <div class="empty-icon">📡</div>
-        <div style="color:var(--text)">TradingView script blocked</div>
-        <div>Open the HTML file directly in your browser for full chart support</div>
-      </div>`;
-  };
-
-  // If TV already loaded from a previous search, init directly
-  if (window.TradingView && window.TradingView.widget) {
-    script.onload();
-  } else {
-    document.head.appendChild(script);
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// INSIDER TRADE TIMELINE
-// CSS/HTML bar below the chart showing trade markers by date
-// ═══════════════════════════════════════════════════════
-function buildTradeTimeline(trades) {
-  const el = document.getElementById('tradeTimeline');
-  if (!el || !trades.length) return;
-
-  const sorted = [...trades].sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
-  const dates  = sorted.map(t => new Date(t.trade||t.filing).getTime()).filter(Boolean);
-  if (!dates.length) return;
-
-  const minT = Math.min(...dates);
-  const maxT = Math.max(...dates);
-  // Pad the range so markers at edges aren't clipped
-  const pad  = (maxT - minT) * 0.04 || 86400000 * 7;
-  const span = (maxT - minT) + pad * 2;
-
-  // Year labels
-  const firstYear = new Date(minT).getFullYear();
-  const lastYear  = new Date(maxT).getFullYear();
-  let html = '';
-
-  for (let y = firstYear; y <= lastYear; y++) {
-    const yt  = new Date(y, 0, 1).getTime();
-    const pct = Math.max(0, Math.min(100, ((yt - minT + pad) / span) * 100));
-    html += `<div style="position:absolute;left:${pct.toFixed(2)}%;top:0;bottom:0;width:1px;background:rgba(30,45,61,0.7)">
-      <span style="position:absolute;bottom:3px;left:3px;font-size:9px;color:#4a6580;font-family:'Space Mono',monospace">${y}</span>
-    </div>`;
-  }
-
-  // Centre axis
-  html += `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#1e2d3d;transform:translateY(-50%)"></div>`;
-
-  // Trade markers
-  sorted.forEach((t, idx) => {
-    const d    = new Date(t.trade||t.filing).getTime();
-    const pct  = ((d - minT + pad) / span) * 100;
-    const tc   = tradeClass(t.type);
-    const isBuy = tc === 'buy';
-    const isOpt = tc === 'option';
-    const color = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
-    const size  = Math.min(12, Math.max(7, 6 + Math.log10(t.value||1) - 3));
-    const stemH = isBuy ? 18 : 18;
-
-    const tooltip = `${t.insider} — ${tradeLabel(t.type)} ${fmt(t.value)} on ${fmtDate(t.trade||t.filing)}`;
-
-    html += `
-      <div title="${tooltip}"
-           style="position:absolute;left:${pct.toFixed(2)}%;transform:translateX(-50%);
-                  ${isBuy ? 'bottom:calc(50%)' : 'top:calc(50%)'};
-                  display:flex;flex-direction:column;align-items:center;
-                  cursor:pointer;z-index:2;"
-           onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
-        ${isBuy
-          ? `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}55;flex-shrink:0"></div>
-             <div style="width:1.5px;height:${stemH}px;background:${color}66"></div>`
-          : `<div style="width:1.5px;height:${stemH}px;background:${color}66"></div>
-             <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color}55;flex-shrink:0"></div>`
-        }
-      </div>`;
+  const chart = LightweightCharts.createChart(container, {
+    width:  container.clientWidth  || 800,
+    height: 500,
+    layout: {
+      background: { type: 'solid', color: '#080b0f' },
+      textColor: '#4a6580',
+    },
+    grid: {
+      vertLines: { color: '#1e2d3d' },
+      horzLines: { color: '#1e2d3d' },
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { color: '#00d4ff', labelBackgroundColor: '#0d1117' },
+      horzLine: { color: '#00d4ff', labelBackgroundColor: '#0d1117' },
+    },
+    rightPriceScale: { borderColor: '#1e2d3d' },
+    timeScale:       { borderColor: '#1e2d3d', timeVisible: true },
   });
 
-  el.innerHTML = html;
+  const candleSeries = chart.addCandlestickSeries({
+    upColor:         '#00ff88',
+    downColor:       '#ff4466',
+    borderUpColor:   '#00ff88',
+    borderDownColor: '#ff4466',
+    wickUpColor:     '#00993a',
+    wickDownColor:   '#992233',
+  });
+
+  const volSeries = chart.addHistogramSeries({
+    priceFormat:  { type: 'volume' },
+    priceScaleId: 'vol',
+    scaleMargins: { top: 0.85, bottom: 0 },
+  });
+
+  // Default 6-month view
+  const cutoff  = Date.now() / 1000 - 180 * 86400;
+  const visible = priceData.filter(d => d.time >= cutoff);
+  const display = visible.length > 10 ? visible : priceData;
+
+  candleSeries.setData(display);
+  volSeries.setData(display.map(d => ({
+    time:  d.time,
+    value: d.volume || 0,
+    color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
+  })));
+
+  const markers = buildMarkers(trades, display);
+  if (markers.length) candleSeries.setMarkers(markers);
+
+  chart.timeScale().fitContent();
+
+  state.chart            = chart;
+  state.candleSeries     = candleSeries;
+  state.volSeries        = volSeries;
+  state.currentPriceData = priceData;
+
+  // Resize observer
+  const ro = new ResizeObserver(entries => {
+    const w = entries[0].contentRect.width;
+    if (w > 0 && state.chart) state.chart.applyOptions({ width: w });
+  });
+  ro.observe(container);
+}
+
+function buildMarkers(trades, priceData) {
+  if (!priceData.length) return [];
+  const markers = [];
+
+  trades.forEach(t => {
+    const dateStr = t.trade || t.filing;
+    if (!dateStr) return;
+    const ts = Math.floor(new Date(dateStr + 'T12:00:00Z').getTime() / 1000);
+
+    // Snap to nearest available price bar
+    let best = null, minDiff = Infinity;
+    priceData.forEach(d => {
+      const diff = Math.abs(d.time - ts);
+      if (diff < minDiff) { minDiff = diff; best = d.time; }
+    });
+    if (!best || minDiff > 14 * 86400) return;
+
+    const tc    = tradeClass(t.type);
+    const isBuy = tc === 'buy';
+    const isOpt = tc === 'option';
+
+    markers.push({
+      time:     best,
+      position: isBuy ? 'belowBar' : 'aboveBar',
+      color:    isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466',
+      shape:    isBuy ? 'arrowUp' : 'arrowDown',
+      text:     `${t.insider ? t.insider.split(' ').slice(-1)[0] : ''} ${fmt(t.value)}`,
+      size:     Math.min(3, Math.max(1, Math.log10(t.value || 1) - 3.5)),
+    });
+  });
+
+  markers.sort((a, b) => a.time - b.time);
+  return markers;
+}
+
+function setRange(days, btn) {
+  document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  if (!state.chart || !state.candleSeries || !state.currentPriceData) return;
+
+  const cutoff  = Date.now() / 1000 - days * 86400;
+  const display = days >= 9000
+    ? state.currentPriceData
+    : state.currentPriceData.filter(d => d.time >= cutoff);
+  const data = display.length > 10 ? display : state.currentPriceData;
+
+  state.candleSeries.setData(data);
+  if (state.volSeries) {
+    state.volSeries.setData(data.map(d => ({
+      time: d.time, value: d.volume || 0,
+      color: d.close >= d.open ? 'rgba(0,255,136,0.18)' : 'rgba(255,68,102,0.18)',
+    })));
+  }
+  state.candleSeries.setMarkers(buildMarkers(state.tickerTrades, data));
+  state.chart.timeScale().fitContent();
 }
 
 // ═══════════════════════════════════════════════════════
-// TRADE PILL LIST (below timeline)
+// TRADE PILL LIST
 // ═══════════════════════════════════════════════════════
 function renderTradeMarkerList(trades) {
   const el = document.getElementById('tradeMarkerList');
   if (!el) return;
-  const sorted = [...trades].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing));
-  el.innerHTML = sorted.slice(0,15).map(t => {
-    const tc = tradeClass(t.type);
-    const color  = tc==='buy' ? 'var(--buy)'  : tc==='sell' ? 'var(--sell)'  : 'var(--option)';
-    const border = tc==='buy' ? 'rgba(0,255,136,0.3)' : tc==='sell' ? 'rgba(255,68,102,0.3)' : 'rgba(255,170,0,0.3)';
-    const bg     = tc==='buy' ? 'rgba(0,255,136,0.07)' : tc==='sell' ? 'rgba(255,68,102,0.07)' : 'rgba(255,170,0,0.07)';
+  const sorted = [...trades].sort((a, b) => new Date(b.trade || b.filing) - new Date(a.trade || a.filing));
+  el.innerHTML = sorted.slice(0, 15).map(t => {
+    const tc     = tradeClass(t.type);
+    const color  = tc === 'buy' ? 'var(--buy)'  : tc === 'sell' ? 'var(--sell)'  : 'var(--option)';
+    const border = tc === 'buy' ? 'rgba(0,255,136,0.3)' : tc === 'sell' ? 'rgba(255,68,102,0.3)' : 'rgba(255,170,0,0.3)';
+    const bg     = tc === 'buy' ? 'rgba(0,255,136,0.07)' : tc === 'sell' ? 'rgba(255,68,102,0.07)' : 'rgba(255,170,0,0.07)';
     return `
       <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
                   background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer"
            onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
-        <span style="color:${color};font-size:10px;font-weight:700">${tc==='buy'?'▲':'▼'} ${tradeLabel(t.type)}</span>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade||t.filing)}</span>
+        <span style="color:${color};font-size:10px;font-weight:700">${tc === 'buy' ? '▲' : '▼'} ${tradeLabel(t.type)}</span>
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade || t.filing)}</span>
         <span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
-        <span style="font-size:10px;color:var(--muted)">${t.insider.split(' ').slice(-1)[0]}</span>
+        <span style="font-size:10px;color:var(--muted)">${t.insider ? t.insider.split(' ').slice(-1)[0] : ''}</span>
       </div>`;
   }).join('');
   if (trades.length > 15) {
-    el.innerHTML += `<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length-15} more — see table below</div>`;
+    el.innerHTML += `<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length - 15} more — see table below</div>`;
   }
 }
 
@@ -1926,4 +1912,3 @@ loadScreener();
 </script>
 </body>
 </html>
-
