@@ -1286,9 +1286,8 @@ async function loadStockView(ticker) {
           <div id="tvWidget" style="height:500px;"></div>
         </div>
         <!-- Insider Pressure pane -->
-        <div style="position:relative;width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
-          <div style="position:absolute;top:6px;left:10px;z-index:5;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;user-select:none">INSIDER PRESSURE</div>
-          <div id="pressureContainer" style="width:100%;height:140px;"></div>
+        <div style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;padding:8px 12px 4px;box-sizing:border-box;">
+          <div id="pressureContainer" style="width:100%;"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
@@ -1385,131 +1384,97 @@ function _initTVWidget(ticker) {
 }
 
 // ═══════════════════════════════════════════════════════
-// INSIDER PRESSURE INDICATOR
-// Standalone chart below the TradingView widget.
-// Built purely from trade dates — no price data needed.
+// INSIDER PRESSURE — SVG bar chart, date-axis aligned
+// No external library. Uses real YYYY-MM-DD dates so
+// x-axis always shows accurate calendar positions.
 // ═══════════════════════════════════════════════════════
 function buildPressureFromTrades(trades) {
   const pc = document.getElementById('pressureContainer');
-  if (!pc || !trades.length) return;
-
-  // Destroy previous
-  if (state.pressureChart) {
-    try { state.pressureChart.remove(); } catch(e) {}
-    state.pressureChart = null;
+  if (!pc) return;
+  pc.innerHTML = '';
+  if (!trades.length) {
+    pc.innerHTML = '<div style="height:140px;display:flex;align-items:center;justify-content:center;color:#4a6580;font-size:11px;font-family:Space Mono,monospace">NO TRADE DATA</div>';
+    return;
   }
 
-  if (typeof LightweightCharts === 'undefined') {
-    // Dynamically load LWC just for the pressure chart
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
-    s.onload = () => _buildPressureChart(pc, trades);
-    document.head.appendChild(s);
-  } else {
-    _buildPressureChart(pc, trades);
-  }
-}
-
-function _buildPressureChart(pc, trades) {
-  if (!window.LightweightCharts) return;
-
-  // Build a daily timeline from oldest to newest trade
-  const dateSet = new Set(trades.map(t => t.trade || t.filing).filter(Boolean));
-  const dates   = [...dateSet].sort();
-  if (!dates.length) return;
-
-  // Expand to full range with zero-fill
-  const start = new Date(dates[0]);
-  const end   = new Date(dates[dates.length - 1]);
-  // Add 30 days padding on each side
-  start.setDate(start.getDate() - 30);
-  end.setDate(end.getDate() + 30);
-
-  // Aggregate buy/sell value per day
+  // Aggregate by date
   const byDay = {};
   trades.forEach(t => {
-    const d = t.trade || t.filing;
+    const d = (t.trade || t.filing || '').slice(0, 10);
     if (!d) return;
-    if (!byDay[d]) byDay[d] = { buy: 0, sell: 0, opt: 0 };
+    if (!byDay[d]) byDay[d] = { buy: 0, sell: 0 };
     const tc = tradeClass(t.type);
-    if (tc === 'buy')       byDay[d].buy  += t.value || 0;
-    else if (tc === 'sell') byDay[d].sell += t.value || 0;
-    else                    byDay[d].opt  += t.value || 0;
+    if (tc === 'buy')  byDay[d].buy  += Math.max(t.value || 1, 1);
+    if (tc === 'sell') byDay[d].sell += Math.max(t.value || 1, 1);
   });
 
-  // Normalise to ±100
-  let maxVal = 0;
-  Object.values(byDay).forEach(d => maxVal = Math.max(maxVal, d.buy + d.sell + d.opt));
-  if (!maxVal) return;
+  const days   = Object.keys(byDay).sort();
+  if (!days.length) return;
 
-  // Build day-by-day series with EMA decay
-  const timePoints = [];
-  const cur = new Date(start);
-  while (cur <= end) {
-    const key = cur.toISOString().split('T')[0];
-    const day = byDay[key];
-    const ts  = Math.floor(cur.getTime() / 1000);
-    const raw = day
-      ? ((day.buy - day.sell) >= 0 ? 1 : -1) * (day.buy + day.sell + day.opt) / maxVal * 100
-      : 0;
-    timePoints.push({ time: ts, raw });
-    cur.setDate(cur.getDate() + 1);
-  }
+  // Build a monthly bucketed view for the bars
+  // Group trades into ~60 equal time buckets across full date range
+  const firstMs = new Date(days[0]).getTime();
+  const lastMs  = new Date(days[days.length - 1]).getTime();
+  const spanMs  = Math.max(lastMs - firstMs, 86400000);
+  const NUM_BUCKETS = 60;
+  const buckets = Array.from({length: NUM_BUCKETS}, () => ({ buy: 0, sell: 0, date: '' }));
 
-  // 5-period EMA
-  const k = 2 / 6;
-  let ema = 0;
-  const smoothed = timePoints.map(p => {
-    ema = p.raw !== 0 ? p.raw * k + ema * (1 - k) : ema * (1 - k);
-    return { time: p.time, value: +ema.toFixed(2) };
+  days.forEach(d => {
+    const pct = (new Date(d).getTime() - firstMs) / spanMs;
+    const bi  = Math.min(Math.floor(pct * NUM_BUCKETS), NUM_BUCKETS - 1);
+    buckets[bi].buy  += byDay[d].buy;
+    buckets[bi].sell += byDay[d].sell;
+    if (!buckets[bi].date) buckets[bi].date = d;
   });
 
-  const chart = LightweightCharts.createChart(pc, {
-    width:  pc.clientWidth || 800,
-    height: 140,
-    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
-    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: 'transparent' } },
-    crosshair: {
-      mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { color: '#00d4ff', labelBackgroundColor: '#0d1117' },
-      horzLine: { color: '#1e2d3d', labelBackgroundColor: '#0d1117' },
-    },
-    rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.1, bottom: 0.1 } },
-    timeScale: { borderColor: '#1e2d3d', timeVisible: true },
-    handleScroll: true,
-    handleScale:  true,
-  });
+  // Normalise
+  const maxVal = Math.max(...buckets.map(b => Math.max(b.buy, b.sell)), 1);
+  const H = 130, W_PCT = 100;
+  const barW = W_PCT / NUM_BUCKETS;
+
+  // Build SVG
+  const svgBars = buckets.map((b, i) => {
+    const x       = i * barW;
+    const buyH    = (b.buy  / maxVal) * (H * 0.45);
+    const sellH   = (b.sell / maxVal) * (H * 0.45);
+    const midY    = H / 2;
+    const buyBar  = buyH  > 0.5 ? `<rect x="${x.toFixed(2)}%" y="${(midY - buyH).toFixed(1)}" width="${(barW * 0.8).toFixed(2)}%" height="${buyH.toFixed(1)}" fill="rgba(0,255,136,0.7)" rx="1"/>` : '';
+    const sellBar = sellH > 0.5 ? `<rect x="${x.toFixed(2)}%" y="${midY.toFixed(1)}" width="${(barW * 0.8).toFixed(2)}%" height="${sellH.toFixed(1)}" fill="rgba(255,68,102,0.7)" rx="1"/>` : '';
+    const tip     = b.date ? `<title>${b.date}: Buy ${fmt(b.buy)} | Sell ${fmt(b.sell)}</title>` : '';
+    return `<g class="pressure-bar" style="cursor:default">${tip}${buyBar}${sellBar}</g>`;
+  }).join('');
+
+  // Date labels (show ~5 evenly spaced)
+  const labelCount = 5;
+  const labelIdxs  = Array.from({length: labelCount}, (_, i) => Math.round(i * (NUM_BUCKETS - 1) / (labelCount - 1)));
+  const labels     = labelIdxs.map(i => {
+    const b    = buckets[i];
+    const d    = b.date || days[Math.min(Math.round(i / NUM_BUCKETS * days.length), days.length - 1)] || '';
+    const x    = (i * barW + barW / 2).toFixed(2);
+    const text = d ? d.slice(0, 7) : '';
+    return `<text x="${x}%" y="${H + 14}" text-anchor="middle" font-size="9" fill="#4a6580" font-family="Space Mono,monospace">${text}</text>`;
+  }).join('');
 
   // Zero line
-  chart.addLineSeries({ color: '#1e2d3d', lineWidth: 1,
-    lineStyle: LightweightCharts.LineStyle.Dashed,
-    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-  }).setData(smoothed.map(d => ({ time: d.time, value: 0 })));
+  const zeroLine = `<line x1="0" y1="${H/2}" x2="100%" y2="${H/2}" stroke="#1e2d3d" stroke-width="1" stroke-dasharray="3,3"/>`;
+  // Label
+  const labelEl  = `<text x="6" y="12" font-size="9" fill="#4a6580" font-family="Space Mono,monospace" letter-spacing="1.5">INSIDER PRESSURE</text>`;
+  // Buy/Sell legend
+  const legend   = `<rect x="calc(100% - 100px)" y="4" width="8" height="8" fill="rgba(0,255,136,0.7)" rx="1"/>
+    <text x="calc(100% - 88px)" y="12" font-size="9" fill="#4a6580" font-family="Space Mono,monospace">BUY</text>
+    <rect x="calc(100% - 58px)" y="4" width="8" height="8" fill="rgba(255,68,102,0.7)" rx="1"/>
+    <text x="calc(100% - 46px)" y="12" font-size="9" fill="#4a6580" font-family="Space Mono,monospace">SELL</text>`;
 
-  // Positive area (buy pressure)
-  chart.addAreaSeries({
-    topColor: 'rgba(0,255,136,0.3)', bottomColor: 'rgba(0,255,136,0)',
-    lineColor: '#00ff88', lineWidth: 2,
-    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-  }).setData(smoothed.map(d => ({ time: d.time, value: Math.max(0, d.value) })));
-
-  // Negative area (sell pressure)
-  chart.addAreaSeries({
-    topColor: 'rgba(255,68,102,0)', bottomColor: 'rgba(255,68,102,0.3)',
-    lineColor: '#ff4466', lineWidth: 2,
-    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-    invertFilledArea: true,
-  }).setData(smoothed.map(d => ({ time: d.time, value: Math.min(0, d.value) })));
-
-  chart.timeScale().fitContent();
-  state.pressureChart = chart;
-
-  new ResizeObserver(() => {
-    if (state.pressureChart) state.pressureChart.applyOptions({ width: pc.clientWidth });
-  }).observe(pc);
+  pc.innerHTML = `
+    <svg width="100%" height="${H + 22}" style="display:block;overflow:visible">
+      ${zeroLine}
+      ${svgBars}
+      ${labelEl}
+      ${labels}
+    </svg>`;
 }
 
-// setRange is no longer used (TradingView handles its own range)
+// setRange not used — TradingView handles its own timeframe
 function setRange(days, btn) {
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
