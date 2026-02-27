@@ -4,7 +4,8 @@
   "description": "Insider trading tracker",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "npm install"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3",
