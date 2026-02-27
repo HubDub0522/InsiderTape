@@ -64,10 +64,14 @@ function parseDate(s) {
   if (!s) return null;
   const mon = {JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',
                JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12'};
+  let result = null;
   const m = s.match(/^(\d{2})-([A-Z]{3})-(\d{4})$/i);
-  if (m) return `${m[3]}-${mon[m[2].toUpperCase()]||'01'}-${m[1]}`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.slice(0,10);
-  return null;
+  if (m) result = `${m[3]}-${mon[m[2].toUpperCase()]||'01'}-${m[1]}`;
+  else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) result = s.slice(0,10);
+  if (!result) return null;
+  const yr = parseInt(result.slice(0,4));
+  if (yr < 2000 || yr > 2027) return null;
+  return result;
 }
 
 // Extract ONE file from ZIP, return lines[]. Scans sequentially, never holds >1 file.
