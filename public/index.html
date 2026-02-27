@@ -1095,16 +1095,28 @@ async function loadScreener() {
 
   document.getElementById('screenerBody').innerHTML =
     `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div>
-     <span>Fetching insider filings from SEC...</span></div></td></tr>`;
+     <span>Loading insider filings...</span></div></td></tr>`;
   document.getElementById('summaryBar').innerHTML = '';
 
   try {
-    const trades = await apiFetch('/api/screener');
+    const resp = await apiFetch('/api/screener');
 
-    if (!trades || !trades.length) {
+    // Server is still loading SEC quarterly data — poll until ready
+    if (resp && resp.building) {
+      document.getElementById('screenerBody').innerHTML =
+        `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div>
+         <span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span>
+         </div></td></tr>`;
+      setTimeout(loadScreener, 8000);
+      return;
+    }
+
+    const trades = Array.isArray(resp) ? resp : (resp.trades || []);
+
+    if (!trades.length) {
       document.getElementById('screenerBody').innerHTML =
         `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div>
-         <div>No filings found for this period</div></div></td></tr>`;
+         <div>No filings found</div></div></td></tr>`;
       return;
     }
 
