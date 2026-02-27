@@ -1,60 +1,75 @@
 'use strict';
 
 // ─────────────────────────────────────────────────────────────
-//  INSIDERTAPE — Server
+//  INSIDERTAPE — Server (SQLite edition)
 //
-//  Data source: SEC Insider Transactions Data Sets (quarterly ZIPs)
-//  https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets
+//  SQLite database stored at /var/data/trades.db
+//  On Render: attach a Persistent Disk, mount path = /var/data
 //
-//  Each quarterly ZIP contains pre-parsed TSV files:
-//    SUBMISSION.tsv        — filing metadata (ticker, company, date)
-//    REPORTINGOWNER.tsv    — insider name & title
-//    NONDERIV_TRANS.tsv    — stock transactions (buys/sells)
-//    DERIV_TRANS.tsv       — option/derivative transactions
-//
-//  We download the last 4 quarters on startup, join the tables,
-//  store everything in memory, and serve from there.
-//  No XML parsing. No per-request API calls. No rate limits.
-//
-//  Price data: FMP (confirmed working, free tier)
+//  Trade data: SEC Insider Transactions Data Sets (quarterly ZIPs)
+//  Price data: FMP EOD historical
 // ─────────────────────────────────────────────────────────────
 
 const express  = require('express');
 const cors     = require('cors');
 const https    = require('https');
-const http     = require('http');
-const fs       = require('fs');
-const path     = require('path');
 const zlib     = require('zlib');
-const readline = require('readline');
+const path     = require('path');
+const fs       = require('fs');
+const Database = require('better-sqlite3');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const FMP  = 'OJfv9bPVEMrnwPX7noNpJLZCFLLFTmlu';
+const FMP  = process.env.FMP_KEY || 'OJfv9bPVEMrnwPX7noNpJLZCFLLFTmlu';
+
+// Use /var/data if it exists (Render persistent disk), else local ./data
+const DATA_DIR = fs.existsSync('/var/data') ? '/var/data' : path.join(__dirname, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const DB_PATH = path.join(DATA_DIR, 'trades.db');
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// ─── TRADE STORE ─────────────────────────────────────────────
-let trades      = [];   // all normalised trades, newest-first
-let lastBuilt   = null;
-let buildStatus = 'idle'; // idle | running | done | error
-let buildLog    = [];
+// ─── DATABASE SETUP ───────────────────────────────────────────
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
 
-function log(msg) {
-  const line = `[${new Date().toISOString().slice(11,19)}] ${msg}`;
-  console.log(line);
-  buildLog.push(line);
-  if (buildLog.length > 100) buildLog.shift();
-}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trades (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker      TEXT    NOT NULL,
+    company     TEXT,
+    insider     TEXT,
+    title       TEXT,
+    trade_date  TEXT    NOT NULL,
+    filing_date TEXT,
+    type        TEXT,
+    qty         INTEGER,
+    price       REAL,
+    value       INTEGER,
+    owned       INTEGER,
+    accession   TEXT,
+    UNIQUE(accession, insider, trade_date, type, qty)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ticker     ON trades(ticker);
+  CREATE INDEX IF NOT EXISTS idx_trade_date ON trades(trade_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_insider    ON trades(insider);
+  CREATE TABLE IF NOT EXISTS sync_log (
+    quarter   TEXT PRIMARY KEY,
+    synced_at TEXT DEFAULT (datetime('now')),
+    rows      INTEGER
+  );
+`);
 
-// ─── HTTP HELPERS ─────────────────────────────────────────────
-function get(url, timeoutMs = 30000) {
+console.log(`SQLite at ${DB_PATH}`);
+
+// ─── HTTP HELPER ──────────────────────────────────────────────
+function get(url, timeoutMs = 90000) {
   return new Promise((resolve, reject) => {
-    const lib = url.startsWith('https') ? https : http;
-    const req = lib.get(url, {
+    const req = https.get(url, {
       headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
       timeout: timeoutMs,
     }, res => {
@@ -65,329 +80,336 @@ function get(url, timeoutMs = 30000) {
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
     });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error(`Timeout: ${url.slice(0,60)}`)); });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout: ' + url.slice(0,60))); });
   });
 }
 
-// Download a ZIP and extract named files into a map of filename→lines[]
-async function fetchZipTSVs(url, wantedFiles) {
-  log(`Downloading ${url}`);
-  const { status, body } = await get(url, 120000);
-  if (status !== 200) throw new Error(`HTTP ${status} for ${url}`);
-  log(`Downloaded ${Math.round(body.length/1024)}KB`);
-
-  // Parse ZIP manually (no external deps)
-  // Find each local file header and extract
-  const result = {};
-  let offset = 0;
-  const buf = body;
-
-  while (offset < buf.length - 4) {
-    // Local file header signature: PK\x03\x04
-    if (buf[offset] !== 0x50 || buf[offset+1] !== 0x4B ||
-        buf[offset+2] !== 0x03 || buf[offset+3] !== 0x04) {
-      offset++;
-      continue;
-    }
-
-    const compression  = buf.readUInt16LE(offset + 8);
-    const compSize     = buf.readUInt32LE(offset + 18);
-    const uncompSize   = buf.readUInt32LE(offset + 22);
-    const fnameLen     = buf.readUInt16LE(offset + 26);
-    const extraLen     = buf.readUInt16LE(offset + 28);
-    const fname        = buf.slice(offset + 30, offset + 30 + fnameLen).toString('utf8');
-    const dataStart    = offset + 30 + fnameLen + extraLen;
-    const dataEnd      = dataStart + compSize;
-
-    const basename = fname.split('/').pop().toUpperCase();
-    if (wantedFiles.some(w => basename.startsWith(w))) {
-      log(`  Extracting ${fname} (${Math.round(compSize/1024)}KB compressed)`);
+// ─── ZIP EXTRACTOR ────────────────────────────────────────────
+function extractZip(buf, wanted) {
+  const out = {};
+  let pos = 0;
+  while (pos < buf.length - 4) {
+    if (buf[pos] !== 0x50 || buf[pos+1] !== 0x4B ||
+        buf[pos+2] !== 0x03 || buf[pos+3] !== 0x04) { pos++; continue; }
+    const compression = buf.readUInt16LE(pos + 8);
+    const compSize    = buf.readUInt32LE(pos + 18);
+    const fnLen       = buf.readUInt16LE(pos + 26);
+    const exLen       = buf.readUInt16LE(pos + 28);
+    const fname       = buf.slice(pos + 30, pos + 30 + fnLen).toString();
+    const dataStart   = pos + 30 + fnLen + exLen;
+    const base        = fname.split('/').pop().toUpperCase();
+    if (wanted.some(w => base.startsWith(w))) {
       try {
-        let raw;
-        if (compression === 0) {
-          raw = buf.slice(dataStart, dataEnd);
-        } else if (compression === 8) {
-          raw = zlib.inflateRawSync(buf.slice(dataStart, dataEnd));
-        } else {
-          log(`  Unknown compression ${compression} for ${fname}, skipping`);
-          offset = dataEnd;
-          continue;
-        }
-        const text  = raw.toString('utf8');
-        const lines = text.split('\n');
-        result[basename] = lines;
-        log(`  ${basename}: ${lines.length} lines`);
-      } catch(e) {
-        log(`  Error extracting ${fname}: ${e.message}`);
-      }
+        const raw = compression === 8
+          ? zlib.inflateRawSync(buf.slice(dataStart, dataStart + compSize))
+          : buf.slice(dataStart, dataStart + compSize);
+        out[base] = raw.toString('utf8').split('\n');
+        syncLog(`  Extracted ${base} (${out[base].length} lines)`);
+      } catch(e) { syncLog(`  Failed to extract ${base}: ${e.message}`); }
     }
-
-    offset = dataEnd;
+    pos = dataStart + compSize;
   }
-
-  return result;
+  return out;
 }
 
-// Parse TSV lines into array of objects using first line as headers
+// ─── TSV PARSER ───────────────────────────────────────────────
 function parseTSV(lines) {
-  if (!lines || lines.length < 2) return [];
-  const headers = lines[0].split('\t').map(h => h.trim());
+  if (!lines?.length) return [];
+  const hdrs = lines[0].split('\t').map(h => h.trim().toUpperCase());
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
     const cols = lines[i].split('\t');
-    if (cols.length < 2) continue;
-    const row = {};
-    headers.forEach((h, j) => { row[h] = (cols[j] || '').trim(); });
+    const row  = {};
+    hdrs.forEach((h, j) => { row[h] = (cols[j] || '').trim(); });
     rows.push(row);
   }
   return rows;
 }
 
-// Current + last 3 quarters
-function getRecentQuarters() {
-  const quarters = [];
-  const now = new Date();
-  let year = now.getFullYear();
-  let q    = Math.ceil((now.getMonth() + 1) / 3);
-
-  // The current quarter's file might not exist yet (published at quarter end)
-  // Start from previous quarter to be safe
-  for (let i = 0; i < 5; i++) {
-    q--;
-    if (q < 1) { q = 4; year--; }
-    quarters.push({ year, q });
-    if (quarters.length >= 4) break;
-  }
-  return quarters;
+function parseDate(s) {
+  if (!s) return null;
+  // DD-MON-YYYY
+  const mon = {JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',
+                JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12'};
+  const m = s.match(/^(\d{2})-([A-Z]{3})-(\d{4})$/i);
+  if (m) return `${m[3]}-${mon[m[2].toUpperCase()]||'01'}-${m[1]}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.slice(0,10);
+  return null;
 }
 
-// ─── BUILD TRADE STORE ────────────────────────────────────────
-async function buildTradeStore() {
-  if (buildStatus === 'running') return;
-  buildStatus = 'running';
-  buildLog    = [];
-  log('=== Starting trade store build ===');
+// ─── SYNC STATE ───────────────────────────────────────────────
+const syncState = { running: false, log: [] };
 
-  try {
-    const quarters = getRecentQuarters();
-    log(`Will fetch quarters: ${quarters.map(q=>`${q.year}Q${q.q}`).join(', ')}`);
+function syncLog(msg) {
+  const line = `[${new Date().toISOString().slice(11,19)}] ${msg}`;
+  console.log(line);
+  syncState.log.push(line);
+  if (syncState.log.length > 300) syncState.log.splice(0, 100);
+}
 
-    const allTrades = [];
+// ─── SYNC ONE QUARTER ─────────────────────────────────────────
+async function syncQuarter(year, q, force = false) {
+  const key = `${year}Q${q}`;
+  if (!force) {
+    const row = db.prepare('SELECT 1 FROM sync_log WHERE quarter=?').get(key);
+    if (row) { syncLog(`${key}: already done, skipping`); return 0; }
+  }
 
-    for (const { year, q } of quarters) {
-      const url = `https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/${year}q${q}_form345.zip`;
-      try {
-        const files = await fetchZipTSVs(url, ['SUBMISSION', 'REPORTINGOWNER', 'NONDERIV_TRANS', 'DERIV_TRANS']);
+  const url = `https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/${year}q${q}_form345.zip`;
+  syncLog(`${key}: downloading ${url}`);
 
-        const submissions = parseTSV(files['SUBMISSION.TSV'] || files['SUBMISSION.TXT']);
-        const owners      = parseTSV(files['REPORTINGOWNER.TSV'] || files['REPORTINGOWNER.TXT']);
-        const ndTrans     = parseTSV(files['NONDERIV_TRANS.TSV'] || files['NONDERIV_TRANS.TXT']);
-        const dTrans      = parseTSV(files['DERIV_TRANS.TSV'] || files['DERIV_TRANS.TXT']);
+  const { status, body } = await get(url, 180000);
+  if (status !== 200) throw new Error(`HTTP ${status} downloading ${key}`);
+  syncLog(`${key}: ${(body.length/1024/1024).toFixed(1)}MB received`);
 
-        log(`${year}Q${q}: ${submissions.length} submissions, ${owners.length} owners, ${ndTrans.length} ND trans, ${dTrans.length} D trans`);
+  const files = extractZip(body, ['SUBMISSION', 'REPORTINGOWNER', 'NONDERIV_TRANS', 'DERIV_TRANS']);
 
-        // Build lookup maps
-        // submission: ACCESSION_NUMBER → { ticker, company, filingDate }
-        const subMap = {};
-        for (const s of submissions) {
-          const acc = s.ACCESSION_NUMBER || s.accession_number || '';
-          if (!acc) continue;
-          subMap[acc] = {
-            ticker:  (s.ISSUERTRADINGSYMBOL  || s.issuerTradingSymbol  || '').trim().toUpperCase(),
-            company: (s.ISSUERNAME           || s.issuerName           || '').trim(),
-            filed:   (s.FILEDATE             || s.filingDate           || s.PERIOD_OF_REPORT || '').trim(),
-            period:  (s.PERIOD_OF_REPORT     || s.periodOfReport       || '').trim(),
-          };
-        }
+  const subs   = parseTSV(files['SUBMISSION.TSV']     || files['SUBMISSION.TXT']     || []);
+  const owners = parseTSV(files['REPORTINGOWNER.TSV'] || files['REPORTINGOWNER.TXT'] || []);
+  const ndT    = parseTSV(files['NONDERIV_TRANS.TSV'] || files['NONDERIV_TRANS.TXT'] || []);
+  const dT     = parseTSV(files['DERIV_TRANS.TSV']    || files['DERIV_TRANS.TXT']    || []);
 
-        // owner: ACCESSION_NUMBER → { name, title }
-        const ownerMap = {};
-        for (const o of owners) {
-          const acc = o.ACCESSION_NUMBER || o.accession_number || '';
-          if (!acc) continue;
-          if (!ownerMap[acc]) {
-            ownerMap[acc] = {
-              name:  (o.RPTOWNERNAME    || o.reportingOwnerName || o.rptOwnerName || '').trim(),
-              title: (o.OFFICERTITLE    || o.officerTitle       || o.RPTOWNERRELATIONSHIP || '').trim(),
-            };
-          }
-        }
+  syncLog(`${key}: ${subs.length} subs | ${owners.length} owners | ${ndT.length} ND | ${dT.length} D`);
 
-        // Process non-derivative transactions
-        for (const t of ndTrans) {
-          const acc  = t.ACCESSION_NUMBER || t.accession_number || '';
-          const sub  = subMap[acc];
-          const own  = ownerMap[acc];
-          if (!sub || !sub.ticker) continue;
+  // Build maps
+  const subMap = {};
+  for (const s of subs) {
+    const acc = s.ACCESSION_NUMBER || '';
+    if (!acc) continue;
+    subMap[acc] = {
+      ticker:  (s.ISSUERTRADINGSYMBOL || '').toUpperCase().trim(),
+      company: (s.ISSUERNAME || '').trim(),
+      filed:    parseDate(s.FILEDATE || s.PERIOD_OF_REPORT || ''),
+      period:   parseDate(s.PERIOD_OF_REPORT || s.FILEDATE || ''),
+    };
+  }
 
-          const qty   = Math.abs(parseFloat(t.TRANS_SHARES || t.transShares || '0') || 0);
-          const price = Math.abs(parseFloat(t.TRANS_PRICEPERSHARE || t.transPricePerShare || '0') || 0);
-          const date  = (t.TRANS_DATE || t.transactionDate || sub.period || sub.filed || '').slice(0,10);
-          if (!date) continue;
+  const ownerMap = {};
+  for (const o of owners) {
+    const acc = o.ACCESSION_NUMBER || '';
+    if (!acc || ownerMap[acc]) continue;
+    ownerMap[acc] = {
+      name:  (o.RPTOWNERNAME || '').trim(),
+      title: (o.OFFICERTITLE || o.RPTOWNERRELATIONSHIP || '').trim(),
+    };
+  }
 
-          allTrades.push({
-            ticker:  sub.ticker,
-            company: sub.company,
-            insider: own?.name  || '',
-            title:   own?.title || '',
-            trade:   date,
-            filing:  sub.filed.slice(0,10),
-            type:    (t.TRANS_CODE || t.transactionCode || '?').trim(),
-            qty:     Math.round(qty),
-            price:   +price.toFixed(2),
-            value:   Math.round(qty * price),
-            owned:   Math.round(Math.abs(parseFloat(t.SHRSOWNFOLLOWINGTRANS || t.sharesOwnedFollowingTransaction || '0') || 0)),
-          });
-        }
+  // Insert in one transaction — much faster
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO trades
+      (ticker, company, insider, title, trade_date, filing_date, type, qty, price, value, owned, accession)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
 
-        // Process derivative transactions
-        for (const t of dTrans) {
-          const acc  = t.ACCESSION_NUMBER || t.accession_number || '';
-          const sub  = subMap[acc];
-          const own  = ownerMap[acc];
-          if (!sub || !sub.ticker) continue;
-
-          const qty   = Math.abs(parseFloat(t.TRANS_SHARES || t.transShares || t.UNDERLYING_SHARES || '0') || 0);
-          const price = Math.abs(parseFloat(t.TRANS_PRICEPERSHARE || t.exercisePrice || t.EXERCISE_PRICE || '0') || 0);
-          const date  = (t.TRANS_DATE || t.transactionDate || sub.period || sub.filed || '').slice(0,10);
-          if (!date) continue;
-
-          allTrades.push({
-            ticker:  sub.ticker,
-            company: sub.company,
-            insider: own?.name  || '',
-            title:   own?.title || '',
-            trade:   date,
-            filing:  sub.filed.slice(0,10),
-            type:    (t.TRANS_CODE || t.transactionCode || '?').trim(),
-            qty:     Math.round(qty),
-            price:   +price.toFixed(2),
-            value:   Math.round(qty * price),
-            owned:   0,
-          });
-        }
-
-        log(`${year}Q${q}: running total ${allTrades.length} trades`);
-      } catch(e) {
-        log(`${year}Q${q} FAILED: ${e.message}`);
-      }
+  const insertMany = db.transaction(rows => {
+    let count = 0;
+    for (const r of rows) {
+      const info = insert.run(r);
+      count += info.changes;
     }
+    return count;
+  });
 
-    // Deduplicate & sort
-    const seen   = new Set();
-    const unique = allTrades
-      .filter(t => t.ticker && t.trade && t.type)
-      .sort((a,b) => b.trade.localeCompare(a.trade))
-      .filter(t => {
-        const k = `${t.ticker}|${t.insider}|${t.trade}|${t.type}|${t.qty}`;
-        if (seen.has(k)) return false;
-        seen.add(k); return true;
-      });
+  const rows = [];
+  function addRow(t) {
+    const acc = t.ACCESSION_NUMBER || '';
+    const sub = subMap[acc];
+    if (!sub?.ticker) return;
+    const date  = parseDate(t.TRANS_DATE || '') || sub.period || sub.filed;
+    if (!date) return;
+    const qty   = Math.round(Math.abs(parseFloat(t.TRANS_SHARES || t.UNDERLYING_SHARES || '0') || 0));
+    const price = Math.abs(parseFloat(t.TRANS_PRICEPERSHARE || t.EXERCISE_PRICE || '0') || 0);
+    const code  = (t.TRANS_CODE || '?').trim();
+    const owned = Math.round(Math.abs(parseFloat(t.SHRSOWNFOLLOWINGTRANS || '0') || 0));
+    rows.push([
+      sub.ticker, sub.company,
+      ownerMap[acc]?.name  || '',
+      ownerMap[acc]?.title || '',
+      date, sub.filed || date,
+      code, qty, +price.toFixed(4),
+      Math.round(qty * price),
+      owned, acc,
+    ]);
+  }
 
-    trades      = unique;
-    lastBuilt   = new Date();
-    buildStatus = 'done';
-    log(`=== Build complete: ${unique.length} unique trades ===`);
+  for (const t of ndT) addRow(t);
+  for (const t of dT)  addRow(t);
 
+  const inserted = insertMany(rows);
+  db.prepare('INSERT OR REPLACE INTO sync_log (quarter, rows) VALUES (?,?)').run(key, inserted);
+  syncLog(`${key}: inserted ${inserted} new rows`);
+  return inserted;
+}
+
+// ─── FULL SYNC ────────────────────────────────────────────────
+function getQuarters(n) {
+  const out = [];
+  let year = new Date().getFullYear();
+  let q    = Math.ceil((new Date().getMonth() + 1) / 3);
+  while (out.length < n) {
+    q--; if (q < 1) { q = 4; year--; }
+    out.push({ year, q });
+  }
+  return out;
+}
+
+async function runSync(numQuarters = 4, force = false) {
+  if (syncState.running) return;
+  syncState.running = true;
+  try {
+    syncLog(`=== Sync started (${numQuarters} quarters) ===`);
+    for (const { year, q } of getQuarters(numQuarters)) {
+      await syncQuarter(year, q, force);
+    }
+    const total = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+    syncLog(`=== Sync complete — ${total.toLocaleString()} trades in DB ===`);
   } catch(e) {
-    buildStatus = 'error';
-    log(`=== Build ERROR: ${e.message} ===`);
+    syncLog(`=== Sync ERROR: ${e.message} ===`);
+  } finally {
+    syncState.running = false;
   }
 }
 
 // ─── PRICE CACHE ──────────────────────────────────────────────
 const priceCache = new Map();
-function getPriceCache(k)      { const c = priceCache.get(k); return c && Date.now() < c.exp ? c.val : null; }
-function setPriceCache(k,v,ms) { priceCache.set(k, { val:v, exp: Date.now()+ms }); }
+function getPC(k)      { const c = priceCache.get(k); return c && Date.now() < c.e ? c.v : null; }
+function setPC(k,v,ms) { priceCache.set(k, { v, e: Date.now()+ms }); }
 
 // ─── ROUTES ───────────────────────────────────────────────────
 
-// SCREENER — latest 500 trades
 app.get('/api/screener', (req, res) => {
-  if (buildStatus === 'running' && !trades.length)
-    return res.json({ building: true, message: 'Loading SEC data, check back in ~60 seconds', trades: [] });
-  res.json(trades.slice(0, 500));
+  try {
+    const count = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+    if (syncState.running && count === 0)
+      return res.json({ building: true, message: 'Loading SEC data, please wait...', trades: [] });
+
+    const rows = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned
+      FROM trades
+      WHERE trade_date >= date('now', '-90 days')
+      ORDER BY filing_date DESC, trade_date DESC
+      LIMIT 500
+    `).all();
+    res.json(rows);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-// TICKER — all trades for a symbol
 app.get('/api/ticker', (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  res.json(trades.filter(t => t.ticker === symbol));
+  try {
+    const rows = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned
+      FROM trades
+      WHERE ticker = ?
+      ORDER BY trade_date DESC
+      LIMIT 1000
+    `).all(symbol);
+    res.json(rows);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-// INSIDER — all trades for a person
 app.get('/api/insider', (req, res) => {
-  const name = (req.query.name || '').trim().toUpperCase();
+  const name = (req.query.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name required' });
-  res.json(trades.filter(t => (t.insider||'').toUpperCase().includes(name)));
+  try {
+    const rows = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned
+      FROM trades
+      WHERE UPPER(insider) LIKE UPPER(?)
+      ORDER BY trade_date DESC
+      LIMIT 500
+    `).all(`%${name}%`);
+    res.json(rows);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
-// PRICE — FMP EOD
 app.get('/api/price', async (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-
-  const cached = getPriceCache(symbol);
+  const cached = getPC(symbol);
   if (cached) return res.json(cached);
-
   try {
     const { status, body } = await get(
-      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&apikey=${FMP}`
+      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${symbol}&apikey=${FMP}`
     );
     if (status !== 200) return res.status(502).json({ error: `FMP HTTP ${status}` });
-
     const data = JSON.parse(body.toString());
     const raw  = Array.isArray(data) ? data : (data?.historical || []);
     if (!raw.length) return res.status(404).json({ error: `No price data for ${symbol}` });
-
     const bars = raw.slice().reverse()
       .map(d => ({ time: d.date, open: +(+d.open).toFixed(2), high: +(+d.high).toFixed(2), low: +(+d.low).toFixed(2), close: +(+d.close).toFixed(2), volume: d.volume||0 }))
       .filter(d => d.close > 0 && d.time);
-
-    setPriceCache(symbol, bars, 60*60*1000);
+    setPC(symbol, bars, 60*60*1000);
     res.json(bars);
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// STATUS — build progress
-app.get('/api/status', (req, res) => res.json({
-  status:    buildStatus,
-  trades:    trades.length,
-  lastBuilt: lastBuilt?.toISOString() || null,
-  log:       buildLog.slice(-20),
-}));
-
-// REBUILD — force refresh
-app.get('/api/rebuild', (req, res) => {
-  res.json({ started: true });
-  buildTradeStore();
+app.get('/api/status', (req, res) => {
+  const count = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+  const synced = db.prepare('SELECT * FROM sync_log ORDER BY synced_at').all();
+  res.json({ running: syncState.running, trades: count, quarters: synced, log: syncState.log.slice(-30) });
 });
 
-// DIAG
+app.get('/api/sync', (req, res) => {
+  const force = req.query.force === '1';
+  const quarters = parseInt(req.query.quarters || '4');
+  res.json({ started: !syncState.running, force });
+  if (!syncState.running) runSync(quarters, force);
+});
+
 app.get('/api/diag', async (req, res) => {
-  const out = {
-    store: { status: buildStatus, trades: trades.length, lastBuilt: lastBuilt?.toISOString(), log: buildLog.slice(-10) }
-  };
+  const count = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+  const latest = db.prepare('SELECT MAX(trade_date) AS d FROM trades').get().d;
+  const synced = db.prepare('SELECT * FROM sync_log').all();
+  let price = {};
   try {
     const { status, body } = await get(`https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=AAPL&apikey=${FMP}`);
     const data = JSON.parse(body.toString());
     const raw  = Array.isArray(data) ? data : (data?.historical || []);
-    out.price  = { ok: status===200 && raw.length>0, bars: raw.length };
-  } catch(e) { out.price = { ok:false, error: e.message }; }
-  res.json(out);
+    price = { ok: status===200 && raw.length>0, bars: raw.length };
+  } catch(e) { price = { ok:false, error: e.message }; }
+  res.json({ db: { trades: count, latest, synced }, price, sync: { running: syncState.running, log: syncState.log.slice(-10) } });
 });
 
 app.get('/api/health', (req, res) =>
-  res.json({ ok:true, trades: trades.length, status: buildStatus }));
+  res.json({ ok: true, trades: db.prepare('SELECT COUNT(*) AS n FROM trades').get().n }));
 
 // ─── STARTUP ──────────────────────────────────────────────────
-// Kick off build immediately
-buildTradeStore();
+const count = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+console.log(`DB has ${count} trades`);
 
-// Rebuild every 24h
-setInterval(() => buildTradeStore(), 24 * 60 * 60 * 1000);
+if (count === 0) {
+  console.log('Empty DB — starting initial sync (last 4 quarters)...');
+  runSync(4);
+} else {
+  // Re-sync current quarter only for new filings
+  console.log('DB populated — syncing current quarter for new filings...');
+  const q = getQuarters(1)[0];
+  db.prepare('DELETE FROM sync_log WHERE quarter=?').run(`${q.year}Q${q.q}`);
+  runSync(1);
+}
 
-app.listen(PORT, () => log(`InsiderTape on port ${PORT}`));
+// Daily re-sync of current quarter
+setInterval(() => {
+  const q = getQuarters(1)[0];
+  db.prepare('DELETE FROM sync_log WHERE quarter=?').run(`${q.year}Q${q.q}`);
+  runSync(1);
+}, 24 * 60 * 60 * 1000);
+
+app.listen(PORT, () => console.log(`InsiderTape on port ${PORT}`));
