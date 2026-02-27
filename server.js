@@ -186,43 +186,62 @@ function parseForm4(xml, fallbackTicker) {
 //  accession: "0001234567-24-000001" or "000123456724000001"
 //  cik: numeric string (with or without leading zeros)
 // ─────────────────────────────────────────────────────────────
-async function fetchFiling(accession, cik, fallbackTicker) {
-  // Normalise accession to no-dash 18-digit format
-  const clean = accession.replace(/-/g, '').padStart(18, '0');
+async function fetchFiling(accession, cik, fallbackTicker, primaryDoc) {
+  // Normalise accession: strip dashes, pad to 18 digits
+  const clean   = accession.replace(/-/g, '').padStart(18, '0');
+  // Dashed format needed for some URLs: 0001234567-26-000001
+  const dashed  = clean.replace(/^(\d{10})(\d{2})(\d{6})$/, '$1-$2-$3');
 
-  // The filer CIK is embedded in the accession number (first 10 digits)
-  // e.g. "0001059235-26-000002" -> filer CIK = 1059235
-  // But for company submissions, the issuer CIK is what we have.
-  // Try both: the passed CIK and the one embedded in the accession number.
   const filerCIKFromAcc = parseInt(clean.slice(0, 10), 10);
   const passedCIK       = cik ? parseInt(cik, 10) : null;
-
-  // Always try the CIK embedded in accession first (it IS the filer's CIK)
-  // Only add passedCIK as fallback if it differs
-  const cikCandidates = [...new Set([filerCIKFromAcc, passedCIK])].filter(Boolean);
+  const cikCandidates   = [...new Set([filerCIKFromAcc, passedCIK])].filter(Boolean);
 
   for (const cikInt of cikCandidates) {
     try {
       const base = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${clean}/`;
-      const { status: idxStatus, body: idxBody } = await get(base + 'index.json');
-      if (idxStatus !== 200) continue;
 
-      const items   = JSON.parse(idxBody)?.directory?.item || [];
-      const xmlFile = items.find(f =>
-        typeof f.name === 'string' &&
-        f.name.endsWith('.xml') &&
-        !f.name.toLowerCase().includes('xsl') &&
-        !f.name.toLowerCase().includes('style') &&
-        !f.name.endsWith('_htm.xml')
-      );
-      if (!xmlFile) continue;
+      // Strategy 1: use primaryDocument if caller provided it (fastest, no extra request)
+      if (primaryDoc) {
+        const { status, body } = await get(base + primaryDoc);
+        if (status === 200 && body.includes('<ownershipDocument>')) {
+          const trades = parseForm4(body, fallbackTicker);
+          if (trades.length > 0) return trades;
+        }
+      }
 
-      const { status: xmlStatus, body: xml } = await get(base + xmlFile.name);
-      if (xmlStatus !== 200) continue;
+      // Strategy 2: fetch the filing index page (txt format, always works)
+      const idxUrl = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${clean}/${dashed}-index.htm`;
+      const { status: hs, body: htm } = await get(idxUrl);
+      if (hs === 200 && !htm.startsWith('<!')) {
+        // Parse XML filename from index HTML
+        const xmlMatch = htm.match(/href="([^"]+\.xml)"/i);
+        if (xmlMatch) {
+          const xmlName = xmlMatch[1].split('/').pop();
+          const { status: xs, body: xml } = await get(base + xmlName);
+          if (xs === 200 && xml.includes('<ownershipDocument>')) {
+            return parseForm4(xml, fallbackTicker);
+          }
+        }
+      }
 
-      const trades = parseForm4(xml, fallbackTicker);
-      return trades; // return even if empty — filing was valid
-    } catch(e) { continue; }
+      // Strategy 3: fetch index.json (may be rate-limited but worth trying)
+      const { status: js, body: jb } = await get(base + 'index.json');
+      if (js === 200 && !jb.startsWith('<!')) {
+        const items   = JSON.parse(jb)?.directory?.item || [];
+        const xmlFile = items.find(f =>
+          typeof f.name === 'string' &&
+          f.name.endsWith('.xml') &&
+          !f.name.toLowerCase().includes('xsl') &&
+          !f.name.endsWith('_htm.xml')
+        );
+        if (xmlFile) {
+          const { status: xs, body: xml } = await get(base + xmlFile.name);
+          if (xs === 200 && xml.includes('<ownershipDocument>')) {
+            return parseForm4(xml, fallbackTicker);
+          }
+        }
+      }
+    } catch(e) { /* try next CIK candidate */ }
   }
 
   return [];
@@ -247,10 +266,12 @@ async function getAllForm4s(cik, symbol) {
   const dates   = recent.filingDate       || [];
 
   // Collect Form 4 + 4/A accession numbers from recent batch
+  // Also grab primaryDocument so we can fetch XML directly without index.json
+  const primaryDocs = recent.primaryDocument || [];
   const form4s = [];
   for (let i = 0; i < forms.length; i++) {
     if (forms[i] === '4' || forms[i] === '4/A') {
-      form4s.push({ acc: accNos[i], date: dates[i] });
+      form4s.push({ acc: accNos[i], date: dates[i], primaryDoc: primaryDocs[i] || '' });
     }
   }
 
@@ -261,11 +282,12 @@ async function getAllForm4s(cik, symbol) {
         const { status: fs, body: fb } =
           await get(`https://data.sec.gov/submissions/${file.name}`);
         if (fs !== 200) continue;
-        const fd = JSON.parse(fb);
-        const ff = fd.form || [], fa = fd.accessionNumber || [], fd2 = fd.filingDate || [];
+        const fd  = JSON.parse(fb);
+        const ff  = fd.form || [], fa = fd.accessionNumber || [], fd2 = fd.filingDate || [];
+        const fpd = fd.primaryDocument || [];
         for (let i = 0; i < ff.length; i++) {
           if (ff[i] === '4' || ff[i] === '4/A') {
-            form4s.push({ acc: fa[i], date: fd2[i] });
+            form4s.push({ acc: fa[i], date: fd2[i], primaryDoc: fpd[i] || '' });
           }
         }
       } catch(e) { /* skip bad batch */ }
@@ -283,9 +305,9 @@ async function getAllForm4s(cik, symbol) {
   const BATCH_SIZE = 10;
   for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
     const batch = toFetch.slice(i, i + BATCH_SIZE);
-    await Promise.allSettled(batch.map(async ({ acc }) => {
+    await Promise.allSettled(batch.map(async ({ acc, primaryDoc }) => {
       try {
-        const trades = await fetchFiling(acc, null, symbol);
+        const trades = await fetchFiling(acc, null, symbol, primaryDoc);
         allTrades.push(...trades);
       } catch(e) { /* skip */ }
     }));
@@ -486,35 +508,67 @@ app.get('/api/diag', async (req, res) => {
     const accNos = d.filings?.recent?.accessionNumber || [];
     const idx4   = forms.findIndex(f => f === '4');
     if (idx4 >= 0) {
-      const acc   = accNos[idx4];
-      const clean = acc.replace(/-/g, '').padStart(18, '0');
-      const filerCIK = parseInt(clean.slice(0, 10), 10);
-      const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/index.json`;
-      const { status: is, body: ib } = await get(idxUrl);
-      const items = JSON.parse(ib)?.directory?.item || [];
-      const xmlFile = items.find(f => typeof f.name === 'string' && f.name.endsWith('.xml') && !f.name.includes('xsl') && !f.name.endsWith('_htm.xml'));
-      if (xmlFile) {
-        const { status: xs, body: xml } = await get(`https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/${xmlFile.name}`);
-        // Test xmlGet directly
-        const insider = xmlGet(xml, 'rptOwnerName');
-        const ticker  = xmlGet(xml, 'issuerTradingSymbol');
-        const code    = xml.match(/<transactionCode[^>]*>([\s\S]*?)<\/transactionCode>/i)?.[1]?.slice(0,100);
-        const date    = xml.match(/<transactionDate[^>]*>([\s\S]*?)<\/transactionDate>/i)?.[1]?.slice(0,100);
-        const ndCount = (xml.match(/<nonDerivativeTransaction>/g) || []).length;
-        const dCount  = (xml.match(/<derivativeTransaction>/g) || []).length;
-        const trades  = parseForm4(xml, 'AAPL');
+      const acc        = accNos[idx4];
+      const primaryDoc = (d.filings?.recent?.primaryDocument || [])[idx4] || '';
+      const clean      = acc.replace(/-/g, '').padStart(18, '0');
+      const dashed     = clean.replace(/^(\d{10})(\d{2})(\d{6})$/, '$1-$2-$3');
+      const filerCIK   = parseInt(clean.slice(0, 10), 10);
+      const base       = `https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/`;
+
+      // Try primaryDoc direct fetch first
+      let xml = '', xmlSource = 'none';
+      if (primaryDoc) {
+        const r = await get(base + primaryDoc).catch(() => ({status:0,body:''}));
+        if (r.status === 200 && r.body.includes('<ownershipDocument>')) {
+          xml = r.body; xmlSource = 'primaryDoc:' + primaryDoc;
+        }
+      }
+      // Fallback: index.htm
+      if (!xml) {
+        const r = await get(`${base}${dashed}-index.htm`).catch(() => ({status:0,body:''}));
+        if (r.status === 200 && !r.body.startsWith('<!')) {
+          const m = r.body.match(/href="([^"]+\.xml)"/i);
+          if (m) {
+            const fn = m[1].split('/').pop();
+            const r2 = await get(base + fn).catch(() => ({status:0,body:''}));
+            if (r2.status === 200) { xml = r2.body; xmlSource = 'index.htm:' + fn; }
+          }
+        }
+      }
+      // Fallback: index.json
+      if (!xml) {
+        const r = await get(base + 'index.json').catch(() => ({status:0,body:''}));
+        if (r.status === 200 && !r.body.startsWith('<!')) {
+          const items = JSON.parse(r.body)?.directory?.item || [];
+          const xf = items.find(f => f.name?.endsWith('.xml') && !f.name.includes('xsl'));
+          if (xf) {
+            const r2 = await get(base + xf.name).catch(() => ({status:0,body:''}));
+            if (r2.status === 200) { xml = r2.body; xmlSource = 'index.json:' + xf.name; }
+          }
+        }
+      }
+
+      if (xml) {
+        const insider  = xmlGet(xml, 'rptOwnerName');
+        const ticker   = xmlGet(xml, 'issuerTradingSymbol');
+        const ndCount  = (xml.match(/<nonDerivativeTransaction>/g) || []).length;
+        const dCount   = (xml.match(/<derivativeTransaction>/g) || []).length;
+        const rawCode  = xml.match(/<transactionCode[^>]*>([\s\S]*?)<\/transactionCode>/i)?.[1]?.slice(0,80) || '';
+        const rawDate  = xml.match(/<transactionDate[^>]*>([\s\S]*?)<\/transactionDate>/i)?.[1]?.slice(0,80) || '';
+        const trades   = parseForm4(xml, 'AAPL');
         out.xml_parse = {
-          ok: true, acc, xml_status: xs, xml_length: xml.length,
-          insider, ticker, nd_blocks: ndCount, d_blocks: dCount,
-          raw_code_block: code, raw_date_block: date,
+          ok: true, acc, xmlSource, xml_length: xml.length,
+          primaryDoc, insider, ticker,
+          nd_blocks: ndCount, d_blocks: dCount,
+          raw_code: rawCode, raw_date: rawDate,
           trades: trades.length, sample: trades[0],
-          xml_snippet: xml.slice(0, 500)
+          xml_snippet: xml.slice(0, 400)
         };
       } else {
-        out.xml_parse = { ok: false, error: 'No XML file found', files: items.map(f=>f.name) };
+        out.xml_parse = { ok: false, error: 'Could not fetch XML via any method', acc, primaryDoc, filerCIK, base };
       }
     } else {
-      out.xml_parse = { ok: false, error: 'No Form 4 found' };
+      out.xml_parse = { ok: false, error: 'No Form 4 found in recent filings' };
     }
   } catch(e) { out.xml_parse = { ok: false, error: e.message }; }
 
