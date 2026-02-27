@@ -90,6 +90,28 @@ function get(url, ms=30000) {
   });
 }
 
+// ─── DAILY INGESTION (recent Form 4s from EDGAR daily index) ────
+let dailyRunning = false;
+
+function runDaily(daysBack = 10) {
+  if (dailyRunning) return;
+  dailyRunning = true;
+  slog(`=== spawning daily-worker (${daysBack} days) ===`);
+
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack)],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ' + l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ERR: ' + l)));
+  worker.on('exit', code => {
+    dailyRunning = false;
+    slog(`=== daily-worker exited (code ${code}) ===`);
+  });
+}
+
 // ─── PRICE CACHE ──────────────────────────────────────────────
 const pc = new Map();
 function getPC(k)      { const c = pc.get(k); return c && Date.now()<c.e ? c.v : null; }
@@ -216,6 +238,13 @@ app.get('/api/status', (req, res) => {
 });
 
 // FORCE SYNC
+app.get('/api/daily-status', (req, res) => {
+  try {
+    const logs = db.prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT 14').all();
+    res.json({ running: dailyRunning, recentDays: logs });
+  } catch(e) { res.json({ running: dailyRunning, error: e.message }); }
+});
+
 app.get('/api/sync', (req, res) => {
   const numQ = parseInt(req.query.quarters || '4');
   res.json({ started: !syncRunning });
@@ -276,5 +305,19 @@ setInterval(() => {
   db.prepare('DELETE FROM sync_log WHERE quarter=?').run(`${ty}Q${tq}`);
   runSync(1);
 }, 24 * 60 * 60 * 1000);
+
+// Run daily worker on startup to catch recent filings
+// then every 15 minutes during market hours
+setTimeout(() => runDaily(10), 5000); // 5s after start
+
+setInterval(() => {
+  const now = new Date();
+  const utcH = now.getUTCHours();
+  const utcD = now.getUTCDay();
+  // Mon-Fri, 13:00-22:00 UTC (9am-6pm ET)
+  if (utcD >= 1 && utcD <= 5 && utcH >= 13 && utcH <= 22) {
+    runDaily(2); // just last 2 days during market hours
+  }
+}, 15 * 60 * 1000); // every 15 minutes
 
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
