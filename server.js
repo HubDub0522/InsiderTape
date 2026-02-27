@@ -1,9 +1,32 @@
 'use strict';
 
-const express = require('express');
-const cors    = require('cors');
-const https   = require('https');
-const path    = require('path');
+// ─────────────────────────────────────────────────────────────
+//  INSIDERTAPE — Server
+//
+//  Data source: SEC Insider Transactions Data Sets (quarterly ZIPs)
+//  https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets
+//
+//  Each quarterly ZIP contains pre-parsed TSV files:
+//    SUBMISSION.tsv        — filing metadata (ticker, company, date)
+//    REPORTINGOWNER.tsv    — insider name & title
+//    NONDERIV_TRANS.tsv    — stock transactions (buys/sells)
+//    DERIV_TRANS.tsv       — option/derivative transactions
+//
+//  We download the last 4 quarters on startup, join the tables,
+//  store everything in memory, and serve from there.
+//  No XML parsing. No per-request API calls. No rate limits.
+//
+//  Price data: FMP (confirmed working, free tier)
+// ─────────────────────────────────────────────────────────────
+
+const express  = require('express');
+const cors     = require('cors');
+const https    = require('https');
+const http     = require('http');
+const fs       = require('fs');
+const path     = require('path');
+const zlib     = require('zlib');
+const readline = require('readline');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -14,348 +37,357 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// ─── HTTP GET ─────────────────────────────────────────────────
-function get(url) {
+// ─── TRADE STORE ─────────────────────────────────────────────
+let trades      = [];   // all normalised trades, newest-first
+let lastBuilt   = null;
+let buildStatus = 'idle'; // idle | running | done | error
+let buildLog    = [];
+
+function log(msg) {
+  const line = `[${new Date().toISOString().slice(11,19)}] ${msg}`;
+  console.log(line);
+  buildLog.push(line);
+  if (buildLog.length > 100) buildLog.shift();
+}
+
+// ─── HTTP HELPERS ─────────────────────────────────────────────
+function get(url, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      headers: {
-        'User-Agent':      'InsiderTape/1.0 admin@insidertape.com',
-        'Accept':          'application/json, */*',
-        'Accept-Encoding': 'identity',
-      },
-      timeout: 25000,
+    const lib = url.startsWith('https') ? https : http;
+    const req = lib.get(url, {
+      headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
+      timeout: timeoutMs,
     }, res => {
       if ([301,302,303].includes(res.statusCode) && res.headers.location)
-        return get(res.headers.location).then(resolve).catch(reject);
+        return get(res.headers.location, timeoutMs).then(resolve).catch(reject);
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({
-        status: res.statusCode,
-        body:   Buffer.concat(chunks).toString('utf8'),
-      }));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
     });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+    req.on('timeout', () => { req.destroy(); reject(new Error(`Timeout: ${url.slice(0,60)}`)); });
   });
 }
 
-function safeParse(body) {
-  try { return JSON.parse(body); } catch(e) { return null; }
-}
+// Download a ZIP and extract named files into a map of filename→lines[]
+async function fetchZipTSVs(url, wantedFiles) {
+  log(`Downloading ${url}`);
+  const { status, body } = await get(url, 120000);
+  if (status !== 200) throw new Error(`HTTP ${status} for ${url}`);
+  log(`Downloaded ${Math.round(body.length/1024)}KB`);
 
-// ─── CACHE ────────────────────────────────────────────────────
-const cache = new Map();
-function getCache(k)      { const c = cache.get(k); return c && Date.now() < c.exp ? c.val : null; }
-function setCache(k,v,ms) { cache.set(k, { val: v, exp: Date.now() + ms }); }
+  // Parse ZIP manually (no external deps)
+  // Find each local file header and extract
+  const result = {};
+  let offset = 0;
+  const buf = body;
 
-// ─── NORMALISE FMP TRADE ──────────────────────────────────────
-const TYPE = {
-  'P-Purchase':'P','S-Sale':'S','S-Sale+OE':'S',
-  'A-Award':'A','M-Exempt':'M','G-Gift':'G',
-  'F-InKind':'F','D-Return':'D','C-Conversion':'C',
-  'X-InTheMoney':'X','J-Other':'J',
-};
-function norm(t) {
-  const qty   = Math.abs(t.securitiesTransacted || 0);
-  const price = Math.abs(t.price || 0);
-  return {
-    ticker:  (t.symbol        || '').toUpperCase(),
-    company:  t.companyName   || '',
-    insider:  t.reportingName || '',
-    title:    t.typeOfOwner   || '',
-    trade:   (t.transactionDate || '').slice(0,10),
-    filing:  (t.filingDate || t.transactionDate || '').slice(0,10),
-    type:    TYPE[t.transactionType] || (t.transactionType||'').charAt(0) || '?',
-    qty,
-    price:   +price.toFixed(2),
-    value:   Math.round(qty * price),
-    owned:   Math.abs(t.securitiesOwned || 0),
-  };
-}
-
-// ─── SCREENER ─────────────────────────────────────────────────
-// Uses FMP latest insider trading — confirmed working, free tier
-app.get('/api/screener', async (req, res) => {
-  const cached = getCache('screener');
-  if (cached) { console.log('Screener: cache hit'); return res.json(cached); }
-
-  try {
-    // 3 pages × 100 = up to 300 recent trades
-    const results = await Promise.all([0,1,2].map(p =>
-      get(`https://financialmodelingprep.com/stable/insider-trading/latest?page=${p}&limit=100&apikey=${FMP}`)
-        .catch(e => ({ status: 0, body: '[]', error: e.message }))
-    ));
-
-    const raw = results.flatMap(r => {
-      if (r.status !== 200) { console.log('FMP page error:', r.status, r.body?.slice(0,100)); return []; }
-      const d = safeParse(r.body);
-      return Array.isArray(d) ? d : [];
-    });
-
-    if (!raw.length) {
-      const errBody = results[0]?.body?.slice(0,300);
-      return res.status(502).json({ error: 'FMP returned no trades', fmp_response: errBody });
+  while (offset < buf.length - 4) {
+    // Local file header signature: PK\x03\x04
+    if (buf[offset] !== 0x50 || buf[offset+1] !== 0x4B ||
+        buf[offset+2] !== 0x03 || buf[offset+3] !== 0x04) {
+      offset++;
+      continue;
     }
 
-    const trades = raw
-      .map(norm)
-      .filter(t => t.ticker && t.trade)
-      .sort((a,b) => b.trade.localeCompare(a.trade));
+    const compression  = buf.readUInt16LE(offset + 8);
+    const compSize     = buf.readUInt32LE(offset + 18);
+    const uncompSize   = buf.readUInt32LE(offset + 22);
+    const fnameLen     = buf.readUInt16LE(offset + 26);
+    const extraLen     = buf.readUInt16LE(offset + 28);
+    const fname        = buf.slice(offset + 30, offset + 30 + fnameLen).toString('utf8');
+    const dataStart    = offset + 30 + fnameLen + extraLen;
+    const dataEnd      = dataStart + compSize;
 
-    console.log(`Screener: ${trades.length} trades`);
-    setCache('screener', trades, 15 * 60 * 1000); // 15 min
-    res.json(trades);
-
-  } catch(e) {
-    console.error('Screener error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─── TICKER ───────────────────────────────────────────────────
-// Sources (in order):
-//  1. Filter already-loaded screener data (instant, no API call)
-//  2. SEC EFTS full-text search for this symbol (free, no rate issues)
-//  3. XML parse each filing result
-app.get('/api/ticker', async (req, res) => {
-  const symbol = (req.query.symbol || '').toUpperCase().trim();
-  if (!symbol) return res.status(400).json({ error: 'symbol required' });
-
-  const cached = getCache('ticker:' + symbol);
-  if (cached) return res.json(cached);
-
-  const trades = [];
-  const seen   = new Set();
-
-  function addTrade(t) {
-    if (!t?.trade || !t?.ticker) return;
-    const k = `${t.insider}|${t.trade}|${t.type}|${t.qty}`;
-    if (seen.has(k)) return;
-    seen.add(k);
-    trades.push(t);
-  }
-
-  // Source 1: filter screener cache (covers last ~2 weeks, instant)
-  const screenerCache = getCache('screener');
-  if (screenerCache) {
-    screenerCache.filter(t => t.ticker === symbol).forEach(addTrade);
-    console.log(`Ticker ${symbol}: ${trades.length} from screener cache`);
-  }
-
-  // Source 2: SEC EFTS — search for this symbol, last 6 months
-  try {
-    const end   = new Date().toISOString().split('T')[0];
-    const start = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0];
-    const url   = `https://efts.sec.gov/LATEST/search-index?q="${encodeURIComponent(symbol)}"&forms=4&dateRange=custom&startdt=${start}&enddt=${end}&from=0&size=40`;
-    const { status, body } = await get(url);
-
-    if (status === 200) {
-      const hits = safeParse(body)?.hits?.hits || [];
-      console.log(`Ticker ${symbol}: ${hits.length} hits from EFTS`);
-
-      // Fetch XMLs in batches of 5
-      const BATCH = 5;
-      for (let i = 0; i < hits.length; i += BATCH) {
-        const batch = hits.slice(i, i + BATCH);
-        await Promise.allSettled(batch.map(async hit => {
-          try {
-            const parts  = (hit._id || '').split(':');
-            const acc    = parts.slice(0,3).join('-');
-            const primary = parts[3] || '';
-            if (!acc || acc === '--') return;
-
-            const clean  = acc.replace(/-/g,'').padStart(18,'0');
-            const dashed = clean.replace(/^(\d{10})(\d{2})(\d{6})$/, '$1-$2-$3');
-            const filerCIK = parseInt(clean.slice(0,10), 10);
-            const base   = `https://www.sec.gov/Archives/edgar/data/${filerCIK}/${clean}/`;
-
-            let xml = null;
-
-            // Try primaryDoc first
-            if (primary) {
-              const r = await get(base + primary, 12000).catch(() => null);
-              if (r?.status === 200 && r.body.includes('<ownershipDocument>')) xml = r.body;
-            }
-
-            // Fallback: index.htm
-            if (!xml) {
-              const r = await get(`${base}${dashed}-index.htm`, 12000).catch(() => null);
-              if (r?.status === 200 && !r.body.startsWith('<!')) {
-                const m = r.body.match(/href="([^"]+\.xml)"/i);
-                if (m) {
-                  const fn = m[1].split('/').pop();
-                  const r2 = await get(base + fn, 12000).catch(() => null);
-                  if (r2?.status === 200) xml = r2.body;
-                }
-              }
-            }
-
-            if (!xml) return;
-            parseForm4(xml, symbol).forEach(t => addTrade(t));
-          } catch(e) { /* skip */ }
-        }));
+    const basename = fname.split('/').pop().toUpperCase();
+    if (wantedFiles.some(w => basename.startsWith(w))) {
+      log(`  Extracting ${fname} (${Math.round(compSize/1024)}KB compressed)`);
+      try {
+        let raw;
+        if (compression === 0) {
+          raw = buf.slice(dataStart, dataEnd);
+        } else if (compression === 8) {
+          raw = zlib.inflateRawSync(buf.slice(dataStart, dataEnd));
+        } else {
+          log(`  Unknown compression ${compression} for ${fname}, skipping`);
+          offset = dataEnd;
+          continue;
+        }
+        const text  = raw.toString('utf8');
+        const lines = text.split('\n');
+        result[basename] = lines;
+        log(`  ${basename}: ${lines.length} lines`);
+      } catch(e) {
+        log(`  Error extracting ${fname}: ${e.message}`);
       }
     }
-  } catch(e) {
-    console.error(`Ticker ${symbol} EFTS error:`, e.message);
+
+    offset = dataEnd;
   }
 
-  trades.sort((a,b) => b.trade.localeCompare(a.trade));
-  console.log(`Ticker ${symbol}: ${trades.length} total trades`);
-  setCache('ticker:' + symbol, trades, 30 * 60 * 1000);
-  res.json(trades);
-});
-
-// ─── XML PARSER ───────────────────────────────────────────────
-function xmlGet(xml, tag) {
-  let m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*<value>\\s*([^<]+?)\\s*</value>', 'is'));
-  if (m?.[1]?.trim()) return m[1].trim();
-  m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*([^<\\s][^<]*?)\\s*</' + tag + '>', 'i'));
-  if (m?.[1]?.trim()) return m[1].trim();
-  return '';
+  return result;
 }
 
-function parseForm4(xml, fallbackTicker) {
-  const insider = xmlGet(xml, 'rptOwnerName');
-  const title   = xmlGet(xml, 'officerTitle');
-  const ticker  = xmlGet(xml, 'issuerTradingSymbol') || fallbackTicker || '';
-  const company = xmlGet(xml, 'issuerName');
-  const filed   = xmlGet(xml, 'periodOfReport');
-  if (!ticker) return [];
-
-  const out = [];
-  function parseBlock(block, isDeriv) {
-    const code  = xmlGet(block, 'transactionCode') || (isDeriv ? 'A' : 'P');
-    const date  = xmlGet(block, 'transactionDate') || filed || '';
-    if (!date) return;
-    const shares = Math.abs(parseFloat(xmlGet(block,'transactionShares') || (isDeriv ? xmlGet(block,'underlyingSecurityShares') : '') || '0') || 0);
-    const price  = Math.abs(parseFloat(xmlGet(block,'transactionPricePerShare') || (isDeriv ? xmlGet(block,'exercisePrice') : '') || '0') || 0);
-    const owned  = Math.abs(parseFloat(xmlGet(block,'sharesOwnedFollowingTransaction') || '0') || 0);
-    out.push({ ticker, company, insider, title, trade: date.slice(0,10), filing: (filed||date).slice(0,10), type: code, qty: Math.round(shares), price: +price.toFixed(2), value: Math.round(shares*price), owned: Math.round(owned) });
+// Parse TSV lines into array of objects using first line as headers
+function parseTSV(lines) {
+  if (!lines || lines.length < 2) return [];
+  const headers = lines[0].split('\t').map(h => h.trim());
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split('\t');
+    if (cols.length < 2) continue;
+    const row = {};
+    headers.forEach((h, j) => { row[h] = (cols[j] || '').trim(); });
+    rows.push(row);
   }
-  let m;
-  const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/g;
-  const dRe  = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/g;
-  while ((m = ndRe.exec(xml)) !== null) parseBlock(m[1], false);
-  while ((m = dRe.exec(xml))  !== null) parseBlock(m[1], true);
-  return out;
+  return rows;
 }
 
-// ─── INSIDER ──────────────────────────────────────────────────
-app.get('/api/insider', async (req, res) => {
-  const name = (req.query.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'name required' });
+// Current + last 3 quarters
+function getRecentQuarters() {
+  const quarters = [];
+  const now = new Date();
+  let year = now.getFullYear();
+  let q    = Math.ceil((now.getMonth() + 1) / 3);
 
-  const cached = getCache('insider:' + name);
-  if (cached) return res.json(cached);
+  // The current quarter's file might not exist yet (published at quarter end)
+  // Start from previous quarter to be safe
+  for (let i = 0; i < 5; i++) {
+    q--;
+    if (q < 1) { q = 4; year--; }
+    quarters.push({ year, q });
+    if (quarters.length >= 4) break;
+  }
+  return quarters;
+}
+
+// ─── BUILD TRADE STORE ────────────────────────────────────────
+async function buildTradeStore() {
+  if (buildStatus === 'running') return;
+  buildStatus = 'running';
+  buildLog    = [];
+  log('=== Starting trade store build ===');
 
   try {
-    const results = await Promise.all([0,1,2].map(p =>
-      get(`https://financialmodelingprep.com/stable/insider-trading/reporting-name?name=${encodeURIComponent(name)}&page=${p}&limit=100&apikey=${FMP}`)
-        .catch(() => ({ status: 0, body: '[]' }))
-    ));
+    const quarters = getRecentQuarters();
+    log(`Will fetch quarters: ${quarters.map(q=>`${q.year}Q${q.q}`).join(', ')}`);
 
-    const raw = results.flatMap(r => {
-      if (r.status !== 200) return [];
-      const d = safeParse(r.body);
-      return Array.isArray(d) ? d : [];
-    });
+    const allTrades = [];
 
-    const trades = raw.map(norm).filter(t => t.trade)
-      .sort((a,b) => b.trade.localeCompare(a.trade));
+    for (const { year, q } of quarters) {
+      const url = `https://www.sec.gov/files/structureddata/data/insider-transactions-data-sets/${year}q${q}_form345.zip`;
+      try {
+        const files = await fetchZipTSVs(url, ['SUBMISSION', 'REPORTINGOWNER', 'NONDERIV_TRANS', 'DERIV_TRANS']);
 
-    setCache('insider:' + name, trades, 60 * 60 * 1000);
-    res.json(trades);
+        const submissions = parseTSV(files['SUBMISSION.TSV'] || files['SUBMISSION.TXT']);
+        const owners      = parseTSV(files['REPORTINGOWNER.TSV'] || files['REPORTINGOWNER.TXT']);
+        const ndTrans     = parseTSV(files['NONDERIV_TRANS.TSV'] || files['NONDERIV_TRANS.TXT']);
+        const dTrans      = parseTSV(files['DERIV_TRANS.TSV'] || files['DERIV_TRANS.TXT']);
+
+        log(`${year}Q${q}: ${submissions.length} submissions, ${owners.length} owners, ${ndTrans.length} ND trans, ${dTrans.length} D trans`);
+
+        // Build lookup maps
+        // submission: ACCESSION_NUMBER → { ticker, company, filingDate }
+        const subMap = {};
+        for (const s of submissions) {
+          const acc = s.ACCESSION_NUMBER || s.accession_number || '';
+          if (!acc) continue;
+          subMap[acc] = {
+            ticker:  (s.ISSUERTRADINGSYMBOL  || s.issuerTradingSymbol  || '').trim().toUpperCase(),
+            company: (s.ISSUERNAME           || s.issuerName           || '').trim(),
+            filed:   (s.FILEDATE             || s.filingDate           || s.PERIOD_OF_REPORT || '').trim(),
+            period:  (s.PERIOD_OF_REPORT     || s.periodOfReport       || '').trim(),
+          };
+        }
+
+        // owner: ACCESSION_NUMBER → { name, title }
+        const ownerMap = {};
+        for (const o of owners) {
+          const acc = o.ACCESSION_NUMBER || o.accession_number || '';
+          if (!acc) continue;
+          if (!ownerMap[acc]) {
+            ownerMap[acc] = {
+              name:  (o.RPTOWNERNAME    || o.reportingOwnerName || o.rptOwnerName || '').trim(),
+              title: (o.OFFICERTITLE    || o.officerTitle       || o.RPTOWNERRELATIONSHIP || '').trim(),
+            };
+          }
+        }
+
+        // Process non-derivative transactions
+        for (const t of ndTrans) {
+          const acc  = t.ACCESSION_NUMBER || t.accession_number || '';
+          const sub  = subMap[acc];
+          const own  = ownerMap[acc];
+          if (!sub || !sub.ticker) continue;
+
+          const qty   = Math.abs(parseFloat(t.TRANS_SHARES || t.transShares || '0') || 0);
+          const price = Math.abs(parseFloat(t.TRANS_PRICEPERSHARE || t.transPricePerShare || '0') || 0);
+          const date  = (t.TRANS_DATE || t.transactionDate || sub.period || sub.filed || '').slice(0,10);
+          if (!date) continue;
+
+          allTrades.push({
+            ticker:  sub.ticker,
+            company: sub.company,
+            insider: own?.name  || '',
+            title:   own?.title || '',
+            trade:   date,
+            filing:  sub.filed.slice(0,10),
+            type:    (t.TRANS_CODE || t.transactionCode || '?').trim(),
+            qty:     Math.round(qty),
+            price:   +price.toFixed(2),
+            value:   Math.round(qty * price),
+            owned:   Math.round(Math.abs(parseFloat(t.SHRSOWNFOLLOWINGTRANS || t.sharesOwnedFollowingTransaction || '0') || 0)),
+          });
+        }
+
+        // Process derivative transactions
+        for (const t of dTrans) {
+          const acc  = t.ACCESSION_NUMBER || t.accession_number || '';
+          const sub  = subMap[acc];
+          const own  = ownerMap[acc];
+          if (!sub || !sub.ticker) continue;
+
+          const qty   = Math.abs(parseFloat(t.TRANS_SHARES || t.transShares || t.UNDERLYING_SHARES || '0') || 0);
+          const price = Math.abs(parseFloat(t.TRANS_PRICEPERSHARE || t.exercisePrice || t.EXERCISE_PRICE || '0') || 0);
+          const date  = (t.TRANS_DATE || t.transactionDate || sub.period || sub.filed || '').slice(0,10);
+          if (!date) continue;
+
+          allTrades.push({
+            ticker:  sub.ticker,
+            company: sub.company,
+            insider: own?.name  || '',
+            title:   own?.title || '',
+            trade:   date,
+            filing:  sub.filed.slice(0,10),
+            type:    (t.TRANS_CODE || t.transactionCode || '?').trim(),
+            qty:     Math.round(qty),
+            price:   +price.toFixed(2),
+            value:   Math.round(qty * price),
+            owned:   0,
+          });
+        }
+
+        log(`${year}Q${q}: running total ${allTrades.length} trades`);
+      } catch(e) {
+        log(`${year}Q${q} FAILED: ${e.message}`);
+      }
+    }
+
+    // Deduplicate & sort
+    const seen   = new Set();
+    const unique = allTrades
+      .filter(t => t.ticker && t.trade && t.type)
+      .sort((a,b) => b.trade.localeCompare(a.trade))
+      .filter(t => {
+        const k = `${t.ticker}|${t.insider}|${t.trade}|${t.type}|${t.qty}`;
+        if (seen.has(k)) return false;
+        seen.add(k); return true;
+      });
+
+    trades      = unique;
+    lastBuilt   = new Date();
+    buildStatus = 'done';
+    log(`=== Build complete: ${unique.length} unique trades ===`);
 
   } catch(e) {
-    res.status(500).json({ error: e.message });
+    buildStatus = 'error';
+    log(`=== Build ERROR: ${e.message} ===`);
   }
+}
+
+// ─── PRICE CACHE ──────────────────────────────────────────────
+const priceCache = new Map();
+function getPriceCache(k)      { const c = priceCache.get(k); return c && Date.now() < c.exp ? c.val : null; }
+function setPriceCache(k,v,ms) { priceCache.set(k, { val:v, exp: Date.now()+ms }); }
+
+// ─── ROUTES ───────────────────────────────────────────────────
+
+// SCREENER — latest 500 trades
+app.get('/api/screener', (req, res) => {
+  if (buildStatus === 'running' && !trades.length)
+    return res.json({ building: true, message: 'Loading SEC data, check back in ~60 seconds', trades: [] });
+  res.json(trades.slice(0, 500));
 });
 
-// ─── PRICE ────────────────────────────────────────────────────
+// TICKER — all trades for a symbol
+app.get('/api/ticker', (req, res) => {
+  const symbol = (req.query.symbol || '').toUpperCase().trim();
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+  res.json(trades.filter(t => t.ticker === symbol));
+});
+
+// INSIDER — all trades for a person
+app.get('/api/insider', (req, res) => {
+  const name = (req.query.name || '').trim().toUpperCase();
+  if (!name) return res.status(400).json({ error: 'name required' });
+  res.json(trades.filter(t => (t.insider||'').toUpperCase().includes(name)));
+});
+
+// PRICE — FMP EOD
 app.get('/api/price', async (req, res) => {
   const symbol = (req.query.symbol || '').toUpperCase().trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
 
-  const cached = getCache('price:' + symbol);
+  const cached = getPriceCache(symbol);
   if (cached) return res.json(cached);
 
   try {
     const { status, body } = await get(
       `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&apikey=${FMP}`
     );
+    if (status !== 200) return res.status(502).json({ error: `FMP HTTP ${status}` });
 
-    if (status !== 200)
-      return res.status(502).json({ error: `FMP price HTTP ${status}`, detail: body.slice(0,200) });
-
-    const data = safeParse(body);
+    const data = JSON.parse(body.toString());
     const raw  = Array.isArray(data) ? data : (data?.historical || []);
     if (!raw.length) return res.status(404).json({ error: `No price data for ${symbol}` });
 
     const bars = raw.slice().reverse()
-      .map(d => ({
-        time:   d.date,
-        open:   +(+d.open ).toFixed(2),
-        high:   +(+d.high ).toFixed(2),
-        low:    +(+d.low  ).toFixed(2),
-        close:  +(+d.close).toFixed(2),
-        volume: d.volume || 0,
-      }))
+      .map(d => ({ time: d.date, open: +(+d.open).toFixed(2), high: +(+d.high).toFixed(2), low: +(+d.low).toFixed(2), close: +(+d.close).toFixed(2), volume: d.volume||0 }))
       .filter(d => d.close > 0 && d.time);
 
-    console.log(`Price ${symbol}: ${bars.length} bars`);
-    setCache('price:' + symbol, bars, 60 * 60 * 1000);
+    setPriceCache(symbol, bars, 60*60*1000);
     res.json(bars);
-
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// ─── DIAG ─────────────────────────────────────────────────────
+// STATUS — build progress
+app.get('/api/status', (req, res) => res.json({
+  status:    buildStatus,
+  trades:    trades.length,
+  lastBuilt: lastBuilt?.toISOString() || null,
+  log:       buildLog.slice(-20),
+}));
+
+// REBUILD — force refresh
+app.get('/api/rebuild', (req, res) => {
+  res.json({ started: true });
+  buildTradeStore();
+});
+
+// DIAG
 app.get('/api/diag', async (req, res) => {
-  const out = { time: new Date().toISOString() };
-
-  // Test screener endpoint
+  const out = {
+    store: { status: buildStatus, trades: trades.length, lastBuilt: lastBuilt?.toISOString(), log: buildLog.slice(-10) }
+  };
   try {
-    const { status, body } = await get(
-      `https://financialmodelingprep.com/stable/insider-trading/latest?page=0&limit=3&apikey=${FMP}`
-    );
-    const d = safeParse(body);
-    out.screener = {
-      ok:     status === 200 && Array.isArray(d) && d.length > 0,
-      status, count: Array.isArray(d) ? d.length : 0,
-      raw:    body.slice(0, 300),
-    };
-  } catch(e) { out.screener = { ok: false, error: e.message }; }
-
-  // Test ticker endpoint (returns 402 on free tier — expected)
-  try {
-    const { status, body } = await get(
-      `https://financialmodelingprep.com/stable/insider-trading/search?symbol=AAPL&page=0&limit=3&apikey=${FMP}`
-    );
-    const d = safeParse(body);
-    out.ticker = {
-      ok:     status === 200 && Array.isArray(d) && d.length > 0,
-      status, count: Array.isArray(d) ? d.length : 0,
-      raw:    body.slice(0, 300),
-    };
-  } catch(e) { out.ticker = { ok: false, error: e.message }; }
-
-  // Test price
-  try {
-    const { status, body } = await get(
-      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=AAPL&apikey=${FMP}`
-    );
-    const data = safeParse(body);
+    const { status, body } = await get(`https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=AAPL&apikey=${FMP}`);
+    const data = JSON.parse(body.toString());
     const raw  = Array.isArray(data) ? data : (data?.historical || []);
-    out.price = { ok: status === 200 && raw.length > 0, status, bars: raw.length, latest: raw[0] };
-  } catch(e) { out.price = { ok: false, error: e.message }; }
-
+    out.price  = { ok: status===200 && raw.length>0, bars: raw.length };
+  } catch(e) { out.price = { ok:false, error: e.message }; }
   res.json(out);
 });
 
 app.get('/api/health', (req, res) =>
-  res.json({ ok: true, time: new Date().toISOString() }));
+  res.json({ ok:true, trades: trades.length, status: buildStatus }));
 
-app.listen(PORT, () => console.log(`InsiderTape on port ${PORT}`));
+// ─── STARTUP ──────────────────────────────────────────────────
+// Kick off build immediately
+buildTradeStore();
+
+// Rebuild every 24h
+setInterval(() => buildTradeStore(), 24 * 60 * 60 * 1000);
+
+app.listen(PORT, () => log(`InsiderTape on port ${PORT}`));
