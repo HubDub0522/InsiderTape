@@ -242,26 +242,27 @@ app.get('/api/health', (req, res) =>
   res.json({ ok: true, trades: db.prepare('SELECT COUNT(*) AS n FROM trades').get().n }));
 
 // ─── STARTUP ──────────────────────────────────────────────────
-const existing = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-console.log(`DB: ${existing} trades at ${DB_PATH}`);
+const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
+console.log(`DB: ${existing} trades, ${syncedQ} quarters synced`);
 
-if (existing === 0) {
-  console.log('Empty DB — starting full sync (last 4 quarters)...');
-  runSync(12); // 3 years of history on first load
+// Always ensure we have at least 12 quarters of history
+// If we have fewer, queue up enough to reach 12
+const TARGET_QUARTERS = 12;
+if (syncedQ < TARGET_QUARTERS) {
+  const needed = TARGET_QUARTERS - syncedQ;
+  console.log(`Only ${syncedQ} quarters in DB — syncing ${needed} more to reach ${TARGET_QUARTERS}...`);
+  runSync(TARGET_QUARTERS);
 } else {
-  // On restart, re-sync the two most recent quarters to catch any new SEC publications
+  // DB is populated — just re-sync the most recent quarter for new filings
   const now = new Date();
   const yr  = now.getFullYear();
   const q   = Math.ceil((now.getMonth() + 1) / 3);
-  // Delete last 2 quarters from sync_log so worker re-downloads them
-  for (let i = 0; i < 2; i++) {
-    let tq = q - 1 - i;
-    let ty = yr;
-    while (tq < 1) { tq += 4; ty--; }
-    const key = `${ty}Q${tq}`;
-    db.prepare('DELETE FROM sync_log WHERE quarter=?').run(key);
-    slog(`Queued re-sync: ${key}`);
-  }
+  let tq = q - 1; let ty = yr;
+  if (tq < 1) { tq = 4; ty--; }
+  const key = `${ty}Q${tq}`;
+  db.prepare('DELETE FROM sync_log WHERE quarter=?').run(key);
+  slog(`Re-syncing ${key} for latest filings...`);
   runSync(1);
 }
 
