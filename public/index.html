@@ -1235,13 +1235,13 @@ async function fetchInsiderForTicker(ticker) {
 }
 
 async function fetchInsiderByName(name) {
-  // Use already-loaded data if available (instant, saves a server round-trip)
-  const fromState = [
-    ...(state.screenerData || []),
-    ...(state.tickerTrades || [])
-  ].filter(t => t.insider === name);
-  if (fromState.length) return fromState;
-  return apiFetch(`/api/insider?name=${encodeURIComponent(name)}`);
+  try {
+    // Use exact=1 so server matches the full name precisely
+    const trades = await apiFetch(`/api/insider?name=${encodeURIComponent(name)}&exact=1`);
+    return trades;
+  } catch(e) {
+    return [];
+  }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2577,10 +2577,35 @@ async function runInsiderSearch() {
   }
 }
 
-function openInsiderProfileFull(name, title) {
+async function openInsiderProfileFull(name, title) {
+  // Show profile pane, hide search results
   document.getElementById('insiderSearchResults').style.display = 'none';
   document.getElementById('insiderProfileWrap').style.display   = '';
-  openInsiderProfile(name, title);
+
+  const content = document.getElementById('insiderContent');
+  content.innerHTML = `<div class="loading-state" style="height:400px"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
+
+  const trades = await fetchInsiderByName(name);
+  if (!trades.length) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div>No trades found for ${name}</div>
+      <button class="back-btn" style="margin-top:16px" onclick="backToInsiderSearch()">← Back to results</button></div>`;
+    return;
+  }
+
+  // Render profile — reuse renderInsiderProfile but patch goBack to return to search results
+  renderInsiderProfile(name, title, trades);
+
+  // Replace the back button to go back to search results instead of screener
+  const backBtns = content.querySelectorAll('.back-btn');
+  backBtns.forEach(btn => {
+    btn.textContent = '← Back to results';
+    btn.onclick = backToInsiderSearch;
+  });
+}
+
+function backToInsiderSearch() {
+  document.getElementById('insiderProfileWrap').style.display   = 'none';
+  document.getElementById('insiderSearchResults').style.display = '';
 }
 
 // Autocomplete — debounced
