@@ -123,24 +123,27 @@ function parseForm4(xml, filingDate, accession) {
 // The accession number encodes the FILER CIK (first 10 digits) — but we need ISSUER CIK.
 // Solution: use EDGAR's /submissions/ API with the accession to find issuer CIK.
 // Actually simpler: use the filing index at data.sec.gov which doesn't need CIK in the URL.
-async function fetchForm4ByAccession(accession, filingDate) {
-  const acc = accession.replace(/-/g, '');
-  const accDash = accession; // e.g. 0001234567-26-000001
+async function fetchForm4ByAccession(accession, filingDate, xmlFile, ciks) {
+  const acc     = accession.replace(/-/g, '');
+  const accDash = accession;
 
-  // Strategy 1: data.sec.gov/submissions/CIK.json approach is too slow (need CIK first)
-  // Strategy 2: Use the EDGAR filing viewer which resolves by accession alone
-  // The correct URL is: https://www.sec.gov/Archives/edgar/data/{CIK}/{acc}/{file}.xml
-  // BUT we can get the CIK from: https://data.sec.gov/submissions/CIK{padded}.json
-  // 
-  // BEST: Use the EDGAR filing index endpoint which accepts just accession:
-  // https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=&State=0&SIC=&dateb=&owner=include&count=40&search_text=&action=getcompany
-  //
-  // ACTUAL BEST: The _id from EFTS is formatted as "accession-number" and maps to:
-  // https://www.sec.gov/Archives/edgar/data/{first10asInt}/{accNoDash}/{file}
-  // First 10 digits of accession = filer CIK (zero-padded)
-
-  // Get the filer CIK from accession (first 10 digits)
+  // CIK candidates: EFTS provides ciks array, plus filer CIK from accession prefix
   const filerCik = parseInt(acc.slice(0, 10), 10).toString();
+  const allCiks  = [...new Set([...(ciks || []).map(k => parseInt(k,10).toString()), filerCik])];
+
+  // Best path: EFTS _id includes the filename after colon e.g. "0000021344-26-000038:form4.xml"
+  // We already extracted xmlFile — try it directly with each candidate CIK
+  if (xmlFile) {
+    for (const cik of allCiks) {
+      try {
+        const url = `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlFile}`;
+        const { status, body } = await get(url);
+        if (status === 200 && body.includes('ownershipDocument'))
+          return { rows: parseForm4(body, filingDate, accession), method: 'direct-xmlfile' };
+      } catch(e) {}
+    }
+  }
+
 
   // Use the -index.json which always exists and has the document list
   try {
@@ -229,18 +232,17 @@ async function searchFilings(startDate, endDate) {
       if (!hits.length) break;
 
       for (const h of hits) {
-        // _id is the accession number (may have slashes or dashes)
-        const acc = (h._id || '').replace(/\//g, '-');
-        const fd  = parseDate(h._source?.file_date) || endDate;
-        if (acc && acc.match(/^\d{10}-\d{2}-\d{6}$/)) {
-          filings.push({ accession: acc, filingDate: fd });
-        } else if (acc) {
-          // Try to reformat — EFTS sometimes returns without dashes
-          const clean = acc.replace(/[^0-9]/g, '');
-          if (clean.length === 18) {
-            const formatted = `${clean.slice(0,10)}-${clean.slice(10,12)}-${clean.slice(12)}`;
-            filings.push({ accession: formatted, filingDate: fd });
-          }
+        // _id format: "0000021344-26-000038:form4.xml"
+        // accession = part before colon, xmlFile = part after colon
+        const raw     = h._id || '';
+        const colonAt = raw.indexOf(':');
+        const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
+        const xmlFile = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
+        const fd      = parseDate(h._source?.file_date) || endDate;
+        // CIK is in the source
+        const ciks    = h._source?.ciks || [];
+        if (accDash.match(/^\d{10}-\d{2}-\d{6}$/)) {
+          filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd });
         }
       }
       if (hits.length < 100) break;
@@ -285,7 +287,7 @@ async function run(daysBack) {
   const BATCH = 4;
   for (let i = 0; i < filings.length; i += BATCH) {
     const batch = filings.slice(i, i + BATCH);
-    const results = await Promise.allSettled(batch.map(f => fetchForm4ByAccession(f.accession, f.filingDate)));
+    const results = await Promise.allSettled(batch.map(f => fetchForm4ByAccession(f.accession, f.filingDate, f.xmlFile, f.ciks)));
     for (const r of results) {
       if (r.status === 'fulfilled') {
         if (r.value.rows?.length) inserted += doInsert(r.value.rows);
