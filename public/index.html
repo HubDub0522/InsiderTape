@@ -837,19 +837,20 @@
   @media (max-width: 640px) {
     :root { --header-h: 56px; }
 
-    /* Header: logo + search stacked, nav below */
+    /* Header: two-row layout on mobile */
     header {
       flex-wrap: wrap;
       height: auto;
-      padding: 8px 12px;
-      gap: 8px;
+      padding: 8px 12px 8px;
+      gap: 6px;
+      align-items: center;
     }
-    .logo { font-size: 20px; letter-spacing: 1px; order: 0; }
-    .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
-    .nav-tabs { order: 1; margin-left: auto; gap: 2px; }
+    .logo { font-size: 19px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
+    .nav-tabs { order: 1; margin-left: auto; gap: 2px; flex-shrink: 0; }
     .nav-tab { padding: 5px 10px; font-size: 11px; }
+    .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
 
-    main { margin-top: 0; padding-top: calc(var(--header-h) + 56px); }
+    main { margin-top: 0; padding-top: 0; }  /* offset set by JS measureHeader() */
 
     /* Screener filters: horizontal scroll row on mobile */
     .filter-panel {
@@ -1029,7 +1030,7 @@
         <table>
           <thead>
             <tr>
-              <th onclick="sortTable('date')" class="sorted">DATE <span class="sort-arrow">↓</span></th>
+              <th onclick="sortTable('date')" class="sorted">FILED <span class="sort-arrow">↓</span></th>
               <th onclick="sortTable('ticker')">TICKER</th>
               <th onclick="sortTable('insider')">INSIDER</th>
               <th onclick="sortTable('type')">TYPE</th>
@@ -1332,10 +1333,19 @@ function renderScreener() {
   document.getElementById('screenerMeta').textContent =
     `${data.length} filings · Last updated ${new Date().toLocaleTimeString()}`;
 
-  // Sort
+  // Sort — API returns 'trade' for trade_date, 'filing' for filing_date
+  const SORT_FIELD = { date: 'filing', trade: 'trade', filing: 'filing',
+                       ticker: 'ticker', insider: 'insider', type: 'type',
+                       shares: 'qty', price: 'price', value: 'value', owned: 'owned' };
+  const field = SORT_FIELD[state.sortCol] || state.sortCol;
   const sorted = [...data].sort((a,b) => {
-    let av = a[state.sortCol], bv = b[state.sortCol];
-    if (state.sortCol === 'date' || state.sortCol === 'filing') { av = new Date(av||0); bv = new Date(bv||0); }
+    let av = a[field], bv = b[field];
+    if (field === 'trade' || field === 'filing') {
+      // Sort as strings — ISO dates sort correctly lexicographically
+      av = av || ''; bv = bv || '';
+    } else {
+      av = parseFloat(av) || 0; bv = parseFloat(bv) || 0;
+    }
     if (av < bv) return state.sortDir;
     if (av > bv) return -state.sortDir;
     return 0;
@@ -1355,7 +1365,8 @@ function renderScreener() {
 
   tbody.innerHTML = page.map(t => `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">trade: ${fmtDate(t.trade)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()">
         <span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span>
@@ -2336,6 +2347,16 @@ function goBack() {
 // ═══════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════
+
+// Measure actual header height (wraps on mobile) and offset main content
+function measureHeader() {
+  const h = document.querySelector('header');
+  const m = document.querySelector('main');
+  if (h && m) m.style.paddingTop = h.offsetHeight + 'px';
+}
+measureHeader();
+window.addEventListener('resize', measureHeader);
+
 loadScreener();
 </script>
 </body>
