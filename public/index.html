@@ -1064,54 +1064,7 @@
 
 <!-- ═══════════════════ INSIDER VIEW ═══════════════════ -->
 <div id="view-insider" class="view">
-  <div class="screener-layout">
-
-    <!-- Search panel -->
-    <div class="filter-panel">
-      <div class="filter-section">
-        <span class="filter-label">Search Insider</span>
-        <div style="position:relative">
-          <input id="insiderSearchInput" type="text"
-            placeholder="Last name, e.g. Cook"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:8px 10px;color:var(--text);font-size:13px;outline:none;"
-            onkeydown="if(event.key==='Enter')runInsiderSearch()"
-            oninput="insiderAutocomplete(this.value)" />
-          <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-radius:0 0 5px 5px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div>
-        </div>
-      </div>
-      <button class="apply-btn" onclick="runInsiderSearch()">SEARCH</button>
-      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
-        <span class="filter-label">Search Tips</span>
-        <p style="font-size:11px;color:var(--muted);line-height:1.7">
-          Search by last name, full name, or company.<br><br>
-          Examples:<br>
-          <span style="color:var(--accent);cursor:pointer" onclick="document.getElementById('insiderSearchInput').value='Cook';runInsiderSearch()">Cook</span><br>
-          <span style="color:var(--accent);cursor:pointer" onclick="document.getElementById('insiderSearchInput').value='Musk';runInsiderSearch()">Musk</span><br>
-          <span style="color:var(--accent);cursor:pointer" onclick="document.getElementById('insiderSearchInput').value='Zuckerberg';runInsiderSearch()">Zuckerberg</span>
-        </p>
-      </div>
-    </div>
-
-    <!-- Results panel -->
-    <div class="screener-content" id="insiderSearchResults">
-      <div class="screener-header">
-        <div class="screener-title" id="insiderSearchTitle">INSIDER SEARCH</div>
-        <div class="screener-meta" id="insiderSearchMeta">Search by name above</div>
-      </div>
-      <div id="insiderResultsBody">
-        <div class="empty-state">
-          <div class="empty-icon" style="font-size:48px;opacity:0.15">👤</div>
-          <div>Enter a name to search SEC insider filings</div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Individual insider profile (shown after clicking a result) -->
-  <div id="insiderProfileWrap" style="display:none">
-    <div id="insiderContent"></div>
-  </div>
+  <div id="insiderViewBody"></div>
 </div>
 
 </main>
@@ -1200,6 +1153,11 @@ function switchView(view, btn) {
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
+  // Initialise insider landing page when switching to it
+  if (view === 'insider') {
+    const body = document.getElementById('insiderViewBody');
+    if (body && !body.hasChildNodes()) insiderLanding();
+  }
 }
 
 function searchTicker() {
@@ -2229,23 +2187,14 @@ function escName(str) {
 }
 
 async function openInsiderProfile(name, title) {
-  // Show tab and switch view FIRST so DOM is visible before we render
+  // Switch to insider view
   const tab = document.getElementById('insiderTab');
-  tab.style.display = '';
-  tab.textContent = name.split(' ').slice(-1)[0].toUpperCase();
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   tab.classList.add('active');
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-insider').classList.add('active');
-
-  document.getElementById('insiderContent').innerHTML = `
-    <div class="loading-state" style="height:400px">
-      <div class="spinner"></div>
-      <span>Loading profile for ${name}...</span>
-    </div>`;
-
-  const trades = await fetchInsiderByName(name);
-  renderInsiderProfile(name, title, trades);
+  // Delegate to the unified profile function
+  await openInsiderProfileFull(name, title);
 }
 
 
@@ -2577,72 +2526,295 @@ async function runInsiderSearch() {
   }
 }
 
-async function openInsiderProfileFull(name, title) {
-  // Show profile pane, hide search results
-  document.getElementById('insiderSearchResults').style.display = 'none';
-  document.getElementById('insiderProfileWrap').style.display   = '';
+// ── INSIDER VIEW STATE MACHINE ─────────────────────────────────────────────
+// Three states: 'landing', 'results', 'profile'
+// All rendered into #insiderViewBody — no nested show/hide fragility.
 
-  const content = document.getElementById('insiderContent');
-  content.innerHTML = `<div class="loading-state" style="height:400px"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
+function insiderLanding() {
+  const body = document.getElementById('insiderViewBody');
+  if (!body) return;
+  body.innerHTML = `
+    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      <!-- Search bar -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:12px">SEARCH INSIDER</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="position:relative;flex:1;min-width:200px">
+            <input id="insiderSearchInput" type="text" placeholder="Search by name, e.g. Zuckerberg"
+              style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s"
+              onkeydown="if(event.key==='Enter')runInsiderSearch()"
+              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" />
+            <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
+          </div>
+          <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:10px 22px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">SEARCH</button>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+          Quick search:
+          ${['Zuckerberg','Musk','Cook','Bezos','Pichai','Nadella','Dimon'].map(n=>
+            `<span onclick="document.getElementById('insiderSearchInput').value='${n}';runInsiderSearch()" style="color:var(--accent);cursor:pointer;margin-left:8px">${n}</span>`
+          ).join('')}
+        </div>
+      </div>
+      <!-- Dashboard sections -->
+      <div id="insiderDashboard">
+        <div class="loading-state"><div class="spinner"></div><span>Loading insider activity...</span></div>
+      </div>
+    </div>`;
+  loadInsiderDashboard();
+}
 
-  const trades = await fetchInsiderByName(name);
-  if (!trades.length) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div>No trades found for ${name}</div>
-      <button class="back-btn" style="margin-top:16px" onclick="backToInsiderSearch()">← Back to results</button></div>`;
-    return;
+async function loadInsiderDashboard() {
+  const dash = document.getElementById('insiderDashboard');
+  if (!dash) return;
+  try {
+    // Pull recent trades for dashboard stats
+    const recent = await apiFetch('/api/screener?days=30');
+    if (!recent.length) { dash.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div>No recent data</div></div>'; return; }
+
+    // Most active buyers (last 30d by $ value)
+    const buyMap = {}, sellMap = {}, countMap = {};
+    recent.forEach(t => {
+      const k = t.insider;
+      if (!k) return;
+      countMap[k] = (countMap[k]||0) + 1;
+      if (t.type === 'P') buyMap[k]  = (buyMap[k]||0)  + (t.value||0);
+      if (t.type === 'S' || t.type === 'S-') sellMap[k] = (sellMap[k]||0) + (t.value||0);
+    });
+
+    const topBuyers = Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const topSellers= Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const mostActive= Object.entries(countMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+    // Biggest single trades
+    const bigTrades = [...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+
+    // Recent cluster buys (multiple insiders buying same stock same week)
+    const tickerBuyers = {};
+    recent.filter(t=>t.type==='P').forEach(t => {
+      if (!tickerBuyers[t.ticker]) tickerBuyers[t.ticker] = new Set();
+      tickerBuyers[t.ticker].add(t.insider);
+    });
+    const clusters = Object.entries(tickerBuyers).filter(([,s])=>s.size>=2).sort((a,b)=>b[1].size-a[1].size).slice(0,8);
+
+    dash.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        <!-- Most Active Buyers -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="color:var(--buy);font-size:14px">▲</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span>
+          </div>
+          <div style="padding:0">
+            ${topBuyers.map(([name,val],i)=>`
+              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
+                <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(val)}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- Most Active Sellers -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="color:var(--sell);font-size:14px">▼</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span>
+          </div>
+          <div>
+            ${topSellers.map(([name,val],i)=>`
+              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
+                <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- Cluster Buys -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="color:var(--option);font-size:14px">⚡</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span>
+            <span style="font-size:10px;color:var(--muted);margin-left:auto">2+ insiders buying same stock</span>
+          </div>
+          <div>
+            ${clusters.map(([ticker, insiders])=> {
+              const tickerTrades = recent.filter(t=>t.ticker===ticker&&t.type==='P');
+              const totalVal = tickerTrades.reduce((s,t)=>s+(t.value||0),0);
+              return `<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span>
+                <span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- Biggest Single Trades -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="color:var(--accent);font-size:14px">💰</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span>
+          </div>
+          <div>
+            ${bigTrades.map(t=>{
+              const isBuy = t.type==='P';
+              return `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span>
+                <span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span>
+                <span class="badge ${isBuy?'badge-buy':'badge-sell'}" style="margin-right:6px">${isBuy?'BUY':'SELL'}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+      </div>`;
+  } catch(e) {
+    dash.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`;
   }
-
-  // Render profile — reuse renderInsiderProfile but patch goBack to return to search results
-  renderInsiderProfile(name, title, trades);
-
-  // Replace the back button to go back to search results instead of screener
-  const backBtns = content.querySelectorAll('.back-btn');
-  backBtns.forEach(btn => {
-    btn.textContent = '← Back to results';
-    btn.onclick = backToInsiderSearch;
-  });
 }
 
-function backToInsiderSearch() {
-  document.getElementById('insiderProfileWrap').style.display   = 'none';
-  document.getElementById('insiderSearchResults').style.display = '';
+async function runInsiderSearch() {
+  const input = document.getElementById('insiderSearchInput');
+  const q = (input?.value || '').trim();
+  if (!q) return;
+
+  const body = document.getElementById('insiderViewBody');
+  body.innerHTML = `
+    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      <!-- Persistent search bar -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;gap:10px;align-items:center">
+        <div style="position:relative;flex:1">
+          <input id="insiderSearchInput" type="text" value="${q.replace(/"/g,'&quot;')}" placeholder="Search by name"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 14px;color:var(--text);font-size:13px;outline:none"
+            onkeydown="if(event.key==='Enter')runInsiderSearch()" />
+          <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div>
+        </div>
+        <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:9px 18px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
+        <button onclick="insiderLanding()" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-size:12px;cursor:pointer">← Dashboard</button>
+      </div>
+      <div id="insiderResultsArea">
+        <div class="loading-state"><div class="spinner"></div><span>Searching for "${q}"...</span></div>
+      </div>
+    </div>`;
+
+  // Re-attach autocomplete
+  document.getElementById('insiderSearchInput').addEventListener('input', e => insiderAutocomplete(e.target.value));
+  document.getElementById('insiderSearchInput').addEventListener('keydown', e => { if(e.key==='Enter') runInsiderSearch(); });
+
+  try {
+    const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(q));
+    const area = document.getElementById('insiderResultsArea');
+    if (!trades.length) {
+      area.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;
+      return;
+    }
+
+    // Group by exact insider name
+    const byInsider = {};
+    trades.forEach(t => {
+      const k = t.insider || 'Unknown';
+      if (!byInsider[k]) byInsider[k] = { name:k, title:t.title, trades:[], buyVal:0, sellVal:0, tickers:new Set() };
+      byInsider[k].trades.push(t);
+      byInsider[k].tickers.add(t.ticker);
+      if (t.type==='P') byInsider[k].buyVal  += t.value||0;
+      if (t.type==='S'||t.type==='S-') byInsider[k].sellVal += t.value||0;
+    });
+
+    const insiders = Object.values(byInsider).sort((a,b)=>b.trades.length-a.trades.length);
+
+    area.innerHTML = `
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">
+        ${insiders.length} INSIDER${insiders.length>1?'S':''} FOUND FOR "${q.toUpperCase()}"
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>INSIDER</th><th>TITLE</th>
+            <th class="hide-mobile">TRADES</th>
+            <th class="hide-mobile">COMPANIES</th>
+            <th>TOTAL BOUGHT</th><th>TOTAL SOLD</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            ${insiders.map(ins=>`
+              <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title||'')}')" style="cursor:pointer">
+                <td style="font-weight:500;color:var(--text)">${ins.name}</td>
+                <td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td>
+                <td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td>
+                <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td>
+                <td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td>
+                <td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td>
+                <td style="color:var(--accent);font-size:11px">VIEW →</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    document.getElementById('insiderResultsArea').innerHTML =
+      `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
+  }
 }
 
-// Autocomplete — debounced
+async function openInsiderProfileFull(name, title) {
+  const body = document.getElementById('insiderViewBody');
+  body.innerHTML = `<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
+
+  try {
+    const trades = await fetchInsiderByName(name);
+    if (!trades.length) {
+      body.innerHTML = `<div class="empty-state" style="height:60vh">
+        <div class="empty-icon">📭</div><div>No trades found for ${name}</div>
+        <button class="back-btn" style="margin-top:16px" onclick="history.back()">← Back</button>
+      </div>`;
+      return;
+    }
+    // Render into a wrapper inside insiderViewBody
+    const wrap = document.createElement('div');
+    wrap.id = 'insiderContent';
+    body.innerHTML = '';
+    body.appendChild(wrap);
+    renderInsiderProfile(name, title, trades);
+
+    // Override back button to go back in history
+    body.querySelectorAll('.back-btn').forEach(btn => {
+      btn.textContent = '← Back to results';
+      btn.onclick = () => history.back();
+    });
+  } catch(e) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`;
+  }
+}
+
+// Autocomplete
 let _acTimer;
-async function insiderAutocomplete(val) {
+function insiderAutocomplete(val) {
   clearTimeout(_acTimer);
   const box = document.getElementById('insiderSuggest');
+  if (!box) return;
   if (!val || val.length < 2) { box.style.display = 'none'; return; }
   _acTimer = setTimeout(async () => {
     try {
       const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(val));
-      const names  = [...new Set(trades.map(t => t.insider).filter(Boolean))].slice(0, 8);
+      const names  = [...new Set(trades.map(t=>t.insider).filter(Boolean))].slice(0,8);
       if (!names.length) { box.style.display = 'none'; return; }
       box.innerHTML = names.map(n =>
         `<div onclick="document.getElementById('insiderSearchInput').value='${escName(n)}';document.getElementById('insiderSuggest').style.display='none';runInsiderSearch()"
-              style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
-              onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">${n}</div>`
+          style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
+          onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`
       ).join('');
       box.style.display = 'block';
     } catch(e) {}
-  }, 300);
+  }, 280);
 }
-
-// Close autocomplete on outside click
 document.addEventListener('click', e => {
   if (!e.target.closest('#insiderSearchInput') && !e.target.closest('#insiderSuggest')) {
     const box = document.getElementById('insiderSuggest');
     if (box) box.style.display = 'none';
   }
 });
-
-// Also allow navigating to insider view from stock page insider name clicks
-function openInsiderFromSearch(name) {
-  switchView('insider', document.getElementById('insiderTab'));
-  document.getElementById('insiderSearchInput').value = name;
-  runInsiderSearch();
-}
 
 // ═══════════════════════════════════════════════════════
 // INIT
