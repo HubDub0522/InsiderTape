@@ -126,14 +126,16 @@ app.get('/api/screener', (req, res) => {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     if (n === 0 && syncRunning)
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
+    const days = Math.min(Math.max(parseInt(req.query.days || '7'), 1), 3650);
     const rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned
       FROM trades
+      WHERE filing_date >= date('now', '-' || ? || ' days')
       ORDER BY filing_date DESC, trade_date DESC
-      LIMIT 500
-    `).all();
+      LIMIT 1000
+    `).all(days);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
