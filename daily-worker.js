@@ -145,75 +145,38 @@ async function fetchForm4ByAccession(accession, filingDate, xmlFile, ciks) {
   }
 
 
-  // Use the -index.json which always exists and has the document list
-  try {
-    const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${accDash}-index.json`;
-    const { status, body } = await get(idxUrl);
-    if (status === 200) {
-      const idx = JSON.parse(body);
-      // Find the Form 4 XML document
-      const xmlDoc = (idx.documents || []).find(d =>
-        d.document?.match(/\.xml$/i) &&
-        (d.type === '4' || d.type === '4/A' || !d.type)
-      );
-      if (xmlDoc) {
-        const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${xmlDoc.document}`;
-        const { status: xs, body: xml } = await get(xmlUrl);
-        if (xs === 200 && xml.includes('ownershipDocument'))
-          return { rows: parseForm4(xml, filingDate, accession), method: 'index-json' };
-      }
-      // If no XML type found, try any .xml file
-      const anyXml = (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
-      if (anyXml) {
-        const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${anyXml.document}`;
-        const { status: xs, body: xml } = await get(xmlUrl);
-        if (xs === 200 && xml.includes('ownershipDocument'))
-          return { rows: parseForm4(xml, filingDate, accession), method: 'index-json-anyxml' };
-      }
-    }
-    // If index not found under filer CIK, the filing might be under a different CIK
-    // Try using the EDGAR full text search to get the actual filing URL
-    if (status === 404) {
-      // Use EDGAR submissions search to find CIK by accession
-      const searchUrl = `https://efts.sec.gov/LATEST/search-index?q=%22${accDash}%22&forms=4,4%2FA&from=0&size=1`;
-      const { status: ss, body: sb } = await get(searchUrl);
-      if (ss === 200) {
-        const data = JSON.parse(sb);
-        const hit  = data.hits?.hits?.[0];
-        if (hit) {
-          const ciks = hit._source?.ciks || [];
-          for (const cik of ciks) {
-            const cikInt = parseInt(cik, 10).toString();
-            const u = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${acc}/${accDash}-index.json`;
-            const { status: cs, body: cb } = await get(u);
-            if (cs === 200) {
-              const idx2   = JSON.parse(cb);
-              const xmlDoc = (idx2.documents || []).find(d => d.document?.match(/\.xml$/i));
-              if (xmlDoc) {
-                const { status: xs, body: xml } = await get(
-                  `https://www.sec.gov/Archives/edgar/data/${cikInt}/${acc}/${xmlDoc.document}`
-                );
-                if (xs === 200 && xml.includes('ownershipDocument'))
-                  return { rows: parseForm4(xml, filingDate, accession), method: 'cik-search' };
-              }
-            }
-          }
+  // Try index.json with each candidate CIK to find correct filing path
+  for (const cik of allCiks) {
+    try {
+      const idxUrl = `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accDash}-index.json`;
+      const { status, body } = await get(idxUrl);
+      if (status === 200) {
+        const idx = JSON.parse(body);
+        const xmlDoc = (idx.documents || []).find(d =>
+          d.document?.match(/\.xml$/i) &&
+          (d.type === '4' || d.type === '4/A' || !d.type)
+        ) || (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
+        if (xmlDoc) {
+          const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlDoc.document}`;
+          const { status: xs, body: xml } = await get(xmlUrl);
+          if (xs === 200 && xml.includes('ownershipDocument'))
+            return { rows: parseForm4(xml, filingDate, accession), method: `index-json-${cik}` };
         }
       }
-    }
-  } catch(e) {
-    return { rows: [], error: e.message };
+    } catch(e) {}
   }
 
-  // Strategy 3: Try common XML filename patterns directly
-  for (const name of [`${accDash}.xml`, 'form4.xml', 'wf-form4.xml']) {
-    try {
-      const { status, body } = await get(
-        `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${name}`
-      );
-      if (status === 200 && body.includes('ownershipDocument'))
-        return { rows: parseForm4(body, filingDate, accession), method: 'fallback-' + name };
-    } catch(e) {}
+  // Last resort: try common XML filename patterns with each CIK
+  for (const cik of allCiks) {
+    for (const name of [`${accDash}.xml`, 'form4.xml', 'wf-form4.xml']) {
+      try {
+        const { status, body } = await get(
+          `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`
+        );
+        if (status === 200 && body.includes('ownershipDocument'))
+          return { rows: parseForm4(body, filingDate, accession), method: `fallback-${name}` };
+      } catch(e) {}
+    }
   }
 
   return { rows: [], error: 'not-found' };
