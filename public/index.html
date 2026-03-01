@@ -794,6 +794,137 @@
     font-size: 18px;
     margin-top: 4px;
   }
+
+  /* ══════════════════════════════════════════════════════
+     RESPONSIVE / MOBILE
+     ══════════════════════════════════════════════════════ */
+
+  /* ── Tablet (≤900px) ── */
+  @media (max-width: 900px) {
+    header { padding: 0 14px; gap: 10px; }
+    .logo  { font-size: 22px; letter-spacing: 2px; }
+
+    .search-wrap { max-width: 260px; }
+
+    /* Screener: collapse sidebar to top bar */
+    .screener-layout {
+      grid-template-columns: 1fr;
+    }
+    .filter-panel {
+      position: static;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 14px 10px;
+    }
+    .filter-section { margin-bottom: 14px; }
+
+    /* Stock layout: single column */
+    .stock-layout {
+      grid-template-columns: 1fr;
+    }
+    .insider-sidebar {
+      border-left: none;
+      border-top: 1px solid var(--border);
+      height: 360px;
+    }
+    .stock-trades-section { grid-column: 1; }
+
+    .stat-grid { margin-left: 0; gap: 14px; }
+  }
+
+  /* ── Mobile (≤640px) ── */
+  @media (max-width: 640px) {
+    :root { --header-h: 56px; }
+
+    /* Header: logo + search stacked, nav below */
+    header {
+      flex-wrap: wrap;
+      height: auto;
+      padding: 8px 12px;
+      gap: 8px;
+    }
+    .logo { font-size: 20px; letter-spacing: 1px; order: 0; }
+    .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
+    .nav-tabs { order: 1; margin-left: auto; gap: 2px; }
+    .nav-tab { padding: 5px 10px; font-size: 11px; }
+
+    main { margin-top: 0; padding-top: calc(var(--header-h) + 56px); }
+
+    /* Screener filters: horizontal scroll row on mobile */
+    .filter-panel {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      gap: 12px;
+      align-items: flex-start;
+      -webkit-overflow-scrolling: touch;
+    }
+    .filter-section { margin-bottom: 0; flex-shrink: 0; min-width: 140px; }
+    .apply-btn { width: auto; white-space: nowrap; flex-shrink: 0; align-self: flex-end; }
+
+    .screener-content { padding: 10px; }
+
+    /* Table: scroll horizontally */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 700px; }
+    td, th { padding: 9px 10px; font-size: 12px; }
+
+    /* Stock header: stack everything */
+    .stock-header-bar {
+      flex-direction: column;
+      gap: 12px;
+      padding: 12px;
+    }
+    .stock-ticker-big { font-size: 32px; }
+    .stock-price { font-size: 22px; }
+    .stat-grid { margin-left: 0; gap: 10px; }
+    .stat-item { text-align: left; }
+
+    /* Chart controls: wrap tightly */
+    .chart-controls { flex-wrap: wrap; gap: 4px 4px; }
+    .tf-btn { padding: 4px 8px; font-size: 10px; }
+
+    .chart-area { padding: 10px; }
+    #chartContainer { height: 340px !important; }
+
+    /* Sidebar full height on mobile */
+    .insider-sidebar { height: 280px; }
+
+    /* Stock trades table scroll */
+    .stock-trades-section { padding: 0 10px 16px; overflow-x: auto; }
+
+    /* Insider profile */
+    .insider-profile-layout { padding: 12px; }
+
+    /* Summary bar */
+    .summary-bar { gap: 8px; }
+    .summary-card { min-width: 100px; padding: 10px 12px; }
+    .summary-card-val { font-size: 15px; }
+
+    /* Hide less important table columns on mobile */
+    .hide-mobile { display: none !important; }
+    /* Screener table: hide cols 5(shares),6(price),8(owned),9(filing) */
+    #screenerBody tr td:nth-child(5),
+    #screenerBody tr td:nth-child(6),
+    #screenerBody tr td:nth-child(8),
+    #screenerBody tr td:nth-child(9) { display: none; }
+    /* Stock trades table: hide title, price, owned, filing */
+    #stockTradesBody tr td:nth-child(3),
+    #stockTradesBody tr td:nth-child(6),
+    #stockTradesBody tr td:nth-child(8),
+    #stockTradesBody tr td:nth-child(9) { display: none; }
+  }
+
+  /* ── Very small (≤380px) ── */
+  @media (max-width: 380px) {
+    .logo { font-size: 17px; }
+    .nav-tab { padding: 4px 8px; font-size: 10px; }
+    #chartContainer { height: 280px !important; }
+  }
+
 </style>
 </head>
 <body>
@@ -902,11 +1033,11 @@
               <th onclick="sortTable('ticker')">TICKER</th>
               <th onclick="sortTable('insider')">INSIDER</th>
               <th onclick="sortTable('type')">TYPE</th>
-              <th onclick="sortTable('shares')">SHARES</th>
-              <th onclick="sortTable('price')">PRICE</th>
+              <th onclick="sortTable('shares')" class="hide-mobile">SHARES</th>
+              <th onclick="sortTable('price')" class="hide-mobile">PRICE</th>
               <th onclick="sortTable('value')">VALUE</th>
-              <th onclick="sortTable('owned')">OWNED AFTER</th>
-              <th>FILING</th>
+              <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER</th>
+              <th class="hide-mobile">FILING</th>
             </tr>
           </thead>
           <tbody id="screenerBody">
