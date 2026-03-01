@@ -945,7 +945,7 @@
   <nav class="nav-tabs">
     <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
     <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
-    <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)" style="display:none">INSIDER</button>
+    <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
   </nav>
 </header>
 
@@ -1062,13 +1062,55 @@
   </div>
 </div>
 
-<!-- ═══════════════════ INSIDER PROFILE VIEW ═══════════════════ -->
+<!-- ═══════════════════ INSIDER VIEW ═══════════════════ -->
 <div id="view-insider" class="view">
-  <div id="insiderContent">
-    <div class="empty-state">
-      <div class="empty-icon">👤</div>
-      <div>Click an insider's name to view their profile</div>
+  <div class="screener-layout">
+
+    <!-- Search panel -->
+    <div class="filter-panel">
+      <div class="filter-section">
+        <span class="filter-label">Search Insider</span>
+        <div style="position:relative">
+          <input id="insiderSearchInput" type="text"
+            placeholder="Last name, e.g. Cook"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:8px 10px;color:var(--text);font-size:13px;outline:none;"
+            onkeydown="if(event.key==='Enter')runInsiderSearch()"
+            oninput="insiderAutocomplete(this.value)" />
+          <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-radius:0 0 5px 5px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
+      <button class="apply-btn" onclick="runInsiderSearch()">SEARCH</button>
+      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+        <span class="filter-label">Search Tips</span>
+        <p style="font-size:11px;color:var(--muted);line-height:1.7">
+          Search by last name, full name, or company.<br><br>
+          Examples:<br>
+          <span style="color:var(--accent);cursor:pointer" onclick="document.getElementById('insiderSearchInput').value='Cook';runInsiderSearch()">Cook</span><br>
+          <span style="color:var(--accent);cursor:pointer" onclick="document.getElementById('insiderSearchInput').value='Musk';runInsiderSearch()">Musk</span><br>
+          <span style="color:var(--accent);cursor:pointer" onclick="document.getElementById('insiderSearchInput').value='Zuckerberg';runInsiderSearch()">Zuckerberg</span>
+        </p>
+      </div>
     </div>
+
+    <!-- Results panel -->
+    <div class="screener-content" id="insiderSearchResults">
+      <div class="screener-header">
+        <div class="screener-title" id="insiderSearchTitle">INSIDER SEARCH</div>
+        <div class="screener-meta" id="insiderSearchMeta">Search by name above</div>
+      </div>
+      <div id="insiderResultsBody">
+        <div class="empty-state">
+          <div class="empty-icon" style="font-size:48px;opacity:0.15">👤</div>
+          <div>Enter a name to search SEC insider filings</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Individual insider profile (shown after clicking a result) -->
+  <div id="insiderProfileWrap" style="display:none">
+    <div id="insiderContent"></div>
   </div>
 </div>
 
@@ -1835,25 +1877,90 @@ function buildPressureChart(mainChart, trades, priceData) {
     handleScroll: false, handleScale: false,
   });
 
-  // Single line — color changes based on value (positive=buy pressure, negative=sell)
-  pChart.addLineSeries({
-    color: '#00d4ff',
-    lineWidth: 2,
-    priceLineVisible: false,
-    lastValueVisible: false,
-    crosshairMarkerVisible: true,
-    crosshairMarkerRadius: 3,
-  }).setData(lineData);
+  // Histogram: each bar colored green (buy) or red (sell) based on sign
+  const histData = lineData.map(d => ({
+    time:  d.time,
+    value: d.value,
+    color: d.value >= 0 ? 'rgba(0,255,136,0.85)' : 'rgba(255,68,102,0.85)',
+  }));
+
+  const histSeries = pChart.addHistogramSeries({
+    priceLineVisible:  false,
+    lastValueVisible:  false,
+    priceScaleId:      'right',
+    scaleMargins:      { top: 0.05, bottom: 0.05 },
+    base: 0,
+  });
+  histSeries.setData(histData);
 
   // Zero baseline
   pChart.addLineSeries({
-    color: '#1e2d3d',
+    color: '#2a3f55',
     lineWidth: 1,
-    lineStyle: 2, // dashed
+    lineStyle: 2,
     priceLineVisible: false,
     lastValueVisible: false,
     crosshairMarkerVisible: false,
   }).setData(allDates.map(t => ({ time: t, value: 0 })));
+
+  // Build per-day trade summary for tooltip
+  // byDay already has net/total — also store individual trades
+  const byDayTrades = {};
+  trades.forEach(t => {
+    const d = (t.trade || t.filing || '').slice(0, 10);
+    if (!d) return;
+    if (!byDayTrades[d]) byDayTrades[d] = [];
+    byDayTrades[d].push(t);
+  });
+
+  // Canvas overlay for hover tooltip on pressure bars
+  const pCanvas = document.createElement('canvas');
+  pCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:auto;z-index:5;';
+  pCanvas.width  = pc.clientWidth || 800;
+  pCanvas.height = 120;
+  pc.style.position = 'relative';
+  pc.appendChild(pCanvas);
+
+  const pTooltip = document.getElementById('chartTooltip') || (() => {
+    const el = document.createElement('div');
+    el.id = 'chartTooltip';
+    el.style.cssText = 'position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
+    document.body.appendChild(el);
+    return el;
+  })();
+
+  pCanvas.addEventListener('mousemove', e => {
+    const rect = pCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ts = pChart.timeScale().coordinateToTime(x);
+    if (!ts) { pTooltip.style.display = 'none'; return; }
+    const dateStr = typeof ts === 'string' ? ts : new Date(ts * 1000).toISOString().slice(0,10);
+    const dayTrades = byDayTrades[dateStr];
+    if (!dayTrades || !dayTrades.length) { pTooltip.style.display = 'none'; return; }
+
+    const buys  = dayTrades.filter(t => tradeClass(t.type) === 'buy');
+    const sells = dayTrades.filter(t => tradeClass(t.type) === 'sell');
+    const buyVal  = buys.reduce((s,t) => s + (t.value||0), 0);
+    const sellVal = sells.reduce((s,t) => s + (t.value||0), 0);
+    const net = buyVal - sellVal;
+    const netColor = net >= 0 ? 'var(--buy)' : 'var(--sell)';
+
+    const insiders = [...new Set(dayTrades.map(t => t.insider).filter(Boolean))];
+
+    pTooltip.innerHTML = `
+      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>
+      ${buys.length  ? `<div style="color:var(--buy)">▲ BUY &nbsp;${buys.length} insider${buys.length>1?'s':''} · ${fmt(buyVal)}</div>` : ''}
+      ${sells.length ? `<div style="color:var(--sell)">▼ SELL ${sells.length} insider${sells.length>1?'s':''} · ${fmt(sellVal)}</div>` : ''}
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d">
+        <span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span>
+      </div>
+      <div style="margin-top:4px;font-size:10px;color:var(--muted)">${insiders.slice(0,3).join(', ')}${insiders.length>3?' +'+( insiders.length-3)+' more':''}</div>`;
+    pTooltip.style.display = 'block';
+    const tx = e.clientX + 16, ty = e.clientY - 10;
+    pTooltip.style.left = (tx + 280 > window.innerWidth ? e.clientX - 296 : tx) + 'px';
+    pTooltip.style.top  = ty + 'px';
+  });
+  pCanvas.addEventListener('mouseleave', () => { pTooltip.style.display = 'none'; });
 
   state.pressureChart = pChart;
 
@@ -2395,6 +2502,121 @@ function goBack() {
   switchView('screener', screenerTab);
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   screenerTab.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════
+// INSIDER SEARCH
+// ═══════════════════════════════════════════════════════
+
+async function runInsiderSearch() {
+  const q = (document.getElementById('insiderSearchInput')?.value || '').trim();
+  if (!q) return;
+
+  // Hide profile, show results
+  document.getElementById('insiderProfileWrap').style.display = 'none';
+  document.getElementById('insiderSearchResults').style.display = '';
+
+  document.getElementById('insiderSearchTitle').textContent = `INSIDER SEARCH`;
+  document.getElementById('insiderSearchMeta').textContent  = `Searching for "${q}"...`;
+  document.getElementById('insiderResultsBody').innerHTML   =
+    `<div class="loading-state"><div class="spinner"></div><span>Searching...</span></div>`;
+
+  try {
+    const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(q));
+    if (!trades.length) {
+      document.getElementById('insiderSearchMeta').textContent = `No results for "${q}"`;
+      document.getElementById('insiderResultsBody').innerHTML  =
+        `<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;
+      return;
+    }
+
+    // Group by insider name
+    const byInsider = {};
+    trades.forEach(t => {
+      const key = t.insider || 'Unknown';
+      if (!byInsider[key]) byInsider[key] = { name: key, title: t.title, trades: [], totalBuy: 0, totalSell: 0, tickers: new Set() };
+      byInsider[key].trades.push(t);
+      byInsider[key].tickers.add(t.ticker);
+      if (tradeClass(t.type) === 'buy')  byInsider[key].totalBuy  += t.value || 0;
+      if (tradeClass(t.type) === 'sell') byInsider[key].totalSell += t.value || 0;
+    });
+
+    const insiders = Object.values(byInsider).sort((a,b) => b.trades.length - a.trades.length);
+    document.getElementById('insiderSearchMeta').textContent = `${insiders.length} insider${insiders.length>1?'s':''} · ${trades.length} trades`;
+    document.getElementById('insiderSearchTitle').textContent = `RESULTS: "${q.toUpperCase()}"`;
+
+    document.getElementById('insiderResultsBody').innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>INSIDER</th>
+            <th>TITLE</th>
+            <th class="hide-mobile">TRADES</th>
+            <th class="hide-mobile">COMPANIES</th>
+            <th>TOTAL BOUGHT</th>
+            <th>TOTAL SOLD</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            ${insiders.map(ins => `
+              <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title)}')" style="cursor:pointer">
+                <td style="font-weight:500;color:var(--text)">${ins.name}</td>
+                <td style="color:var(--muted);font-size:11px">${ins.title || '—'}</td>
+                <td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td>
+                <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?'…':''}</td>
+                <td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.totalBuy ? fmt(ins.totalBuy) : '—'}</td>
+                <td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.totalSell ? fmt(ins.totalSell) : '—'}</td>
+                <td style="color:var(--accent);font-size:11px">VIEW →</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    document.getElementById('insiderResultsBody').innerHTML =
+      `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
+  }
+}
+
+function openInsiderProfileFull(name, title) {
+  document.getElementById('insiderSearchResults').style.display = 'none';
+  document.getElementById('insiderProfileWrap').style.display   = '';
+  openInsiderProfile(name, title);
+}
+
+// Autocomplete — debounced
+let _acTimer;
+async function insiderAutocomplete(val) {
+  clearTimeout(_acTimer);
+  const box = document.getElementById('insiderSuggest');
+  if (!val || val.length < 2) { box.style.display = 'none'; return; }
+  _acTimer = setTimeout(async () => {
+    try {
+      const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(val));
+      const names  = [...new Set(trades.map(t => t.insider).filter(Boolean))].slice(0, 8);
+      if (!names.length) { box.style.display = 'none'; return; }
+      box.innerHTML = names.map(n =>
+        `<div onclick="document.getElementById('insiderSearchInput').value='${escName(n)}';document.getElementById('insiderSuggest').style.display='none';runInsiderSearch()"
+              style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
+              onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">${n}</div>`
+      ).join('');
+      box.style.display = 'block';
+    } catch(e) {}
+  }, 300);
+}
+
+// Close autocomplete on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('#insiderSearchInput') && !e.target.closest('#insiderSuggest')) {
+    const box = document.getElementById('insiderSuggest');
+    if (box) box.style.display = 'none';
+  }
+});
+
+// Also allow navigating to insider view from stock page insider name clicks
+function openInsiderFromSearch(name) {
+  switchView('insider', document.getElementById('insiderTab'));
+  document.getElementById('insiderSearchInput').value = name;
+  runInsiderSearch();
 }
 
 // ═══════════════════════════════════════════════════════
