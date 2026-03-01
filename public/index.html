@@ -1719,16 +1719,27 @@ function toggleChartFilter(group, btn) {
     chartActiveFilters.add(group);
     btn.classList.add('active');
   }
-  // Redraw circles with new filter
-  if (state.tickerTrades && state.currentPriceData) {
-    const filtered = state.tickerTrades.filter(t => chartActiveFilters.has(tradeFilterGroup(t.type)));
-    buildCircleOverlay(
-      document.getElementById('chartContainer'),
-      state.chart, state.candleSeries,
-      filtered, state.currentPriceData
-    );
-    buildPressureChart(state.chart, filtered, state.currentPriceData);
-  }
+  if (!state.tickerTrades || !state.currentPriceData) return;
+
+  const filtered = state.tickerTrades.filter(t => chartActiveFilters.has(tradeFilterGroup(t.type)));
+
+  // Update markerGroups so drawCircles uses filtered set
+  const groups = {};
+  filtered.forEach(t => {
+    const d  = (t.trade || t.filing || '').slice(0, 10);
+    const tc = tradeClass(t.type);
+    const k  = d + '|' + tc;
+    if (!groups[k]) groups[k] = { date: d, tc, trades: [], value: 0 };
+    groups[k].trades.push(t);
+    groups[k].value += t.value || 0;
+  });
+  state.markerGroups = Object.values(groups);
+
+  // Redraw circles on existing canvas (no new canvas created)
+  if (state.drawCircles) state.drawCircles();
+
+  // Rebuild pressure chart
+  buildPressureChart(state.chart, filtered, state.currentPriceData);
 }
 
 // ═══════════════════════════════════════════════════════
