@@ -1,6 +1,8 @@
 'use strict';
 
-// daily-worker.js - uses EDGAR EFTS search + XML fetching for recent Form 4s
+// daily-worker.js
+// Fetches recent Form 4s using EDGAR full-text search, then retrieves
+// each filing via the correct Archives path using the accession number.
 
 const https    = require('https');
 const fs       = require('fs');
@@ -50,10 +52,11 @@ function log(msg) {
   process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`);
 }
 
+// Rate-limited GET — ~8 req/sec max
 let lastReq = 0;
 function get(url, ms = 20000) {
   return new Promise((resolve, reject) => {
-    const delay = Math.max(0, 120 - (Date.now() - lastReq));
+    const wait = Math.max(0, 125 - (Date.now() - lastReq));
     setTimeout(() => {
       lastReq = Date.now();
       const req = https.get(url, {
@@ -67,8 +70,8 @@ function get(url, ms = 20000) {
         res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
       });
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-    }, delay);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Timeout: ' + url.slice(0,60))); });
+    }, wait);
   });
 }
 
@@ -76,7 +79,7 @@ function parseDate(s) {
   if (!s) return null;
   const d = s.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
-  const yr = parseInt(d.slice(0,4));
+  const yr = parseInt(d.slice(0, 4));
   return (yr >= 2000 && yr <= 2027) ? d : null;
 }
 
@@ -103,7 +106,7 @@ function parseForm4(xml, filingDate, accession) {
     const qty   = Math.round(Math.abs(parseFloat(xmlGet(block, 'transactionShares') || xmlGet(block, 'underlyingSecurityShares') || '0') || 0));
     const price = Math.abs(parseFloat(xmlGet(block, 'transactionPricePerShare') || xmlGet(block, 'exercisePrice') || '0') || 0);
     const owned = Math.round(Math.abs(parseFloat(xmlGet(block, 'sharesOwnedFollowingTransaction') || '0') || 0));
-    rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), Math.round(qty*price), owned, accession]);
+    rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), Math.round(qty * price), owned, accession]);
   }
 
   let m;
@@ -114,111 +117,135 @@ function parseForm4(xml, filingDate, accession) {
   return rows;
 }
 
-async function fetchForm4(cik, accession, filingDate) {
+// Fetch Form 4 XML using the EDGAR filing index
+// accession format: 0001234567-26-000001
+async function fetchForm4(accession, filingDate) {
+  // The issuer CIK is embedded in the accession number (first 10 digits)
   const accNoDash = accession.replace(/-/g, '');
-  
-  // Get index JSON to find actual XML filename
+  const filerCik  = accNoDash.slice(0, 10).replace(/^0+/, '');
+
+  // First try: use the filing index JSON to find the XML filename
+  const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${accNoDash}/${accession}-index.json`;
   try {
-    const idxUrl = `https://www.sec.gov/Archives/edgar/data/${cik}/${accNoDash}/${accession}-index.json`;
     const { status, body } = await get(idxUrl);
     if (status === 200) {
-      const idx = JSON.parse(body);
+      const idx    = JSON.parse(body);
       const xmlDoc = (idx.documents || []).find(d =>
         (d.type === '4' || d.type === '4/A') && d.document?.match(/\.xml$/i)
       );
       if (xmlDoc) {
-        const { status: xs, body: xml } = await get(
-          `https://www.sec.gov/Archives/edgar/data/${cik}/${accNoDash}/${xmlDoc.document}`
-        );
+        const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${accNoDash}/${xmlDoc.document}`;
+        const { status: xs, body: xml } = await get(xmlUrl);
         if (xs === 200 && xml.includes('ownershipDocument'))
           return parseForm4(xml, filingDate, accession);
       }
     }
   } catch(e) {}
 
-  // Fallback patterns
-  for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml']) {
+  // Second try: common XML filename patterns
+  for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml', 'xslF345X03/' + accession + '.xml']) {
     try {
       const { status, body } = await get(
-        `https://www.sec.gov/Archives/edgar/data/${cik}/${accNoDash}/${name}`
+        `https://www.sec.gov/Archives/edgar/data/${filerCik}/${accNoDash}/${name}`
       );
       if (status === 200 && body.includes('ownershipDocument'))
         return parseForm4(body, filingDate, accession);
     } catch(e) {}
   }
+
   return [];
 }
 
-async function run(daysBack) {
-  log(`=== daily-worker start (${daysBack} days) ===`);
+// Search EFTS for Form 4 filings in a date range, paginated
+async function searchFilings(startDate, endDate) {
+  const filings = [];
+  for (let from = 0; from < 2000; from += 100) {
+    const url = `https://efts.sec.gov/LATEST/search-index?forms=4,4%2FA&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
+    try {
+      const { status, body } = await get(url, 30000);
+      if (status !== 200) { log(`EFTS ${status} at offset ${from}`); break; }
+      const data = JSON.parse(body);
+      const hits = data.hits?.hits || [];
+      if (!hits.length) break;
+      for (const h of hits) {
+        // _id is accession number with slashes e.g. "0001234567-26-000001"
+        const acc = (h._id || '').replace(/\//g, '-');
+        const fd  = parseDate(h._source?.file_date) || endDate;
+        if (acc) filings.push({ accession: acc, filingDate: fd });
+      }
+      log(`  EFTS offset ${from}: ${hits.length} hits (total so far: ${filings.length})`);
+      if (hits.length < 100) break;
+    } catch(e) { log(`EFTS error: ${e.message}`); break; }
+  }
+  return filings;
+}
 
-  // Get date range
+async function run(daysBack) {
+  log(`=== daily-worker start (${daysBack} days back) ===`);
+
+  // Build list of business days to process
   const dates = [];
   const today = new Date();
-  for (let i = 0; i <= daysBack + 2; i++) {
+  for (let i = 0; i <= daysBack + 4; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    if (d.getDay() >= 1 && d.getDay() <= 5) dates.push(d.toISOString().slice(0,10));
+    if (d.getDay() >= 1 && d.getDay() <= 5) {
+      dates.push(d.toISOString().slice(0, 10));
+    }
     if (dates.length >= daysBack) break;
   }
 
   const done = new Set(db.prepare('SELECT date FROM daily_log').all().map(r => r.date));
   const todo = dates.filter(d => !done.has(d));
+
   if (!todo.length) { log('All dates already synced'); return; }
 
   const startDate = todo[todo.length - 1];
   const endDate   = todo[0];
-  log(`Date range: ${startDate} → ${endDate} (${todo.length} days)`);
+  log(`Processing ${todo.length} days: ${startDate} → ${endDate}`);
 
-  // EFTS search - paginate up to 500 results
-  let allFilings = [];
-  for (let from = 0; from < 500; from += 100) {
-    const url = `https://efts.sec.gov/LATEST/search-index?forms=4,4%2FA&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
-    try {
-      const { status, body } = await get(url, 30000);
-      if (status !== 200) { log(`EFTS ${status}: ${body.slice(0,80)}`); break; }
-      const data = JSON.parse(body);
-      const hits = data.hits?.hits || [];
-      if (!hits.length) break;
-      for (const h of hits) {
-        const acc = (h._id || '').replace(/\//g, '-');
-        const cik = String(h._source?.entity_id || h._source?.ciks?.[0] || '').replace(/^0+/, '');
-        const fd  = h._source?.file_date || endDate;
-        if (acc && cik) allFilings.push({ accession: acc, cik, filingDate: fd });
-      }
-      if (hits.length < 100) break;
-    } catch(e) { log(`EFTS error: ${e.message}`); break; }
-  }
+  // Search EFTS
+  const filings = await searchFilings(startDate, endDate);
+  log(`Found ${filings.length} Form 4 filings total`);
 
-  log(`Found ${allFilings.length} Form 4 filings to process`);
-  if (!allFilings.length) {
+  if (!filings.length) {
     const mark = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
     db.transaction(() => todo.forEach(d => mark.run(d, 0, 0)))();
     return;
   }
 
-  // Process in batches of 5
+  // Process filings in batches of 6 concurrent
   let totalInserted = 0;
-  const BATCH = 5;
-  for (let i = 0; i < allFilings.length; i += BATCH) {
-    const batch = allFilings.slice(i, i + BATCH);
-    const results = await Promise.allSettled(batch.map(f => fetchForm4(f.cik, f.accession, f.filingDate)));
+  let failures = 0;
+  const BATCH = 6;
+
+  for (let i = 0; i < filings.length; i += BATCH) {
+    const batch   = filings.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(f => fetchForm4(f.accession, f.filingDate))
+    );
     for (const r of results) {
-      if (r.status === 'fulfilled' && r.value.length) totalInserted += doInsert(r.value);
+      if (r.status === 'fulfilled' && r.value.length) {
+        totalInserted += doInsert(r.value);
+      } else if (r.status === 'rejected') {
+        failures++;
+      }
     }
-    if ((i + BATCH) % 50 === 0) log(`  ${i + BATCH}/${allFilings.length} processed, ${totalInserted} trades`);
+    if ((i + BATCH) % 60 === 0)
+      log(`  ${i + BATCH}/${filings.length} processed — ${totalInserted} inserted, ${failures} failures`);
   }
 
-  log(`Inserted ${totalInserted} trades from ${allFilings.length} filings`);
+  log(`Done: ${totalInserted} trades from ${filings.length} filings (${failures} failures)`);
 
+  // Mark all processed dates as done
   const mark = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
-  db.transaction(() => todo.forEach(d => mark.run(d, allFilings.length, totalInserted)))();
+  db.transaction(() => todo.forEach(d => mark.run(d, filings.length, totalInserted)))();
 }
 
 run(parseInt(process.argv[2] || '10'))
   .then(() => {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-    log(`=== done — ${n.toLocaleString()} total trades ===`);
+    log(`=== daily-worker done — ${n.toLocaleString()} total trades ===`);
     db.close();
     process.exit(0);
   })
