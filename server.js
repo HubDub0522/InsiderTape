@@ -158,16 +158,18 @@ app.get('/api/ticker', (req, res) => {
 
 // INSIDER
 app.get('/api/insider', (req, res) => {
-  const name = (req.query.name || '').trim();
+  const name  = (req.query.name  || '').trim();
+  const exact = req.query.exact === '1';
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
+    const pattern = exact ? name : `%${name}%`;
     const rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned
       FROM trades WHERE UPPER(insider) LIKE UPPER(?)
-      ORDER BY trade_date DESC LIMIT 500
-    `).all(`%${name}%`);
+      ORDER BY trade_date DESC LIMIT 2000
+    `).all(pattern);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
