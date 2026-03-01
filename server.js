@@ -242,9 +242,22 @@ app.get('/api/status', (req, res) => {
 // FORCE SYNC
 app.get('/api/daily-status', (req, res) => {
   try {
-    const logs = db.prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT 14').all();
-    res.json({ running: dailyRunning, recentDays: logs });
+    const logs    = db.prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT 14').all();
+    const recent  = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-7 days')").get().n;
+    const maxFile = db.prepare('SELECT MAX(filing_date) AS d FROM trades').get().d;
+    res.json({ running: dailyRunning, recentDays: logs, tradesLast7d: recent, maxFilingDate: maxFile });
   } catch(e) { res.json({ running: dailyRunning, error: e.message }); }
+});
+
+app.get('/api/run-daily', (req, res) => {
+  const days = parseInt(req.query.days || '10');
+  // Delete daily_log entries for the range so worker re-fetches
+  if (req.query.force === '1') {
+    db.prepare("DELETE FROM daily_log WHERE date >= date('now', ? || ' days')").run(`-${days}`);
+    slog(`Cleared daily_log for last ${days} days`);
+  }
+  res.json({ started: !dailyRunning });
+  if (!dailyRunning) runDaily(days);
 });
 
 app.get('/api/sync', (req, res) => {
