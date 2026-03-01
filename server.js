@@ -249,6 +249,66 @@ app.get('/api/daily-status', (req, res) => {
   } catch(e) { res.json({ running: dailyRunning, error: e.message }); }
 });
 
+// DEBUG: fetch one Form 4 live to see exactly what's failing
+app.get('/api/debug-form4', async (req, res) => {
+  const https = require('https');
+  const steps = [];
+
+  function debugGet(url) {
+    return new Promise((resolve) => {
+      steps.push({ step: 'GET', url: url.slice(0,120) });
+      const req = https.get(url, {
+        headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
+        timeout: 15000,
+      }, r => {
+        const chunks = [];
+        r.on('data', c => chunks.push(c));
+        r.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8').slice(0, 300);
+          steps.push({ status: r.statusCode, preview: body });
+          resolve({ status: r.statusCode, body: Buffer.concat(chunks).toString('utf8') });
+        });
+      });
+      req.on('error', e => { steps.push({ error: e.message }); resolve({ status: 0, body: '' }); });
+      req.on('timeout', () => { req.destroy(); steps.push({ error: 'timeout' }); resolve({ status: 0, body: '' }); });
+    });
+  }
+
+  try {
+    // Step 1: Get one Form 4 from EFTS
+    const eftsUrl = 'https://efts.sec.gov/LATEST/search-index?forms=4&from=0&size=1';
+    const { status: es, body: eb } = await debugGet(eftsUrl);
+    let accession = '', filerCik = '', filingDate = '';
+    if (es === 200) {
+      const data = JSON.parse(eb);
+      const hit  = data.hits?.hits?.[0];
+      if (hit) {
+        accession  = (hit._id || '').replace(/\//g, '-');
+        filingDate = hit._source?.file_date || '';
+        steps.push({ parsed: { accession, filingDate, raw_id: hit._id, source_keys: Object.keys(hit._source || {}) } });
+      }
+    }
+
+    if (accession) {
+      const acc = accession.replace(/-/g, '');
+      filerCik = parseInt(acc.slice(0,10), 10).toString();
+      steps.push({ derived: { filerCik, acc, accDash: accession } });
+
+      // Step 2: Try index.json
+      const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${accession}-index.json`;
+      const { status: is, body: ib } = await debugGet(idxUrl);
+      if (is === 200) {
+        const idx = JSON.parse(ib);
+        steps.push({ indexDocs: (idx.documents || []).map(d => ({ type: d.type, document: d.document })) });
+      }
+    }
+  } catch(e) {
+    steps.push({ fatalError: e.message });
+  }
+
+  res.json({ steps });
+});
+
 app.get('/api/run-daily', (req, res) => {
   const days = parseInt(req.query.days || '10');
   // Delete daily_log entries for the range so worker re-fetches
