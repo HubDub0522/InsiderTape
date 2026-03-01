@@ -1115,10 +1115,26 @@ async function loadScreener() {
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
 
     if (!trades.length) {
+      // No data for selected period — show most recent available instead
       document.getElementById('screenerBody').innerHTML =
-        `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div>
-         <div>No filings found for the selected period</div></div></td></tr>`;
-      return;
+        `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div>
+         <span>No recent data yet — loading most recent available...</span></div></td></tr>`;
+      const fallback = await apiFetch('/api/screener?days=365');
+      const all = Array.isArray(fallback) ? fallback : (fallback.trades || []);
+      if (!all.length) {
+        document.getElementById('screenerBody').innerHTML =
+          `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div>
+           <div>No filings found. Check <a href="/api/daily-status" target="_blank" style="color:var(--accent)">/api/daily-status</a> for sync info.</div>
+           </div></td></tr>`;
+        return;
+      }
+      trades = all;
+      // Show a notice about data freshness
+      document.getElementById('summaryBar').innerHTML =
+        `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">
+          ⚠ Recent daily data still loading. Showing most recent available filings.
+          <a href="/api/run-daily?force=1&days=10" target="_blank" style="color:var(--accent);margin-left:8px">Force refresh</a>
+        </div>`;
     }
 
     // Apply client-side filters
@@ -1326,10 +1342,10 @@ async function loadStockView(ticker) {
           </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
-            <button class="tf-btn active" id="chartFilter-P" onclick="toggleChartFilter('P',this)" style="color:var(--buy);border-color:var(--buy)">BUYS</button>
-            <button class="tf-btn active" id="chartFilter-S" onclick="toggleChartFilter('S',this)" style="color:var(--sell);border-color:var(--sell)">SELLS</button>
-            <button class="tf-btn active" id="chartFilter-O" onclick="toggleChartFilter('O',this)" style="color:var(--option);border-color:var(--option)">OPTIONS</button>
-            <button class="tf-btn active" id="chartFilter-X" onclick="toggleChartFilter('X',this)">OTHER</button>
+            <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="var(--buy)" onclick="toggleChartFilter('P',this)">BUYS</button>
+            <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
+            <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
+            <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
           </div>
         </div>
         <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
@@ -1370,6 +1386,17 @@ async function loadStockView(ticker) {
   if (priceData.length) {
     buildChart(priceData, insiderData);
   }
+
+  // Init chart filter button colors
+  ['P','S','O','X'].forEach(g => {
+    chartActiveFilters.add(g); // reset to all-on for each new stock
+    const btn = document.getElementById('chartFilter-' + g);
+    if (btn) {
+      btn.classList.add('active');
+      btn.style.color       = btn.dataset.color || 'var(--accent)';
+      btn.style.borderColor = btn.dataset.color || 'var(--accent)';
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1715,9 +1742,13 @@ function toggleChartFilter(group, btn) {
   if (chartActiveFilters.has(group)) {
     chartActiveFilters.delete(group);
     btn.classList.remove('active');
+    btn.style.color       = 'var(--muted)';
+    btn.style.borderColor = 'var(--border)';
   } else {
     chartActiveFilters.add(group);
     btn.classList.add('active');
+    btn.style.color       = btn.dataset.color || 'var(--accent)';
+    btn.style.borderColor = btn.dataset.color || 'var(--accent)';
   }
   if (!state.tickerTrades || !state.currentPriceData) return;
 
