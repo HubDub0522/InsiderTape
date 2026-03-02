@@ -93,14 +93,14 @@ function get(url, ms=30000) {
 // ─── DAILY INGESTION (recent Form 4s from EDGAR daily index) ────
 let dailyRunning = false;
 
-function runDaily(daysBack = 10) {
+function runDaily(daysBack = 3) {
   if (dailyRunning) return;
   dailyRunning = true;
-  slog(`=== spawning daily-worker (${daysBack} days) ===`);
+  slog(`=== spawning daily-worker (RSS poll mode, ${daysBack} days backfill) ===`);
 
   const worker = spawn(
     process.execPath,
-    ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack)],
+    ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack), 'poll'],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
 
@@ -108,7 +108,9 @@ function runDaily(daysBack = 10) {
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ERR: ' + l)));
   worker.on('exit', code => {
     dailyRunning = false;
-    slog(`=== daily-worker exited (code ${code}) ===`);
+    slog(`=== daily-worker exited (code ${code}) — restarting in 30s ===`);
+    // Always restart — this worker is meant to run continuously
+    setTimeout(() => runDaily(2), 30 * 1000);
   });
 }
 
@@ -383,18 +385,9 @@ setInterval(() => {
   runSync(1);
 }, 24 * 60 * 60 * 1000);
 
-// Run daily worker on startup to catch recent filings
-// then every 15 minutes during market hours
-setTimeout(() => runDaily(10), 5000); // 5s after start
-
-setInterval(() => {
-  const now = new Date();
-  const utcH = now.getUTCHours();
-  const utcD = now.getUTCDay();
-  // Mon-Fri, 13:00-22:00 UTC (9am-6pm ET)
-  if (utcD >= 1 && utcD <= 5 && utcH >= 13 && utcH <= 22) {
-    runDaily(2); // just last 2 days during market hours
-  }
-}, 15 * 60 * 1000); // every 15 minutes
+// Start daily-worker in continuous RSS poll mode.
+// It runs indefinitely: polls EDGAR RSS every 2 min + daily EFTS backfill.
+// We only need to spawn it once — it manages its own loop.
+setTimeout(() => runDaily(3), 5000); // 5s after start
 
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
