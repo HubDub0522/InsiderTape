@@ -6,147 +6,123 @@
 <title>INSIDERTAPE — Follow the Smart Money</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Anybody:ital,wght@0,700;0,800;1,700;1,800&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300;1,9..144,400&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
 
-  /* ═══ DARK THEME (default) ═══ */
   :root {
-    --bg:         #090B10;
-    --bg2:        #0F1219;
-    --bg3:        #161A24;
-    --border:     #252D3D;
-    --border2:    #354060;
-    --text:       #CDD5E8;
-    --muted:      #4A5878;
-    --accent:     #4D9FFF;
-    --accent2:    #2A7AE0;
-    --buy:        #4DFFB8;
-    --buy-dim:    #1A9960;
-    --sell:       #FF5263;
-    --sell-dim:   #B02030;
-    --option:     #F0B429;
-    --header-h:   58px;
-    --bg-rgb:     12,14,10;
-    --text-rgb:   216,221,208;
-    --accent-rgb: 77,159,255;
-    --buy-rgb:    77,255,184;
-    --sell-rgb:   255,82,99;
-    --option-rgb: 240,180,41;
-    --chart-bg:   #0C0E0A;
-    --chart-grid: #2E3328;
-    --chart-text: #5A6352;
-  }
-
-  /* ═══ LIGHT THEME ═══ */
-  :root[data-theme="light"] {
-    --bg:         #F2EFE6;
-    --bg2:        #E8E4D8;
-    --bg3:        #DDD8C8;
-    --border:     #C0B89A;
-    --border2:    #A09070;
-    --text:       #1C1A12;
-    --muted:      #7A7060;
-    --accent:     #1A5FCC;
-    --accent2:    #0D44A0;
-    --buy:        #007A50;
-    --buy-dim:    #004A30;
-    --sell:       #CC0020;
-    --sell-dim:   #8A0014;
-    --option:     #8A5C00;
-    --bg-rgb:     242,239,230;
-    --text-rgb:   28,26,18;
-    --accent-rgb: 26,95,204;
-    --buy-rgb:    0,122,80;
-    --sell-rgb:   204,0,32;
-    --option-rgb: 138,92,0;
-    --chart-bg:   #F2EFE6;
-    --chart-grid: #C8C0A8;
-    --chart-text: #9A9080;
+    --bg:        #080b0f;
+    --bg2:       #0d1117;
+    --bg3:       #111820;
+    --border:    #1e2d3d;
+    --border2:   #253447;
+    --text:      #c9d8e8;
+    --muted:     #4a6580;
+    --accent:    #00d4ff;
+    --accent2:   #0099cc;
+    --buy:       #00ff88;
+    --buy-dim:   #00993a;
+    --sell:      #ff4466;
+    --sell-dim:  #992233;
+    --option:    #ffaa00;
+    --header-h:  64px;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   html, body {
     height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 13px;
+    background: #080b0f;
+    color: #c9d8e8;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
     overflow-x: hidden;
-    transition: background 0.2s, color 0.2s;
   }
 
   /* ── SCROLLBAR ── */
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: var(--bg2); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #253447; border-radius: 3px; }
 
   /* ── HEADER ── */
   header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     height: var(--header-h);
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
+    background: rgba(8,11,15,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid #1e2d3d;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 20px; gap: 12px;
+    padding: 0 24px;
+    gap: 16px;
   }
 
   .logo {
-    font-family: 'Anybody', sans-serif;
-    font-size: 19px; font-weight: 800; font-style: italic;
-    letter-spacing: 0.02em; color: var(--text);
-    white-space: nowrap; flex-shrink: 0; text-transform: uppercase;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    letter-spacing: 3px;
+    color: #00d4ff;
+    text-shadow: 0 0 20px rgba(0,212,255,0.4);
+    white-space: nowrap;
+    flex-shrink: 0;
+    cursor: pointer;
   }
-  .logo span { color: var(--accent); }
-
-  /* ── THEME TOGGLE ── */
-  .theme-toggle {
-    background: transparent;
-    border: 1px solid var(--border2);
-    color: var(--muted);
-    font-size: 15px; line-height: 1;
-    cursor: pointer; padding: 5px 7px;
-    transition: all .15s; flex-shrink: 0;
-  }
-  .theme-toggle:hover { color: var(--text); border-color: var(--accent); }
+  .logo span { color: #c9d8e8; opacity: 0.5; }
 
   /* ── SEARCH ── */
-  .search-wrap { position: relative; flex: 1; max-width: 380px; }
+  .search-wrap {
+    position: relative;
+    flex: 1; max-width: 420px;
+  }
   .search-wrap input {
-    width: 100%; background: var(--bg);
-    border: 1px solid var(--border2); border-right: none;
-    padding: 8px 12px 8px 34px;
-    color: var(--text); font-family: 'IBM Plex Mono', monospace;
-    font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
-    outline: none; transition: border-color .15s;
+    width: 100%;
+    background: #111820;
+    border: 1px solid #1e2d3d;
+    border-radius: 6px;
+    padding: 9px 16px 9px 42px;
+    color: #c9d8e8;
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
   }
-  .search-wrap input::placeholder { color: var(--muted); text-transform: none; letter-spacing: 0; }
-  .search-wrap input:focus { border-color: var(--accent); }
-  .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  .search-wrap input::placeholder { color: #4a6580; text-transform: none; letter-spacing: 0; font-family: 'DM Sans', sans-serif; }
+  .search-wrap input:focus { border-color: #00d4ff; box-shadow: 0 0 0 3px rgba(0,212,255,0.1); }
+  .search-icon {
+    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+    color: #4a6580; pointer-events: none;
+  }
   .search-btn {
-    position: absolute; right: 0; top: 0; bottom: 0;
-    background: var(--accent); color: var(--bg);
-    border: none; padding: 0 13px;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
-    cursor: pointer; text-transform: uppercase; transition: background .15s;
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: #00d4ff; color: #080b0f;
+    border: none; border-radius: 4px;
+    padding: 5px 12px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    cursor: pointer;
+    transition: background .2s;
   }
-  .search-btn:hover { background: var(--accent2); }
+  .search-btn:hover { background: #33ddff; }
 
   /* ── NAV TABS ── */
-  .nav-tabs { display: flex; gap: 0; flex-shrink: 0; }
-  .nav-tab {
-    padding: 7px 15px;
-    border: 1px solid transparent; border-bottom: none;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
-    cursor: pointer; transition: all .15s;
-    color: var(--muted); background: transparent;
-    white-space: nowrap; text-transform: uppercase;
+  .nav-tabs {
+    display: flex; gap: 4px; flex-shrink: 0;
   }
-  .nav-tab:hover { color: var(--text); border-color: var(--border2); }
-  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(var(--accent-rgb),0.07); }
+  .nav-tab {
+    padding: 7px 16px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    transition: all .2s;
+    color: #4a6580;
+    background: transparent;
+    white-space: nowrap;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .nav-tab:hover { color: #c9d8e8; border-color: #1e2d3d; }
+  .nav-tab.active { color: #00d4ff; border-color: #00d4ff; background: rgba(0,212,255,0.07); }
 
-  /* ── MAIN LAYOUT ── */
+    /* ── MAIN LAYOUT ── */
   main {
     margin-top: var(--header-h);
     min-height: calc(100vh - var(--header-h));
@@ -164,8 +140,8 @@
   }
 
   .filter-panel {
-    background: var(--bg2);
-    border-right: 1px solid var(--border);
+    background: #0d1117;
+    border-right: 1px solid #1e2d3d;
     padding: 20px 16px;
     position: sticky;
     top: var(--header-h);
@@ -175,10 +151,10 @@
 
   .filter-section { margin-bottom: 24px; }
   .filter-label {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 10px;
     letter-spacing: 2px;
-    color: var(--muted);
+    color: #4a6580;
     text-transform: uppercase;
     margin-bottom: 10px;
     display: block;
@@ -188,40 +164,40 @@
   .chip {
     padding: 4px 10px;
     border-radius: 4px;
-    border: 1px solid var(--border);
+    border: 1px solid #1e2d3d;
     font-size: 11px;
     cursor: pointer;
     transition: all .15s;
-    color: var(--muted);
+    color: #4a6580;
     background: transparent;
   }
-  .chip:hover { border-color: var(--border2); color: var(--text); }
-  .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
-  .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(var(--buy-rgb),0.08); }
-  .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(var(--sell-rgb),0.08); }
-  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(var(--option-rgb),0.08); }
+  .chip:hover { border-color: #253447; color: #c9d8e8; }
+  .chip.active { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,0.08); }
+  .chip.buy-chip.active  { border-color: #00ff88;  color: #00ff88;  background: rgba(0,255,136,0.08); }
+  .chip.sell-chip.active { border-color: #ff4466; color: #ff4466; background: rgba(255,68,102,0.08); }
+  .chip.opt-chip.active  { border-color: #ffaa00; color: #ffaa00; background: rgba(255,170,0,0.08); }
 
   .filter-range { display: flex; flex-direction: column; gap: 8px; }
   .filter-range select, .filter-range input[type=number] {
-    background: var(--bg3);
-    border: 1px solid var(--border);
+    background: #111820;
+    border: 1px solid #1e2d3d;
     border-radius: 5px;
     padding: 7px 10px;
-    color: var(--text);
+    color: #c9d8e8;
     font-size: 12px;
     outline: none;
     width: 100%;
   }
-  .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
+  .filter-range select:focus, .filter-range input:focus { border-color: #00d4ff; }
 
   .apply-btn {
     width: 100%;
-    background: var(--accent);
-    color: var(--bg);
+    background: #00d4ff;
+    color: #080b0f;
     border: none;
     border-radius: 6px;
     padding: 10px;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 1px;
@@ -229,7 +205,7 @@
     transition: background .2s;
     margin-top: 8px;
   }
-  .apply-btn:hover { background: var(--accent); }
+  .apply-btn:hover { background: #00d4ff; }
 
   /* ── SCREENER TABLE ── */
   .screener-content { padding: 20px; }
@@ -239,30 +215,30 @@
     margin-bottom: 16px;
   }
   .screener-title {
-    font-family: 'Fraunces', serif;
-    font-size: 20px; font-weight: 600; font-style: italic;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px; font-weight: 600; 
     letter-spacing: 0;
-    color: var(--text);
+    color: #c9d8e8;
   }
   .screener-meta {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 11px;
-    color: var(--muted);
+    color: #4a6580;
   }
 
   .live-badge {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 10px;
-    background: rgba(var(--buy-rgb),0.1);
-    border: 1px solid rgba(var(--buy-rgb),0.3);
+    background: rgba(0,255,136,0.1);
+    border: 1px solid rgba(0,255,136,0.3);
     border-radius: 20px;
     font-size: 11px;
-    color: var(--buy);
+    color: #00ff88;
   }
   .live-dot {
     width: 6px; height: 6px;
     border-radius: 50%;
-    background: var(--buy);
+    background: #00ff88;
     animation: pulse 1.5s infinite;
   }
   @keyframes pulse {
@@ -271,45 +247,45 @@
   }
 
   .table-wrap {
-    background: var(--bg2);
-    border: 1px solid var(--border);
+    background: #0d1117;
+    border: 1px solid #1e2d3d;
     border-radius: 8px;
     overflow: hidden;
   }
 
   table { width: 100%; border-collapse: collapse; }
   thead tr {
-    background: var(--bg3);
-    border-bottom: 1px solid var(--border);
+    background: #111820;
+    border-bottom: 1px solid #1e2d3d;
   }
   th {
     padding: 9px 14px;
     text-align: left;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 9px; letter-spacing: 0.15em;
-    color: var(--muted); text-transform: uppercase;
+    color: #4a6580; text-transform: uppercase;
     white-space: nowrap; cursor: pointer;
     user-select: none; transition: color .15s;
-    background: var(--bg3);
+    background: #111820;
   }
-  th:hover { color: var(--text); }
-  th.sorted { color: var(--accent); }
+  th:hover { color: #c9d8e8; }
+  th.sorted { color: #00d4ff; }
   th .sort-arrow { margin-left: 4px; opacity: 0.5; }
 
   tbody tr {
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid #1e2d3d;
     transition: background .12s;
     cursor: pointer;
   }
   tbody tr:last-child { border-bottom: none; }
-  tbody tr:hover { background: rgba(var(--text-rgb),0.03); }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
 
   td { padding: 11px 14px; font-size: 13px; white-space: nowrap; }
 
   .ticker-cell {
-    font-family: 'Anybody', sans-serif;
-    font-weight: 700; font-style: italic;
-    color: var(--accent);
+    font-family: 'Bebas Neue', sans-serif;
+    font-weight: 700; 
+    color: #00d4ff;
     font-size: 14px; letter-spacing: 0.02em;
   }
   .ticker-cell:hover { text-decoration: underline; }
@@ -323,33 +299,33 @@
     letter-spacing: 0.5px;
     text-transform: uppercase;
   }
-  .badge-buy  { background: rgba(var(--buy-rgb),0.15); color: var(--buy); border: 1px solid rgba(var(--buy-rgb),0.3); }
-  .badge-sell { background: rgba(var(--sell-rgb),0.15); color: var(--sell); border: 1px solid rgba(var(--sell-rgb),0.3); }
-  .badge-option { background: rgba(var(--option-rgb),0.15); color: var(--option); border: 1px solid rgba(var(--option-rgb),0.3); }
+  .badge-buy  { background: rgba(0,255,136,0.15); color: #00ff88; border: 1px solid rgba(0,255,136,0.3); }
+  .badge-sell { background: rgba(255,68,102,0.15); color: #ff4466; border: 1px solid rgba(255,68,102,0.3); }
+  .badge-option { background: rgba(255,170,0,0.15); color: #ffaa00; border: 1px solid rgba(255,170,0,0.3); }
 
-  .val-positive { color: var(--buy); font-weight: 500; }
-  .val-negative { color: var(--sell); font-weight: 500; }
-  .val-neutral  { color: var(--option); font-weight: 500; }
+  .val-positive { color: #00ff88; font-weight: 500; }
+  .val-negative { color: #ff4466; font-weight: 500; }
+  .val-neutral  { color: #ffaa00; font-weight: 500; }
 
-  .insider-name { color: var(--text); }
-  .insider-title { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
+  .insider-name { color: #c9d8e8; }
+  .insider-title { color: #4a6580; font-size: 11px; display: block; margin-top: 1px; }
 
   .pagination {
     display: flex; align-items: center; justify-content: center; gap: 8px;
     padding: 16px;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid #1e2d3d;
   }
   .page-btn {
-    background: var(--bg3);
-    border: 1px solid var(--border);
+    background: #111820;
+    border: 1px solid #1e2d3d;
     border-radius: 4px;
     padding: 5px 12px;
-    color: var(--text);
+    color: #c9d8e8;
     font-size: 12px;
     cursor: pointer;
     transition: all .15s;
   }
-  .page-btn:hover, .page-btn.active { border-color: var(--accent); color: var(--accent); }
+  .page-btn:hover, .page-btn.active { border-color: #00d4ff; color: #00d4ff; }
   .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
   /* ── STOCK VIEW ── */
@@ -363,31 +339,31 @@
 
   .stock-header-bar {
     grid-column: 1 / -1;
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
+    background: #0d1117;
+    border-bottom: 1px solid #1e2d3d;
     padding: 16px 24px;
     display: flex; align-items: flex-start; gap: 32px; flex-wrap: wrap;
   }
 
   .stock-ticker-big {
-    font-family: 'Anybody', sans-serif;
-    font-size: 44px; font-weight: 800; font-style: italic;
-    line-height: 1; color: var(--accent); letter-spacing: 0.01em;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 44px; font-weight: 800; 
+    line-height: 1; color: #00d4ff; letter-spacing: 0.01em;
   }
   .stock-name-sub {
     font-size: 13px;
-    color: var(--muted);
+    color: #4a6580;
     margin-top: 4px;
   }
   .stock-price-block { display: flex; flex-direction: column; justify-content: center; }
   .stock-price {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 28px;
     font-weight: 700;
-    color: var(--text);
+    color: #c9d8e8;
   }
   .stock-change {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 13px;
     margin-top: 3px;
   }
@@ -398,21 +374,21 @@
   }
   .stat-item { text-align: right; }
   .stat-label {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 9px;
     letter-spacing: 1.5px;
-    color: var(--muted);
+    color: #4a6580;
     text-transform: uppercase;
   }
   .stat-val {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 13px;
-    color: var(--text);
+    color: #c9d8e8;
     margin-top: 2px;
   }
 
   .chart-area {
-    background: var(--bg);
+    background: #080b0f;
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -425,30 +401,30 @@
   }
   .tf-btn {
     padding: 4px 10px;
-    border: 1px solid var(--border);
+    border: 1px solid #1e2d3d;
     border-radius: 4px;
     background: transparent;
-    color: var(--muted);
-    font-family: 'IBM Plex Mono', monospace;
+    color: #4a6580;
+    font-family: 'Space Mono', monospace;
     font-size: 11px;
     cursor: pointer;
     transition: all .15s;
   }
-  .tf-btn:hover { color: var(--text); }
-  .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
+  .tf-btn:hover { color: #c9d8e8; }
+  .tf-btn.active { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,0.08); }
 
   #chartContainer {
     width: 100%;
     height: 480px;
     border-radius: 6px;
     overflow: hidden;
-    border: 1px solid var(--border);
+    border: 1px solid #1e2d3d;
   }
 
   /* ── INSIDER SIDEBAR ── */
   .insider-sidebar {
-    background: var(--bg2);
-    border-left: 1px solid var(--border);
+    background: #0d1117;
+    border-left: 1px solid #1e2d3d;
     display: flex;
     flex-direction: column;
     height: calc(100vh - var(--header-h) - 110px);
@@ -457,30 +433,30 @@
 
   .sidebar-tabs {
     display: flex;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid #1e2d3d;
     flex-shrink: 0;
   }
   .sidebar-tab {
     flex: 1;
     padding: 12px 8px;
     text-align: center;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 10px;
     letter-spacing: 1px;
-    color: var(--muted);
+    color: #4a6580;
     cursor: pointer;
     border-bottom: 2px solid transparent;
     transition: all .15s;
     text-transform: uppercase;
   }
-  .sidebar-tab:hover { color: var(--text); }
-  .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .sidebar-tab:hover { color: #c9d8e8; }
+  .sidebar-tab.active { color: #00d4ff; border-bottom-color: #00d4ff; }
 
   .sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
 
   .trade-card {
-    background: var(--bg3);
-    border: 1px solid var(--border);
+    background: #111820;
+    border: 1px solid #1e2d3d;
     border-radius: 6px;
     padding: 12px;
     margin-bottom: 8px;
@@ -495,53 +471,53 @@
     left: 0; top: 0; bottom: 0;
     width: 3px;
   }
-  .trade-card.buy::before  { background: var(--buy); }
-  .trade-card.sell::before { background: var(--sell); }
-  .trade-card.option::before { background: var(--option); }
-  .trade-card:hover { border-color: var(--border2); background: rgba(var(--text-rgb),0.02); }
+  .trade-card.buy::before  { background: #00ff88; }
+  .trade-card.sell::before { background: #ff4466; }
+  .trade-card.option::before { background: #ffaa00; }
+  .trade-card:hover { border-color: #253447; background: rgba(255,255,255,0.02); }
 
   .trade-card-top {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 6px;
   }
   .trade-type-label {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 1px;
   }
-  .trade-card.buy  .trade-type-label { color: var(--buy); }
-  .trade-card.sell .trade-type-label { color: var(--sell); }
-  .trade-card.option .trade-type-label { color: var(--option); }
+  .trade-card.buy  .trade-type-label { color: #00ff88; }
+  .trade-card.sell .trade-type-label { color: #ff4466; }
+  .trade-card.option .trade-type-label { color: #ffaa00; }
 
   .trade-date {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 10px;
-    color: var(--muted);
+    color: #4a6580;
   }
 
-  .trade-insider { font-size: 12px; font-weight: 500; color: var(--text); }
-  .trade-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .trade-insider { font-size: 12px; font-weight: 500; color: #c9d8e8; }
+  .trade-role { font-size: 11px; color: #4a6580; margin-top: 2px; }
 
   .trade-numbers {
     display: grid; grid-template-columns: 1fr 1fr;
     gap: 4px;
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid #1e2d3d;
   }
   .trade-num-item { }
   .trade-num-label {
     font-size: 9px;
-    color: var(--muted);
+    color: #4a6580;
     text-transform: uppercase;
     letter-spacing: 1px;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
   }
   .trade-num-val {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 12px;
-    color: var(--text);
+    color: #c9d8e8;
     margin-top: 2px;
   }
 
@@ -551,12 +527,12 @@
     padding: 0 16px 24px;
   }
   .section-title {
-    font-family: 'Fraunces', serif;
-    font-size: 17px; font-weight: 600; font-style: italic;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 17px; font-weight: 600; 
     letter-spacing: 0.01em;
-    color: var(--text);
+    color: #c9d8e8;
     margin-bottom: 12px; margin-top: 20px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid #1e2d3d;
     padding-bottom: 6px;
   }
 
@@ -564,13 +540,13 @@
   .loading-state {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     padding: 60px 20px;
-    color: var(--muted);
+    color: #4a6580;
     gap: 12px;
   }
   .spinner {
     width: 32px; height: 32px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
+    border: 2px solid #1e2d3d;
+    border-top-color: #00d4ff;
     border-radius: 50%;
     animation: spin .7s linear infinite;
   }
@@ -578,7 +554,7 @@
 
   .empty-state {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 60px 20px; gap: 12px; color: var(--muted); text-align: center;
+    padding: 60px 20px; gap: 12px; color: #4a6580; text-align: center;
   }
   .empty-icon { font-size: 36px; opacity: 0.3; }
 
@@ -588,20 +564,20 @@
   .back-btn {
     display: inline-flex; align-items: center; gap: 8px;
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid #1e2d3d;
     border-radius: 5px;
     padding: 6px 14px;
-    color: var(--muted);
+    color: #4a6580;
     font-size: 12px;
     cursor: pointer;
     transition: all .15s;
     margin-bottom: 20px;
   }
-  .back-btn:hover { color: var(--text); border-color: var(--border2); }
+  .back-btn:hover { color: #c9d8e8; border-color: #253447; }
 
   .insider-hero {
-    background: var(--bg2);
-    border: 1px solid var(--border);
+    background: #0d1117;
+    border: 1px solid #1e2d3d;
     border-radius: 10px;
     padding: 24px 28px;
     margin-bottom: 20px;
@@ -611,31 +587,31 @@
   .insider-hero::before {
     content: '';
     position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, var(--accent), transparent);
+    background: linear-gradient(90deg, #00d4ff, transparent);
   }
 
   .insider-avatar {
     width: 64px; height: 64px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent2), var(--bg3));
+    background: linear-gradient(135deg, #0099cc, #111820);
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Anybody', sans-serif;
+    font-family: 'Bebas Neue', sans-serif;
     font-size: 26px;
-    color: var(--bg);
+    color: #080b0f;
     flex-shrink: 0;
-    border: 2px solid var(--border2);
+    border: 2px solid #253447;
   }
 
   .insider-hero-info { flex: 1; min-width: 200px; }
   .insider-hero-name {
-    font-family: 'Anybody', sans-serif;
+    font-family: 'Bebas Neue', sans-serif;
     font-size: 32px;
     letter-spacing: 2px;
-    color: var(--text);
+    color: #c9d8e8;
     line-height: 1;
   }
   .insider-hero-title {
-    color: var(--muted);
+    color: #4a6580;
     font-size: 13px;
     margin-top: 5px;
   }
@@ -645,12 +621,12 @@
   }
   .company-tag {
     padding: 3px 10px;
-    background: rgba(var(--accent-rgb),0.08);
+    background: rgba(0,212,255,0.08);
     border: 1px solid rgba(0,212,255,0.2);
     border-radius: 20px;
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 11px;
-    color: var(--accent);
+    color: #00d4ff;
     cursor: pointer;
     transition: background .15s;
   }
@@ -663,20 +639,20 @@
   .insider-stat {
     text-align: center;
     padding: 12px 16px;
-    background: var(--bg3);
-    border: 1px solid var(--border);
+    background: #111820;
+    border: 1px solid #1e2d3d;
     border-radius: 7px;
     min-width: 100px;
   }
   .insider-stat-label {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 9px;
     letter-spacing: 1.5px;
-    color: var(--muted);
+    color: #4a6580;
     text-transform: uppercase;
   }
   .insider-stat-val {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 18px;
     margin-top: 4px;
   }
@@ -689,25 +665,25 @@
   }
 
   .activity-chart-wrap {
-    background: var(--bg2);
-    border: 1px solid var(--border);
+    background: #0d1117;
+    border: 1px solid #1e2d3d;
     border-radius: 8px;
     padding: 16px;
     margin-bottom: 16px;
   }
   .activity-chart-title {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 10px;
     letter-spacing: 2px;
-    color: var(--muted);
+    color: #4a6580;
     text-transform: uppercase;
     margin-bottom: 12px;
   }
 
   /* Bar chart for buy/sell by ticker */
   .ticker-breakdown {
-    background: var(--bg2);
-    border: 1px solid var(--border);
+    background: #0d1117;
+    border: 1px solid #1e2d3d;
     border-radius: 8px;
     padding: 16px;
   }
@@ -716,18 +692,18 @@
     margin-bottom: 10px;
     cursor: pointer;
   }
-  .ticker-row:hover .ticker-bar-label { color: var(--accent); }
+  .ticker-row:hover .ticker-bar-label { color: #00d4ff; }
   .ticker-bar-label {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 11px;
-    color: var(--text);
+    color: #c9d8e8;
     width: 50px;
     flex-shrink: 0;
     transition: color .15s;
   }
   .ticker-bar-track {
     flex: 1; height: 8px;
-    background: var(--bg3);
+    background: #111820;
     border-radius: 4px;
     overflow: hidden;
   }
@@ -736,16 +712,16 @@
     transition: width .4s ease;
   }
   .ticker-bar-val {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 11px;
-    color: var(--muted);
+    color: #4a6580;
     width: 70px;
     text-align: right;
     flex-shrink: 0;
   }
 
   .insider-name-link {
-    color: var(--accent);
+    color: #00d4ff;
     cursor: pointer;
     text-decoration: none;
     transition: opacity .15s;
@@ -761,19 +737,19 @@
   }
   .toast {
     position: fixed; bottom: 24px; right: 24px; z-index: 999;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
+    background: #111820;
+    border: 1px solid #253447;
     border-radius: 8px;
     padding: 12px 20px;
     font-size: 13px;
-    color: var(--text);
+    color: #c9d8e8;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
     transform: translateY(80px);
     opacity: 0;
     transition: all .3s;
   }
   .toast.show { transform: translateY(0); opacity: 1; }
-  .toast.error { border-color: var(--sell); }
+  .toast.error { border-color: #ff4466; }
 
   /* ── LEGEND ── */
   .chart-legend {
@@ -783,14 +759,14 @@
   }
   .legend-item {
     display: flex; align-items: center; gap: 6px;
-    font-size: 11px; color: var(--muted);
+    font-size: 11px; color: #4a6580;
   }
   .legend-dot {
     width: 10px; height: 10px; border-radius: 50%;
   }
-  .legend-tri-up { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--buy); }
-  .legend-tri-dn { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 9px solid var(--sell); }
-  .legend-tri-opt { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--option); }
+  .legend-tri-up { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid #00ff88; }
+  .legend-tri-dn { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 9px solid #ff4466; }
+  .legend-tri-opt { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid #ffaa00; }
 
   /* ── SUMMARY STATS ── */
   .summary-bar {
@@ -798,21 +774,21 @@
     margin-bottom: 16px;
   }
   .summary-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
+    background: #0d1117;
+    border: 1px solid #1e2d3d;
     border-radius: 6px;
     padding: 12px 16px;
     flex: 1; min-width: 120px;
   }
   .summary-card-label {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 9px;
     letter-spacing: 1.5px;
-    color: var(--muted);
+    color: #4a6580;
     text-transform: uppercase;
   }
   .summary-card-val {
-    font-family: 'IBM Plex Mono', monospace;
+    font-family: 'Space Mono', monospace;
     font-size: 18px;
     margin-top: 4px;
   }
@@ -836,7 +812,7 @@
       position: static;
       height: auto;
       border-right: none;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid #1e2d3d;
       padding: 14px 14px 10px;
     }
     .filter-section { margin-bottom: 14px; }
@@ -847,7 +823,7 @@
     }
     .insider-sidebar {
       border-left: none;
-      border-top: 1px solid var(--border);
+      border-top: 1px solid #1e2d3d;
       height: 360px;
     }
     .stock-trades-section { grid-column: 1; }
@@ -956,7 +932,6 @@
 <!-- ═══════════════════ HEADER ═══════════════════ -->
 <header>
   <div class="logo" onclick="navigate('screener')" style="cursor:pointer">INSIDER<span>TAPE</span></div>
-  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark/light mode">☀</button>
 
   <div class="search-wrap">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1026,12 +1001,12 @@
 
       <button class="apply-btn" onclick="loadScreener()">APPLY FILTERS</button>
 
-      <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border)">
+      <div style="margin-top:24px; padding-top:20px; border-top:1px solid #1e2d3d">
         <span class="filter-label">Data Source</span>
-        <p style="font-size:11px; color:var(--muted); line-height:1.6">
+        <p style="font-size:11px; color:#4a6580; line-height:1.6">
           Insider filings sourced from SEC Form 4 data via OpenInsider.com.<br><br>
           Price data via Yahoo Finance.<br><br>
-          <span style="color:var(--accent)">Note:</span> Data may be delayed up to 48hrs from SEC filing.
+          <span style="color:#00d4ff">Note:</span> Data may be delayed up to 48hrs from SEC filing.
         </p>
       </div>
     </aside>
@@ -1080,7 +1055,7 @@
   <div id="stockContent">
     <div class="empty-state">
       <div class="empty-icon">📈</div>
-      <div style="font-size:15px;color:var(--text)">Search a ticker to get started</div>
+      <div style="font-size:15px;color:#c9d8e8">Search a ticker to get started</div>
       <div style="font-size:12px">Enter a stock symbol in the search bar above</div>
     </div>
   </div>
@@ -1097,11 +1072,6 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// CSS variable resolver — must be first, used by chart builders
-function getCSSVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
-}
-
 // ═══════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════
@@ -1340,16 +1310,16 @@ async function loadScreener() {
       if (!all.length) {
         document.getElementById('screenerBody').innerHTML =
           `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div>
-           <div>No filings found. Check <a href="/api/daily-status" target="_blank" style="color:var(--accent)">/api/daily-status</a> for sync info.</div>
+           <div>No filings found. Check <a href="/api/daily-status" target="_blank" style="color:#00d4ff">/api/daily-status</a> for sync info.</div>
            </div></td></tr>`;
         return;
       }
       trades = all;
       // Show a notice about data freshness
       document.getElementById('summaryBar').innerHTML =
-        `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(var(--option-rgb),0.3);border-radius:4px;font-size:11px;color:var(--option);margin-bottom:8px">
+        `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">
           ⚠ Recent daily data still loading. Showing most recent available filings.
-          <a href="/api/run-daily?force=1&days=10" target="_blank" style="color:var(--accent);margin-left:8px">Force refresh</a>
+          <a href="/api/run-daily?force=1&days=10" target="_blank" style="color:#00d4ff;margin-left:8px">Force refresh</a>
         </div>`;
     }
 
@@ -1376,7 +1346,7 @@ async function loadScreener() {
     console.error('loadScreener error:', e);
     document.getElementById('screenerBody').innerHTML =
       `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div>
-       <div style="color:var(--sell)">Could not load data: ${e.message}</div>
+       <div style="color:#ff4466">Could not load data: ${e.message}</div>
        </div></td></tr>`;
   }
 }
@@ -1394,23 +1364,23 @@ function renderScreener() {
   document.getElementById('summaryBar').innerHTML = `
     <div class="summary-card">
       <div class="summary-card-label">Total Trades</div>
-      <div class="summary-card-val" style="color:var(--text)">${data.length}</div>
+      <div class="summary-card-val" style="color:#c9d8e8">${data.length}</div>
     </div>
     <div class="summary-card">
       <div class="summary-card-label">Buy Volume</div>
-      <div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div>
+      <div class="summary-card-val" style="color:#00ff88">${fmt(totalBuyVal)}</div>
     </div>
     <div class="summary-card">
       <div class="summary-card-label">Sell Volume</div>
-      <div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div>
+      <div class="summary-card-val" style="color:#ff4466">${fmt(totalSellVal)}</div>
     </div>
     <div class="summary-card">
       <div class="summary-card-label">Buy/Sell Ratio</div>
-      <div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length ? (buys.length/sells.length).toFixed(2) : '∞'}x</div>
+      <div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'#00ff88':'#ff4466'}">${sells.length ? (buys.length/sells.length).toFixed(2) : '∞'}x</div>
     </div>
     <div class="summary-card">
       <div class="summary-card-label">Unique Tickers</div>
-      <div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div>
+      <div class="summary-card-val" style="color:#00d4ff">${new Set(data.map(t=>t.ticker)).size}</div>
     </div>
   `;
 
@@ -1449,19 +1419,19 @@ function renderScreener() {
 
   tbody.innerHTML = page.map(t => `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);display:block">trade: ${fmtDate(t.trade)}</span></td>
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;display:block">trade: ${fmtDate(t.trade)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()">
         <span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span>
         <span class="insider-title">${t.title}</span>
       </td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'IBM Plex Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'IBM Plex Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
+      <td style="font-family:'Space Mono',monospace;color:#4a6580">${fmtShares(t.owned)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:11px;color:#4a6580">${fmtDate(t.filing)}</td>
     </tr>
   `).join('');
 
@@ -1472,7 +1442,7 @@ function renderScreener() {
   for (let i = 1; i <= Math.min(pages,7); i++) {
     pgHtml += `<button class="page-btn ${i===state.currentPage?'active':''}" onclick="changePage(${i})">${i}</button>`;
   }
-  if (pages > 7) pgHtml += `<span style="color:var(--muted);padding:0 8px">...</span>`;
+  if (pages > 7) pgHtml += `<span style="color:#4a6580;padding:0 8px">...</span>`;
   pgHtml += `<button class="page-btn" onclick="changePage(${state.currentPage+1})" ${state.currentPage===pages?'disabled':''}>Next →</button>`;
   pg.innerHTML = pgHtml;
 }
@@ -1522,7 +1492,7 @@ async function loadStockView(ticker) {
   const prev     = priceData[priceData.length - 2];
   const chg      = last && prev ? last.close - prev.close : 0;
   const chgPct   = prev ? (chg / prev.close * 100) : 0;
-  const chgColor = chg >= 0 ? 'var(--buy)' : 'var(--sell)';
+  const chgColor = chg >= 0 ? '#00ff88' : '#ff4466';
   const last252  = priceData.slice(-252);
   const h52      = last252.reduce((m, d) => d.high  > m ? d.high  : m, 0);
   const l52      = last252.reduce((m, d) => d.low   < m ? d.low   : m, Infinity);
@@ -1543,15 +1513,15 @@ async function loadStockView(ticker) {
         <div class="stat-grid">
           <div class="stat-item"><div class="stat-label">52W High</div><div class="stat-val">$${h52.toFixed(2)}</div></div>
           <div class="stat-item"><div class="stat-label">52W Low</div><div class="stat-val">$${l52 === Infinity ? '—' : '$' + l52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">Buys</div><div class="stat-val" style="color:var(--buy)">${buys}</div></div>
-          <div class="stat-item"><div class="stat-label">Sells</div><div class="stat-val" style="color:var(--sell)">${sells}</div></div>
+          <div class="stat-item"><div class="stat-label">Buys</div><div class="stat-val" style="color:#00ff88">${buys}</div></div>
+          <div class="stat-item"><div class="stat-label">Sells</div><div class="stat-val" style="color:#ff4466">${sells}</div></div>
           <div class="stat-item"><div class="stat-label">Insider Value</div><div class="stat-val">${fmt(totalVal)}</div></div>
         </div>
       </div>
 
       <div class="chart-area">
         <div class="chart-controls" style="flex-wrap:wrap;gap:6px 0;">
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;margin-right:4px">RANGE:</span>
           <button class="tf-btn" onclick="setRange(30,this)">1M</button>
           <button class="tf-btn" onclick="setRange(90,this)">3M</button>
           <button class="tf-btn active" onclick="setRange(180,this)">6M</button>
@@ -1559,22 +1529,22 @@ async function loadStockView(ticker) {
           <button class="tf-btn" onclick="setRange(730,this)">2Y</button>
           <button class="tf-btn" onclick="setRange(9999,this)">ALL</button>
           <div style="margin-left:auto" class="chart-legend">
-            <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--option)"></div>Option</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#00ff88"></div>Buy</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ff4466"></div>Sell</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ffaa00"></div>Option</div>
           </div>
-          <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
-            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
-            <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="var(--buy)" onclick="toggleChartFilter('P',this)">BUYS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
+          <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid #1e2d3d;margin-top:2px;">
+            <span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;margin-right:2px">SHOW:</span>
+            <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="#00ff88" onclick="toggleChartFilter('P',this)">BUYS</button>
+            <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="#ff4466" onclick="toggleChartFilter('S',this)">SELLS</button>
+            <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="#ffaa00" onclick="toggleChartFilter('O',this)">OPTIONS</button>
+            <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="#4a6580" onclick="toggleChartFilter('X',this)">OTHER</button>
           </div>
         </div>
-        <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:var(--bg);">
+        <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid #1e2d3d;border-bottom:none;background:#080b0f;">
           ${!priceData.length ? '<div class="empty-state" style="height:500px"><div class="empty-icon">📡</div><div>Price data unavailable</div></div>' : ''}
         </div>
-        <div id="pressureWrapper" style="width:100%;background:var(--bg);border:1px solid var(--border);border-top:1px solid var(--border);border-radius:0 0 6px 6px;overflow:hidden;">
+        <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid #1e2d3d;border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
           <div id="pressureContainer" style="width:100%;height:120px;"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
@@ -1616,8 +1586,8 @@ async function loadStockView(ticker) {
     const btn = document.getElementById('chartFilter-' + g);
     if (btn) {
       btn.classList.add('active');
-      btn.style.color       = btn.dataset.color || 'var(--accent)';
-      btn.style.borderColor = btn.dataset.color || 'var(--accent)';
+      btn.style.color       = btn.dataset.color || '#00d4ff';
+      btn.style.borderColor = btn.dataset.color || '#00d4ff';
     }
   });
 }
@@ -1639,36 +1609,24 @@ function buildChart(priceData, trades) {
   container.innerHTML = '';
 
   // ── Main candlestick chart ────────────────────────────
-  const _bg    = getCSSVar('--bg');
-  const _bg2   = getCSSVar('--bg2');
-  const _text  = getCSSVar('--text');
-  const _muted = getCSSVar('--muted');
-  const _grid  = getCSSVar('--border');
-  const _acc   = getCSSVar('--accent');
-  const _buy   = getCSSVar('--buy');
-  const _sell  = getCSSVar('--sell');
-  const _buyRgb  = getCSSVar('--buy-rgb');
-  const _sellRgb = getCSSVar('--sell-rgb');
-  const _optRgb  = getCSSVar('--option-rgb');
-
   const chart = LightweightCharts.createChart(container, {
     width:  container.clientWidth,
     height: CHART_H,
-    layout: { background: { type: 'solid', color: _bg }, textColor: _muted },
-    grid:   { vertLines: { color: _grid }, horzLines: { color: 'transparent' } },
+    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
+    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: 'transparent' } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { color: _acc + '66', labelBackgroundColor: _bg2 },
-      horzLine: { color: _acc + '44', labelBackgroundColor: _bg2 },
+      vertLine: { color: '#00d4ff66', labelBackgroundColor: '#0d1117' },
+      horzLine: { color: '#00d4ff44', labelBackgroundColor: '#0d1117' },
     },
-    rightPriceScale: { borderColor: _grid },
-    timeScale: { borderColor: _grid, timeVisible: true },
+    rightPriceScale: { borderColor: '#1e2d3d' },
+    timeScale: { borderColor: '#1e2d3d', timeVisible: true },
   });
 
   const candles = chart.addCandlestickSeries({
-    upColor: _buy, downColor: _sell,
-    borderUpColor: _buy, borderDownColor: _sell,
-    wickUpColor:   _buy, wickDownColor:   _sell,
+    upColor: '#00ff88', downColor: '#ff4466',
+    borderUpColor: '#00ff88', borderDownColor: '#ff4466',
+    wickUpColor:   '#00ff88', wickDownColor:   '#ff4466',
   });
   candles.setData(priceData.map(d => ({
     time: d.time, open: d.open, high: d.high, low: d.low, close: d.close
@@ -1681,7 +1639,7 @@ function buildChart(priceData, trades) {
   });
   volSeries.setData(priceData.map(d => ({
     time: d.time, value: d.volume || 0,
-    color: d.close >= d.open ? `rgba(${_buyRgb},0.15)` : `rgba(${_sellRgb},0.15)`,
+    color: d.close >= d.open ? 'rgba(0,255,136,0.15)' : 'rgba(255,68,102,0.15)',
   })));
 
   state.chart       = chart;
@@ -1778,7 +1736,7 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
   const tooltip = document.getElementById('chartTooltip') || (() => {
     const el = document.createElement('div');
     el.id = 'chartTooltip';
-    el.style.cssText = 'position:fixed;display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--text);z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
+    el.style.cssText = 'position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#c9d8e8;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
     document.body.appendChild(el);
     return el;
   })();
@@ -1814,10 +1772,10 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
       // Radius: 8–22px log-scaled
       const r = 8 + 14 * Math.log1p(g.value) / Math.log1p(maxVal);
 
-      const _br=_buyRgb||getCSSVar('--buy-rgb'), _sr=_sellRgb||getCSSVar('--sell-rgb'), _or=_optRgb||getCSSVar('--option-rgb');
-      const color = isBuy  ? `rgba(${_br},`
-                  : isSell ? `rgba(${_sr},`
-                  :           `rgba(${_or},`;
+      const _br=_buyRgb||'#888', _sr=_sellRgb||'#888', _or=_optRgb||'#888';
+      const color = isBuy  ? 'rgba(0,255,136,'
+                  : isSell ? 'rgba(255,68,102,'
+                  :           'rgba(255,170,0,';
 
       // Glow
       ctx.beginPath();
@@ -1857,19 +1815,19 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
       canvas.style.cursor = 'crosshair';
       const g = hit.group;
       const tc = g.tc;
-      const color = tc === 'buy' ? 'var(--buy)' : tc === 'sell' ? 'var(--sell)' : 'var(--option)';
+      const color = tc === 'buy' ? '#00ff88' : tc === 'sell' ? '#ff4466' : '#ffaa00';
       const label = tc === 'buy' ? '▲ BUY' : tc === 'sell' ? '▼ SELL' : '◆ OPTION/AWARD';
       const rows = g.trades.slice(0, 5).map(t =>
-        `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:#b0c4d8">
-          <span style="color:var(--text)">${t.insider}</span>
-          ${t.title ? `<span style="color:var(--muted);font-size:10px"> · ${t.title}</span>` : ''}
+        `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8">
+          <span style="color:#c9d8e8">${t.insider}</span>
+          ${t.title ? `<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>` : ''}
           <span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span>
         </div>`).join('');
       tooltip.innerHTML = `
         <div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>
         ${rows}
-        ${g.trades.length > 5 ? `<div style="color:var(--muted);font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>` : ''}
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text)">
+        ${g.trades.length > 5 ? `<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>` : ''}
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#c9d8e8">
           Total: <span style="color:${color}">${fmt(g.value)}</span>
         </div>`;
       tooltip.style.display = 'block';
@@ -1918,11 +1876,11 @@ function buildPressureChart(mainChart, trades, priceData) {
     lineData.push({ time: date, value: +ema.toFixed(2) });
   });
 
-  const _pbg   = getCSSVar('--bg');
-  const _pgrid = getCSSVar('--border');
-  const _pmut  = getCSSVar('--muted');
-  const _pbuy  = getCSSVar('--buy-rgb');
-  const _psell = getCSSVar('--sell-rgb');
+  const _pbg   = '#888';
+  const _pgrid = '#888';
+  const _pmut  = '#888';
+  const _pbuy  = '#888';
+  const _psell = '#888';
 
   const pChart = LightweightCharts.createChart(pc, {
     width:  pc.clientWidth || 800,
@@ -1939,7 +1897,7 @@ function buildPressureChart(mainChart, trades, priceData) {
   const histData = lineData.map(d => ({
     time:  d.time,
     value: d.value,
-    color: d.value >= 0 ? `rgba(${_pbuy},0.85)` : `rgba(${_psell},0.85)`,
+    color: d.value >= 0 ? `rgba(0,255,136,0.85)` : `rgba(255,68,102,0.85)`,
   }));
 
   const histSeries = pChart.addHistogramSeries({
@@ -1953,7 +1911,7 @@ function buildPressureChart(mainChart, trades, priceData) {
 
   // Zero baseline
   pChart.addLineSeries({
-    color: getCSSVar('--border2') || '#354060',
+    color: '#253447',
     lineWidth: 1,
     lineStyle: 2,
     priceLineVisible: false,
@@ -1982,7 +1940,7 @@ function buildPressureChart(mainChart, trades, priceData) {
   const pTooltip = document.getElementById('chartTooltip') || (() => {
     const el = document.createElement('div');
     el.id = 'chartTooltip';
-    el.style.cssText = 'position:fixed;display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--text);z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
+    el.style.cssText = 'position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#c9d8e8;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
     document.body.appendChild(el);
     return el;
   })();
@@ -2001,18 +1959,18 @@ function buildPressureChart(mainChart, trades, priceData) {
     const buyVal  = buys.reduce((s,t) => s + (t.value||0), 0);
     const sellVal = sells.reduce((s,t) => s + (t.value||0), 0);
     const net = buyVal - sellVal;
-    const netColor = net >= 0 ? 'var(--buy)' : 'var(--sell)';
+    const netColor = net >= 0 ? '#00ff88' : '#ff4466';
 
     const insiders = [...new Set(dayTrades.map(t => t.insider).filter(Boolean))];
 
     pTooltip.innerHTML = `
-      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>
-      ${buys.length  ? `<div style="color:var(--buy)">▲ BUY &nbsp;${buys.length} insider${buys.length>1?'s':''} · ${fmt(buyVal)}</div>` : ''}
-      ${sells.length ? `<div style="color:var(--sell)">▼ SELL ${sells.length} insider${sells.length>1?'s':''} · ${fmt(sellVal)}</div>` : ''}
-      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
-        <span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span>
+      <div style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;margin-bottom:6px">${dateStr}</div>
+      ${buys.length  ? `<div style="color:#00ff88">▲ BUY &nbsp;${buys.length} insider${buys.length>1?'s':''} · ${fmt(buyVal)}</div>` : ''}
+      ${sells.length ? `<div style="color:#ff4466">▼ SELL ${sells.length} insider${sells.length>1?'s':''} · ${fmt(sellVal)}</div>` : ''}
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d">
+        <span style="color:#4a6580;font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span>
       </div>
-      <div style="margin-top:4px;font-size:10px;color:var(--muted)">${insiders.slice(0,3).join(', ')}${insiders.length>3?' +'+( insiders.length-3)+' more':''}</div>`;
+      <div style="margin-top:4px;font-size:10px;color:#4a6580">${insiders.slice(0,3).join(', ')}${insiders.length>3?' +'+( insiders.length-3)+' more':''}</div>`;
     pTooltip.style.display = 'block';
     const tx = e.clientX + 16, ty = e.clientY - 10;
     pTooltip.style.left = (tx + 280 > window.innerWidth ? e.clientX - 296 : tx) + 'px';
@@ -2031,7 +1989,7 @@ function buildPressureChart(mainChart, trades, priceData) {
 
   // Label
   const label = document.createElement('div');
-  label.style.cssText = 'position:absolute;top:6px;left:10px;font-family:IBM Plex Mono,monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);pointer-events:none;z-index:2';
+  label.style.cssText = 'position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
   label.textContent = 'INSIDER PRESSURE';
   document.getElementById('pressureWrapper').style.position = 'relative';
   document.getElementById('pressureWrapper').appendChild(label);
@@ -2080,13 +2038,13 @@ function toggleChartFilter(group, btn) {
   if (chartActiveFilters.has(group)) {
     chartActiveFilters.delete(group);
     btn.classList.remove('active');
-    btn.style.color       = 'var(--muted)';
-    btn.style.borderColor = 'var(--border)';
+    btn.style.color       = '#4a6580';
+    btn.style.borderColor = '#1e2d3d';
   } else {
     chartActiveFilters.add(group);
     btn.classList.add('active');
-    btn.style.color       = btn.dataset.color || 'var(--accent)';
-    btn.style.borderColor = btn.dataset.color || 'var(--accent)';
+    btn.style.color       = btn.dataset.color || '#00d4ff';
+    btn.style.borderColor = btn.dataset.color || '#00d4ff';
   }
   if (!state.tickerTrades || !state.currentPriceData) return;
 
@@ -2143,21 +2101,21 @@ function renderTradeMarkerList(trades) {
   const sorted = [...trades].sort((a, b) => new Date(b.trade || b.filing) - new Date(a.trade || a.filing));
   el.innerHTML = sorted.slice(0, 15).map(t => {
     const tc     = tradeClass(t.type);
-    const color  = tc === 'buy' ? 'var(--buy)'  : tc === 'sell' ? 'var(--sell)'  : 'var(--option)';
-    const border = tc === 'buy' ? 'rgba(var(--buy-rgb),0.3)' : tc === 'sell' ? 'rgba(var(--sell-rgb),0.3)' : 'rgba(var(--option-rgb),0.3)';
-    const bg     = tc === 'buy' ? 'rgba(var(--buy-rgb),0.07)' : tc === 'sell' ? 'rgba(var(--sell-rgb),0.07)' : 'rgba(var(--option-rgb),0.07)';
+    const color  = tc === 'buy' ? '#00ff88'  : tc === 'sell' ? '#ff4466'  : '#ffaa00';
+    const border = tc === 'buy' ? 'rgba(0,255,136,0.3)' : tc === 'sell' ? 'rgba(255,68,102,0.3)' : 'rgba(255,170,0,0.3)';
+    const bg     = tc === 'buy' ? 'rgba(0,255,136,0.07)' : tc === 'sell' ? 'rgba(255,68,102,0.07)' : 'rgba(255,170,0,0.07)';
     return `
       <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
                   background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer"
            onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
         <span style="color:${color};font-size:10px;font-weight:700">${tc === 'buy' ? '▲' : '▼'} ${tradeLabel(t.type)}</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade || t.filing)}</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
-        <span style="font-size:10px;color:var(--muted)">${t.insider ? t.insider.split(' ').slice(-1)[0] : ''}</span>
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580">${fmtDate(t.trade || t.filing)}</span>
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
+        <span style="font-size:10px;color:#4a6580">${t.insider ? t.insider.split(' ').slice(-1)[0] : ''}</span>
       </div>`;
   }).join('');
   if (trades.length > 15) {
-    el.innerHTML += `<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length - 15} more — see table below</div>`;
+    el.innerHTML += `<div style="font-size:11px;color:#4a6580;padding:4px 8px">+${trades.length - 15} more — see table below</div>`;
   }
 }
 
@@ -2197,7 +2155,7 @@ function renderSidebarTrades(trades) {
         </div>
         <div class="trade-num-item" style="grid-column:1/-1">
           <div class="trade-num-label">Total Value</div>
-          <div class="trade-num-val" style="color:${tradeClass(t.type)==='buy'?'var(--buy)':tradeClass(t.type)==='sell'?'var(--sell)':'var(--option)'}">${fmt(t.value)}</div>
+          <div class="trade-num-val" style="color:${tradeClass(t.type)==='buy'?'#00ff88':tradeClass(t.type)==='sell'?'#ff4466':'#ffaa00'}">${fmt(t.value)}</div>
         </div>
       </div>
     </div>
@@ -2229,26 +2187,26 @@ function renderSidebarSummary(trades) {
       <div class="trade-num-label" style="margin-bottom:8px">ACTIVITY BREAKDOWN</div>
       <div style="display:grid;gap:6px">
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(0,255,136,0.07);border-radius:4px;border:1px solid rgba(0,255,136,0.2)">
-          <span style="color:var(--buy);font-size:12px">▲ Buys (${buys.length})</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span>
+          <span style="color:#00ff88;font-size:12px">▲ Buys (${buys.length})</span>
+          <span style="font-family:'Space Mono',monospace;font-size:12px;color:#00ff88">${fmt(buyVal)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,68,102,0.07);border-radius:4px;border:1px solid rgba(255,68,102,0.2)">
-          <span style="color:var(--sell);font-size:12px">▼ Sells (${sells.length})</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span>
+          <span style="color:#ff4466;font-size:12px">▼ Sells (${sells.length})</span>
+          <span style="font-family:'Space Mono',monospace;font-size:12px;color:#ff4466">${fmt(sellVal)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,170,0,0.07);border-radius:4px;border:1px solid rgba(255,170,0,0.2)">
-          <span style="color:var(--option);font-size:12px">◆ Options/Other (${opts.length + trades.length - buys.length - sells.length})</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span>
+          <span style="color:#ffaa00;font-size:12px">◆ Options/Other (${opts.length + trades.length - buys.length - sells.length})</span>
+          <span style="font-family:'Space Mono',monospace;font-size:12px;color:#ffaa00">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span>
         </div>
       </div>
     </div>
 
     <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
     ${topInsiders.map(ins => `
-      <div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px">
+      <div style="padding:10px;background:#111820;border:1px solid #1e2d3d;border-radius:5px;margin-bottom:6px">
         <div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">
+        <div style="font-size:11px;color:#4a6580;margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div>
+        <div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'#00ff88':'#ff4466'}">
           Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}
         </div>
       </div>
@@ -2265,15 +2223,15 @@ function renderStockTradesTable(trades) {
   }
   el.innerHTML = trades.map(t => `
     <tr>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
       <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span></td>
-      <td style="color:var(--muted);font-size:12px">${t.title}</td>
+      <td style="color:#4a6580;font-size:12px">${t.title}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'IBM Plex Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'IBM Plex Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+      <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
+      <td style="font-family:'Space Mono',monospace;color:#4a6580">${fmtShares(t.owned)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:11px;color:#4a6580">${fmtDate(t.filing)}</td>
     </tr>
   `).join('');
 }
@@ -2339,23 +2297,23 @@ function renderInsiderProfile(name, title, trades) {
         <div class="insider-hero-stats">
           <div class="insider-stat">
             <div class="insider-stat-label">Total Trades</div>
-            <div class="insider-stat-val" style="color:var(--text)">${trades.length}</div>
+            <div class="insider-stat-val" style="color:#c9d8e8">${trades.length}</div>
           </div>
           <div class="insider-stat">
             <div class="insider-stat-label">Total Bought</div>
-            <div class="insider-stat-val" style="color:var(--buy)">${fmt(buyVal)}</div>
+            <div class="insider-stat-val" style="color:#00ff88">${fmt(buyVal)}</div>
           </div>
           <div class="insider-stat">
             <div class="insider-stat-label">Total Sold</div>
-            <div class="insider-stat-val" style="color:var(--sell)">${fmt(sellVal)}</div>
+            <div class="insider-stat-val" style="color:#ff4466">${fmt(sellVal)}</div>
           </div>
           <div class="insider-stat">
             <div class="insider-stat-label">Net Position</div>
-            <div class="insider-stat-val" style="color:${netVal>=0?'var(--buy)':'var(--sell)'}">${netVal>=0?'+':''}${fmt(netVal)}</div>
+            <div class="insider-stat-val" style="color:${netVal>=0?'#00ff88':'#ff4466'}">${netVal>=0?'+':''}${fmt(netVal)}</div>
           </div>
           <div class="insider-stat">
             <div class="insider-stat-label">Active Since</div>
-            <div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div>
+            <div class="insider-stat-val" style="color:#4a6580;font-size:13px">${firstTrade}</div>
           </div>
         </div>
       </div>
@@ -2390,14 +2348,14 @@ function renderInsiderProfile(name, title, trades) {
               <tbody>
                 ${trades.map(t => `
                   <tr style="cursor:pointer" onclick="openTickerFromScreener('${t.ticker}')">
-                    <td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+                    <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
                     <td class="ticker-cell">${t.ticker}</td>
                     <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-                    <td style="font-family:'IBM Plex Mono',monospace">${fmtShares(t.qty)}</td>
-                    <td style="font-family:'IBM Plex Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-                    <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'IBM Plex Mono',monospace">${fmt(t.value)}</td>
-                    <td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-                    <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+                    <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+                    <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+                    <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
+                    <td style="font-family:'Space Mono',monospace;color:#4a6580">${fmtShares(t.owned)}</td>
+                    <td style="font-family:'Space Mono',monospace;font-size:11px;color:#4a6580">${fmtDate(t.filing)}</td>
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -2424,8 +2382,8 @@ function renderInsiderProfile(name, title, trades) {
                     </div>
                   </div>
                   <div style="display:flex;gap:6px;margin-top:3px">
-                    ${t.buyVal  ? `<span style="font-size:9px;color:var(--buy)">${fmt(t.buyVal)}</span>` : ''}
-                    ${t.sellVal ? `<span style="font-size:9px;color:var(--sell)">${fmt(t.sellVal)}</span>` : ''}
+                    ${t.buyVal  ? `<span style="font-size:9px;color:#00ff88">${fmt(t.buyVal)}</span>` : ''}
+                    ${t.sellVal ? `<span style="font-size:9px;color:#ff4466">${fmt(t.sellVal)}</span>` : ''}
                   </div>
                 </div>
                 <div class="ticker-bar-val">${t.count} trade${t.count!==1?'s':''}</div>
@@ -2439,25 +2397,25 @@ function renderInsiderProfile(name, title, trades) {
             <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
               <div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                  <span style="font-size:11px;color:var(--buy)">▲ Open Buys (${buys.length})</span>
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--buy)">${fmt(buyVal)}</span>
+                  <span style="font-size:11px;color:#00ff88">▲ Open Buys (${buys.length})</span>
+                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:#00ff88">${fmt(buyVal)}</span>
                 </div>
-                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-                  <div style="height:100%;width:${buyVal+sellVal?((buyVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--buy);border-radius:3px;transition:width .5s"></div>
+                <div style="height:6px;background:#111820;border-radius:3px;overflow:hidden">
+                  <div style="height:100%;width:${buyVal+sellVal?((buyVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:#00ff88;border-radius:3px;transition:width .5s"></div>
                 </div>
               </div>
               <div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                  <span style="font-size:11px;color:var(--sell)">▼ Open Sells (${sells.length})</span>
-                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--sell)">${fmt(sellVal)}</span>
+                  <span style="font-size:11px;color:#ff4466">▼ Open Sells (${sells.length})</span>
+                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:#ff4466">${fmt(sellVal)}</span>
                 </div>
-                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-                  <div style="height:100%;width:${buyVal+sellVal?((sellVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--sell);border-radius:3px;transition:width .5s"></div>
+                <div style="height:6px;background:#111820;border-radius:3px;overflow:hidden">
+                  <div style="height:100%;width:${buyVal+sellVal?((sellVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:#ff4466;border-radius:3px;transition:width .5s"></div>
                 </div>
               </div>
-              <div style="padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
-                <span style="font-size:11px;color:var(--muted)">Net Conviction</span>
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:${netVal>=0?'var(--buy)':'var(--sell)'}">
+              <div style="padding-top:8px;border-top:1px solid #1e2d3d;display:flex;justify-content:space-between">
+                <span style="font-size:11px;color:#4a6580">Net Conviction</span>
+                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${netVal>=0?'#00ff88':'#ff4466'}">
                   ${netVal>=0?'NET BUYER':'NET SELLER'}
                 </span>
               </div>
@@ -2472,7 +2430,7 @@ function renderInsiderProfile(name, title, trades) {
 }
 
 function buildCSSTimeline(trades) {
-  if (!trades.length) return '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">No trade history</div>';
+  if (!trades.length) return '<div style="color:#4a6580;font-size:12px;text-align:center;padding:40px">No trade history</div>';
 
   const sorted = [...trades].sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
   const minT = new Date(sorted[0].trade||sorted[0].filing).getTime();
@@ -2489,12 +2447,12 @@ function buildCSSTimeline(trades) {
     const yt = new Date(y, 0, 1).getTime();
     const pct = Math.max(0, Math.min(100, ((yt - minT) / span) * 100));
     yearMarkers += `<div style="position:absolute;left:${pct}%;top:0;bottom:0;width:1px;background:rgba(30,45,61,0.8);">
-      <span style="position:absolute;bottom:2px;left:3px;font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap">${y}</span>
+      <span style="position:absolute;bottom:2px;left:3px;font-size:9px;color:#4a6580;font-family:'Space Mono',monospace;white-space:nowrap">${y}</span>
     </div>`;
   }
 
   // Centre line
-  const centreLine = `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:var(--border);transform:translateY(-50%)"></div>`;
+  const centreLine = `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#1e2d3d;transform:translateY(-50%)"></div>`;
 
   // Lollipop dots
   let dots = '';
@@ -2503,7 +2461,7 @@ function buildCSSTimeline(trades) {
     const pct = ((d - minT) / span) * 100;
     const isBuy = t.type === 'P';
     const isOpt = tradeClass(t.type) === 'option';
-    const color = isBuy ? 'var(--buy)' : isOpt ? 'var(--option)' : 'var(--sell)';
+    const color = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
     // Size: 6px min, 14px max based on value
     const size = 6 + Math.min(8, (Math.log10(t.value||1) - 3) * 2);
     // Stem height: proportional to value vs max
@@ -2531,8 +2489,8 @@ function buildCSSTimeline(trades) {
       ${centreLine}
       ${yearMarkers}
       ${dots}
-      <div style="position:absolute;left:8px;top:4px;font-size:9px;color:var(--buy);font-family:'IBM Plex Mono',monospace">▲ BUYS</div>
-      <div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:var(--sell);font-family:'IBM Plex Mono',monospace">▼ SELLS</div>
+      <div style="position:absolute;left:8px;top:4px;font-size:9px;color:#00ff88;font-family:'Space Mono',monospace">▲ BUYS</div>
+      <div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:#ff4466;font-family:'Space Mono',monospace">▼ SELLS</div>
     </div>`;
 }
 
@@ -2553,22 +2511,22 @@ function insiderLanding() {
   body.innerHTML = `
     <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
       <!-- Search bar -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
-        <div style="font-family:'Anybody',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:12px">SEARCH INSIDER</div>
+      <div style="background:#0d1117;border:1px solid #1e2d3d;border-radius:8px;padding:20px 24px;margin-bottom:28px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:#c9d8e8;margin-bottom:12px">SEARCH INSIDER</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="position:relative;flex:1;min-width:200px">
             <input id="insiderSearchInput" type="text" placeholder="Search by name, e.g. Zuckerberg"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s"
+              style="width:100%;background:#111820;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;color:#c9d8e8;font-size:14px;outline:none;transition:border-color .2s"
               onkeydown="if(event.key==='Enter')runInsiderSearch()"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" />
-            <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
+              onfocus="this.style.borderColor='#00d4ff'" onblur="this.style.borderColor='#1e2d3d'" />
+            <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:#111820;border:1px solid #1e2d3d;border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
           </div>
-          <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:10px 22px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">SEARCH</button>
+          <button onclick="runInsiderSearch()" style="background:#00d4ff;color:#080b0f;border:none;border-radius:6px;padding:10px 22px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">SEARCH</button>
         </div>
-        <div style="margin-top:10px;font-size:11px;color:var(--muted)">
+        <div style="margin-top:10px;font-size:11px;color:#4a6580">
           Quick search:
           ${['Zuckerberg','Musk','Cook','Bezos','Pichai','Nadella','Dimon'].map(n=>
-            `<span onclick="document.getElementById('insiderSearchInput').value='${n}';runInsiderSearch()" style="color:var(--accent);cursor:pointer;margin-left:8px">${n}</span>`
+            `<span onclick="document.getElementById('insiderSearchInput').value='${n}';runInsiderSearch()" style="color:#00d4ff;cursor:pointer;margin-left:8px">${n}</span>`
           ).join('')}
         </div>
       </div>
@@ -2617,71 +2575,71 @@ async function loadInsiderDashboard() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
         <!-- Most Active Buyers -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--buy);font-size:14px">▲</span>
-            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span>
+        <div style="background:#0d1117;border:1px solid #1e2d3d;border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid #1e2d3d;display:flex;align-items:center;gap:10px">
+            <span style="color:#00ff88;font-size:14px">▲</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span>
           </div>
           <div style="padding:0">
             ${topBuyers.map(([name,val],i)=>`
-              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
-                <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--buy)">${fmt(val)}</span>
+              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid #1e2d3d;cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;width:20px">${i+1}</span>
+                <span style="flex:1;font-size:13px;color:#c9d8e8">${name}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:#00ff88">${fmt(val)}</span>
               </div>`).join('')}
           </div>
         </div>
 
         <!-- Most Active Sellers -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--sell);font-size:14px">▼</span>
-            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span>
+        <div style="background:#0d1117;border:1px solid #1e2d3d;border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid #1e2d3d;display:flex;align-items:center;gap:10px">
+            <span style="color:#ff4466;font-size:14px">▼</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span>
           </div>
           <div>
             ${topSellers.map(([name,val],i)=>`
-              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
-                <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span>
+              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid #1e2d3d;cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;width:20px">${i+1}</span>
+                <span style="flex:1;font-size:13px;color:#c9d8e8">${name}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:#ff4466">${fmt(val)}</span>
               </div>`).join('')}
           </div>
         </div>
 
         <!-- Cluster Buys -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--option);font-size:14px">⚡</span>
-            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span>
-            <span style="font-size:10px;color:var(--muted);margin-left:auto">2+ insiders buying same stock</span>
+        <div style="background:#0d1117;border:1px solid #1e2d3d;border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid #1e2d3d;display:flex;align-items:center;gap:10px">
+            <span style="color:#ffaa00;font-size:14px">⚡</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span>
+            <span style="font-size:10px;color:#4a6580;margin-left:auto">2+ insiders buying same stock</span>
           </div>
           <div>
             ${clusters.map(([ticker, insiders])=> {
               const tickerTrades = recent.filter(t=>t.ticker===ticker&&t.type==='P');
               const totalVal = tickerTrades.reduce((s,t)=>s+(t.value||0),0);
-              return `<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span>
-                <span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders</span>
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span>
+              return `<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid #1e2d3d;cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#00d4ff;width:64px">${ticker}</span>
+                <span style="flex:1;font-size:11px;color:#4a6580">${insiders.size} insiders</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:#00ff88">${fmt(totalVal)}</span>
               </div>`;
             }).join('')}
           </div>
         </div>
 
         <!-- Biggest Single Trades -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--accent);font-size:14px">💰</span>
-            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span>
+        <div style="background:#0d1117;border:1px solid #1e2d3d;border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid #1e2d3d;display:flex;align-items:center;gap:10px">
+            <span style="color:#00d4ff;font-size:14px">💰</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span>
           </div>
           <div>
             ${bigTrades.map(t=>{
               const isBuy = t.type==='P';
-              return `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span>
-                <span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span>
+              return `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid #1e2d3d;cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#00d4ff;min-width:48px">${t.ticker}</span>
+                <span style="flex:1;font-size:11px;color:#4a6580;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span>
                 <span class="badge ${isBuy?'badge-buy':'badge-sell'}" style="margin-right:6px">${isBuy?'BUY':'SELL'}</span>
-                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span>
+                <span style="font-family:'Space Mono',monospace;font-size:12px;color:${isBuy?'#00ff88':'#ff4466'}">${fmt(t.value)}</span>
               </div>`;
             }).join('')}
           </div>
@@ -2705,15 +2663,15 @@ async function runInsiderSearch() {
   body.innerHTML = `
     <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
       <!-- Persistent search bar -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;gap:10px;align-items:center">
+      <div style="background:#0d1117;border:1px solid #1e2d3d;border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;gap:10px;align-items:center">
         <div style="position:relative;flex:1">
           <input id="insiderSearchInput" type="text" value="${q.replace(/"/g,'&quot;')}" placeholder="Search by name"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 14px;color:var(--text);font-size:13px;outline:none"
+            style="width:100%;background:#111820;border:1px solid #1e2d3d;border-radius:6px;padding:9px 14px;color:#c9d8e8;font-size:13px;outline:none"
             onkeydown="if(event.key==='Enter')runInsiderSearch()" />
-          <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div>
+          <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:#111820;border:1px solid #1e2d3d;border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div>
         </div>
-        <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:9px 18px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
-        <button onclick="insiderLanding()" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-size:12px;cursor:pointer">← Dashboard</button>
+        <button onclick="runInsiderSearch()" style="background:#00d4ff;color:#080b0f;border:none;border-radius:6px;padding:9px 18px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
+        <button onclick="insiderLanding()" style="background:transparent;color:#4a6580;border:1px solid #1e2d3d;border-radius:6px;padding:9px 14px;font-size:12px;cursor:pointer">← Dashboard</button>
       </div>
       <div id="insiderResultsArea">
         <div class="loading-state"><div class="spinner"></div><span>Searching for "${q}"...</span></div>
@@ -2746,7 +2704,7 @@ async function runInsiderSearch() {
     const insiders = Object.values(byInsider).sort((a,b)=>b.trades.length-a.trades.length);
 
     area.innerHTML = `
-      <div style="font-family:'Anybody',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:#c9d8e8;margin-bottom:12px">
         ${insiders.length} INSIDER${insiders.length>1?'S':''} FOUND FOR "${q.toUpperCase()}"
       </div>
       <div class="table-wrap">
@@ -2761,20 +2719,20 @@ async function runInsiderSearch() {
           <tbody>
             ${insiders.map(ins=>`
               <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title||'')}')" style="cursor:pointer">
-                <td style="font-weight:500;color:var(--text)">${ins.name}</td>
-                <td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td>
-                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace">${ins.trades.length}</td>
-                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td>
-                <td style="color:var(--buy);font-family:'IBM Plex Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td>
-                <td style="color:var(--sell);font-family:'IBM Plex Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td>
-                <td style="color:var(--accent);font-size:11px">VIEW →</td>
+                <td style="font-weight:500;color:#c9d8e8">${ins.name}</td>
+                <td style="color:#4a6580;font-size:11px">${ins.title||'—'}</td>
+                <td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td>
+                <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:#00d4ff">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td>
+                <td style="color:#00ff88;font-family:'Space Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td>
+                <td style="color:#ff4466;font-family:'Space Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td>
+                <td style="color:#00d4ff;font-size:11px">VIEW →</td>
               </tr>`).join('')}
           </tbody>
         </table>
       </div>`;
   } catch(e) {
     document.getElementById('insiderResultsArea').innerHTML =
-      `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
+      `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:#ff4466">${e.message}</div></div>`;
   }
 }
 
@@ -2826,8 +2784,8 @@ function insiderAutocomplete(val) {
       if (!names.length) { box.style.display = 'none'; return; }
       box.innerHTML = names.map(n =>
         `<div onclick="document.getElementById('insiderSearchInput').value='${escName(n)}';document.getElementById('insiderSuggest').style.display='none';runInsiderSearch()"
-          style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
-          onmouseover="this.style.background='rgba(var(--text-rgb),0.04)'" onmouseout="this.style.background=''">${n}</div>`
+          style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #1e2d3d"
+          onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`
       ).join('');
       box.style.display = 'block';
     } catch(e) {}
@@ -2841,32 +2799,6 @@ document.addEventListener('click', e => {
 });
 
 // ═══════════════════════════════════════════════════════
-// THEME TOGGLE
-// ═══════════════════════════════════════════════════════
-function toggleTheme() {
-  const root = document.documentElement;
-  const isLight = root.getAttribute('data-theme') === 'light';
-  root.setAttribute('data-theme', isLight ? 'dark' : 'light');
-  document.getElementById('themeToggle').textContent = isLight ? '☀' : '☾';
-  localStorage.setItem('it-theme', isLight ? 'dark' : 'light');
-  // Rebuild charts if on stock view so they pick up new colors
-  if (state.currentTicker && state.chart) {
-    setTimeout(() => loadStockView(state.currentTicker), 50);
-  }
-}
-// Restore saved theme
-(function() {
-  const saved = localStorage.getItem('it-theme');
-  if (saved === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
-    document.addEventListener('DOMContentLoaded', () => {
-      const btn = document.getElementById('themeToggle');
-      if (btn) btn.textContent = '☾';
-    });
-  }
-})();
-
-// ═══════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════
 
@@ -2877,24 +2809,6 @@ function measureHeader() {
 }
 measureHeader();
 window.addEventListener('resize', measureHeader);
-
-// Parse URL params for deep linking / reload
-(function initFromUrl() {
-  const p = new URLSearchParams(window.location.search);
-  const v = p.get('v');
-  if (v === 'stock' && p.get('t')) {
-    navigate('stock', { ticker: p.get('t') }, true);
-  } else if (v === 'insider' && p.get('n')) {
-    navigate('insider', { insiderName: decodeURIComponent(p.get('n')) }, true);
-  } else if (v === 'insider' && p.get('q')) {
-    navigate('insider', { query: decodeURIComponent(p.get('q')) }, true);
-  } else if (v === 'insider') {
-    navigate('insider', {}, true);
-  } else {
-    // Default: screener
-    history.replaceState({ view: 'screener' }, '', window.location.pathname);
-  }
-})();
 
 loadScreener();
 </script>
