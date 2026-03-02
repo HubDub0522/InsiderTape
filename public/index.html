@@ -1840,7 +1840,8 @@ function buildPressureChart(mainChart, trades, priceData) {
   });
   histSeries.setData(barData);
 
-  // Zero baseline
+  // Zero baseline — spans full price history so it's always visible
+  const allDates = priceData.map(d => d.time);
   pChart.addLineSeries({
     color: '#2a3f55',
     lineWidth: 1,
@@ -1911,7 +1912,13 @@ function buildPressureChart(mainChart, trades, priceData) {
 
   state.pressureChart = pChart;
 
-  // Sync time range with main chart
+  // Sync initial range to match main chart immediately on load
+  try {
+    const initialRange = mainChart.timeScale().getVisibleLogicalRange();
+    if (initialRange) pChart.timeScale().setVisibleLogicalRange(initialRange);
+  } catch(e) {}
+
+  // Then keep in sync as user pans/zooms
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
     if (range && state.pressureChart) {
       state.pressureChart.timeScale().setVisibleLogicalRange(range);
