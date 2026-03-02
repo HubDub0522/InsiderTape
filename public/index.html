@@ -1005,7 +1005,7 @@
       <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
         <p style="font-size:11px; color:var(--muted); line-height:1.6">
-          Insider filings sourced from SEC Form 4 data via OpenInsider.com.<br><br>
+          Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
           Price data via Yahoo Finance.<br><br>
           <span style="color:var(--accent)">Note:</span> Data may be delayed up to 48hrs from SEC filing.
         </p>
@@ -1174,7 +1174,7 @@ document.getElementById('tickerInput').addEventListener('keydown', e => {
 });
 
 // ═══════════════════════════════════════════════════════
-// DATA FETCHING — OpenInsider via CORS proxy
+// DATA FETCHING — direct from our server (SEC EDGAR Form 4 data)
 // ═══════════════════════════════════════════════════════
 // ─────────────────────────────────────────────────────────────
 //  API — all data comes from our own server (server.js)
