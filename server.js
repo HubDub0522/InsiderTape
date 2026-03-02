@@ -129,7 +129,7 @@ app.get('/api/screener', (req, res) => {
     if (n === 0 && syncRunning)
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
     const days = Math.min(Math.max(parseInt(req.query.days || '7'), 1), 3650);
-    const rows = db.prepare(`
+    let rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned
@@ -138,6 +138,20 @@ app.get('/api/screener', (req, res) => {
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT 1000
     `).all(days);
+
+    // If the date window returns nothing (worker hasn't run yet / DB is stale),
+    // fall back to the most recent 500 trades regardless of date
+    if (!rows.length && n > 0) {
+      rows = db.prepare(`
+        SELECT ticker, company, insider, title,
+               trade_date AS trade, filing_date AS filing,
+               type, qty, price, value, owned
+        FROM trades
+        ORDER BY filing_date DESC, trade_date DESC
+        LIMIT 500
+      `).all();
+    }
+
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
