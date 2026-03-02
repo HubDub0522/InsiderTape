@@ -1030,7 +1030,7 @@
         <table>
           <thead>
             <tr>
-              <th onclick="sortTable('date')" class="sorted">FILED <span class="sort-arrow">↓</span></th>
+              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
               <th onclick="sortTable('ticker')">TICKER</th>
               <th onclick="sortTable('insider')">INSIDER</th>
               <th onclick="sortTable('type')">TYPE</th>
@@ -1080,7 +1080,7 @@ const state = {
   screenerData: [],
   currentPage: 1,
   pageSize: 25,
-  sortCol: 'date',
+  sortCol: 'trade',
   sortDir: -1,
   activeTypes: new Set(['P','S','A','M']),
   activeRole: 'all',
@@ -1810,19 +1810,15 @@ function buildPressureChart(mainChart, trades, priceData) {
     // Options still contribute to total but not to net directional pressure
   });
 
-  // Build single line series aligned to price data dates
-  const allDates = priceData.map(d => d.time);
+  // Build sparse histogram — only bars on days with actual trades, no smoothing
   const maxTotal = Math.max(...Object.values(byDay).map(d => d.total), 1);
-  const EMA_K    = 2 / 6;
-  let ema = 0;
-
-  const lineData = [];
-  allDates.forEach(date => {
-    const d   = byDay[date];
-    const raw = d ? (d.net / maxTotal) * 100 : 0;
-    ema = raw !== 0 ? raw * EMA_K + ema * (1 - EMA_K) : ema * (1 - EMA_K);
-    lineData.push({ time: date, value: +ema.toFixed(2) });
-  });
+  const barData = Object.entries(byDay)
+    .map(([date, d]) => ({
+      time:  date,
+      value: +(d.net / maxTotal * 100).toFixed(2),
+      color: d.net >= 0 ? 'rgba(0,255,136,0.90)' : 'rgba(255,68,102,0.90)',
+    }))
+    .sort((a, b) => a.time.localeCompare(b.time));
 
   const pChart = LightweightCharts.createChart(pc, {
     width:  pc.clientWidth || 800,
@@ -1835,13 +1831,6 @@ function buildPressureChart(mainChart, trades, priceData) {
     handleScroll: false, handleScale: false,
   });
 
-  // Histogram: each bar colored green (buy) or red (sell) based on sign
-  const histData = lineData.map(d => ({
-    time:  d.time,
-    value: d.value,
-    color: d.value >= 0 ? 'rgba(0,255,136,0.85)' : 'rgba(255,68,102,0.85)',
-  }));
-
   const histSeries = pChart.addHistogramSeries({
     priceLineVisible:  false,
     lastValueVisible:  false,
@@ -1849,7 +1838,7 @@ function buildPressureChart(mainChart, trades, priceData) {
     scaleMargins:      { top: 0.05, bottom: 0.05 },
     base: 0,
   });
-  histSeries.setData(histData);
+  histSeries.setData(barData);
 
   // Zero baseline
   pChart.addLineSeries({
@@ -2588,9 +2577,14 @@ async function loadInsiderDashboard() {
     // Biggest single trades
     const bigTrades = [...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
 
-    // Recent cluster buys (multiple insiders buying same stock same week)
+    // Recent cluster buys (multiple insiders buying same stock — filtered by actual trade date)
+    const clusterCutoff = new Date();
+    clusterCutoff.setDate(clusterCutoff.getDate() - 30);
     const tickerBuyers = {};
-    recent.filter(t=>t.type==='P').forEach(t => {
+    recent.filter(t => {
+      if (t.type !== 'P') return false;
+      return new Date(t.trade || t.filing) >= clusterCutoff;
+    }).forEach(t => {
       if (!tickerBuyers[t.ticker]) tickerBuyers[t.ticker] = new Set();
       tickerBuyers[t.ticker].add(t.insider);
     });
