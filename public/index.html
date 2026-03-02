@@ -955,7 +955,7 @@
 
 <!-- ═══════════════════ HEADER ═══════════════════ -->
 <header>
-  <div class="logo">INSIDER<span>TAPE</span></div>
+  <div class="logo" onclick="navigate('screener')" style="cursor:pointer">INSIDER<span>TAPE</span></div>
   <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark/light mode">☀</button>
 
   <div class="search-wrap">
@@ -1097,6 +1097,11 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// CSS variable resolver — must be first, used by chart builders
+function getCSSVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
+}
+
 // ═══════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════
@@ -1172,25 +1177,80 @@ function showToast(msg, isError = false) {
 // ═══════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════
-function switchView(view, btn) {
+// ── ROUTER ────────────────────────────────────────────────────────────────────
+// navigate(view, params) — switches view + pushes browser history entry
+// params: { ticker, insiderName, insiderTitle, query } depending on view
+let _navigating = false; // prevents popstate → applyView → navigate → pushState loop
+function navigate(view, params = {}, replace = false) {
+  if (_navigating) return; // called from applyView during popstate, don't push again
+  // Build state and URL
+  const state = { view, ...params };
+  const url = buildUrl(view, params);
+  if (replace) {
+    history.replaceState(state, '', url);
+  } else {
+    // Only push if actually changing
+    const cur = history.state;
+    const same = cur && cur.view === view &&
+      cur.ticker === params.ticker &&
+      cur.insiderName === params.insiderName &&
+      cur.query === params.query;
+    if (!same) history.pushState(state, '', url);
+  }
+  applyView(view, params);
+}
+
+function buildUrl(view, params = {}) {
+  const base = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (view === 'stock'   && params.ticker)      return base + '?v=stock&t=' + encodeURIComponent(params.ticker);
+  if (view === 'insider' && params.insiderName) return base + '?v=insider&n=' + encodeURIComponent(params.insiderName);
+  if (view === 'insider' && params.query)       return base + '?v=insider&q=' + encodeURIComponent(params.query);
+  if (view === 'insider')                       return base + '?v=insider';
+  return base;
+}
+
+function applyView(view, params = {}) {
+  _navigating = true;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('view-' + view).classList.add('active');
-  if (btn) btn.classList.add('active');
-  // Initialise insider landing page when switching to it
-  if (view === 'insider') {
+  const viewEl = document.getElementById('view-' + view);
+  if (viewEl) viewEl.classList.add('active');
+  // Highlight correct nav tab
+  const tabMap = { screener: 0, stock: 1, insider: 2 };
+  const tabs = document.querySelectorAll('.nav-tab');
+  if (tabs[tabMap[view]]) tabs[tabMap[view]].classList.add('active');
+
+  if (view === 'stock' && params.ticker) {
+    loadStockView(params.ticker);
+  } else if (view === 'insider' && params.insiderName) {
+    openInsiderProfileFull(params.insiderName, params.insiderTitle || '');
+  } else if (view === 'insider' && params.query) {
+    const inp = document.getElementById('insiderSearchInput');
+    if (inp) inp.value = params.query;
+    runInsiderSearch();
+  } else if (view === 'insider') {
     const body = document.getElementById('insiderViewBody');
     if (body && !body.hasChildNodes()) insiderLanding();
   }
+  setTimeout(() => { _navigating = false; }, 0);
 }
+
+// Legacy shim — called by many existing onclick handlers
+function switchView(view, btn) {
+  navigate(view);
+}
+
+// Browser back/forward
+window.addEventListener('popstate', e => {
+  const state = e.state;
+  if (!state) { applyView('screener'); return; }
+  applyView(state.view || 'screener', state);
+});
 
 function searchTicker() {
   const val = document.getElementById('tickerInput').value.trim().toUpperCase();
   if (!val) return showToast('Please enter a ticker symbol', true);
-  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
-  document.querySelectorAll('.nav-tab')[1].classList.add('active');
-  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
-  loadStockView(val);
+  navigate('stock', { ticker: val });
 }
 
 document.getElementById('tickerInput').addEventListener('keydown', e => {
@@ -1432,10 +1492,7 @@ function sortTable(col) {
 
 function openTickerFromScreener(ticker) {
   document.getElementById('tickerInput').value = ticker;
-  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
-  document.querySelectorAll('.nav-tab')[1].classList.add('active');
-  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
-  loadStockView(ticker);
+  navigate('stock', { ticker });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1582,24 +1639,36 @@ function buildChart(priceData, trades) {
   container.innerHTML = '';
 
   // ── Main candlestick chart ────────────────────────────
+  const _bg    = getCSSVar('--bg');
+  const _bg2   = getCSSVar('--bg2');
+  const _text  = getCSSVar('--text');
+  const _muted = getCSSVar('--muted');
+  const _grid  = getCSSVar('--border');
+  const _acc   = getCSSVar('--accent');
+  const _buy   = getCSSVar('--buy');
+  const _sell  = getCSSVar('--sell');
+  const _buyRgb  = getCSSVar('--buy-rgb');
+  const _sellRgb = getCSSVar('--sell-rgb');
+  const _optRgb  = getCSSVar('--option-rgb');
+
   const chart = LightweightCharts.createChart(container, {
     width:  container.clientWidth,
     height: CHART_H,
-    layout: { background: { type: 'solid', color: 'var(--bg)' }, textColor: 'var(--muted)' },
-    grid:   { vertLines: { color: 'var(--border)' }, horzLines: { color: 'var(--border)' } },
+    layout: { background: { type: 'solid', color: _bg }, textColor: _muted },
+    grid:   { vertLines: { color: _grid }, horzLines: { color: 'transparent' } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { color: 'var(--accent)66', labelBackgroundColor: 'var(--bg2)' },
-      horzLine: { color: 'var(--accent)44', labelBackgroundColor: 'var(--bg2)' },
+      vertLine: { color: _acc + '66', labelBackgroundColor: _bg2 },
+      horzLine: { color: _acc + '44', labelBackgroundColor: _bg2 },
     },
-    rightPriceScale: { borderColor: 'var(--border)' },
-    timeScale: { borderColor: 'var(--border)', timeVisible: true },
+    rightPriceScale: { borderColor: _grid },
+    timeScale: { borderColor: _grid, timeVisible: true },
   });
 
   const candles = chart.addCandlestickSeries({
-    upColor:   'var(--buy)', downColor: 'var(--sell)',
-    borderUpColor: 'var(--buy)', borderDownColor: 'var(--sell)',
-    wickUpColor:   'var(--buy)', wickDownColor:   'var(--sell)',
+    upColor: _buy, downColor: _sell,
+    borderUpColor: _buy, borderDownColor: _sell,
+    wickUpColor:   _buy, wickDownColor:   _sell,
   });
   candles.setData(priceData.map(d => ({
     time: d.time, open: d.open, high: d.high, low: d.low, close: d.close
@@ -1612,7 +1681,7 @@ function buildChart(priceData, trades) {
   });
   volSeries.setData(priceData.map(d => ({
     time: d.time, value: d.volume || 0,
-    color: d.close >= d.open ? 'rgba(var(--buy-rgb),0.15)' : 'rgba(var(--sell-rgb),0.15)',
+    color: d.close >= d.open ? `rgba(${_buyRgb},0.15)` : `rgba(${_sellRgb},0.15)`,
   })));
 
   state.chart       = chart;
@@ -1745,7 +1814,7 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
       // Radius: 8–22px log-scaled
       const r = 8 + 14 * Math.log1p(g.value) / Math.log1p(maxVal);
 
-      const _br=getCSSVar('--buy-rgb'),_sr=getCSSVar('--sell-rgb'),_or=getCSSVar('--option-rgb');
+      const _br=_buyRgb||getCSSVar('--buy-rgb'), _sr=_sellRgb||getCSSVar('--sell-rgb'), _or=_optRgb||getCSSVar('--option-rgb');
       const color = isBuy  ? `rgba(${_br},`
                   : isSell ? `rgba(${_sr},`
                   :           `rgba(${_or},`;
@@ -1849,13 +1918,19 @@ function buildPressureChart(mainChart, trades, priceData) {
     lineData.push({ time: date, value: +ema.toFixed(2) });
   });
 
+  const _pbg   = getCSSVar('--bg');
+  const _pgrid = getCSSVar('--border');
+  const _pmut  = getCSSVar('--muted');
+  const _pbuy  = getCSSVar('--buy-rgb');
+  const _psell = getCSSVar('--sell-rgb');
+
   const pChart = LightweightCharts.createChart(pc, {
     width:  pc.clientWidth || 800,
     height: 120,
-    layout: { background: { type: 'solid', color: 'var(--bg)' }, textColor: 'var(--muted)' },
-    grid:   { vertLines: { color: 'var(--border)' }, horzLines: { color: 'var(--border)22' } },
-    rightPriceScale: { borderColor: 'var(--border)', scaleMargins: { top: 0.15, bottom: 0.15 } },
-    timeScale: { borderColor: 'var(--border)', visible: false },
+    layout: { background: { type: 'solid', color: _pbg }, textColor: _pmut },
+    grid:   { vertLines: { color: _pgrid }, horzLines: { color: 'transparent' } },
+    rightPriceScale: { borderColor: _pgrid, scaleMargins: { top: 0.15, bottom: 0.15 } },
+    timeScale: { borderColor: _pgrid, visible: false },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     handleScroll: false, handleScale: false,
   });
@@ -1864,7 +1939,7 @@ function buildPressureChart(mainChart, trades, priceData) {
   const histData = lineData.map(d => ({
     time:  d.time,
     value: d.value,
-    color: d.value >= 0 ? `rgba(${getCSSVar('--buy-rgb')},0.85)` : `rgba(${getCSSVar('--sell-rgb')},0.85)`,
+    color: d.value >= 0 ? `rgba(${_pbuy},0.85)` : `rgba(${_psell},0.85)`,
   }));
 
   const histSeries = pChart.addHistogramSeries({
@@ -1878,7 +1953,7 @@ function buildPressureChart(mainChart, trades, priceData) {
 
   // Zero baseline
   pChart.addLineSeries({
-    color: getCSSVar('--border2'),
+    color: getCSSVar('--border2') || '#354060',
     lineWidth: 1,
     lineStyle: 2,
     priceLineVisible: false,
@@ -2212,14 +2287,7 @@ function escName(str) {
 }
 
 async function openInsiderProfile(name, title) {
-  // Switch to insider view
-  const tab = document.getElementById('insiderTab');
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  tab.classList.add('active');
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-insider').classList.add('active');
-  // Delegate to the unified profile function
-  await openInsiderProfileFull(name, title);
+  navigate('insider', { insiderName: name, insiderTitle: title || '' });
 }
 
 
@@ -2468,94 +2536,18 @@ function buildCSSTimeline(trades) {
     </div>`;
 }
 
-function goBack() {
-  // Return to whichever view made sense — default screener
-  const tab = document.getElementById('insiderTab');
-  tab.style.display = 'none';
-  const screenerTab = document.querySelectorAll('.nav-tab')[0];
-  switchView('screener', screenerTab);
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  screenerTab.classList.add('active');
-}
+function goBack() { history.back(); }
 
 // ═══════════════════════════════════════════════════════
 // INSIDER SEARCH
 // ═══════════════════════════════════════════════════════
-
-async function runInsiderSearch() {
-  const q = (document.getElementById('insiderSearchInput')?.value || '').trim();
-  if (!q) return;
-
-  // Hide profile, show results
-  document.getElementById('insiderProfileWrap').style.display = 'none';
-  document.getElementById('insiderSearchResults').style.display = '';
-
-  document.getElementById('insiderSearchTitle').textContent = `INSIDER SEARCH`;
-  document.getElementById('insiderSearchMeta').textContent  = `Searching for "${q}"...`;
-  document.getElementById('insiderResultsBody').innerHTML   =
-    `<div class="loading-state"><div class="spinner"></div><span>Searching...</span></div>`;
-
-  try {
-    const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(q));
-    if (!trades.length) {
-      document.getElementById('insiderSearchMeta').textContent = `No results for "${q}"`;
-      document.getElementById('insiderResultsBody').innerHTML  =
-        `<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;
-      return;
-    }
-
-    // Group by insider name
-    const byInsider = {};
-    trades.forEach(t => {
-      const key = t.insider || 'Unknown';
-      if (!byInsider[key]) byInsider[key] = { name: key, title: t.title, trades: [], totalBuy: 0, totalSell: 0, tickers: new Set() };
-      byInsider[key].trades.push(t);
-      byInsider[key].tickers.add(t.ticker);
-      if (tradeClass(t.type) === 'buy')  byInsider[key].totalBuy  += t.value || 0;
-      if (tradeClass(t.type) === 'sell') byInsider[key].totalSell += t.value || 0;
-    });
-
-    const insiders = Object.values(byInsider).sort((a,b) => b.trades.length - a.trades.length);
-    document.getElementById('insiderSearchMeta').textContent = `${insiders.length} insider${insiders.length>1?'s':''} · ${trades.length} trades`;
-    document.getElementById('insiderSearchTitle').textContent = `RESULTS: "${q.toUpperCase()}"`;
-
-    document.getElementById('insiderResultsBody').innerHTML = `
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>INSIDER</th>
-            <th>TITLE</th>
-            <th class="hide-mobile">TRADES</th>
-            <th class="hide-mobile">COMPANIES</th>
-            <th>TOTAL BOUGHT</th>
-            <th>TOTAL SOLD</th>
-            <th></th>
-          </tr></thead>
-          <tbody>
-            ${insiders.map(ins => `
-              <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title)}')" style="cursor:pointer">
-                <td style="font-weight:500;color:var(--text)">${ins.name}</td>
-                <td style="color:var(--muted);font-size:11px">${ins.title || '—'}</td>
-                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace">${ins.trades.length}</td>
-                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?'…':''}</td>
-                <td style="color:var(--buy);font-family:'IBM Plex Mono',monospace">${ins.totalBuy ? fmt(ins.totalBuy) : '—'}</td>
-                <td style="color:var(--sell);font-family:'IBM Plex Mono',monospace">${ins.totalSell ? fmt(ins.totalSell) : '—'}</td>
-                <td style="color:var(--accent);font-size:11px">VIEW →</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
-  } catch(e) {
-    document.getElementById('insiderResultsBody').innerHTML =
-      `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
-  }
-}
 
 // ── INSIDER VIEW STATE MACHINE ─────────────────────────────────────────────
 // Three states: 'landing', 'results', 'profile'
 // All rendered into #insiderViewBody — no nested show/hide fragility.
 
 function insiderLanding() {
+  navigate('insider', {});
   const body = document.getElementById('insiderViewBody');
   if (!body) return;
   body.innerHTML = `
@@ -2706,6 +2698,9 @@ async function runInsiderSearch() {
   const q = (input?.value || '').trim();
   if (!q) return;
 
+  // Push history so back button returns to landing
+  navigate('insider', { query: q });
+
   const body = document.getElementById('insiderViewBody');
   body.innerHTML = `
     <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
@@ -2784,7 +2779,11 @@ async function runInsiderSearch() {
 }
 
 async function openInsiderProfileFull(name, title) {
+  // Push history entry for this profile
+  navigate('insider', { insiderName: name, insiderTitle: title || '' });
+
   const body = document.getElementById('insiderViewBody');
+  if (!body) return;
   body.innerHTML = `<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
 
   try {
@@ -2841,10 +2840,6 @@ document.addEventListener('click', e => {
   }
 });
 
-function getCSSVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
 // ═══════════════════════════════════════════════════════
 // THEME TOGGLE
 // ═══════════════════════════════════════════════════════
@@ -2875,7 +2870,6 @@ function toggleTheme() {
 // INIT
 // ═══════════════════════════════════════════════════════
 
-// Measure actual header height (wraps on mobile) and offset main content
 function measureHeader() {
   const h = document.querySelector('header');
   const m = document.querySelector('main');
@@ -2883,6 +2877,24 @@ function measureHeader() {
 }
 measureHeader();
 window.addEventListener('resize', measureHeader);
+
+// Parse URL params for deep linking / reload
+(function initFromUrl() {
+  const p = new URLSearchParams(window.location.search);
+  const v = p.get('v');
+  if (v === 'stock' && p.get('t')) {
+    navigate('stock', { ticker: p.get('t') }, true);
+  } else if (v === 'insider' && p.get('n')) {
+    navigate('insider', { insiderName: decodeURIComponent(p.get('n')) }, true);
+  } else if (v === 'insider' && p.get('q')) {
+    navigate('insider', { query: decodeURIComponent(p.get('q')) }, true);
+  } else if (v === 'insider') {
+    navigate('insider', {}, true);
+  } else {
+    // Default: screener
+    history.replaceState({ view: 'screener' }, '', window.location.pathname);
+  }
+})();
 
 loadScreener();
 </script>
