@@ -1030,7 +1030,7 @@
         <table>
           <thead>
             <tr>
-              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
+              <th onclick="sortTable('date')" class="sorted">FILED <span class="sort-arrow">↓</span></th>
               <th onclick="sortTable('ticker')">TICKER</th>
               <th onclick="sortTable('insider')">INSIDER</th>
               <th onclick="sortTable('type')">TYPE</th>
@@ -1080,7 +1080,7 @@ const state = {
   screenerData: [],
   currentPage: 1,
   pageSize: 25,
-  sortCol: 'trade',
+  sortCol: 'date',
   sortDir: -1,
   activeTypes: new Set(['P','S','A','M']),
   activeRole: 'all',
@@ -2589,13 +2589,8 @@ async function loadInsiderDashboard() {
     const bigTrades = [...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
 
     // Recent cluster buys (multiple insiders buying same stock same week)
-const clusterCutoff = new Date();
-    clusterCutoff.setDate(clusterCutoff.getDate() - 30);
     const tickerBuyers = {};
-    recent.filter(t => {
-      if (t.type !== 'P') return false;
-      return new Date(t.trade || t.filing) >= clusterCutoff;
-    }).forEach(t => {
+    recent.filter(t=>t.type==='P').forEach(t => {
       if (!tickerBuyers[t.ticker]) tickerBuyers[t.ticker] = new Set();
       tickerBuyers[t.ticker].add(t.insider);
     });
