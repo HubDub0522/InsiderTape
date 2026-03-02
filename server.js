@@ -133,7 +133,7 @@ app.get('/api/screener', (req, res) => {
              type, qty, price, value, owned
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
-      ORDER BY filing_date DESC, trade_date DESC
+      ORDER BY trade_date DESC, filing_date DESC
       LIMIT 1000
     `).all(days);
     res.json(rows);
