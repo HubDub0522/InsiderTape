@@ -1871,15 +1871,12 @@ function buildPressureChart(mainChart, trades, priceData) {
   // Build single line series aligned to price data dates
   const allDates = priceData.map(d => d.time);
   const maxTotal = Math.max(...Object.values(byDay).map(d => d.total), 1);
-  const EMA_K    = 2 / 6;
-  let ema = 0;
 
   const lineData = [];
   allDates.forEach(date => {
     const d   = byDay[date];
     const raw = d ? (d.net / maxTotal) * 100 : 0;
-    ema = raw !== 0 ? raw * EMA_K + ema * (1 - EMA_K) : ema * (1 - EMA_K);
-    lineData.push({ time: date, value: +ema.toFixed(2) });
+    lineData.push({ time: date, value: +raw.toFixed(2) });
   });
 
   const _pbg   = '#080b0f';
