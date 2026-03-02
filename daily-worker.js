@@ -1,9 +1,9 @@
 'use strict';
 
 // daily-worker.js
-// Strategy: EFTS search gives us accession numbers.
-// We resolve each accession to a full filing URL via the EDGAR submissions API,
-// which correctly maps accession → issuer CIK → XML path.
+// Polls EDGAR's live RSS feed for Form 4 filings — same source OpenInsider uses.
+// Much lower latency than EFTS search (~2-5 min vs ~60 min).
+// Also runs a daily backfill via EFTS to catch anything the RSS missed.
 
 const https    = require('https');
 const fs       = require('fs');
@@ -36,24 +36,31 @@ db.exec(`
     filings INTEGER,
     trades INTEGER
   );
+  CREATE TABLE IF NOT EXISTS seen_accessions (
+    accession TEXT PRIMARY KEY,
+    seen_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
-const insertStmt = db.prepare(`
+const insertTrade = db.prepare(`
   INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 `);
 const doInsert = db.transaction(rows => {
   let n = 0;
-  for (const r of rows) n += insertStmt.run(r).changes;
+  for (const r of rows) n += insertTrade.run(r).changes;
   return n;
 });
 
+const markSeen   = db.prepare(`INSERT OR IGNORE INTO seen_accessions (accession) VALUES (?)`);
+const hasSeen    = db.prepare(`SELECT 1 FROM seen_accessions WHERE accession = ?`);
+const cleanSeen  = db.prepare(`DELETE FROM seen_accessions WHERE seen_at < datetime('now', '-3 days')`);
+
 function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
 
-// Rate-limited GET — stay under SEC's 10 req/sec limit
+// ── Rate-limited GET — stay under SEC's 10 req/sec ──────────────
 const reqTimes = [];
 async function get(url, ms = 20000) {
-  // Sliding window: no more than 8 requests in any 1-second window
   const now = Date.now();
   while (reqTimes.length && reqTimes[0] < now - 1000) reqTimes.shift();
   if (reqTimes.length >= 8) {
@@ -82,7 +89,7 @@ function parseDate(s) {
   const d = s.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
   const yr = parseInt(d.slice(0, 4));
-  return (yr >= 2000 && yr <= 2027) ? d : null;
+  return (yr >= 2000 && yr <= 2030) ? d : null;
 }
 
 function xmlGet(xml, tag) {
@@ -119,33 +126,26 @@ function parseForm4(xml, filingDate, accession) {
   return rows;
 }
 
-// Given an accession number, find the XML using the filing index
-// The accession number encodes the FILER CIK (first 10 digits) — but we need ISSUER CIK.
-// Solution: use EDGAR's /submissions/ API with the accession to find issuer CIK.
-// Actually simpler: use the filing index at data.sec.gov which doesn't need CIK in the URL.
-async function fetchForm4ByAccession(accession, filingDate, xmlFile, ciks) {
+// ── Fetch and parse a Form 4 XML given accession + candidate CIKs ──
+async function fetchForm4(accession, filingDate, xmlFile, ciks) {
   const acc     = accession.replace(/-/g, '');
   const accDash = accession;
-
-  // CIK candidates: EFTS provides ciks array, plus filer CIK from accession prefix
   const filerCik = parseInt(acc.slice(0, 10), 10).toString();
   const allCiks  = [...new Set([...(ciks || []).map(k => parseInt(k,10).toString()), filerCik])];
 
-  // Best path: EFTS _id includes the filename after colon e.g. "0000021344-26-000038:form4.xml"
-  // We already extracted xmlFile — try it directly with each candidate CIK
+  // Best path: direct xmlFile URL with each CIK
   if (xmlFile) {
     for (const cik of allCiks) {
       try {
         const url = `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlFile}`;
         const { status, body } = await get(url);
         if (status === 200 && body.includes('ownershipDocument'))
-          return { rows: parseForm4(body, filingDate, accession), method: 'direct-xmlfile' };
+          return parseForm4(body, filingDate, accession);
       } catch(e) {}
     }
   }
 
-
-  // Try index.json with each candidate CIK to find correct filing path
+  // Try index.json with each candidate CIK
   for (const cik of allCiks) {
     try {
       const idxUrl = `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accDash}-index.json`;
@@ -153,37 +153,66 @@ async function fetchForm4ByAccession(accession, filingDate, xmlFile, ciks) {
       if (status === 200) {
         const idx = JSON.parse(body);
         const xmlDoc = (idx.documents || []).find(d =>
-          d.document?.match(/\.xml$/i) &&
-          (d.type === '4' || d.type === '4/A' || !d.type)
+          d.document?.match(/\.xml$/i) && (d.type === '4' || d.type === '4/A' || !d.type)
         ) || (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
         if (xmlDoc) {
           const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlDoc.document}`;
           const { status: xs, body: xml } = await get(xmlUrl);
           if (xs === 200 && xml.includes('ownershipDocument'))
-            return { rows: parseForm4(xml, filingDate, accession), method: `index-json-${cik}` };
+            return parseForm4(xml, filingDate, accession);
         }
       }
     } catch(e) {}
   }
 
-  // Last resort: try common XML filename patterns with each CIK
+  // Fallback: common filename patterns
   for (const cik of allCiks) {
     for (const name of [`${accDash}.xml`, 'form4.xml', 'wf-form4.xml']) {
       try {
-        const { status, body } = await get(
-          `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`
-        );
+        const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`);
         if (status === 200 && body.includes('ownershipDocument'))
-          return { rows: parseForm4(body, filingDate, accession), method: `fallback-${name}` };
+          return parseForm4(body, filingDate, accession);
       } catch(e) {}
     }
   }
-
-  return { rows: [], error: 'not-found' };
+  return [];
 }
 
-// Search EFTS for Form 4 filings in date range
-async function searchFilings(startDate, endDate) {
+// ── EDGAR RSS feed — reflects filings within ~2-5 minutes ──────────
+// Returns array of { accession, xmlFile, ciks, filingDate }
+async function pollRSS() {
+  // Fetch up to 40 most recent Form 4 + 4/A filings
+  const url = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&output=atom';
+  const { status, body } = await get(url, 30000);
+  if (status !== 200) throw new Error(`RSS HTTP ${status}`);
+
+  const filings = [];
+  // Each <entry> contains the filing index URL we need
+  const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+  let m;
+  while ((m = entryRe.exec(body))) {
+    const entry = m[1];
+
+    // Filing date
+    const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+    const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0,10);
+
+    // Index URL looks like: https://www.sec.gov/Archives/edgar/data/1234567/000123456726000001/0001234567-26-000001-index.htm
+    const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
+    if (!linkMatch) continue;
+
+    const cik      = linkMatch[1];
+    const accRaw   = linkMatch[2]; // 18-digit no-dash accession
+    // Convert 18-digit to dashed format
+    const accDash  = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+
+    filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
+  }
+  return filings;
+}
+
+// ── EFTS search — for backfill, covers anything RSS missed ────────
+async function searchEFTS(startDate, endDate) {
   const filings = [];
   for (let from = 0; from < 2000; from += 100) {
     const url = `https://efts.sec.gov/LATEST/search-index?forms=4,4%2FA&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
@@ -195,18 +224,14 @@ async function searchFilings(startDate, endDate) {
       if (!hits.length) break;
 
       for (const h of hits) {
-        // _id format: "0000021344-26-000038:form4.xml"
-        // accession = part before colon, xmlFile = part after colon
         const raw     = h._id || '';
         const colonAt = raw.indexOf(':');
         const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
         const xmlFile = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
         const fd      = parseDate(h._source?.file_date) || endDate;
-        // CIK is in the source
         const ciks    = h._source?.ciks || [];
-        if (accDash.match(/^\d{10}-\d{2}-\d{6}$/)) {
+        if (accDash.match(/^\d{10}-\d{2}-\d{6}$/))
           filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd });
-        }
       }
       if (hits.length < 100) break;
     } catch(e) { log(`EFTS error: ${e.message}`); break; }
@@ -214,69 +239,95 @@ async function searchFilings(startDate, endDate) {
   return filings;
 }
 
-async function run(daysBack) {
-  log(`=== daily-worker start (${daysBack} days back) ===`);
+// ── Process a batch of filings, skipping already-seen accessions ──
+async function processBatch(filings, label) {
+  const unseen = filings.filter(f => !hasSeen.get(f.accession));
+  if (!unseen.length) return 0;
+  log(`${label}: ${unseen.length} new filings to process`);
 
-  // Build business day list
-  const dates = [];
-  const today = new Date();
-  for (let i = 0; i <= daysBack + 5; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    if (d.getDay() >= 1 && d.getDay() <= 5) dates.push(d.toISOString().slice(0, 10));
-    if (dates.length >= daysBack) break;
-  }
-
-  const done = new Set(db.prepare('SELECT date FROM daily_log WHERE trades > 0').all().map(r => r.date));
-  const todo = dates.filter(d => !done.has(d));
-  if (!todo.length) { log('All dates already have trades'); return; }
-
-  const startDate = todo[todo.length - 1];
-  const endDate   = todo[0];
-  log(`Fetching: ${startDate} → ${endDate} (${todo.length} days)`);
-
-  // Search
-  const filings = await searchFilings(startDate, endDate);
-  log(`Found ${filings.length} filings — sample: ${JSON.stringify(filings.slice(0,3))}`);
-
-  if (!filings.length) {
-    const mark = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
-    db.transaction(() => todo.forEach(d => mark.run(d, 0, 0)))();
-    return;
-  }
-
-  // Process concurrently with limit of 4
-  let inserted = 0, failures = 0, notFound = 0;
-  const BATCH = 4;
-  for (let i = 0; i < filings.length; i += BATCH) {
-    const batch = filings.slice(i, i + BATCH);
-    const results = await Promise.allSettled(batch.map(f => fetchForm4ByAccession(f.accession, f.filingDate, f.xmlFile, f.ciks)));
-    for (const r of results) {
-      if (r.status === 'fulfilled') {
-        if (r.value.rows?.length) inserted += doInsert(r.value.rows);
-        else if (r.value.error === 'not-found') notFound++;
-        else if (r.value.error) failures++;
-      } else failures++;
+  let inserted = 0;
+  const CONCURRENCY = 4;
+  for (let i = 0; i < unseen.length; i += CONCURRENCY) {
+    const batch = unseen.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks))
+    );
+    for (let j = 0; j < results.length; j++) {
+      const f = batch[j];
+      markSeen.run(f.accession);
+      if (results[j].status === 'fulfilled' && results[j].value?.length) {
+        inserted += doInsert(results[j].value);
+      }
     }
-    if ((i + BATCH) % 40 === 0)
-      log(`  ${i+BATCH}/${filings.length} — inserted:${inserted} notFound:${notFound} err:${failures}`);
   }
-
-  log(`DONE — inserted:${inserted} notFound:${notFound} failures:${failures}`);
-
-  const mark = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
-  db.transaction(() => todo.forEach(d => mark.run(d, filings.length, inserted)))();
+  return inserted;
 }
 
-run(parseInt(process.argv[2] || '10'))
-  .then(() => {
-    const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-    log(`=== total trades in DB: ${n.toLocaleString()} ===`);
+// ── RSS poll: run every 2 minutes ─────────────────────────────────
+async function runRSSPoll() {
+  try {
+    const filings = await pollRSS();
+    const inserted = await processBatch(filings, 'RSS');
+    if (inserted > 0) log(`RSS poll: inserted ${inserted} new trades`);
+  } catch(e) {
+    log(`RSS poll error: ${e.message}`);
+  }
+}
+
+// ── Daily EFTS backfill: run once a day to catch any RSS misses ───
+async function runBackfill(daysBack) {
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date();
+  start.setDate(start.getDate() - daysBack);
+  const startDate = start.toISOString().slice(0, 10);
+
+  log(`Backfill: ${startDate} → ${today}`);
+  try {
+    const filings  = await searchEFTS(startDate, today);
+    const inserted = await processBatch(filings, 'Backfill');
+    log(`Backfill done: ${inserted} new trades from ${filings.length} filings`);
+
+    // Update daily_log
+    const mark = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
+    mark.run(today, filings.length, inserted);
+  } catch(e) {
+    log(`Backfill error: ${e.message}`);
+  }
+}
+
+// ── MAIN ─────────────────────────────────────────────────────────
+const daysBack = parseInt(process.argv[2] || '3');
+const mode     = process.argv[3] || 'poll'; // 'poll' = continuous RSS, 'backfill' = one-shot EFTS
+
+async function main() {
+  log(`=== daily-worker start (mode=${mode}, daysBack=${daysBack}) ===`);
+  cleanSeen.run(); // prune old seen_accessions
+
+  if (mode === 'backfill') {
+    // One-shot backfill via EFTS, then exit
+    await runBackfill(daysBack);
     db.close();
     process.exit(0);
-  })
-  .catch(e => {
-    log(`FATAL: ${e.message}\n${e.stack}`);
-    db.close();
-    process.exit(1);
-  });
+  }
+
+  // Continuous RSS polling mode
+  // 1. Do an initial backfill first to catch up
+  await runBackfill(daysBack);
+
+  // 2. Then poll RSS every 2 minutes indefinitely
+  log('Starting RSS poll loop (every 2 min)...');
+  await runRSSPoll();
+  setInterval(runRSSPoll, 2 * 60 * 1000);
+
+  // 3. Do a full backfill once a day at midnight to catch any gaps
+  setInterval(async () => {
+    const h = new Date().getUTCHours();
+    if (h === 0) await runBackfill(2);
+  }, 60 * 60 * 1000); // check every hour
+}
+
+main().catch(e => {
+  log(`FATAL: ${e.message}\n${e.stack}`);
+  db.close();
+  process.exit(1);
+});
