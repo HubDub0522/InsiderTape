@@ -6,24 +6,61 @@
 <title>INSIDERTAPE — Follow the Smart Money</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Anybody:ital,wght@0,700;0,800;1,700;1,800&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,300;1,9..144,400&display=swap');
 
+  /* ═══ DARK THEME (default) ═══ */
   :root {
-    --bg:        #080b0f;
-    --bg2:       #0d1117;
-    --bg3:       #111820;
-    --border:    #1e2d3d;
-    --border2:   #253447;
-    --text:      #c9d8e8;
-    --muted:     #4a6580;
-    --accent:    #00d4ff;
-    --accent2:   #0099cc;
-    --buy:       #00ff88;
-    --buy-dim:   #00993a;
-    --sell:      #ff4466;
-    --sell-dim:  #992233;
-    --option:    #ffaa00;
-    --header-h:  64px;
+    --bg:         #0C0E0A;
+    --bg2:        #131510;
+    --bg3:        #1A1D16;
+    --border:     #2E3328;
+    --border2:    #404839;
+    --text:       #D8DDD0;
+    --muted:      #5A6352;
+    --accent:     #A8E63C;
+    --accent2:    #85C020;
+    --buy:        #A8E63C;
+    --buy-dim:    #5A8010;
+    --sell:       #F25C4A;
+    --sell-dim:   #9A2A1C;
+    --option:     #F0B429;
+    --header-h:   58px;
+    --bg-rgb:     12,14,10;
+    --text-rgb:   216,221,208;
+    --accent-rgb: 168,230,60;
+    --buy-rgb:    168,230,60;
+    --sell-rgb:   242,92,74;
+    --option-rgb: 240,180,41;
+    --chart-bg:   #0C0E0A;
+    --chart-grid: #2E3328;
+    --chart-text: #5A6352;
+  }
+
+  /* ═══ LIGHT THEME ═══ */
+  :root[data-theme="light"] {
+    --bg:         #F2EFE6;
+    --bg2:        #E8E4D8;
+    --bg3:        #DDD8C8;
+    --border:     #C0B89A;
+    --border2:    #A09070;
+    --text:       #1C1A12;
+    --muted:      #7A7060;
+    --accent:     #3D7A00;
+    --accent2:    #2A5500;
+    --buy:        #2A6800;
+    --buy-dim:    #1A4400;
+    --sell:       #C8001A;
+    --sell-dim:   #8A0010;
+    --option:     #8A5C00;
+    --bg-rgb:     242,239,230;
+    --text-rgb:   28,26,18;
+    --accent-rgb: 61,122,0;
+    --buy-rgb:    42,104,0;
+    --sell-rgb:   200,0,26;
+    --option-rgb: 138,92,0;
+    --chart-bg:   #F2EFE6;
+    --chart-grid: #C8C0A8;
+    --chart-text: #9A9080;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,93 +69,82 @@
     height: 100%;
     background: var(--bg);
     color: var(--text);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
     overflow-x: hidden;
+    transition: background 0.2s, color 0.2s;
   }
 
   /* ── SCROLLBAR ── */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: var(--bg2); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); }
 
   /* ── HEADER ── */
   header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     height: var(--header-h);
-    background: rgba(8,11,15,0.92);
-    backdrop-filter: blur(12px);
+    background: var(--bg2);
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 24px;
-    gap: 16px;
+    padding: 0 20px; gap: 12px;
   }
 
   .logo {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 26px;
-    letter-spacing: 3px;
-    color: var(--accent);
-    text-shadow: 0 0 20px rgba(0,212,255,0.4);
-    white-space: nowrap;
-    flex-shrink: 0;
+    font-family: 'Anybody', sans-serif;
+    font-size: 19px; font-weight: 800; font-style: italic;
+    letter-spacing: 0.02em; color: var(--text);
+    white-space: nowrap; flex-shrink: 0; text-transform: uppercase;
   }
-  .logo span { color: var(--text); opacity: 0.5; }
+  .logo span { color: var(--accent); }
+
+  /* ── THEME TOGGLE ── */
+  .theme-toggle {
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    font-size: 15px; line-height: 1;
+    cursor: pointer; padding: 5px 7px;
+    transition: all .15s; flex-shrink: 0;
+  }
+  .theme-toggle:hover { color: var(--text); border-color: var(--accent); }
 
   /* ── SEARCH ── */
-  .search-wrap {
-    position: relative;
-    flex: 1; max-width: 420px;
-  }
+  .search-wrap { position: relative; flex: 1; max-width: 380px; }
   .search-wrap input {
-    width: 100%;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 9px 16px 9px 42px;
-    color: var(--text);
-    font-family: 'Space Mono', monospace;
-    font-size: 13px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    outline: none;
-    transition: border-color .2s, box-shadow .2s;
+    width: 100%; background: var(--bg);
+    border: 1px solid var(--border2); border-right: none;
+    padding: 8px 12px 8px 34px;
+    color: var(--text); font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+    outline: none; transition: border-color .15s;
   }
-  .search-wrap input::placeholder { color: var(--muted); text-transform: none; letter-spacing: 0; font-family: 'DM Sans', sans-serif; }
-  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,0.1); }
-  .search-icon {
-    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
-    color: var(--muted); pointer-events: none;
-  }
+  .search-wrap input::placeholder { color: var(--muted); text-transform: none; letter-spacing: 0; }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
   .search-btn {
-    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    position: absolute; right: 0; top: 0; bottom: 0;
     background: var(--accent); color: var(--bg);
-    border: none; border-radius: 4px;
-    padding: 5px 12px;
-    font-family: 'Space Mono', monospace;
-    font-size: 11px; font-weight: 700;
-    cursor: pointer;
-    transition: background .2s;
+    border: none; padding: 0 13px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    cursor: pointer; text-transform: uppercase; transition: background .15s;
   }
-  .search-btn:hover { background: #33ddff; }
+  .search-btn:hover { background: var(--accent2); }
 
   /* ── NAV TABS ── */
-  .nav-tabs {
-    display: flex; gap: 4px; flex-shrink: 0;
-  }
+  .nav-tabs { display: flex; gap: 0; flex-shrink: 0; }
   .nav-tab {
-    padding: 7px 16px;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    font-size: 12px; font-weight: 500;
-    cursor: pointer;
-    transition: all .2s;
-    color: var(--muted);
-    background: transparent;
-    white-space: nowrap;
+    padding: 7px 15px;
+    border: 1px solid transparent; border-bottom: none;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.14em;
+    cursor: pointer; transition: all .15s;
+    color: var(--muted); background: transparent;
+    white-space: nowrap; text-transform: uppercase;
   }
-  .nav-tab:hover { color: var(--text); border-color: var(--border); }
-  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+  .nav-tab:hover { color: var(--text); border-color: var(--border2); }
+  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(var(--accent-rgb),0.07); }
 
   /* ── MAIN LAYOUT ── */
   main {
@@ -149,7 +175,7 @@
 
   .filter-section { margin-bottom: 24px; }
   .filter-label {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 10px;
     letter-spacing: 2px;
     color: var(--muted);
@@ -170,10 +196,10 @@
     background: transparent;
   }
   .chip:hover { border-color: var(--border2); color: var(--text); }
-  .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
-  .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
-  .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
-  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(255,170,0,0.08); }
+  .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
+  .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(var(--buy-rgb),0.08); }
+  .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(var(--sell-rgb),0.08); }
+  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(var(--option-rgb),0.08); }
 
   .filter-range { display: flex; flex-direction: column; gap: 8px; }
   .filter-range select, .filter-range input[type=number] {
@@ -195,7 +221,7 @@
     border: none;
     border-radius: 6px;
     padding: 10px;
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 1px;
@@ -203,7 +229,7 @@
     transition: background .2s;
     margin-top: 8px;
   }
-  .apply-btn:hover { background: #33ddff; }
+  .apply-btn:hover { background: var(--accent); }
 
   /* ── SCREENER TABLE ── */
   .screener-content { padding: 20px; }
@@ -213,13 +239,13 @@
     margin-bottom: 16px;
   }
   .screener-title {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 22px;
-    letter-spacing: 2px;
+    font-family: 'Fraunces', serif;
+    font-size: 20px; font-weight: 600; font-style: italic;
+    letter-spacing: 0;
     color: var(--text);
   }
   .screener-meta {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
     color: var(--muted);
   }
@@ -227,8 +253,8 @@
   .live-badge {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 10px;
-    background: rgba(0,255,136,0.1);
-    border: 1px solid rgba(0,255,136,0.3);
+    background: rgba(var(--buy-rgb),0.1);
+    border: 1px solid rgba(var(--buy-rgb),0.3);
     border-radius: 20px;
     font-size: 11px;
     color: var(--buy);
@@ -257,17 +283,14 @@
     border-bottom: 1px solid var(--border);
   }
   th {
-    padding: 11px 14px;
+    padding: 9px 14px;
     text-align: left;
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 1.5px;
-    color: var(--muted);
-    text-transform: uppercase;
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
-    transition: color .15s;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px; letter-spacing: 0.15em;
+    color: var(--muted); text-transform: uppercase;
+    white-space: nowrap; cursor: pointer;
+    user-select: none; transition: color .15s;
+    background: var(--bg3);
   }
   th:hover { color: var(--text); }
   th.sorted { color: var(--accent); }
@@ -279,15 +302,15 @@
     cursor: pointer;
   }
   tbody tr:last-child { border-bottom: none; }
-  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  tbody tr:hover { background: rgba(var(--text-rgb),0.03); }
 
   td { padding: 11px 14px; font-size: 13px; white-space: nowrap; }
 
   .ticker-cell {
-    font-family: 'Space Mono', monospace;
-    font-weight: 700;
+    font-family: 'Anybody', sans-serif;
+    font-weight: 700; font-style: italic;
     color: var(--accent);
-    font-size: 13px;
+    font-size: 14px; letter-spacing: 0.02em;
   }
   .ticker-cell:hover { text-decoration: underline; }
 
@@ -300,9 +323,9 @@
     letter-spacing: 0.5px;
     text-transform: uppercase;
   }
-  .badge-buy  { background: rgba(0,255,136,0.15); color: var(--buy); border: 1px solid rgba(0,255,136,0.3); }
-  .badge-sell { background: rgba(255,68,102,0.15); color: var(--sell); border: 1px solid rgba(255,68,102,0.3); }
-  .badge-option { background: rgba(255,170,0,0.15); color: var(--option); border: 1px solid rgba(255,170,0,0.3); }
+  .badge-buy  { background: rgba(var(--buy-rgb),0.15); color: var(--buy); border: 1px solid rgba(var(--buy-rgb),0.3); }
+  .badge-sell { background: rgba(var(--sell-rgb),0.15); color: var(--sell); border: 1px solid rgba(var(--sell-rgb),0.3); }
+  .badge-option { background: rgba(var(--option-rgb),0.15); color: var(--option); border: 1px solid rgba(var(--option-rgb),0.3); }
 
   .val-positive { color: var(--buy); font-weight: 500; }
   .val-negative { color: var(--sell); font-weight: 500; }
@@ -347,11 +370,9 @@
   }
 
   .stock-ticker-big {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 42px;
-    line-height: 1;
-    color: var(--accent);
-    letter-spacing: 3px;
+    font-family: 'Anybody', sans-serif;
+    font-size: 44px; font-weight: 800; font-style: italic;
+    line-height: 1; color: var(--accent); letter-spacing: 0.01em;
   }
   .stock-name-sub {
     font-size: 13px;
@@ -360,13 +381,13 @@
   }
   .stock-price-block { display: flex; flex-direction: column; justify-content: center; }
   .stock-price {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 28px;
     font-weight: 700;
     color: var(--text);
   }
   .stock-change {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 13px;
     margin-top: 3px;
   }
@@ -377,14 +398,14 @@
   }
   .stat-item { text-align: right; }
   .stat-label {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 9px;
     letter-spacing: 1.5px;
     color: var(--muted);
     text-transform: uppercase;
   }
   .stat-val {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 13px;
     color: var(--text);
     margin-top: 2px;
@@ -408,13 +429,13 @@
     border-radius: 4px;
     background: transparent;
     color: var(--muted);
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
     cursor: pointer;
     transition: all .15s;
   }
   .tf-btn:hover { color: var(--text); }
-  .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
+  .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
 
   #chartContainer {
     width: 100%;
@@ -443,7 +464,7 @@
     flex: 1;
     padding: 12px 8px;
     text-align: center;
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 10px;
     letter-spacing: 1px;
     color: var(--muted);
@@ -477,14 +498,14 @@
   .trade-card.buy::before  { background: var(--buy); }
   .trade-card.sell::before { background: var(--sell); }
   .trade-card.option::before { background: var(--option); }
-  .trade-card:hover { border-color: var(--border2); background: rgba(255,255,255,0.02); }
+  .trade-card:hover { border-color: var(--border2); background: rgba(var(--text-rgb),0.02); }
 
   .trade-card-top {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 6px;
   }
   .trade-type-label {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 1px;
@@ -494,7 +515,7 @@
   .trade-card.option .trade-type-label { color: var(--option); }
 
   .trade-date {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 10px;
     color: var(--muted);
   }
@@ -515,10 +536,10 @@
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 1px;
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
   }
   .trade-num-val {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 12px;
     color: var(--text);
     margin-top: 2px;
@@ -530,12 +551,13 @@
     padding: 0 16px 24px;
   }
   .section-title {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 18px;
-    letter-spacing: 2px;
+    font-family: 'Fraunces', serif;
+    font-size: 17px; font-weight: 600; font-style: italic;
+    letter-spacing: 0.01em;
     color: var(--text);
-    margin-bottom: 12px;
-    margin-top: 20px;
+    margin-bottom: 12px; margin-top: 20px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
   }
 
   /* ── LOADING / EMPTY ── */
@@ -597,7 +619,7 @@
     border-radius: 50%;
     background: linear-gradient(135deg, var(--accent2), var(--bg3));
     display: flex; align-items: center; justify-content: center;
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Anybody', sans-serif;
     font-size: 26px;
     color: var(--bg);
     flex-shrink: 0;
@@ -606,7 +628,7 @@
 
   .insider-hero-info { flex: 1; min-width: 200px; }
   .insider-hero-name {
-    font-family: 'Bebas Neue', sans-serif;
+    font-family: 'Anybody', sans-serif;
     font-size: 32px;
     letter-spacing: 2px;
     color: var(--text);
@@ -623,10 +645,10 @@
   }
   .company-tag {
     padding: 3px 10px;
-    background: rgba(0,212,255,0.08);
+    background: rgba(var(--accent-rgb),0.08);
     border: 1px solid rgba(0,212,255,0.2);
     border-radius: 20px;
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
     color: var(--accent);
     cursor: pointer;
@@ -647,14 +669,14 @@
     min-width: 100px;
   }
   .insider-stat-label {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 9px;
     letter-spacing: 1.5px;
     color: var(--muted);
     text-transform: uppercase;
   }
   .insider-stat-val {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 18px;
     margin-top: 4px;
   }
@@ -674,7 +696,7 @@
     margin-bottom: 16px;
   }
   .activity-chart-title {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 10px;
     letter-spacing: 2px;
     color: var(--muted);
@@ -696,7 +718,7 @@
   }
   .ticker-row:hover .ticker-bar-label { color: var(--accent); }
   .ticker-bar-label {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
     color: var(--text);
     width: 50px;
@@ -714,7 +736,7 @@
     transition: width .4s ease;
   }
   .ticker-bar-val {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 11px;
     color: var(--muted);
     width: 70px;
@@ -783,14 +805,14 @@
     flex: 1; min-width: 120px;
   }
   .summary-card-label {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 9px;
     letter-spacing: 1.5px;
     color: var(--muted);
     text-transform: uppercase;
   }
   .summary-card-val {
-    font-family: 'Space Mono', monospace;
+    font-family: 'IBM Plex Mono', monospace;
     font-size: 18px;
     margin-top: 4px;
   }
@@ -845,7 +867,8 @@
       gap: 6px;
       align-items: center;
     }
-    .logo { font-size: 19px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
+    .logo { font-size: 17px; letter-spacing: 0; order: 0; flex-shrink: 0; }
+    .theme-toggle { order: 1; margin-left: auto; }
     .nav-tabs { order: 1; margin-left: auto; gap: 2px; flex-shrink: 0; }
     .nav-tab { padding: 5px 10px; font-size: 11px; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
@@ -933,6 +956,7 @@
 <!-- ═══════════════════ HEADER ═══════════════════ -->
 <header>
   <div class="logo">INSIDER<span>TAPE</span></div>
+  <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle dark/light mode">☀</button>
 
   <div class="search-wrap">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1263,7 +1287,7 @@ async function loadScreener() {
       trades = all;
       // Show a notice about data freshness
       document.getElementById('summaryBar').innerHTML =
-        `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">
+        `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(var(--option-rgb),0.3);border-radius:4px;font-size:11px;color:var(--option);margin-bottom:8px">
           ⚠ Recent daily data still loading. Showing most recent available filings.
           <a href="/api/run-daily?force=1&days=10" target="_blank" style="color:var(--accent);margin-left:8px">Force refresh</a>
         </div>`;
@@ -1365,19 +1389,19 @@ function renderScreener() {
 
   tbody.innerHTML = page.map(t => `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">trade: ${fmtDate(t.trade)}</span></td>
+      <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);display:block">trade: ${fmtDate(t.trade)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()">
         <span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span>
         <span class="insider-title">${t.title}</span>
       </td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace">${fmtShares(t.qty)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'IBM Plex Mono',monospace">${fmt(t.value)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
     </tr>
   `).join('');
 
@@ -1470,7 +1494,7 @@ async function loadStockView(ticker) {
 
       <div class="chart-area">
         <div class="chart-controls" style="flex-wrap:wrap;gap:6px 0;">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
           <button class="tf-btn" onclick="setRange(30,this)">1M</button>
           <button class="tf-btn" onclick="setRange(90,this)">3M</button>
           <button class="tf-btn active" onclick="setRange(180,this)">6M</button>
@@ -1483,17 +1507,17 @@ async function loadStockView(ticker) {
             <div class="legend-item"><div class="legend-dot" style="background:var(--option)"></div>Option</div>
           </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
-            <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
             <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="var(--buy)" onclick="toggleChartFilter('P',this)">BUYS</button>
             <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
             <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
             <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
           </div>
         </div>
-        <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
+        <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:var(--bg);">
           ${!priceData.length ? '<div class="empty-state" style="height:500px"><div class="empty-icon">📡</div><div>Price data unavailable</div></div>' : ''}
         </div>
-        <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
+        <div id="pressureWrapper" style="width:100%;background:var(--bg);border:1px solid var(--border);border-top:1px solid var(--border);border-radius:0 0 6px 6px;overflow:hidden;">
           <div id="pressureContainer" style="width:100%;height:120px;"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
@@ -1561,21 +1585,21 @@ function buildChart(priceData, trades) {
   const chart = LightweightCharts.createChart(container, {
     width:  container.clientWidth,
     height: CHART_H,
-    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
-    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: '#1e2d3d' } },
+    layout: { background: { type: 'solid', color: 'var(--bg)' }, textColor: 'var(--muted)' },
+    grid:   { vertLines: { color: 'var(--border)' }, horzLines: { color: 'var(--border)' } },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { color: '#00d4ff66', labelBackgroundColor: '#0d1117' },
-      horzLine: { color: '#00d4ff44', labelBackgroundColor: '#0d1117' },
+      vertLine: { color: 'var(--accent)66', labelBackgroundColor: 'var(--bg2)' },
+      horzLine: { color: 'var(--accent)44', labelBackgroundColor: 'var(--bg2)' },
     },
-    rightPriceScale: { borderColor: '#1e2d3d' },
-    timeScale: { borderColor: '#1e2d3d', timeVisible: true },
+    rightPriceScale: { borderColor: 'var(--border)' },
+    timeScale: { borderColor: 'var(--border)', timeVisible: true },
   });
 
   const candles = chart.addCandlestickSeries({
-    upColor:   '#00ff88', downColor: '#ff4466',
-    borderUpColor: '#00ff88', borderDownColor: '#ff4466',
-    wickUpColor:   '#00ff88', wickDownColor:   '#ff4466',
+    upColor:   'var(--buy)', downColor: 'var(--sell)',
+    borderUpColor: 'var(--buy)', borderDownColor: 'var(--sell)',
+    wickUpColor:   'var(--buy)', wickDownColor:   'var(--sell)',
   });
   candles.setData(priceData.map(d => ({
     time: d.time, open: d.open, high: d.high, low: d.low, close: d.close
@@ -1588,7 +1612,7 @@ function buildChart(priceData, trades) {
   });
   volSeries.setData(priceData.map(d => ({
     time: d.time, value: d.volume || 0,
-    color: d.close >= d.open ? 'rgba(0,255,136,0.15)' : 'rgba(255,68,102,0.15)',
+    color: d.close >= d.open ? 'rgba(var(--buy-rgb),0.15)' : 'rgba(var(--sell-rgb),0.15)',
   })));
 
   state.chart       = chart;
@@ -1685,7 +1709,7 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
   const tooltip = document.getElementById('chartTooltip') || (() => {
     const el = document.createElement('div');
     el.id = 'chartTooltip';
-    el.style.cssText = 'position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
+    el.style.cssText = 'position:fixed;display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--text);z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
     document.body.appendChild(el);
     return el;
   })();
@@ -1721,9 +1745,10 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
       // Radius: 8–22px log-scaled
       const r = 8 + 14 * Math.log1p(g.value) / Math.log1p(maxVal);
 
-      const color = isBuy  ? 'rgba(0,255,136,'
-                  : isSell ? 'rgba(255,68,102,'
-                  :           'rgba(255,170,0,';
+      const _br=getCSSVar('--buy-rgb'),_sr=getCSSVar('--sell-rgb'),_or=getCSSVar('--option-rgb');
+      const color = isBuy  ? `rgba(${_br},`
+                  : isSell ? `rgba(${_sr},`
+                  :           `rgba(${_or},`;
 
       // Glow
       ctx.beginPath();
@@ -1763,19 +1788,19 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
       canvas.style.cursor = 'crosshair';
       const g = hit.group;
       const tc = g.tc;
-      const color = tc === 'buy' ? '#00ff88' : tc === 'sell' ? '#ff4466' : '#ffaa00';
+      const color = tc === 'buy' ? 'var(--buy)' : tc === 'sell' ? 'var(--sell)' : 'var(--option)';
       const label = tc === 'buy' ? '▲ BUY' : tc === 'sell' ? '▼ SELL' : '◆ OPTION/AWARD';
       const rows = g.trades.slice(0, 5).map(t =>
-        `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8">
-          <span style="color:#e8f4fd">${t.insider}</span>
-          ${t.title ? `<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>` : ''}
+        `<div style="padding:3px 0;border-bottom:1px solid var(--border);color:#b0c4d8">
+          <span style="color:var(--text)">${t.insider}</span>
+          ${t.title ? `<span style="color:var(--muted);font-size:10px"> · ${t.title}</span>` : ''}
           <span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span>
         </div>`).join('');
       tooltip.innerHTML = `
         <div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>
         ${rows}
-        ${g.trades.length > 5 ? `<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>` : ''}
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">
+        ${g.trades.length > 5 ? `<div style="color:var(--muted);font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>` : ''}
+        <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text)">
           Total: <span style="color:${color}">${fmt(g.value)}</span>
         </div>`;
       tooltip.style.display = 'block';
@@ -1827,10 +1852,10 @@ function buildPressureChart(mainChart, trades, priceData) {
   const pChart = LightweightCharts.createChart(pc, {
     width:  pc.clientWidth || 800,
     height: 120,
-    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
-    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: '#1e2d3d22' } },
-    rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.15, bottom: 0.15 } },
-    timeScale: { borderColor: '#1e2d3d', visible: false },
+    layout: { background: { type: 'solid', color: 'var(--bg)' }, textColor: 'var(--muted)' },
+    grid:   { vertLines: { color: 'var(--border)' }, horzLines: { color: 'var(--border)22' } },
+    rightPriceScale: { borderColor: 'var(--border)', scaleMargins: { top: 0.15, bottom: 0.15 } },
+    timeScale: { borderColor: 'var(--border)', visible: false },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     handleScroll: false, handleScale: false,
   });
@@ -1839,7 +1864,7 @@ function buildPressureChart(mainChart, trades, priceData) {
   const histData = lineData.map(d => ({
     time:  d.time,
     value: d.value,
-    color: d.value >= 0 ? 'rgba(0,255,136,0.85)' : 'rgba(255,68,102,0.85)',
+    color: d.value >= 0 ? `rgba(${getCSSVar('--buy-rgb')},0.85)` : `rgba(${getCSSVar('--sell-rgb')},0.85)`,
   }));
 
   const histSeries = pChart.addHistogramSeries({
@@ -1853,7 +1878,7 @@ function buildPressureChart(mainChart, trades, priceData) {
 
   // Zero baseline
   pChart.addLineSeries({
-    color: '#2a3f55',
+    color: getCSSVar('--border2'),
     lineWidth: 1,
     lineStyle: 2,
     priceLineVisible: false,
@@ -1882,7 +1907,7 @@ function buildPressureChart(mainChart, trades, priceData) {
   const pTooltip = document.getElementById('chartTooltip') || (() => {
     const el = document.createElement('div');
     el.id = 'chartTooltip';
-    el.style.cssText = 'position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
+    el.style.cssText = 'position:fixed;display:none;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;color:var(--text);z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
     document.body.appendChild(el);
     return el;
   })();
@@ -1906,10 +1931,10 @@ function buildPressureChart(mainChart, trades, priceData) {
     const insiders = [...new Set(dayTrades.map(t => t.insider).filter(Boolean))];
 
     pTooltip.innerHTML = `
-      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>
       ${buys.length  ? `<div style="color:var(--buy)">▲ BUY &nbsp;${buys.length} insider${buys.length>1?'s':''} · ${fmt(buyVal)}</div>` : ''}
       ${sells.length ? `<div style="color:var(--sell)">▼ SELL ${sells.length} insider${sells.length>1?'s':''} · ${fmt(sellVal)}</div>` : ''}
-      <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d">
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
         <span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span>
       </div>
       <div style="margin-top:4px;font-size:10px;color:var(--muted)">${insiders.slice(0,3).join(', ')}${insiders.length>3?' +'+( insiders.length-3)+' more':''}</div>`;
@@ -1931,7 +1956,7 @@ function buildPressureChart(mainChart, trades, priceData) {
 
   // Label
   const label = document.createElement('div');
-  label.style.cssText = 'position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
+  label.style.cssText = 'position:absolute;top:6px;left:10px;font-family:IBM Plex Mono,monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);pointer-events:none;z-index:2';
   label.textContent = 'INSIDER PRESSURE';
   document.getElementById('pressureWrapper').style.position = 'relative';
   document.getElementById('pressureWrapper').appendChild(label);
@@ -2044,15 +2069,15 @@ function renderTradeMarkerList(trades) {
   el.innerHTML = sorted.slice(0, 15).map(t => {
     const tc     = tradeClass(t.type);
     const color  = tc === 'buy' ? 'var(--buy)'  : tc === 'sell' ? 'var(--sell)'  : 'var(--option)';
-    const border = tc === 'buy' ? 'rgba(0,255,136,0.3)' : tc === 'sell' ? 'rgba(255,68,102,0.3)' : 'rgba(255,170,0,0.3)';
-    const bg     = tc === 'buy' ? 'rgba(0,255,136,0.07)' : tc === 'sell' ? 'rgba(255,68,102,0.07)' : 'rgba(255,170,0,0.07)';
+    const border = tc === 'buy' ? 'rgba(var(--buy-rgb),0.3)' : tc === 'sell' ? 'rgba(var(--sell-rgb),0.3)' : 'rgba(var(--option-rgb),0.3)';
+    const bg     = tc === 'buy' ? 'rgba(var(--buy-rgb),0.07)' : tc === 'sell' ? 'rgba(var(--sell-rgb),0.07)' : 'rgba(var(--option-rgb),0.07)';
     return `
       <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
                   background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer"
            onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
         <span style="color:${color};font-size:10px;font-weight:700">${tc === 'buy' ? '▲' : '▼'} ${tradeLabel(t.type)}</span>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade || t.filing)}</span>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade || t.filing)}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
         <span style="font-size:10px;color:var(--muted)">${t.insider ? t.insider.split(' ').slice(-1)[0] : ''}</span>
       </div>`;
   }).join('');
@@ -2130,15 +2155,15 @@ function renderSidebarSummary(trades) {
       <div style="display:grid;gap:6px">
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(0,255,136,0.07);border-radius:4px;border:1px solid rgba(0,255,136,0.2)">
           <span style="color:var(--buy);font-size:12px">▲ Buys (${buys.length})</span>
-          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,68,102,0.07);border-radius:4px;border:1px solid rgba(255,68,102,0.2)">
           <span style="color:var(--sell);font-size:12px">▼ Sells (${sells.length})</span>
-          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,170,0,0.07);border-radius:4px;border:1px solid rgba(255,170,0,0.2)">
           <span style="color:var(--option);font-size:12px">◆ Options/Other (${opts.length + trades.length - buys.length - sells.length})</span>
-          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span>
         </div>
       </div>
     </div>
@@ -2148,7 +2173,7 @@ function renderSidebarSummary(trades) {
       <div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px">
         <div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div>
-        <div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">
           Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}
         </div>
       </div>
@@ -2165,15 +2190,15 @@ function renderStockTradesTable(trades) {
   }
   el.innerHTML = trades.map(t => `
     <tr>
-      <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
       <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span></td>
       <td style="color:var(--muted);font-size:12px">${t.title}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace">${fmtShares(t.qty)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+      <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'IBM Plex Mono',monospace">${fmt(t.value)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
     </tr>
   `).join('');
 }
@@ -2297,14 +2322,14 @@ function renderInsiderProfile(name, title, trades) {
               <tbody>
                 ${trades.map(t => `
                   <tr style="cursor:pointer" onclick="openTickerFromScreener('${t.ticker}')">
-                    <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
                     <td class="ticker-cell">${t.ticker}</td>
                     <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-                    <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-                    <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-                    <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-                    <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-                    <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace">${fmtShares(t.qty)}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+                    <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'IBM Plex Mono',monospace">${fmt(t.value)}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -2347,7 +2372,7 @@ function renderInsiderProfile(name, title, trades) {
               <div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                   <span style="font-size:11px;color:var(--buy)">▲ Open Buys (${buys.length})</span>
-                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy)">${fmt(buyVal)}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--buy)">${fmt(buyVal)}</span>
                 </div>
                 <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
                   <div style="height:100%;width:${buyVal+sellVal?((buyVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--buy);border-radius:3px;transition:width .5s"></div>
@@ -2356,7 +2381,7 @@ function renderInsiderProfile(name, title, trades) {
               <div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                   <span style="font-size:11px;color:var(--sell)">▼ Open Sells (${sells.length})</span>
-                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--sell)">${fmt(sellVal)}</span>
+                  <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--sell)">${fmt(sellVal)}</span>
                 </div>
                 <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
                   <div style="height:100%;width:${buyVal+sellVal?((sellVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--sell);border-radius:3px;transition:width .5s"></div>
@@ -2364,7 +2389,7 @@ function renderInsiderProfile(name, title, trades) {
               </div>
               <div style="padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
                 <span style="font-size:11px;color:var(--muted)">Net Conviction</span>
-                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${netVal>=0?'var(--buy)':'var(--sell)'}">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:${netVal>=0?'var(--buy)':'var(--sell)'}">
                   ${netVal>=0?'NET BUYER':'NET SELLER'}
                 </span>
               </div>
@@ -2396,12 +2421,12 @@ function buildCSSTimeline(trades) {
     const yt = new Date(y, 0, 1).getTime();
     const pct = Math.max(0, Math.min(100, ((yt - minT) / span) * 100));
     yearMarkers += `<div style="position:absolute;left:${pct}%;top:0;bottom:0;width:1px;background:rgba(30,45,61,0.8);">
-      <span style="position:absolute;bottom:2px;left:3px;font-size:9px;color:#4a6580;font-family:'Space Mono',monospace;white-space:nowrap">${y}</span>
+      <span style="position:absolute;bottom:2px;left:3px;font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap">${y}</span>
     </div>`;
   }
 
   // Centre line
-  const centreLine = `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#1e2d3d;transform:translateY(-50%)"></div>`;
+  const centreLine = `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:var(--border);transform:translateY(-50%)"></div>`;
 
   // Lollipop dots
   let dots = '';
@@ -2410,7 +2435,7 @@ function buildCSSTimeline(trades) {
     const pct = ((d - minT) / span) * 100;
     const isBuy = t.type === 'P';
     const isOpt = tradeClass(t.type) === 'option';
-    const color = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
+    const color = isBuy ? 'var(--buy)' : isOpt ? 'var(--option)' : 'var(--sell)';
     // Size: 6px min, 14px max based on value
     const size = 6 + Math.min(8, (Math.log10(t.value||1) - 3) * 2);
     // Stem height: proportional to value vs max
@@ -2438,8 +2463,8 @@ function buildCSSTimeline(trades) {
       ${centreLine}
       ${yearMarkers}
       ${dots}
-      <div style="position:absolute;left:8px;top:4px;font-size:9px;color:#00ff88;font-family:'Space Mono',monospace">▲ BUYS</div>
-      <div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:#ff4466;font-family:'Space Mono',monospace">▼ SELLS</div>
+      <div style="position:absolute;left:8px;top:4px;font-size:9px;color:var(--buy);font-family:'IBM Plex Mono',monospace">▲ BUYS</div>
+      <div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:var(--sell);font-family:'IBM Plex Mono',monospace">▼ SELLS</div>
     </div>`;
 }
 
@@ -2511,10 +2536,10 @@ async function runInsiderSearch() {
               <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title)}')" style="cursor:pointer">
                 <td style="font-weight:500;color:var(--text)">${ins.name}</td>
                 <td style="color:var(--muted);font-size:11px">${ins.title || '—'}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?'…':''}</td>
-                <td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.totalBuy ? fmt(ins.totalBuy) : '—'}</td>
-                <td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.totalSell ? fmt(ins.totalSell) : '—'}</td>
+                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace">${ins.trades.length}</td>
+                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?'…':''}</td>
+                <td style="color:var(--buy);font-family:'IBM Plex Mono',monospace">${ins.totalBuy ? fmt(ins.totalBuy) : '—'}</td>
+                <td style="color:var(--sell);font-family:'IBM Plex Mono',monospace">${ins.totalSell ? fmt(ins.totalSell) : '—'}</td>
                 <td style="color:var(--accent);font-size:11px">VIEW →</td>
               </tr>`).join('')}
           </tbody>
@@ -2537,7 +2562,7 @@ function insiderLanding() {
     <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
       <!-- Search bar -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:12px">SEARCH INSIDER</div>
+        <div style="font-family:'Anybody',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:12px">SEARCH INSIDER</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="position:relative;flex:1;min-width:200px">
             <input id="insiderSearchInput" type="text" placeholder="Search by name, e.g. Zuckerberg"
@@ -2546,7 +2571,7 @@ function insiderLanding() {
               onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" />
             <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
           </div>
-          <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:10px 22px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">SEARCH</button>
+          <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:10px 22px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">SEARCH</button>
         </div>
         <div style="margin-top:10px;font-size:11px;color:var(--muted)">
           Quick search:
@@ -2603,14 +2628,14 @@ async function loadInsiderDashboard() {
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
             <span style="color:var(--buy);font-size:14px">▲</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span>
+            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span>
           </div>
           <div style="padding:0">
             ${topBuyers.map(([name,val],i)=>`
-              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
+              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
                 <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(val)}</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--buy)">${fmt(val)}</span>
               </div>`).join('')}
           </div>
         </div>
@@ -2619,14 +2644,14 @@ async function loadInsiderDashboard() {
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
             <span style="color:var(--sell);font-size:14px">▼</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span>
+            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span>
           </div>
           <div>
             ${topSellers.map(([name,val],i)=>`
-              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
+              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
                 <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span>
               </div>`).join('')}
           </div>
         </div>
@@ -2635,17 +2660,17 @@ async function loadInsiderDashboard() {
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
             <span style="color:var(--option);font-size:14px">⚡</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span>
+            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span>
             <span style="font-size:10px;color:var(--muted);margin-left:auto">2+ insiders buying same stock</span>
           </div>
           <div>
             ${clusters.map(([ticker, insiders])=> {
               const tickerTrades = recent.filter(t=>t.ticker===ticker&&t.type==='P');
               const totalVal = tickerTrades.reduce((s,t)=>s+(t.value||0),0);
-              return `<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span>
+              return `<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span>
                 <span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span>
               </div>`;
             }).join('')}
           </div>
@@ -2655,16 +2680,16 @@ async function loadInsiderDashboard() {
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
             <span style="color:var(--accent);font-size:14px">💰</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span>
+            <span style="font-family:'Anybody',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span>
           </div>
           <div>
             ${bigTrades.map(t=>{
               const isBuy = t.type==='P';
-              return `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span>
+              return `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(var(--text-rgb),0.03)'" onmouseout="this.style.background=''">
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span>
                 <span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span>
                 <span class="badge ${isBuy?'badge-buy':'badge-sell'}" style="margin-right:6px">${isBuy?'BUY':'SELL'}</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span>
               </div>`;
             }).join('')}
           </div>
@@ -2692,7 +2717,7 @@ async function runInsiderSearch() {
             onkeydown="if(event.key==='Enter')runInsiderSearch()" />
           <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div>
         </div>
-        <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:9px 18px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
+        <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:9px 18px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
         <button onclick="insiderLanding()" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-size:12px;cursor:pointer">← Dashboard</button>
       </div>
       <div id="insiderResultsArea">
@@ -2726,7 +2751,7 @@ async function runInsiderSearch() {
     const insiders = Object.values(byInsider).sort((a,b)=>b.trades.length-a.trades.length);
 
     area.innerHTML = `
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">
+      <div style="font-family:'Anybody',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">
         ${insiders.length} INSIDER${insiders.length>1?'S':''} FOUND FOR "${q.toUpperCase()}"
       </div>
       <div class="table-wrap">
@@ -2743,10 +2768,10 @@ async function runInsiderSearch() {
               <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title||'')}')" style="cursor:pointer">
                 <td style="font-weight:500;color:var(--text)">${ins.name}</td>
                 <td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td>
-                <td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td>
-                <td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td>
+                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace">${ins.trades.length}</td>
+                <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td>
+                <td style="color:var(--buy);font-family:'IBM Plex Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td>
+                <td style="color:var(--sell);font-family:'IBM Plex Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td>
                 <td style="color:var(--accent);font-size:11px">VIEW →</td>
               </tr>`).join('')}
           </tbody>
@@ -2803,7 +2828,7 @@ function insiderAutocomplete(val) {
       box.innerHTML = names.map(n =>
         `<div onclick="document.getElementById('insiderSearchInput').value='${escName(n)}';document.getElementById('insiderSuggest').style.display='none';runInsiderSearch()"
           style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
-          onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`
+          onmouseover="this.style.background='rgba(var(--text-rgb),0.04)'" onmouseout="this.style.background=''">${n}</div>`
       ).join('');
       box.style.display = 'block';
     } catch(e) {}
@@ -2815,6 +2840,36 @@ document.addEventListener('click', e => {
     if (box) box.style.display = 'none';
   }
 });
+
+function getCSSVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// ═══════════════════════════════════════════════════════
+// THEME TOGGLE
+// ═══════════════════════════════════════════════════════
+function toggleTheme() {
+  const root = document.documentElement;
+  const isLight = root.getAttribute('data-theme') === 'light';
+  root.setAttribute('data-theme', isLight ? 'dark' : 'light');
+  document.getElementById('themeToggle').textContent = isLight ? '☀' : '☾';
+  localStorage.setItem('it-theme', isLight ? 'dark' : 'light');
+  // Rebuild charts if on stock view so they pick up new colors
+  if (state.currentTicker && state.chart) {
+    setTimeout(() => loadStockView(state.currentTicker), 50);
+  }
+}
+// Restore saved theme
+(function() {
+  const saved = localStorage.getItem('it-theme');
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+    document.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = '☾';
+    });
+  }
+})();
 
 // ═══════════════════════════════════════════════════════
 // INIT
