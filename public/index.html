@@ -1029,7 +1029,7 @@
         <table>
           <thead>
             <tr>
-              <th onclick="sortTable('date')" class="sorted">FILED <span class="sort-arrow">↓</span></th>
+              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
               <th onclick="sortTable('ticker')">TICKER</th>
               <th onclick="sortTable('insider')">INSIDER</th>
               <th onclick="sortTable('type')">TYPE</th>
@@ -1037,7 +1037,7 @@
               <th onclick="sortTable('price')" class="hide-mobile">PRICE</th>
               <th onclick="sortTable('value')">VALUE</th>
               <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER</th>
-              <th class="hide-mobile">FILING</th>
+              <th onclick="sortTable('date')" class="hide-mobile">FILING DATE</th>
             </tr>
           </thead>
           <tbody id="screenerBody">
@@ -1079,7 +1079,7 @@ const state = {
   screenerData: [],
   currentPage: 1,
   pageSize: 25,
-  sortCol: 'date',
+  sortCol: 'trade',
   sortDir: -1,
   activeTypes: new Set(['P','S','A','M']),
   activeRole: 'all',
@@ -1395,8 +1395,9 @@ function renderScreener() {
   const sorted = [...data].sort((a,b) => {
     let av = a[field], bv = b[field];
     if (field === 'trade' || field === 'filing') {
-      // Sort as strings — ISO dates sort correctly lexicographically
-      av = av || ''; bv = bv || '';
+      // Prioritise trade date; use filing date as tie-breaker
+      av = av || a['filing'] || '';
+      bv = bv || b['filing'] || '';
     } else {
       av = parseFloat(av) || 0; bv = parseFloat(bv) || 0;
     }
@@ -1419,8 +1420,8 @@ function renderScreener() {
 
   tbody.innerHTML = page.map(t => `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;display:block">trade: ${fmtDate(t.trade)}</span></td>
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span>
+          ${t.filing && t.filing !== t.trade ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;display:block">filed: ${fmtDate(t.filing)}</span>` : ''}</td>
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()">
         <span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span>
@@ -1772,7 +1773,6 @@ function buildCircleOverlay(container, chart, series, trades, priceData) {
       // Radius: 8–22px log-scaled
       const r = 8 + 14 * Math.log1p(g.value) / Math.log1p(maxVal);
 
-      const _br=_buyRgb||'#888', _sr=_sellRgb||'#888', _or=_optRgb||'#888';
       const color = isBuy  ? 'rgba(0,255,136,'
                   : isSell ? 'rgba(255,68,102,'
                   :           'rgba(255,170,0,';
@@ -1876,11 +1876,11 @@ function buildPressureChart(mainChart, trades, priceData) {
     lineData.push({ time: date, value: +ema.toFixed(2) });
   });
 
-  const _pbg   = '#888';
-  const _pgrid = '#888';
-  const _pmut  = '#888';
-  const _pbuy  = '#888';
-  const _psell = '#888';
+  const _pbg   = '#080b0f';
+  const _pgrid = '#1e2d3d';
+  const _pmut  = '#4a6580';
+  const _pbuy  = '#00ff88';
+  const _psell = '#ff4466';
 
   const pChart = LightweightCharts.createChart(pc, {
     width:  pc.clientWidth || 800,
@@ -2136,7 +2136,13 @@ function renderSidebarTrades(trades) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;
     return;
   }
-  el.innerHTML = trades.map(t => `
+  // Sort by trade date descending
+  const sorted = [...trades].sort((a, b) => {
+    const da = (a.trade || a.filing || '');
+    const db = (b.trade || b.filing || '');
+    return da < db ? 1 : da > db ? -1 : 0;
+  });
+  el.innerHTML = sorted.map(t => `
     <div class="trade-card ${tradeClass(t.type)}">
       <div class="trade-card-top">
         <span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span>
@@ -2221,9 +2227,15 @@ function renderStockTradesTable(trades) {
     el.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;
     return;
   }
-  el.innerHTML = trades.map(t => `
+  // Sort by trade date descending (fall back to filing date)
+  const sorted = [...trades].sort((a, b) => {
+    const da = (a.trade || a.filing || '');
+    const db = (b.trade || b.filing || '');
+    return da < db ? 1 : da > db ? -1 : 0;
+  });
+  el.innerHTML = sorted.map(t => `
     <tr>
-      <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+      <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}${t.filing && t.filing !== t.trade ? `<span style="display:block;font-size:10px;color:#4a6580">filed: ${fmtDate(t.filing)}</span>` : ''}</td>
       <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span></td>
       <td style="color:#4a6580;font-size:12px">${t.title}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
