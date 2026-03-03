@@ -1030,7 +1030,7 @@
         <table>
           <thead>
             <tr>
-              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
+              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span><br><span style="font-size:9px;font-weight:400;opacity:0.5;cursor:pointer" onclick="event.stopPropagation();sortTable('filing')">sort by filed ↕</span></th>
               <th onclick="sortTable('ticker')">TICKER</th>
               <th onclick="sortTable('insider')">INSIDER</th>
               <th onclick="sortTable('type')">TYPE</th>
@@ -1340,8 +1340,11 @@ function renderScreener() {
   const sorted = [...data].sort((a,b) => {
     let av = a[field], bv = b[field];
     if (field === 'trade' || field === 'filing') {
-      // Sort as strings — ISO dates sort correctly lexicographically
       av = av || ''; bv = bv || '';
+      // Always push missing dates to the bottom
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
     } else {
       av = parseFloat(av) || 0; bv = parseFloat(bv) || 0;
     }
