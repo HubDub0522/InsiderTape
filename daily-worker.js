@@ -1,6 +1,6 @@
 'use strict';
 
-// daily-worker.js — v5 (paginated RSS for recent data)
+// daily-worker.js — v6 (paginated RSS for recent data)
 // Fixes:
 //  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
 //  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
@@ -169,58 +169,52 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
 }
 
 // ── EDGAR browse-edgar paginated fetch — gets ALL filings since cutoff ──
-// The RSS feed only returns 40 at a time. We paginate using dateb= to walk
-// backwards and collect everything since our cutoff date.
+// fetchRecentFilings: paginate browse-edgar to get all Form 4s since sinceDate
+// Uses start= offset (not dateb) — simpler and more reliable
 async function fetchRecentFilings(sinceDate) {
   const filings = [];
   const seen    = new Set();
-  let   dateb   = ''; // empty = today, then we use last seen date to paginate back
 
-  for (let page = 0; page < 50; page++) { // max 50 pages = 2000 filings
-    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=${dateb}&owner=include&count=40&output=atom`;
+  for (let start = 0; start < 2000; start += 40) {
+    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&start=${start}&output=atom`;
     let body;
     try {
       const r = await get(url, 30000);
-      if (r.status !== 200) break;
+      if (r.status !== 200) { log(`browse-edgar HTTP ${r.status} at start=${start}`); break; }
       body = r.body;
-    } catch(e) { break; }
+    } catch(e) { log(`browse-edgar error at start=${start}: ${e.message}`); break; }
 
-    const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
-    let m;
+    // Parse entries
+    const entries = body.split('<entry>').slice(1);
+    if (!entries.length) break;
+
     let oldestOnPage = '';
-    let count = 0;
-
-    while ((m = entryRe.exec(body))) {
-      const entry      = m[1];
+    for (const entry of entries) {
       const dateMatch  = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
-      const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 10);
-      const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
+      const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0,10);
+      const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
       if (!linkMatch) continue;
-
       const cik    = linkMatch[1];
       const accRaw = linkMatch[2];
-      if (accRaw.length !== 18) continue;
       const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
-
       if (!seen.has(accDash)) {
         seen.add(accDash);
         filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
       }
       if (!oldestOnPage || filingDate < oldestOnPage) oldestOnPage = filingDate;
-      count++;
     }
 
-    // Stop if we've gone past our cutoff date
-    if (!oldestOnPage || oldestOnPage < sinceDate) break;
-    if (count < 40) break; // last page
-
-    // Set dateb to oldest date on this page to fetch the next page back in time
-    // Format: YYYYMMDD
-    dateb = oldestOnPage.replace(/-/g, '');
+    // Stop paginating once we've gone past our cutoff
+    if (oldestOnPage && oldestOnPage < sinceDate) break;
+    if (entries.length < 40) break;
   }
 
-  return filings.filter(f => f.filingDate >= sinceDate);
+  const result = filings.filter(f => f.filingDate >= sinceDate);
+  log(`browse-edgar paginated: ${result.length} filings since ${sinceDate}`);
+  return result;
 }
+
+
 
 async function pollRSS() {
   // For the live 2-min poll, grab everything from today (fast, usually <40 new)
