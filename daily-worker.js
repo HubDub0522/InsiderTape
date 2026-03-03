@@ -1,6 +1,6 @@
 'use strict';
 
-// daily-worker.js — v3 (form.idx date debug)
+// daily-worker.js — v4 (max date logging)
 // Fixes:
 //  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
 //  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
@@ -303,7 +303,8 @@ async function fetchFullIndex(startDate, endDate) {
       const lines = body.split('\n');
       let pastHeader = false;
       let scanned = 0;
-      let debugPrinted = 0; // print first 3 data lines to confirm format
+      let maxDateSeen = '';
+      let debugPrinted = 0;
 
       for (const line of lines) {
         // The separator line is all dashes and spaces
@@ -323,8 +324,7 @@ async function fetchFullIndex(startDate, endDate) {
         if (formType !== '4' && formType !== '4/A') continue;
         scanned++;
 
-        // Date filed — SEC form.idx uses MM/DD/YYYY format (not ISO)
-        // e.g. "02/28/2026" — convert to YYYY-MM-DD for comparison
+        // Date filed — ISO format YYYY-MM-DD
         let dateFiled = '';
         const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
         const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
@@ -333,6 +333,8 @@ async function fetchFullIndex(startDate, endDate) {
         } else if (mdyMatch) {
           dateFiled = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
         } else continue;
+
+        if (dateFiled > maxDateSeen) maxDateSeen = dateFiled;
         if (dateFiled < startDate || dateFiled > endDate) continue;
 
         // Accession path — always edgar/data/CIK/XXXXXXXXXX-XX-XXXXXX.txt
@@ -344,7 +346,7 @@ async function fetchFullIndex(startDate, endDate) {
         const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
         filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled });
       }
-      log(`  form.idx ${yr}Q${q}: scanned ${scanned} Form-4 lines, ${filings.length} total in range`);
+      log(`  form.idx ${yr}Q${q}: scanned ${scanned} Form-4 lines, most recent date: ${maxDateSeen}, ${filings.length} total in range`);
     } catch(e) { log(`full-index error ${yr}Q${q}: ${e.message}`); }
   }
 
