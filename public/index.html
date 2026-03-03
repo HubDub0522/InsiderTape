@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>INSIDERTAPE — Follow the Smart Money</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23080b0f'/%3E%3Crect x='1' y='1' width='30' height='30' rx='5' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.4'/%3E%3Ctext x='16' y='22' font-family='monospace' font-weight='700' font-size='14' fill='%2300d4ff' text-anchor='middle' letter-spacing='0'%3EIT%3C/text%3E%3C/svg%3E">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
@@ -932,7 +933,7 @@
 
 <!-- ═══════════════════ HEADER ═══════════════════ -->
 <header>
-  <div class="logo">INSIDER<span>TAPE</span></div>
+  <div class="logo" onclick="showPage('screener')" style="cursor:pointer">INSIDER<span>TAPE</span></div>
 
   <div class="search-wrap">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -1810,46 +1811,50 @@ function buildPressureChart(mainChart, trades, priceData) {
     // Options still contribute to total but not to net directional pressure
   });
 
-  // Build sparse histogram — only bars on days with actual trades, no smoothing
+  // Build continuous line across all price dates.
+  // Days with trades get the net pressure value; days without hold at 0.
+  // The line is segmented by colour: green when positive, red when negative, grey at zero.
+  const allDates = priceData.map(d => d.time);
   const maxTotal = Math.max(...Object.values(byDay).map(d => d.total), 1);
-  const barData = Object.entries(byDay)
-    .map(([date, d]) => ({
-      time:  date,
-      value: +(d.net / maxTotal * 100).toFixed(2),
-      color: d.net >= 0 ? 'rgba(0,255,136,0.90)' : 'rgba(255,68,102,0.90)',
-    }))
-    .sort((a, b) => a.time.localeCompare(b.time));
 
+  // Build value series — 0 on days with no trades, net pressure on days with trades
+  const valueByDate = {};
+  Object.entries(byDay).forEach(([date, d]) => {
+    valueByDate[date] = +(d.net / maxTotal * 100).toFixed(2);
+  });
+
+  // Split into coloured segments: each contiguous run of same sign gets one series
+  // Lightweight Charts doesn't support per-point line colour, so we use area series
+  // with a baseline at 0 and topColor/bottomColor to get green/red fills with a line
   const pChart = LightweightCharts.createChart(pc, {
     width:  pc.clientWidth || 800,
     height: 120,
     layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
     grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: '#1e2d3d22' } },
-    rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.15, bottom: 0.15 } },
+    rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.1, bottom: 0.1 } },
     timeScale: { borderColor: '#1e2d3d', visible: false },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     handleScroll: false, handleScale: false,
   });
 
-  const histSeries = pChart.addHistogramSeries({
-    priceLineVisible:  false,
-    lastValueVisible:  false,
-    priceScaleId:      'right',
-    scaleMargins:      { top: 0.05, bottom: 0.05 },
-    base: 0,
+  // Baseline area series — green above zero, red below
+  const areaSeries = pChart.addBaselineSeries({
+    baseValue:               { type: 'price', price: 0 },
+    topLineColor:            'rgba(0,255,136,1)',
+    topFillColor1:           'rgba(0,255,136,0.20)',
+    topFillColor2:           'rgba(0,255,136,0.02)',
+    bottomLineColor:         'rgba(255,68,102,1)',
+    bottomFillColor1:        'rgba(255,68,102,0.02)',
+    bottomFillColor2:        'rgba(255,68,102,0.20)',
+    lineWidth:               2,
+    priceLineVisible:        false,
+    lastValueVisible:        false,
+    crosshairMarkerVisible:  true,
+    crosshairMarkerRadius:   3,
   });
-  histSeries.setData(barData);
 
-  // Zero baseline — spans full price history so it's always visible
-  const allDates = priceData.map(d => d.time);
-  pChart.addLineSeries({
-    color: '#2a3f55',
-    lineWidth: 1,
-    lineStyle: 2,
-    priceLineVisible: false,
-    lastValueVisible: false,
-    crosshairMarkerVisible: false,
-  }).setData(allDates.map(t => ({ time: t, value: 0 })));
+  const lineData = allDates.map(t => ({ time: t, value: valueByDate[t] ?? 0 }));
+  areaSeries.setData(lineData);
 
   // Build per-day trade summary for tooltip
   // byDay already has net/total — also store individual trades
