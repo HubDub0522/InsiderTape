@@ -338,6 +338,27 @@ app.get('/api/run-daily', (req, res) => {
   if (!dailyRunning) runDaily(days);
 });
 
+// One-shot backfill — runs alongside the continuous poll worker
+let backfillRunning = false;
+app.get('/api/backfill', (req, res) => {
+  const days = Math.min(parseInt(req.query.days || '60'), 365);
+  if (backfillRunning) return res.json({ started: false, reason: 'backfill already running' });
+  backfillRunning = true;
+  slog(`=== spawning one-shot backfill (${days} days) ===`);
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=400', path.join(__dirname, 'daily-worker.js'), String(days), 'backfill'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(`[backfill] ${l}`)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog(`[backfill] ERR: ${l}`)));
+  worker.on('exit', code => {
+    backfillRunning = false;
+    slog(`=== backfill worker exited (code ${code}) ===`);
+  });
+  res.json({ started: true, days });
+});
+
 app.get('/api/sync', (req, res) => {
   const numQ = parseInt(req.query.quarters || '4');
   res.json({ started: !syncRunning });
