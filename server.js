@@ -384,6 +384,17 @@ app.get('/api/diag', async (req, res) => {
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, trades: db.prepare('SELECT COUNT(*) AS n FROM trades').get().n }));
 
+app.get('/api/cleanup-dates', (req, res) => {
+  const r = db.prepare(`
+    DELETE FROM trades
+    WHERE trade_date  < '2000-01-01' OR trade_date  > '2030-12-31'
+       OR filing_date < '2000-01-01' OR filing_date > '2030-12-31'
+  `).run();
+  slog(`Date cleanup: removed ${r.changes} bad rows`);
+  const { n } = db.prepare('SELECT COUNT(*) AS n FROM trades').get();
+  res.json({ removed: r.changes, remaining: n });
+});
+
 // ─── STARTUP ──────────────────────────────────────────────────
 const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
 const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
