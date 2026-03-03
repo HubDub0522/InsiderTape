@@ -1,6 +1,6 @@
 'use strict';
 
-// daily-worker.js — v4 (max date logging)
+// daily-worker.js — v5 (paginated RSS for recent data)
 // Fixes:
 //  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
 //  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
@@ -168,27 +168,64 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
   return [];
 }
 
-// ── EDGAR RSS feed (~2-5 min latency for brand new filings) ───────
-async function pollRSS() {
-  const url = 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&output=atom';
-  const { status, body } = await get(url, 30000);
-  if (status !== 200) throw new Error(`RSS HTTP ${status}`);
-
+// ── EDGAR browse-edgar paginated fetch — gets ALL filings since cutoff ──
+// The RSS feed only returns 40 at a time. We paginate using dateb= to walk
+// backwards and collect everything since our cutoff date.
+async function fetchRecentFilings(sinceDate) {
   const filings = [];
-  const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
-  let m;
-  while ((m = entryRe.exec(body))) {
-    const entry      = m[1];
-    const dateMatch  = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
-    const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 10);
-    const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
-    if (!linkMatch) continue;
-    const cik    = linkMatch[1];
-    const accRaw = linkMatch[2];
-    const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
-    filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
+  const seen    = new Set();
+  let   dateb   = ''; // empty = today, then we use last seen date to paginate back
+
+  for (let page = 0; page < 50; page++) { // max 50 pages = 2000 filings
+    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=${dateb}&owner=include&count=40&output=atom`;
+    let body;
+    try {
+      const r = await get(url, 30000);
+      if (r.status !== 200) break;
+      body = r.body;
+    } catch(e) { break; }
+
+    const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+    let m;
+    let oldestOnPage = '';
+    let count = 0;
+
+    while ((m = entryRe.exec(body))) {
+      const entry      = m[1];
+      const dateMatch  = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+      const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 10);
+      const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
+      if (!linkMatch) continue;
+
+      const cik    = linkMatch[1];
+      const accRaw = linkMatch[2];
+      if (accRaw.length !== 18) continue;
+      const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+
+      if (!seen.has(accDash)) {
+        seen.add(accDash);
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
+      }
+      if (!oldestOnPage || filingDate < oldestOnPage) oldestOnPage = filingDate;
+      count++;
+    }
+
+    // Stop if we've gone past our cutoff date
+    if (!oldestOnPage || oldestOnPage < sinceDate) break;
+    if (count < 40) break; // last page
+
+    // Set dateb to oldest date on this page to fetch the next page back in time
+    // Format: YYYYMMDD
+    dateb = oldestOnPage.replace(/-/g, '');
   }
-  return filings;
+
+  return filings.filter(f => f.filingDate >= sinceDate);
+}
+
+async function pollRSS() {
+  // For the live 2-min poll, grab everything from today (fast, usually <40 new)
+  const today = new Date().toISOString().slice(0, 10);
+  return fetchRecentFilings(today);
 }
 
 // ── EDGAR daily index (definitive — lists every filing for each day) ─
@@ -386,40 +423,50 @@ async function processBatch(filings, label) {
   return inserted;
 }
 
-// ── Backfill using full-index (primary) + EFTS (fallback) ───────
+// ── Backfill: form.idx for older data, paginated RSS for last 5 days ──
 async function runBackfill(daysBack) {
   const today = new Date().toISOString().slice(0, 10);
   const start = new Date();
   start.setDate(start.getDate() - daysBack);
   const startDate = start.toISOString().slice(0, 10);
 
-  log(`Backfill: ${startDate} → ${today}`);
-  try {
-    // Primary: EDGAR full-index (definitive list of every filing)
-    let filings = await fetchFullIndex(startDate, today);
+  // Split: form.idx covers up to 5 days ago (reliable), RSS covers last 5 days
+  const recentCutoff = new Date();
+  recentCutoff.setDate(recentCutoff.getDate() - 5);
+  const recentCutoffStr = recentCutoff.toISOString().slice(0, 10);
 
-    // Fallback to EFTS if full-index returned nothing
-    if (!filings.length) {
-      log('Full-index empty, falling back to EFTS...');
-      filings = await searchEFTS(startDate, today);
+  log(`Backfill: ${startDate} → ${today} (idx: ${startDate}→${recentCutoffStr}, rss: ${recentCutoffStr}→${today})`);
+
+  try {
+    let allFilings = [];
+
+    // 1. form.idx for older portion (more than 5 days ago)
+    if (startDate < recentCutoffStr) {
+      const idxFilings = await fetchFullIndex(startDate, recentCutoffStr);
+      log(`form.idx returned ${idxFilings.length} filings for older range`);
+      allFilings = allFilings.concat(idxFilings);
     }
 
-    if (!filings.length) {
+    // 2. Paginated RSS for last 5 days (bypasses form.idx lag)
+    const rssFilings = await fetchRecentFilings(recentCutoffStr);
+    log(`Paginated RSS returned ${rssFilings.length} filings for recent range`);
+    allFilings = allFilings.concat(rssFilings);
+
+    if (!allFilings.length) {
       log('No filings found from any source');
       return;
     }
 
-    const inserted = await processBatch(filings, 'Backfill');
+    const inserted = await processBatch(allFilings, 'Backfill');
 
-    // Log per-date counts
     const byDate = {};
-    filings.forEach(f => { byDate[f.filingDate] = (byDate[f.filingDate] || 0) + 1; });
+    allFilings.forEach(f => { byDate[f.filingDate] = (byDate[f.filingDate] || 0) + 1; });
     const upsert = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
     const upsertMany = db.transaction(entries => {
       for (const [date, count] of entries) upsert.run(date, count, 0);
     });
     upsertMany(Object.entries(byDate));
-    db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)').run(today, filings.length, inserted);
+    db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)').run(today, allFilings.length, inserted);
 
     log(`Backfill complete: ${inserted} trades inserted across ${Object.keys(byDate).length} days`);
   } catch(e) {
