@@ -147,7 +147,7 @@ app.get('/api/screener', (req, res) => {
                trade_date AS trade, filing_date AS filing,
                type, qty, price, value, owned
         FROM trades
-        ORDER BY filing_date DESC, trade_date DESC
+        ORDER BY trade_date DESC, filing_date DESC
         LIMIT 500
       `).all();
     }
