@@ -538,7 +538,11 @@ function switchView(view, btn) {
   if (btn) btn.classList.add('active');
   if (view === 'insider') {
     const body = document.getElementById('insiderViewBody');
-    if (body && !body.hasChildNodes()) insiderLanding();
+    // Always show the landing dashboard when clicking the INSIDER nav tab directly
+    if (body && (!body.hasChildNodes() || body.dataset.showing !== 'dashboard')) {
+      body.dataset.showing = 'dashboard';
+      insiderLanding();
+    }
   }
 }
 function searchTicker() {
@@ -1415,6 +1419,7 @@ function goBack() {
 // ── INSIDER SEARCH / DASHBOARD ────────────────────────────────────
 function insiderLanding() {
   const body=document.getElementById('insiderViewBody'); if(!body)return;
+  body.dataset.showing = 'dashboard';
   body.innerHTML=`
     <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
@@ -1515,6 +1520,7 @@ async function runInsiderSearch() {
 
 async function openInsiderProfileFull(name, title) {
   const body=document.getElementById('insiderViewBody');
+  body.dataset.showing = 'profile';
   body.innerHTML=`<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
   try {
     const trades=await fetchInsiderByName(name);
