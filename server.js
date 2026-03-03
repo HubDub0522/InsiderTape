@@ -18,8 +18,6 @@ const DB_PATH = path.join(DATA_DIR, 'trades.db');
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ─── DB ───────────────────────────────────────────────────────
 const db = new Database(DB_PATH);
@@ -109,7 +107,6 @@ function runDaily(daysBack = 3) {
   worker.on('exit', code => {
     dailyRunning = false;
     slog(`=== daily-worker exited (code ${code}) — restarting in 30s ===`);
-    // Always restart — this worker is meant to run continuously
     setTimeout(() => runDaily(2), 30 * 1000);
   });
 }
@@ -119,10 +116,9 @@ const pc = new Map();
 function getPC(k)      { const c = pc.get(k); return c && Date.now()<c.e ? c.v : null; }
 function setPC(k,v,ms) { pc.set(k, { v, e: Date.now()+ms }); }
 
-// ─── ROUTES ───────────────────────────────────────────────────
+// ─── API ROUTES ───────────────────────────────────────────────
 
-// SCREENER — most recent 500 trades, no date filter
-// (SEC quarterly data has a publication lag; just show what we have newest-first)
+// SCREENER
 app.get('/api/screener', (req, res) => {
   try {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
@@ -139,8 +135,6 @@ app.get('/api/screener', (req, res) => {
       LIMIT 1000
     `).all(days);
 
-    // If the date window returns nothing (worker hasn't run yet / DB is stale),
-    // fall back to the most recent 500 trades regardless of date
     if (!rows.length && n > 0) {
       rows = db.prepare(`
         SELECT ticker, company, insider, title,
@@ -221,7 +215,7 @@ app.get('/api/price', async (req, res) => {
   // Fallback: Yahoo Finance
   try {
     const now   = Math.floor(Date.now() / 1000);
-    const from  = now - 5 * 365 * 86400; // 5 years back
+    const from  = now - 5 * 365 * 86400;
     const yUrl  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d&events=history`;
     const { status, body } = await get(yUrl, 20000);
     if (status === 200) {
@@ -257,7 +251,6 @@ app.get('/api/status', (req, res) => {
   res.json({ running: syncRunning, trades: n, latestTrade: latest, quarters: synced, log: syncLog.slice(-40) });
 });
 
-// FORCE SYNC
 app.get('/api/daily-status', (req, res) => {
   try {
     const logs    = db.prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT 14').all();
@@ -267,7 +260,6 @@ app.get('/api/daily-status', (req, res) => {
   } catch(e) { res.json({ running: dailyRunning, error: e.message }); }
 });
 
-// DEBUG: fetch one Form 4 live to see exactly what's failing
 app.get('/api/debug-form4', async (req, res) => {
   const https = require('https');
   const steps = [];
@@ -293,7 +285,6 @@ app.get('/api/debug-form4', async (req, res) => {
   }
 
   try {
-    // Step 1: Get one Form 4 from EFTS
     const eftsUrl = 'https://efts.sec.gov/LATEST/search-index?forms=4&from=0&size=1';
     const { status: es, body: eb } = await debugGet(eftsUrl);
     let accession = '', filerCik = '', filingDate = '';
@@ -312,7 +303,6 @@ app.get('/api/debug-form4', async (req, res) => {
       filerCik = parseInt(acc.slice(0,10), 10).toString();
       steps.push({ derived: { filerCik, acc, accDash: accession } });
 
-      // Step 2: Try index.json
       const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${accession}-index.json`;
       const { status: is, body: ib } = await debugGet(idxUrl);
       if (is === 200) {
@@ -329,7 +319,6 @@ app.get('/api/debug-form4', async (req, res) => {
 
 app.get('/api/run-daily', (req, res) => {
   const days = parseInt(req.query.days || '10');
-  // Delete daily_log entries for the range so worker re-fetches
   if (req.query.force === '1') {
     db.prepare("DELETE FROM daily_log WHERE date >= date('now', ? || ' days')").run(`-${days}`);
     slog(`Cleared daily_log for last ${days} days`);
@@ -338,7 +327,6 @@ app.get('/api/run-daily', (req, res) => {
   if (!dailyRunning) runDaily(days);
 });
 
-// One-shot backfill — runs alongside the continuous poll worker
 let backfillRunning = false;
 app.get('/api/backfill', (req, res) => {
   const days = Math.min(parseInt(req.query.days || '60'), 365);
@@ -365,7 +353,6 @@ app.get('/api/sync', (req, res) => {
   if (!syncRunning) runSync(numQ);
 });
 
-// DIAG
 app.get('/api/diag', async (req, res) => {
   const n      = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
   const latest = db.prepare('SELECT MAX(trade_date) AS d FROM trades').get().d;
@@ -395,20 +382,23 @@ app.get('/api/cleanup-dates', (req, res) => {
   res.json({ removed: r.changes, remaining: n });
 });
 
+// ─── SPA CATCH-ALL ────────────────────────────────────────────
+// Must be last — serves index.html for all non-API, non-static routes
+// so that /stock/AAPL, /insider, /insider/Name etc. work on direct load/refresh
+app.get('*', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
 // ─── STARTUP ──────────────────────────────────────────────────
 const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
 const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
 console.log(`DB: ${existing} trades, ${syncedQ} quarters synced`);
 
-// Always ensure we have at least 12 quarters of history
-// If we have fewer, queue up enough to reach 12
 const TARGET_QUARTERS = 12;
 if (syncedQ < TARGET_QUARTERS) {
   const needed = TARGET_QUARTERS - syncedQ;
   console.log(`Only ${syncedQ} quarters in DB — syncing ${needed} more to reach ${TARGET_QUARTERS}...`);
   runSync(TARGET_QUARTERS);
 } else {
-  // DB is populated — just re-sync the most recent quarter for new filings
   const now = new Date();
   const yr  = now.getFullYear();
   const q   = Math.ceil((now.getMonth() + 1) / 3);
@@ -420,7 +410,6 @@ if (syncedQ < TARGET_QUARTERS) {
   runSync(1);
 }
 
-// Daily re-sync at midnight
 setInterval(() => {
   const now = new Date();
   const yr  = now.getFullYear();
@@ -431,9 +420,6 @@ setInterval(() => {
   runSync(1);
 }, 24 * 60 * 60 * 1000);
 
-// Start daily-worker in continuous RSS poll mode.
-// It runs indefinitely: polls EDGAR RSS every 2 min + daily EFTS backfill.
-// We only need to spawn it once — it manages its own loop.
-setTimeout(() => runDaily(3), 5000); // 5s after start
+setTimeout(() => runDaily(3), 5000);
 
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
