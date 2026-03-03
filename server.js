@@ -128,7 +128,7 @@ app.get('/api/screener', (req, res) => {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     if (n === 0 && syncRunning)
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
-    const days = Math.min(Math.max(parseInt(req.query.days || '7'), 1), 3650);
+    const days = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 3650);
     let rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
