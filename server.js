@@ -371,6 +371,8 @@ app.get('/api/diag', async (req, res) => {
   const latest = db.prepare('SELECT MAX(trade_date) AS d FROM trades').get().d;
   const oldest = db.prepare('SELECT MIN(trade_date) AS d FROM trades').get().d;
   const synced = db.prepare('SELECT * FROM sync_log').all();
+  const byFiling = db.prepare(`SELECT filing_date AS d, COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-14 days') GROUP BY filing_date ORDER BY filing_date DESC`).all();
+  const byTrade  = db.prepare(`SELECT trade_date  AS d, COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-14 days') GROUP BY trade_date  ORDER BY trade_date  DESC LIMIT 20`).all();
   let price = {};
   try {
     const { status, body } = await get(`https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=AAPL&apikey=${FMP}`);
@@ -378,7 +380,7 @@ app.get('/api/diag', async (req, res) => {
     const raw  = Array.isArray(data) ? data : (data?.historical || []);
     price = { ok: status===200 && raw.length>0, bars: raw.length, latest: raw[0]?.date };
   } catch(e) { price = { ok: false, error: e.message }; }
-  res.json({ db: { trades: n, latest, oldest, synced }, price, sync: { running: syncRunning, log: syncLog.slice(-10) } });
+  res.json({ db: { trades: n, latest, oldest, synced }, byFiling, byTrade, price, sync: { running: syncRunning, log: syncLog.slice(-10) } });
 });
 
 app.get('/api/health', (req, res) =>
