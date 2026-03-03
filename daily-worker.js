@@ -82,7 +82,10 @@ async function get(url, ms = 20000) {
 function parseDate(s) {
   if (!s) return null;
   const d = s.slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const yr = parseInt(d.slice(0, 4), 10);
+  if (yr < 2000 || yr > 2030) return null;
+  return d;
 }
 
 function xmlGet(xml, tag) {
@@ -502,7 +505,15 @@ const daysBack = parseInt(process.argv[2] || '3');
 const mode     = process.argv[3] || 'poll';
 
 async function main() {
-  log(`=== daily-worker v2 start (mode=${mode}, daysBack=${daysBack}) ===`);
+  log(`=== daily-worker v7 start (mode=${mode}, daysBack=${daysBack}) ===`);
+
+  // Clean up any rows with implausible trade_date or filing_date values
+  const cleaned = db.prepare(`
+    DELETE FROM trades
+    WHERE trade_date  < '2000-01-01' OR trade_date  > '2030-12-31'
+       OR filing_date < '2000-01-01' OR filing_date > '2030-12-31'
+  `).run();
+  if (cleaned.changes > 0) log(`Cleaned up ${cleaned.changes} rows with bad dates`);
 
   if (mode === 'backfill') {
     await runBackfill(daysBack);
