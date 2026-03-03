@@ -268,62 +268,78 @@ async function searchEFTS(startDate, endDate) {
   return filings;
 }
 
-// ── Full-index TSV — most reliable bulk method for backfill ───────
-// SEC publishes form4.idx daily at:
-// https://www.sec.gov/Archives/edgar/full-index/YYYY/QN/form.idx
+// ── EDGAR full-index — authoritative list of every filing by quarter ─
+// URL: https://www.sec.gov/Archives/edgar/full-index/YYYY/QTRN/form.idx
+// Updated daily. Lists every Form 4/4A with CIK, date, and accession path.
 async function fetchFullIndex(startDate, endDate) {
   const filings = [];
   const start = new Date(startDate + 'T12:00:00Z');
   const end   = new Date(endDate   + 'T12:00:00Z');
 
-  // Collect unique quarter keys in range
+  // Collect unique quarter keys spanning the date range
   const quarters = new Set();
   const cur = new Date(start);
   while (cur <= end) {
     const yr = cur.getUTCFullYear();
     const q  = Math.ceil((cur.getUTCMonth() + 1) / 3);
-    quarters.add(`${yr}-${q}`);
-    cur.setUTCDate(cur.getUTCDate() + 32);
-    cur.setUTCDate(1);
+    quarters.add(`${yr}|${q}`);
+    cur.setUTCMonth(cur.getUTCMonth() + 3);
   }
 
   for (const qkey of quarters) {
-    const [yr, q] = qkey.split('-');
+    const [yr, q] = qkey.split('|');
     const url = `https://www.sec.gov/Archives/edgar/full-index/${yr}/QTR${q}/form.idx`;
     log(`Fetching full-index: ${url}`);
     try {
       const { status, body } = await get(url, 60000);
-      if (status !== 200) { log(`full-index HTTP ${status} for ${qkey}`); continue; }
+      if (status !== 200) { log(`full-index HTTP ${status} for ${yr}Q${q}`); continue; }
 
-      // Format: Form Type | Company Name | CIK | Date Filed | Filename
-      // Lines start after a header separator "---..."
+      // form.idx fixed-width format:
+      //   Form Type  Company Name        CIK         Date Filed  Filename
+      //   ---------- ------------------- ----------- ----------- ---------------------------------
+      //   4          ACME CORP           0001234567  2026-02-28  edgar/data/1234567/0001234567-26-000001.txt
+      //
+      // Strategy: skip header lines, match form type at start, extract date+filename by regex.
       const lines = body.split('\n');
       let pastHeader = false;
+      let scanned = 0;
+
       for (const line of lines) {
+        // The separator line is all dashes and spaces
         if (!pastHeader) {
-          if (line.startsWith('---')) pastHeader = true;
+          if (/^-{5}/.test(line.trim())) pastHeader = true;
           continue;
         }
-        // Fixed-width: form type ends ~12, company ~74, CIK ~86, date ~98, filename rest
+        if (line.length < 30) continue;
+
         const formType = line.slice(0, 12).trim();
         if (formType !== '4' && formType !== '4/A') continue;
-        const dateFiled = line.slice(86, 98).trim();
-        if (!dateFiled || dateFiled < startDate || dateFiled > endDate) continue;
-        const filename  = line.slice(98).trim(); // e.g. edgar/data/1234/0001234-26-000001.txt
-        // Extract CIK and accession from filename
-        const fm = filename.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/);
+        scanned++;
+
+        // Date filed — always YYYY-MM-DD in the line
+        const dm = line.match(/(\d{4}-\d{2}-\d{2})/);
+        if (!dm) continue;
+        const dateFiled = dm[1];
+        if (dateFiled < startDate || dateFiled > endDate) continue;
+
+        // Accession path — always edgar/data/CIK/XXXXXXXXXX-XX-XXXXXX.txt
+        const fm = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
         if (!fm) continue;
-        const cik     = fm[1];
-        const accDash = fm[2];
-        if (!accDash.match(/^\d{10}-\d{2}-\d{6}$/)) continue;
+        const cik   = fm[1];
+        const parts = fm[2].split('-');
+        if (parts.length !== 3) continue;
+        const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
         filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled });
       }
-    } catch(e) { log(`full-index error for ${qkey}: ${e.message}`); }
+      log(`  form.idx ${yr}Q${q}: scanned ${scanned} Form-4 lines, ${filings.length} total in range`);
+    } catch(e) { log(`full-index error ${yr}Q${q}: ${e.message}`); }
   }
 
   log(`Full-index found ${filings.length} Form 4 filings for ${startDate}→${endDate}`);
   return filings;
 }
+
+
 
 
 // ── Process filings — no seen-cache, rely on DB UNIQUE constraint ──
