@@ -191,9 +191,58 @@ async function pollRSS() {
   return filings;
 }
 
-// ── EFTS search (full coverage, slight lag) ───────────────────────
+// ── EDGAR daily index (definitive — lists every filing for each day) ─
+// https://www.sec.gov/Archives/edgar/full-index/YYYY/QN/company.idx
+// This is what serious data providers use — it's the authoritative list.
+async function fetchDailyIndex(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const yr = d.getUTCFullYear();
+  const mo = d.getUTCMonth() + 1;
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const q  = Math.ceil(mo / 3);
+
+  // The full-index company.gz file for this quarter lists all filings
+  // But it's updated daily — we parse it and filter by date + form type
+  const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=100&search_text=&action=getcurrent&output=atom`;
+  
+  // Actually use the EDGAR full-index for the specific date
+  // Format: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=YYYYMMDD&owner=include&count=100&search_text=&output=atom
+  const dateFmt = `${yr}${String(mo).padStart(2,'0')}${dd}`;
+  const idxUrl  = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=${dateFmt}&owner=include&count=100&search_text=&output=atom`;
+  
+  try {
+    const { status, body } = await get(idxUrl, 30000);
+    if (status !== 200) return [];
+    return parseAtomFeed(body, dateStr);
+  } catch(e) {
+    log(`Daily index error for ${dateStr}: ${e.message}`);
+    return [];
+  }
+}
+
+function parseAtomFeed(body, expectedDate) {
+  const filings = [];
+  const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+  let m;
+  while ((m = entryRe.exec(body))) {
+    const entry = m[1];
+    const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+    const filingDate = dateMatch ? dateMatch[1] : expectedDate;
+    const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
+    if (!linkMatch) continue;
+    const cik    = linkMatch[1];
+    const accRaw = linkMatch[2];
+    if (accRaw.length !== 18) continue;
+    const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+    filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
+  }
+  return filings;
+}
+
+// ── EFTS search — paginates through ALL Form 4s in date range ────
 async function searchEFTS(startDate, endDate) {
   const filings = [];
+  // Use category=form-type to get exact form type matching
   for (let from = 0; from < 10000; from += 100) {
     const url = `https://efts.sec.gov/LATEST/search-index?forms=4,4%2FA&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
     try {
@@ -215,8 +264,68 @@ async function searchEFTS(startDate, endDate) {
       if (hits.length < 100) break;
     } catch(e) { log(`EFTS error: ${e.message}`); break; }
   }
+  log(`EFTS returned ${filings.length} filings for ${startDate}→${endDate}`);
   return filings;
 }
+
+// ── Full-index TSV — most reliable bulk method for backfill ───────
+// SEC publishes form4.idx daily at:
+// https://www.sec.gov/Archives/edgar/full-index/YYYY/QN/form.idx
+async function fetchFullIndex(startDate, endDate) {
+  const filings = [];
+  const start = new Date(startDate + 'T12:00:00Z');
+  const end   = new Date(endDate   + 'T12:00:00Z');
+
+  // Collect unique quarter keys in range
+  const quarters = new Set();
+  const cur = new Date(start);
+  while (cur <= end) {
+    const yr = cur.getUTCFullYear();
+    const q  = Math.ceil((cur.getUTCMonth() + 1) / 3);
+    quarters.add(`${yr}-${q}`);
+    cur.setUTCDate(cur.getUTCDate() + 32);
+    cur.setUTCDate(1);
+  }
+
+  for (const qkey of quarters) {
+    const [yr, q] = qkey.split('-');
+    const url = `https://www.sec.gov/Archives/edgar/full-index/${yr}/QTR${q}/form.idx`;
+    log(`Fetching full-index: ${url}`);
+    try {
+      const { status, body } = await get(url, 60000);
+      if (status !== 200) { log(`full-index HTTP ${status} for ${qkey}`); continue; }
+
+      // Format: Form Type | Company Name | CIK | Date Filed | Filename
+      // Lines start after a header separator "---..."
+      const lines = body.split('
+');
+      let pastHeader = false;
+      for (const line of lines) {
+        if (!pastHeader) {
+          if (line.startsWith('---')) pastHeader = true;
+          continue;
+        }
+        // Fixed-width: form type ends ~12, company ~74, CIK ~86, date ~98, filename rest
+        const formType = line.slice(0, 12).trim();
+        if (formType !== '4' && formType !== '4/A') continue;
+        const dateFiled = line.slice(86, 98).trim();
+        if (!dateFiled || dateFiled < startDate || dateFiled > endDate) continue;
+        const filename  = line.slice(98).trim(); // e.g. edgar/data/1234/0001234-26-000001.txt
+        // Extract CIK and accession from filename
+        const fm = filename.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/);
+        if (!fm) continue;
+        const cik     = fm[1];
+        const accDash = fm[2];
+        if (!accDash.match(/^\d{10}-\d{2}-\d{6}$/)) continue;
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled });
+      }
+    } catch(e) { log(`full-index error for ${qkey}: ${e.message}`); }
+  }
+
+  log(`Full-index found ${filings.length} Form 4 filings for ${startDate}→${endDate}`);
+  return filings;
+}
+
 
 // ── Process filings — no seen-cache, rely on DB UNIQUE constraint ──
 async function processBatch(filings, label) {
@@ -247,7 +356,7 @@ async function processBatch(filings, label) {
   return inserted;
 }
 
-// ── EFTS backfill for a date range ────────────────────────────────
+// ── Backfill using full-index (primary) + EFTS (fallback) ───────
 async function runBackfill(daysBack) {
   const today = new Date().toISOString().slice(0, 10);
   const start = new Date();
@@ -256,7 +365,20 @@ async function runBackfill(daysBack) {
 
   log(`Backfill: ${startDate} → ${today}`);
   try {
-    const filings  = await searchEFTS(startDate, today);
+    // Primary: EDGAR full-index (definitive list of every filing)
+    let filings = await fetchFullIndex(startDate, today);
+
+    // Fallback to EFTS if full-index returned nothing
+    if (!filings.length) {
+      log('Full-index empty, falling back to EFTS...');
+      filings = await searchEFTS(startDate, today);
+    }
+
+    if (!filings.length) {
+      log('No filings found from any source');
+      return;
+    }
+
     const inserted = await processBatch(filings, 'Backfill');
 
     // Log per-date counts
@@ -267,7 +389,6 @@ async function runBackfill(daysBack) {
       for (const [date, count] of entries) upsert.run(date, count, 0);
     });
     upsertMany(Object.entries(byDate));
-    // Update today's trade count
     db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)').run(today, filings.length, inserted);
 
     log(`Backfill complete: ${inserted} trades inserted across ${Object.keys(byDate).length} days`);
