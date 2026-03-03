@@ -564,11 +564,15 @@ function showToast(msg, isError=false) {
 }
 function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
-function switchView(view, btn) {
+function switchView(view, btn, opts={}) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
+  else {
+    const idx = {screener:0, stock:1, insider:2}[view];
+    if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
+  }
   if (view === 'insider') {
     const body = document.getElementById('insiderViewBody');
     if (body && (!body.hasChildNodes() || body.dataset.showing !== 'dashboard')) {
@@ -576,13 +580,21 @@ function switchView(view, btn) {
       insiderLanding();
     }
   }
+  // Push URL unless we're being called from popstate
+  if (!opts.fromPopstate) {
+    const url = view === 'screener' ? '/' : '/' + view;
+    history.pushState({view, subview: null}, '', url);
+    updateTitle(view);
+  }
+}
+
+function updateTitle(view, extra) {
+  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider'};
+  document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function searchTicker() {
   const val = document.getElementById('tickerInput').value.trim().toUpperCase();
   if (!val) return showToast('Please enter a ticker symbol', true);
-  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
-  document.querySelectorAll('.nav-tab')[1].classList.add('active');
-  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
   loadStockView(val);
 }
 document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.key==='Enter') searchTicker(); });
@@ -834,14 +846,23 @@ function sortTable(col) {
 }
 function openTickerFromScreener(ticker) {
   document.getElementById('tickerInput').value = ticker;
-  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
-  document.querySelectorAll('.nav-tab')[1].classList.add('active');
-  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
   loadStockView(ticker);
 }
 
 // ── STOCK VIEW ────────────────────────────────────────────────────
-async function loadStockView(ticker) {
+async function loadStockView(ticker, opts={}) {
+  // Activate the stock view + nav tab
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-stock').classList.add('active');
+  document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
+  document.getElementById('tickerInput').value = ticker;
+  if (!opts.fromPopstate) {
+    history.pushState({view:'stock', ticker}, '', '/stock/' + ticker);
+    updateTitle('stock', ticker);
+  } else {
+    updateTitle('stock', ticker);
+  }
   state.currentTicker = ticker;
   document.getElementById('stockContent').innerHTML = `<div class="loading-state" style="height:400px"><div class="spinner"></div><span>Loading ${ticker}...</span></div>`;
   const [priceData, insiderData] = await Promise.all([
@@ -1202,11 +1223,18 @@ function renderStockTradesTable(trades) {
 }
 
 // ── INSIDER PROFILE ───────────────────────────────────────────────
-async function openInsiderProfile(name, title) {
+async function openInsiderProfile(name, title, opts={}) {
   const tab=document.getElementById('insiderTab');
   document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active')); tab.classList.add('active');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-insider').classList.add('active');
+  if (!opts.fromPopstate) {
+    const slug = encodeURIComponent(name);
+    history.pushState({view:'insider', name, title}, '', '/insider/' + slug);
+    updateTitle('insider', name);
+  } else {
+    updateTitle('insider', name);
+  }
   await openInsiderProfileFull(name, title);
 }
 
@@ -1491,16 +1519,17 @@ function buildCSSTimeline(trades) {
 }
 
 function goBack() {
-  const screenerTab=document.querySelectorAll('.nav-tab')[0];
-  switchView('screener',screenerTab);
-  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-  screenerTab.classList.add('active');
+  history.back();
 }
 
 // ── INSIDER SEARCH / DASHBOARD ────────────────────────────────────
-function insiderLanding() {
+function insiderLanding(opts={}) {
   const body=document.getElementById('insiderViewBody'); if(!body)return;
   body.dataset.showing = 'dashboard';
+  if (!opts.fromPopstate) {
+    history.pushState({view:'insider', subview:'dashboard'}, '', '/insider');
+    updateTitle('insider');
+  }
   body.innerHTML=`
     <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
@@ -1622,9 +1651,86 @@ function insiderAutocomplete(val) {
 }
 document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput')&&!e.target.closest('#insiderSuggest')){const box=document.getElementById('insiderSuggest');if(box)box.style.display='none';}});
 
+// ── URL ROUTING ───────────────────────────────────────────────────
+window.addEventListener('popstate', e => {
+  const s = e.state;
+  if (!s) { routeFromPath(location.pathname, true); return; }
+  if (s.view === 'stock' && s.ticker) {
+    loadStockView(s.ticker, {fromPopstate: true});
+  } else if (s.view === 'insider' && s.name) {
+    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+    document.getElementById('insiderTab').classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-insider').classList.add('active');
+    openInsiderProfile(s.name, s.title||'', {fromPopstate: true});
+  } else if (s.view === 'insider') {
+    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+    document.getElementById('insiderTab').classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-insider').classList.add('active');
+    const body = document.getElementById('insiderViewBody');
+    body.dataset.showing = 'dashboard';
+    insiderLanding({fromPopstate: true});
+  } else {
+    switchView(s.view || 'screener', null, {fromPopstate: true});
+  }
+});
+
+function routeFromPath(path, fromPopstate) {
+  // /stock/AAPL
+  const stockMatch = path.match(/^\/stock\/([^/]+)/i);
+  if (stockMatch) {
+    const ticker = decodeURIComponent(stockMatch[1]).toUpperCase();
+    document.getElementById('tickerInput').value = ticker;
+    loadStockView(ticker, {fromPopstate});
+    return;
+  }
+  // /insider/Name  or  /insider
+  const insiderMatch = path.match(/^\/insider\/(.+)/i);
+  if (insiderMatch) {
+    const name = decodeURIComponent(insiderMatch[1]);
+    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+    document.getElementById('insiderTab').classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-insider').classList.add('active');
+    openInsiderProfile(name, '', {fromPopstate});
+    return;
+  }
+  if (path.startsWith('/insider')) {
+    switchView('insider', null, {fromPopstate});
+    return;
+  }
+  // default → screener
+  switchView('screener', null, {fromPopstate});
+}
+
+// Init: route based on current URL, then load screener data
+(function init() {
+  // Set initial history state so popstate works on first back
+  const path = location.pathname;
+  history.replaceState({view: _viewFromPath(path), ticker: _tickerFromPath(path), name: _nameFromPath(path)}, '', path);
+  routeFromPath(path, true);
+  if (!path.startsWith('/stock') && !path.startsWith('/insider')) {
+    loadScreener();
+  } else {
+    // Still pre-load screener data silently so the tab works when user navigates to it
+    apiFetch('/api/screener?days=7').then(resp => {
+      let trades = Array.isArray(resp) ? resp : (resp.trades || []);
+      if (!trades.length) return;
+      if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
+      if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
+      state.screenerData = trades;
+    }).catch(()=>{});
+    loadScreener();
+  }
+})();
+
+function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; return'screener'; }
+function _tickerFromPath(p) { const m=p.match(/^\/stock\/([^/]+)/i); return m?decodeURIComponent(m[1]).toUpperCase():null; }
+function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decodeURIComponent(m[1]):null; }
+
 function measureHeader() { const h=document.querySelector('header'),m=document.querySelector('main'); if(h&&m)m.style.paddingTop=h.offsetHeight+'px'; }
 measureHeader(); window.addEventListener('resize',measureHeader);
-loadScreener();
 </script>
 </body>
 </html>
