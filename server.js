@@ -388,9 +388,7 @@ app.get('/api/health', (req, res) =>
 
 app.get('/api/cleanup-dates', (req, res) => {
   const r = db.prepare(`
-    DELETE FROM trades
-    WHERE trade_date  < '2000-01-01' OR trade_date  > '2030-12-31'
-       OR filing_date < '2000-01-01' OR filing_date > '2030-12-31'
+    DELETE FROM trades WHERE trade_date < '2000-01-01' OR trade_date > date('now') OR filing_date < '2000-01-01' OR filing_date > date('now')
   `).run();
   slog(`Date cleanup: removed ${r.changes} bad rows`);
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM trades').get();
