@@ -908,11 +908,10 @@
 
     /* Hide less important table columns on mobile */
     .hide-mobile { display: none !important; }
-    /* Screener table: hide cols 5(shares),6(price),8(owned),9(filing) */
+    /* Screener table: hide cols 5(shares),6(price),8(owned) */
     #screenerBody tr td:nth-child(5),
     #screenerBody tr td:nth-child(6),
-    #screenerBody tr td:nth-child(8),
-    #screenerBody tr td:nth-child(9) { display: none; }
+    #screenerBody tr td:nth-child(8) { display: none; }
     /* Stock trades table: hide title, price, owned, filing */
     #stockTradesBody tr td:nth-child(3),
     #stockTradesBody tr td:nth-child(6),
@@ -1039,7 +1038,6 @@
               <th onclick="sortTable('price')" class="hide-mobile">PRICE</th>
               <th onclick="sortTable('value')">VALUE</th>
               <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER</th>
-              <th class="hide-mobile">FILING</th>
             </tr>
           </thead>
           <tbody id="screenerBody">
@@ -1335,7 +1333,7 @@ function renderScreener() {
     `${data.length} filings · Last updated ${new Date().toLocaleTimeString()}`;
 
   // Sort — API returns 'trade' for trade_date, 'filing' for filing_date
-  const SORT_FIELD = { date: 'filing', trade: 'trade', filing: 'filing',
+  const SORT_FIELD = { date: 'trade', trade: 'trade', filing: 'filing',
                        ticker: 'ticker', insider: 'insider', type: 'type',
                        shares: 'qty', price: 'price', value: 'value', owned: 'owned' };
   const field = SORT_FIELD[state.sortCol] || state.sortCol;
@@ -1366,8 +1364,8 @@ function renderScreener() {
 
   tbody.innerHTML = page.map(t => `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">trade: ${fmtDate(t.trade)}</span></td>
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()">
         <span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span>
@@ -1378,7 +1376,6 @@ function renderScreener() {
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
       <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
     </tr>
   `).join('');
 
