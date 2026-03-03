@@ -1027,7 +1027,7 @@
       <div class="summary-bar" id="summaryBar"></div>
 
       <div class="table-wrap">
-        <table>
+        <table id="screenerTable">
           <thead>
             <tr>
               <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span><br><span style="font-size:9px;font-weight:400;opacity:0.5;cursor:pointer" onclick="event.stopPropagation();sortTable('filing')">sort by filed ↕</span></th>
@@ -1341,15 +1341,16 @@ function renderScreener() {
     let av = a[field], bv = b[field];
     if (field === 'trade' || field === 'filing') {
       av = av || ''; bv = bv || '';
-      // Always push missing dates to the bottom
+      // Always push missing dates to the bottom regardless of direction
       if (!av && !bv) return 0;
       if (!av) return 1;
       if (!bv) return -1;
     } else {
       av = parseFloat(av) || 0; bv = parseFloat(bv) || 0;
     }
+    // sortDir: -1 = descending (largest/newest first), 1 = ascending
+    if (av > bv) return state.sortDir * -1;
     if (av < bv) return state.sortDir;
-    if (av > bv) return -state.sortDir;
     return 0;
   });
 
@@ -1403,7 +1404,22 @@ function changePage(p) {
 function sortTable(col) {
   if (state.sortCol === col) state.sortDir *= -1;
   else { state.sortCol = col; state.sortDir = -1; }
-  document.querySelectorAll('th').forEach(th => th.classList.remove('sorted'));
+  // Update sort arrow
+  document.querySelectorAll('th').forEach(th => {
+    th.classList.remove('sorted');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = '↕';
+  });
+  const colMap = { trade: 0, ticker: 1, insider: 2, type: 3, shares: 4, price: 5, value: 6, owned: 7 };
+  const thIdx = colMap[col];
+  if (thIdx !== undefined) {
+    const th = document.querySelectorAll('#screenerTable th')[thIdx];
+    if (th) {
+      th.classList.add('sorted');
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = state.sortDir === -1 ? '↓' : '↑';
+    }
+  }
   renderScreener();
 }
 
