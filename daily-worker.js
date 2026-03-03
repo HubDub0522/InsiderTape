@@ -1,6 +1,6 @@
 'use strict';
 
-// daily-worker.js — v8 (paginated RSS for recent data)
+// daily-worker.js — v9 (paginated RSS for recent data)
 // Fixes:
 //  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
 //  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
@@ -129,19 +129,42 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
   const filerCik = parseInt(acc.slice(0, 10), 10).toString();
   const allCiks  = [...new Set([...(ciks || []).map(k => parseInt(k, 10).toString()), filerCik])];
 
+  // Helper: try fetching XML at a given URL
+  async function tryXml(url) {
+    try {
+      const { status, body } = await get(url);
+      if (status === 200 && body.includes('ownershipDocument')) return body;
+    } catch(e) {}
+    return null;
+  }
+
   // 1. Direct xmlFile path (fastest — EFTS gives us the filename)
   if (xmlFile) {
     for (const cik of allCiks) {
-      try {
-        const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlFile}`);
-        if (status === 200 && body.includes('ownershipDocument'))
-          return parseForm4(body, filingDate, accession);
-      } catch(e) {}
+      const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlFile}`);
+      if (xml) return parseForm4(xml, filingDate, accession);
     }
   }
 
-  // 2. Filing index JSON → find XML filename
+  // 2. Use the SGML submission index (.txt) — always accessible, lists all docs
+  // URL: https://www.sec.gov/Archives/edgar/data/{CIK}/{ACC}/{ACC}.txt (header file)
+  // Better: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=...
+  // Best: fetch the index page directly
   for (const cik of allCiks) {
+    try {
+      const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accession}-index.htm`);
+      if (status === 200) {
+        // Extract XML filename from index HTML
+        const xmlMatch = body.match(/href="([^"]+\.xml)"/i);
+        if (xmlMatch) {
+          const xmlName = xmlMatch[1].split('/').pop();
+          const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlName}`);
+          if (xml) return parseForm4(xml, filingDate, accession);
+        }
+      }
+    } catch(e) {}
+
+    // Also try the JSON index
     try {
       const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accession}-index.json`);
       if (status === 200) {
@@ -150,22 +173,18 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
           d.document?.match(/\.xml$/i) && (d.type === '4' || d.type === '4/A' || !d.type)
         ) || (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
         if (xmlDoc) {
-          const { status: xs, body: xml } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlDoc.document}`);
-          if (xs === 200 && xml.includes('ownershipDocument'))
-            return parseForm4(xml, filingDate, accession);
+          const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlDoc.document}`);
+          if (xml) return parseForm4(xml, filingDate, accession);
         }
       }
     } catch(e) {}
   }
 
-  // 3. Common filename fallbacks
+  // 3. Common filename patterns
   for (const cik of allCiks) {
-    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml']) {
-      try {
-        const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`);
-        if (status === 200 && body.includes('ownershipDocument'))
-          return parseForm4(body, filingDate, accession);
-      } catch(e) {}
+    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml', 'xslF345X03/primary_doc.xml']) {
+      const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`);
+      if (xml) return parseForm4(xml, filingDate, accession);
     }
   }
 
@@ -517,7 +536,7 @@ const daysBack = parseInt(process.argv[2] || '3');
 const mode     = process.argv[3] || 'poll';
 
 async function main() {
-  log(`=== daily-worker v8 start (mode=${mode}, daysBack=${daysBack}) ===`);
+  log(`=== daily-worker v9 start (mode=${mode}, daysBack=${daysBack}) ===`);
 
   // Clean up any rows with implausible trade_date or filing_date values
   const cleaned = db.prepare(`
