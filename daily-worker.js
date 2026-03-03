@@ -297,8 +297,7 @@ async function fetchFullIndex(startDate, endDate) {
 
       // Format: Form Type | Company Name | CIK | Date Filed | Filename
       // Lines start after a header separator "---..."
-      const lines = body.split('
-');
+      const lines = body.split('\n');
       let pastHeader = false;
       for (const line of lines) {
         if (!pastHeader) {
