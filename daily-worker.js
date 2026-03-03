@@ -1,2854 +1,530 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>INSIDERTAPE — Follow the Smart Money</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%23080b0f'/%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%2300ff88' stroke-width='0.7' opacity='0.3'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='%2300ff88' stroke-width='0.7' opacity='0.4'/%3E%3Ccircle cx='16' cy='16' r='4' fill='none' stroke='%2300ff88' stroke-width='0.7' opacity='0.6'/%3E%3Ccircle cx='16' cy='16' r='1.2' fill='%2300ff88'/%3E%3Cline x1='16' y1='16' x2='16' y2='3' stroke='%2300ff88' stroke-width='0.7' opacity='0.3'/%3E%3Cline x1='16' y1='16' x2='29' y2='16' stroke='%2300ff88' stroke-width='0.7' opacity='0.3'/%3E%3Cpath d='M16 16 L27 9' stroke='%2300ff88' stroke-width='1.5' stroke-linecap='round'/%3E%3Ccircle cx='24' cy='10' r='1.8' fill='%2300ff88' opacity='0.9'/%3E%3Ccircle cx='20' cy='8' r='1' fill='%2300ff88' opacity='0.4'/%3E%3C/svg%3E">
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
-
-  :root {
-    --bg:        #080b0f;
-    --bg2:       #0d1117;
-    --bg3:       #111820;
-    --border:    #1e2d3d;
-    --border2:   #253447;
-    --text:      #c9d8e8;
-    --muted:     #4a6580;
-    --accent:    #00d4ff;
-    --accent2:   #0099cc;
-    --buy:       #00ff88;
-    --buy-dim:   #00993a;
-    --sell:      #ff4466;
-    --sell-dim:  #992233;
-    --option:    #ffaa00;
-    --header-h:  64px;
-  }
-
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 14px;
-    overflow-x: hidden;
-  }
-
-  /* ── SCROLLBAR ── */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: var(--bg2); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-
-  /* ── HEADER ── */
-  header {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-    height: var(--header-h);
-    background: rgba(8,11,15,0.92);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 24px;
-    gap: 16px;
-  }
-
-  .logo {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 26px;
-    letter-spacing: 3px;
-    color: var(--accent);
-    text-shadow: 0 0 20px rgba(0,212,255,0.4);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .logo span { color: var(--text); opacity: 0.5; }
-
-  /* ── SEARCH ── */
-  .search-wrap {
-    position: relative;
-    flex: 1; max-width: 420px;
-  }
-  .search-wrap input {
-    width: 100%;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 9px 16px 9px 42px;
-    color: var(--text);
-    font-family: 'Space Mono', monospace;
-    font-size: 13px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    outline: none;
-    transition: border-color .2s, box-shadow .2s;
-  }
-  .search-wrap input::placeholder { color: var(--muted); text-transform: none; letter-spacing: 0; font-family: 'DM Sans', sans-serif; }
-  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,0.1); }
-  .search-icon {
-    position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
-    color: var(--muted); pointer-events: none;
-  }
-  .search-btn {
-    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-    background: var(--accent); color: var(--bg);
-    border: none; border-radius: 4px;
-    padding: 5px 12px;
-    font-family: 'Space Mono', monospace;
-    font-size: 11px; font-weight: 700;
-    cursor: pointer;
-    transition: background .2s;
-  }
-  .search-btn:hover { background: #33ddff; }
-
-  /* ── NAV TABS ── */
-  .nav-tabs {
-    display: flex; gap: 4px; flex-shrink: 0;
-  }
-  .nav-tab {
-    padding: 7px 16px;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    font-size: 12px; font-weight: 500;
-    cursor: pointer;
-    transition: all .2s;
-    color: var(--muted);
-    background: transparent;
-    white-space: nowrap;
-  }
-  .nav-tab:hover { color: var(--text); border-color: var(--border); }
-  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
-
-  /* ── MAIN LAYOUT ── */
-  main {
-    margin-top: var(--header-h);
-    min-height: calc(100vh - var(--header-h));
-  }
-
-  .view { display: none; }
-  .view.active { display: block; }
-
-  /* ── SCREENER VIEW ── */
-  .screener-layout {
-    display: grid;
-    grid-template-columns: 260px 1fr;
-    gap: 0;
-    min-height: calc(100vh - var(--header-h));
-  }
-
-  .filter-panel {
-    background: var(--bg2);
-    border-right: 1px solid var(--border);
-    padding: 20px 16px;
-    position: sticky;
-    top: var(--header-h);
-    height: calc(100vh - var(--header-h));
-    overflow-y: auto;
-  }
-
-  .filter-section { margin-bottom: 24px; }
-  .filter-label {
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 10px;
-    display: block;
-  }
-
-  .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip {
-    padding: 4px 10px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    font-size: 11px;
-    cursor: pointer;
-    transition: all .15s;
-    color: var(--muted);
-    background: transparent;
-  }
-  .chip:hover { border-color: var(--border2); color: var(--text); }
-  .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
-  .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
-  .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
-  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(255,170,0,0.08); }
-
-  .filter-range { display: flex; flex-direction: column; gap: 8px; }
-  .filter-range select, .filter-range input[type=number] {
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 7px 10px;
-    color: var(--text);
-    font-size: 12px;
-    outline: none;
-    width: 100%;
-  }
-  .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
-
-  .apply-btn {
-    width: 100%;
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    border-radius: 6px;
-    padding: 10px;
-    font-family: 'Space Mono', monospace;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    cursor: pointer;
-    transition: background .2s;
-    margin-top: 8px;
-  }
-  .apply-btn:hover { background: #33ddff; }
-
-  /* ── SCREENER TABLE ── */
-  .screener-content { padding: 20px; }
-
-  .screener-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 16px;
-  }
-  .screener-title {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 22px;
-    letter-spacing: 2px;
-    color: var(--text);
-  }
-  .screener-meta {
-    font-family: 'Space Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .live-badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 10px;
-    background: rgba(0,255,136,0.1);
-    border: 1px solid rgba(0,255,136,0.3);
-    border-radius: 20px;
-    font-size: 11px;
-    color: var(--buy);
-  }
-  .live-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--buy);
-    animation: pulse 1.5s infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
-  }
-
-  .table-wrap {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-
-  table { width: 100%; border-collapse: collapse; }
-  thead tr {
-    background: var(--bg3);
-    border-bottom: 1px solid var(--border);
-  }
-  th {
-    padding: 11px 14px;
-    text-align: left;
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 1.5px;
-    color: var(--muted);
-    text-transform: uppercase;
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
-    transition: color .15s;
-  }
-  th:hover { color: var(--text); }
-  th.sorted { color: var(--accent); }
-  th .sort-arrow { margin-left: 4px; opacity: 0.5; }
-
-  tbody tr {
-    border-bottom: 1px solid var(--border);
-    transition: background .12s;
-    cursor: pointer;
-  }
-  tbody tr:last-child { border-bottom: none; }
-  tbody tr:hover { background: rgba(255,255,255,0.03); }
-
-  td { padding: 11px 14px; font-size: 13px; white-space: nowrap; }
-
-  .ticker-cell {
-    font-family: 'Space Mono', monospace;
-    font-weight: 700;
-    color: var(--accent);
-    font-size: 13px;
-  }
-  .ticker-cell:hover { text-decoration: underline; }
-
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-  }
-  .badge-buy  { background: rgba(0,255,136,0.15); color: var(--buy); border: 1px solid rgba(0,255,136,0.3); }
-  .badge-sell { background: rgba(255,68,102,0.15); color: var(--sell); border: 1px solid rgba(255,68,102,0.3); }
-  .badge-option { background: rgba(255,170,0,0.15); color: var(--option); border: 1px solid rgba(255,170,0,0.3); }
-
-  .val-positive { color: var(--buy); font-weight: 500; }
-  .val-negative { color: var(--sell); font-weight: 500; }
-  .val-neutral  { color: var(--option); font-weight: 500; }
-
-  .insider-name { color: var(--text); }
-  .insider-title { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
-
-  .pagination {
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 16px;
-    border-top: 1px solid var(--border);
-  }
-  .page-btn {
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 5px 12px;
-    color: var(--text);
-    font-size: 12px;
-    cursor: pointer;
-    transition: all .15s;
-  }
-  .page-btn:hover, .page-btn.active { border-color: var(--accent); color: var(--accent); }
-  .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-  /* ── STOCK VIEW ── */
-  .stock-layout {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    grid-template-rows: auto 1fr;
-    gap: 0;
-    min-height: calc(100vh - var(--header-h));
-  }
-
-  .stock-header-bar {
-    grid-column: 1 / -1;
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    padding: 16px 24px;
-    display: flex; align-items: flex-start; gap: 32px; flex-wrap: wrap;
-  }
-
-  .stock-ticker-big {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 42px;
-    line-height: 1;
-    color: var(--accent);
-    letter-spacing: 3px;
-  }
-  .stock-name-sub {
-    font-size: 13px;
-    color: var(--muted);
-    margin-top: 4px;
-  }
-  .stock-price-block { display: flex; flex-direction: column; justify-content: center; }
-  .stock-price {
-    font-family: 'Space Mono', monospace;
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text);
-  }
-  .stock-change {
-    font-family: 'Space Mono', monospace;
-    font-size: 13px;
-    margin-top: 3px;
-  }
-  .stat-grid {
-    display: flex; gap: 24px; flex-wrap: wrap;
-    align-items: center;
-    margin-left: auto;
-  }
-  .stat-item { text-align: right; }
-  .stat-label {
-    font-family: 'Space Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 1.5px;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-  .stat-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 13px;
-    color: var(--text);
-    margin-top: 2px;
-  }
-
-  .chart-area {
-    background: var(--bg);
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
-
-  .chart-controls {
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 12px;
-  }
-  .tf-btn {
-    padding: 4px 10px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--muted);
-    font-family: 'Space Mono', monospace;
-    font-size: 11px;
-    cursor: pointer;
-    transition: all .15s;
-  }
-  .tf-btn:hover { color: var(--text); }
-  .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
-
-  #chartContainer {
-    width: 100%;
-    height: 480px;
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-  }
-
-  /* ── INSIDER SIDEBAR ── */
-  .insider-sidebar {
-    background: var(--bg2);
-    border-left: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    height: calc(100vh - var(--header-h) - 110px);
-    overflow: hidden;
-  }
-
-  .sidebar-tabs {
-    display: flex;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .sidebar-tab {
-    flex: 1;
-    padding: 12px 8px;
-    text-align: center;
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 1px;
-    color: var(--muted);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all .15s;
-    text-transform: uppercase;
-  }
-  .sidebar-tab:hover { color: var(--text); }
-  .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-  .sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
-
-  .trade-card {
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px;
-    margin-bottom: 8px;
-    cursor: pointer;
-    transition: border-color .15s, background .15s;
-    position: relative;
-    overflow: hidden;
-  }
-  .trade-card::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 3px;
-  }
-  .trade-card.buy::before  { background: var(--buy); }
-  .trade-card.sell::before { background: var(--sell); }
-  .trade-card.option::before { background: var(--option); }
-  .trade-card:hover { border-color: var(--border2); background: rgba(255,255,255,0.02); }
-
-  .trade-card-top {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 6px;
-  }
-  .trade-type-label {
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1px;
-  }
-  .trade-card.buy  .trade-type-label { color: var(--buy); }
-  .trade-card.sell .trade-type-label { color: var(--sell); }
-  .trade-card.option .trade-type-label { color: var(--option); }
-
-  .trade-date {
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    color: var(--muted);
-  }
-
-  .trade-insider { font-size: 12px; font-weight: 500; color: var(--text); }
-  .trade-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
-
-  .trade-numbers {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 4px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-  }
-  .trade-num-item { }
-  .trade-num-label {
-    font-size: 9px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-family: 'Space Mono', monospace;
-  }
-  .trade-num-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 12px;
-    color: var(--text);
-    margin-top: 2px;
-  }
-
-  /* ── STOCK TRADES TABLE ── */
-  .stock-trades-section {
-    grid-column: 1 / -1;
-    padding: 0 16px 24px;
-  }
-  .section-title {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 18px;
-    letter-spacing: 2px;
-    color: var(--text);
-    margin-bottom: 12px;
-    margin-top: 20px;
-  }
-
-  /* ── LOADING / EMPTY ── */
-  .loading-state {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 60px 20px;
-    color: var(--muted);
-    gap: 12px;
-  }
-  .spinner {
-    width: 32px; height: 32px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin .7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .empty-state {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 60px 20px; gap: 12px; color: var(--muted); text-align: center;
-  }
-  .empty-icon { font-size: 36px; opacity: 0.3; }
-
-  /* ── INSIDER PROFILE ── */
-  .insider-profile-layout { padding: 24px; max-width: 1200px; margin: 0 auto; }
-
-  .back-btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 6px 14px;
-    color: var(--muted);
-    font-size: 12px;
-    cursor: pointer;
-    transition: all .15s;
-    margin-bottom: 20px;
-  }
-  .back-btn:hover { color: var(--text); border-color: var(--border2); }
-
-  .insider-hero {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 24px 28px;
-    margin-bottom: 20px;
-    display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap;
-    position: relative; overflow: hidden;
-  }
-  .insider-hero::before {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 3px;
-    background: linear-gradient(90deg, var(--accent), transparent);
-  }
-
-  .insider-avatar {
-    width: 64px; height: 64px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--accent2), var(--bg3));
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 26px;
-    color: var(--bg);
-    flex-shrink: 0;
-    border: 2px solid var(--border2);
-  }
-
-  .insider-hero-info { flex: 1; min-width: 200px; }
-  .insider-hero-name {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px;
-    letter-spacing: 2px;
-    color: var(--text);
-    line-height: 1;
-  }
-  .insider-hero-title {
-    color: var(--muted);
-    font-size: 13px;
-    margin-top: 5px;
-  }
-  .insider-hero-companies {
-    display: flex; gap: 8px; flex-wrap: wrap;
-    margin-top: 10px;
-  }
-  .company-tag {
-    padding: 3px 10px;
-    background: rgba(0,212,255,0.08);
-    border: 1px solid rgba(0,212,255,0.2);
-    border-radius: 20px;
-    font-family: 'Space Mono', monospace;
-    font-size: 11px;
-    color: var(--accent);
-    cursor: pointer;
-    transition: background .15s;
-  }
-  .company-tag:hover { background: rgba(0,212,255,0.15); }
-
-  .insider-hero-stats {
-    display: flex; gap: 20px; flex-wrap: wrap;
-    align-items: center; margin-left: auto;
-  }
-  .insider-stat {
-    text-align: center;
-    padding: 12px 16px;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    min-width: 100px;
-  }
-  .insider-stat-label {
-    font-family: 'Space Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 1.5px;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-  .insider-stat-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 18px;
-    margin-top: 4px;
-  }
-
-  .profile-grid {
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 16px;
-    align-items: start;
-  }
-
-  .activity-chart-wrap {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 16px;
-  }
-  .activity-chart-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 12px;
-  }
-
-  /* Bar chart for buy/sell by ticker */
-  .ticker-breakdown {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-  }
-  .ticker-row {
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 10px;
-    cursor: pointer;
-  }
-  .ticker-row:hover .ticker-bar-label { color: var(--accent); }
-  .ticker-bar-label {
-    font-family: 'Space Mono', monospace;
-    font-size: 11px;
-    color: var(--text);
-    width: 50px;
-    flex-shrink: 0;
-    transition: color .15s;
-  }
-  .ticker-bar-track {
-    flex: 1; height: 8px;
-    background: var(--bg3);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .ticker-bar-fill {
-    height: 100%; border-radius: 4px;
-    transition: width .4s ease;
-  }
-  .ticker-bar-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    width: 70px;
-    text-align: right;
-    flex-shrink: 0;
-  }
-
-  .insider-name-link {
-    color: var(--accent);
-    cursor: pointer;
-    text-decoration: none;
-    transition: opacity .15s;
-    border-bottom: 1px solid rgba(0,212,255,0.3);
-    padding-bottom: 1px;
-  }
-  .insider-name-link:hover { opacity: 0.75; }
-
-  /* Timeline dots on activity chart */
-  #insiderActivityChart {
-    width: 100%; height: 160px;
-    border-radius: 4px;
-  }
-  .toast {
-    position: fixed; bottom: 24px; right: 24px; z-index: 999;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    border-radius: 8px;
-    padding: 12px 20px;
-    font-size: 13px;
-    color: var(--text);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    transform: translateY(80px);
-    opacity: 0;
-    transition: all .3s;
-  }
-  .toast.show { transform: translateY(0); opacity: 1; }
-  .toast.error { border-color: var(--sell); }
-
-  /* ── LEGEND ── */
-  .chart-legend {
-    display: flex; gap: 16px; align-items: center;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-  }
-  .legend-item {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 11px; color: var(--muted);
-  }
-  .legend-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-  }
-  .legend-tri-up { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--buy); }
-  .legend-tri-dn { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 9px solid var(--sell); }
-  .legend-tri-opt { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid var(--option); }
-
-  /* ── SUMMARY STATS ── */
-  .summary-bar {
-    display: flex; gap: 12px; flex-wrap: wrap;
-    margin-bottom: 16px;
-  }
-  .summary-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px 16px;
-    flex: 1; min-width: 120px;
-  }
-  .summary-card-label {
-    font-family: 'Space Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 1.5px;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-  .summary-card-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 18px;
-    margin-top: 4px;
-  }
-
-  /* ══════════════════════════════════════════════════════
-     RESPONSIVE / MOBILE
-     ══════════════════════════════════════════════════════ */
-
-  /* ── Tablet (≤900px) ── */
-  @media (max-width: 900px) {
-    header { padding: 0 14px; gap: 10px; }
-    .logo  { font-size: 22px; letter-spacing: 2px; }
-
-    .search-wrap { max-width: 260px; }
-
-    /* Screener: collapse sidebar to top bar */
-    .screener-layout {
-      grid-template-columns: 1fr;
-    }
-    .filter-panel {
-      position: static;
-      height: auto;
-      border-right: none;
-      border-bottom: 1px solid var(--border);
-      padding: 14px 14px 10px;
-    }
-    .filter-section { margin-bottom: 14px; }
-
-    /* Stock layout: single column */
-    .stock-layout {
-      grid-template-columns: 1fr;
-    }
-    .insider-sidebar {
-      border-left: none;
-      border-top: 1px solid var(--border);
-      height: 360px;
-    }
-    .stock-trades-section { grid-column: 1; }
-
-    .stat-grid { margin-left: 0; gap: 14px; }
-  }
-
-  /* ── Mobile (≤640px) ── */
-  @media (max-width: 640px) {
-    :root { --header-h: 56px; }
-
-    /* Header: two-row layout on mobile */
-    header {
-      flex-wrap: wrap;
-      height: auto;
-      padding: 8px 12px 8px;
-      gap: 6px;
-      align-items: center;
-    }
-    .logo { font-size: 19px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
-    .nav-tabs { order: 1; margin-left: auto; gap: 2px; flex-shrink: 0; }
-    .nav-tab { padding: 5px 10px; font-size: 11px; }
-    .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
-
-    main { margin-top: 0; padding-top: 0; }  /* offset set by JS measureHeader() */
-
-    /* Screener filters: horizontal scroll row on mobile */
-    .filter-panel {
-      padding: 10px 12px;
-      display: flex;
-      flex-direction: row;
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      gap: 12px;
-      align-items: flex-start;
-      -webkit-overflow-scrolling: touch;
-    }
-    .filter-section { margin-bottom: 0; flex-shrink: 0; min-width: 140px; }
-    .apply-btn { width: auto; white-space: nowrap; flex-shrink: 0; align-self: flex-end; }
-
-    .screener-content { padding: 10px; }
-
-    /* Table: scroll horizontally */
-    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    table { min-width: 700px; }
-    td, th { padding: 9px 10px; font-size: 12px; }
-
-    /* Stock header: stack everything */
-    .stock-header-bar {
-      flex-direction: column;
-      gap: 12px;
-      padding: 12px;
-    }
-    .stock-ticker-big { font-size: 32px; }
-    .stock-price { font-size: 22px; }
-    .stat-grid { margin-left: 0; gap: 10px; }
-    .stat-item { text-align: left; }
-
-    /* Chart controls: wrap tightly */
-    .chart-controls { flex-wrap: wrap; gap: 4px 4px; }
-    .tf-btn { padding: 4px 8px; font-size: 10px; }
-
-    .chart-area { padding: 10px; }
-    #chartContainer { height: 340px !important; }
-
-    /* Sidebar full height on mobile */
-    .insider-sidebar { height: 280px; }
-
-    /* Stock trades table scroll */
-    .stock-trades-section { padding: 0 10px 16px; overflow-x: auto; }
-
-    /* Insider profile */
-    .insider-profile-layout { padding: 12px; }
-
-    /* Summary bar */
-    .summary-bar { gap: 8px; }
-    .summary-card { min-width: 100px; padding: 10px 12px; }
-    .summary-card-val { font-size: 15px; }
-
-    /* Hide less important table columns on mobile */
-    .hide-mobile { display: none !important; }
-    /* Screener table: hide cols 5(shares),6(price),8(owned),9(filing) */
-    #screenerBody tr td:nth-child(5),
-    #screenerBody tr td:nth-child(6),
-    #screenerBody tr td:nth-child(8),
-    #screenerBody tr td:nth-child(9) { display: none; }
-    /* Stock trades table: hide title, price, owned, filing */
-    #stockTradesBody tr td:nth-child(3),
-    #stockTradesBody tr td:nth-child(6),
-    #stockTradesBody tr td:nth-child(8),
-    #stockTradesBody tr td:nth-child(9) { display: none; }
-  }
-
-  /* ── Very small (≤380px) ── */
-  @media (max-width: 380px) {
-    .logo { font-size: 17px; }
-    .nav-tab { padding: 4px 8px; font-size: 10px; }
-    #chartContainer { height: 280px !important; }
-  }
-
-</style>
-</head>
-<body>
-
-<!-- ═══════════════════ HEADER ═══════════════════ -->
-<header>
-  <div class="logo" onclick="switchView('screener', document.querySelectorAll('.nav-tab')[0])" style="cursor:pointer">INSIDER<span>TAPE</span></div>
-
-  <div class="search-wrap">
-    <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-    </svg>
-    <input type="text" id="tickerInput" placeholder="Search ticker  (e.g. AAPL)" maxlength="10">
-    <button class="search-btn" onclick="searchTicker()">GO</button>
-  </div>
-
-  <nav class="nav-tabs">
-    <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
-    <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
-    <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
-  </nav>
-</header>
-
-<main>
-
-<!-- ═══════════════════ SCREENER VIEW ═══════════════════ -->
-<div id="view-screener" class="view active">
-  <div class="screener-layout">
-
-    <!-- Filter Panel -->
-    <aside class="filter-panel">
-      <span class="filter-label">Trade Type</span>
-      <div class="filter-chips" style="margin-bottom:20px">
-        <div class="chip buy-chip active"  data-type="P" onclick="toggleChip(this)">Buy</div>
-        <div class="chip sell-chip active" data-type="S" onclick="toggleChip(this)">Sell</div>
-        <div class="chip opt-chip active"  data-type="A" onclick="toggleChip(this)">Option Ex.</div>
-        <div class="chip opt-chip active"  data-type="M" onclick="toggleChip(this)">Other</div>
-      </div>
-
-      <div class="filter-section">
-        <span class="filter-label">Insider Role</span>
-        <div class="filter-chips">
-          <div class="chip active" data-role="all"  onclick="toggleRole(this)">All</div>
-          <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
-          <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
-          <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="10%"  onclick="toggleRole(this)">10%+ Owner</div>
-        </div>
-      </div>
-
-      <div class="filter-section">
-        <span class="filter-label">Min Transaction Value</span>
-        <div class="filter-range">
-          <select id="minVal">
-            <option value="0">Any amount</option>
-            <option value="50000">$50,000+</option>
-            <option value="100000" selected>$100,000+</option>
-            <option value="500000">$500,000+</option>
-            <option value="1000000">$1,000,000+</option>
-            <option value="5000000">$5,000,000+</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="filter-section">
-        <span class="filter-label">Time Period</span>
-        <div class="filter-chips">
-          <div class="chip active" data-days="7"   onclick="toggleDays(this)">7D</div>
-          <div class="chip" data-days="30"  onclick="toggleDays(this)">30D</div>
-          <div class="chip" data-days="90"  onclick="toggleDays(this)">90D</div>
-          <div class="chip" data-days="365" onclick="toggleDays(this)">1Y</div>
-        </div>
-      </div>
-
-      <button class="apply-btn" onclick="loadScreener()">APPLY FILTERS</button>
-
-      <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border)">
-        <span class="filter-label">Data Source</span>
-        <p style="font-size:11px; color:var(--muted); line-height:1.6">
-          Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
-          Price data via Yahoo Finance.<br><br>
-          <span style="color:var(--accent)">Note:</span> Data may be delayed up to 48hrs from SEC filing.
-        </p>
-      </div>
-    </aside>
-
-    <!-- Screener Content -->
-    <div class="screener-content">
-      <div class="screener-header">
-        <div>
-          <div class="screener-title">RECENT INSIDER TRADES</div>
-          <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <div class="live-badge"><div class="live-dot"></div>LIVE</div>
-        </div>
-      </div>
-
-      <div class="summary-bar" id="summaryBar"></div>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
-              <th onclick="sortTable('ticker')">TICKER</th>
-              <th onclick="sortTable('insider')">INSIDER</th>
-              <th onclick="sortTable('type')">TYPE</th>
-              <th onclick="sortTable('shares')" class="hide-mobile">SHARES</th>
-              <th onclick="sortTable('price')" class="hide-mobile">PRICE</th>
-              <th onclick="sortTable('value')">VALUE</th>
-              <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER</th>
-              <th class="hide-mobile">FILING</th>
-            </tr>
-          </thead>
-          <tbody id="screenerBody">
-            <tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Fetching insider filings...</span></div></td></tr>
-          </tbody>
-        </table>
-        <div class="pagination" id="pagination"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════ STOCK VIEW ═══════════════════ -->
-<div id="view-stock" class="view">
-  <div id="stockContent">
-    <div class="empty-state">
-      <div class="empty-icon">📈</div>
-      <div style="font-size:15px;color:var(--text)">Search a ticker to get started</div>
-      <div style="font-size:12px">Enter a stock symbol in the search bar above</div>
-    </div>
-  </div>
-</div>
-
-<!-- ═══════════════════ INSIDER VIEW ═══════════════════ -->
-<div id="view-insider" class="view">
-  <div id="insiderViewBody"></div>
-</div>
-
-</main>
-
-<!-- Toast -->
-<div class="toast" id="toast"></div>
-
-<script>
-// ═══════════════════════════════════════════════════════
-// STATE
-// ═══════════════════════════════════════════════════════
-const state = {
-  screenerData: [],
-  currentPage: 1,
-  pageSize: 25,
-  sortCol: 'trade',
-  sortDir: -1,
-  activeTypes: new Set(['P','S','A','M']),
-  activeRole: 'all',
-  minVal: 100000,
-  days: 7,
-  currentTicker: null,
-  tickerTrades: [],
-  chart: null,
-  candleSeries: null,
-  markers: [],
-};
-
-// ═══════════════════════════════════════════════════════
-// UTILITIES
-// ═══════════════════════════════════════════════════════
-function fmt(n) {
-  if (n == null || isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
-  if (Math.abs(n) >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
-  if (Math.abs(n) >= 1e3) return '$' + (n/1e3).toFixed(1) + 'K';
-  return '$' + n.toFixed(2);
-}
-function fmtShares(n) {
-  if (n == null || isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M';
-  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1)+'K';
-  return n.toLocaleString();
-}
-function fmtDate(d) {
-  if (!d) return '—';
-  const dt = new Date(d);
-  return dt.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'});
-}
-function tradeClass(type) {
-  if (!type) return '';
-  const t = type.toUpperCase();
-  if (t === 'P') return 'buy';
-  if (t === 'S' || t === 'S-') return 'sell';
-  return 'option';
-}
-function tradeLabel(type) {
-  if (!type) return 'Unknown';
-  const t = type.toUpperCase();
-  const map = {
-    'P': 'Open Buy', 'S': 'Open Sell', 'S-': 'Sell', 'A': 'Option Ex.',
-    'M': 'Transfer', 'C': 'Conv.', 'F': 'Tax Sale', 'G': 'Gift',
-    'J': 'Other', 'L': 'Gift', 'W': 'Will', 'Z': 'Trust'
-  };
-  return map[t] || type;
-}
-function badgeClass(type) {
-  const c = tradeClass(type);
-  if (c === 'buy') return 'badge-buy';
-  if (c === 'sell') return 'badge-sell';
-  return 'badge-option';
-}
-
-function showToast(msg, isError = false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (isError ? ' error' : '');
-  setTimeout(() => t.className = 'toast', 3500);
-}
-
-// ═══════════════════════════════════════════════════════
-// NAVIGATION
-// ═══════════════════════════════════════════════════════
-function switchView(view, btn) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('view-' + view).classList.add('active');
-  if (btn) btn.classList.add('active');
-  // Initialise insider landing page when switching to it
-  if (view === 'insider') {
-    const body = document.getElementById('insiderViewBody');
-    if (body && !body.hasChildNodes()) insiderLanding();
-  }
-}
-
-function searchTicker() {
-  const val = document.getElementById('tickerInput').value.trim().toUpperCase();
-  if (!val) return showToast('Please enter a ticker symbol', true);
-  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
-  document.querySelectorAll('.nav-tab')[1].classList.add('active');
-  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
-  loadStockView(val);
-}
-
-document.getElementById('tickerInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') searchTicker();
+'use strict';
+
+// daily-worker.js — v7 (paginated RSS for recent data)
+// Fixes:
+//  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
+//  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
+//  - RSS poll runs every 2 min for low-latency same-day picks
+//  - daily_log now records per-date counts correctly
+//  - Increased EFTS page limit to catch all filings (up to 10k/day)
+
+const https    = require('https');
+const fs       = require('fs');
+const path     = require('path');
+const Database = require('better-sqlite3');
+
+const DATA_DIR = fs.existsSync('/var/data') ? '/var/data' : path.join(__dirname, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const DB_PATH  = path.join(DATA_DIR, 'trades.db');
+
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
+    trade_date TEXT NOT NULL, filing_date TEXT,
+    type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER, accession TEXT,
+    UNIQUE(accession, insider, trade_date, type, qty)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker);
+  CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider);
+  CREATE TABLE IF NOT EXISTS daily_log (
+    date TEXT PRIMARY KEY,
+    synced_at TEXT DEFAULT (datetime('now')),
+    filings INTEGER,
+    trades INTEGER
+  );
+`);
+
+const insertTrade = db.prepare(`
+  INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+`);
+const doInsert = db.transaction(rows => {
+  let n = 0;
+  for (const r of rows) n += insertTrade.run(r).changes;
+  return n;
 });
 
-// ═══════════════════════════════════════════════════════
-// DATA FETCHING — direct from our server (SEC EDGAR Form 4 data)
-// ═══════════════════════════════════════════════════════
-// ─────────────────────────────────────────────────────────────
-//  API — all data comes from our own server (server.js)
-//  No CORS issues, no proxies, no third-party rate limits
-// ─────────────────────────────────────────────────────────────
-const API_BASE = ''; // blank = same origin (correct for production)
+function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
 
-async function apiFetch(path) {
-  const resp = await fetch(API_BASE + path);
-  if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
-  return resp.json();
+// ── Rate-limited GET (max 8 req/sec to respect SEC limits) ───────
+const reqTimes = [];
+async function get(url, ms = 20000) {
+  const now = Date.now();
+  while (reqTimes.length && reqTimes[0] < now - 1000) reqTimes.shift();
+  if (reqTimes.length >= 8) {
+    await new Promise(r => setTimeout(r, 1000 - (now - reqTimes[0]) + 10));
+  }
+  reqTimes.push(Date.now());
+
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
+      timeout: ms,
+    }, res => {
+      if ([301,302,303].includes(res.statusCode) && res.headers.location)
+        return get(res.headers.location, ms).then(resolve).catch(reject);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
 }
 
-async function fetchInsiderForTicker(ticker) {
-  return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`);
+function parseDate(s) {
+  if (!s) return null;
+  const d = s.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
 }
 
-async function fetchInsiderByName(name) {
+function xmlGet(xml, tag) {
+  let m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*<value>\\s*([^<]+?)\\s*</value>', 'is'));
+  if (m?.[1]?.trim()) return m[1].trim();
+  m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*([^<\\s][^<]*?)\\s*</' + tag + '>', 'i'));
+  return m?.[1]?.trim() || '';
+}
+
+function parseForm4(xml, filingDate, accession) {
+  const ticker  = xmlGet(xml, 'issuerTradingSymbol').toUpperCase().trim();
+  const company = xmlGet(xml, 'issuerName').trim();
+  const insider = xmlGet(xml, 'rptOwnerName').trim();
+  const title   = (xmlGet(xml, 'officerTitle') || xmlGet(xml, 'rptOwnerRelationship') || '').trim();
+  const period  = parseDate(xmlGet(xml, 'periodOfReport'));
+  if (!ticker) return [];
+
+  const rows = [];
+  function parseBlock(block) {
+    const code  = xmlGet(block, 'transactionCode') || '?';
+    const date  = parseDate(xmlGet(block, 'transactionDate')) || period || filingDate;
+    if (!date) return;
+    const qty   = Math.round(Math.abs(parseFloat(xmlGet(block, 'transactionShares') || xmlGet(block, 'underlyingSecurityShares') || '0') || 0));
+    const price = Math.abs(parseFloat(xmlGet(block, 'transactionPricePerShare') || xmlGet(block, 'exercisePrice') || '0') || 0);
+    const owned = Math.round(Math.abs(parseFloat(xmlGet(block, 'sharesOwnedFollowingTransaction') || '0') || 0));
+    rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), Math.round(qty * price), owned, accession]);
+  }
+
+  let m;
+  const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/gi;
+  const dRe  = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/gi;
+  while ((m = ndRe.exec(xml))) parseBlock(m[1]);
+  while ((m = dRe.exec(xml)))  parseBlock(m[1]);
+  return rows;
+}
+
+// ── Resolve accession number → parsed Form 4 rows ────────────────
+async function fetchForm4(accession, filingDate, xmlFile, ciks) {
+  const acc      = accession.replace(/-/g, '');
+  const filerCik = parseInt(acc.slice(0, 10), 10).toString();
+  const allCiks  = [...new Set([...(ciks || []).map(k => parseInt(k, 10).toString()), filerCik])];
+
+  // 1. Direct xmlFile path (fastest — EFTS gives us the filename)
+  if (xmlFile) {
+    for (const cik of allCiks) {
+      try {
+        const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlFile}`);
+        if (status === 200 && body.includes('ownershipDocument'))
+          return parseForm4(body, filingDate, accession);
+      } catch(e) {}
+    }
+  }
+
+  // 2. Filing index JSON → find XML filename
+  for (const cik of allCiks) {
+    try {
+      const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accession}-index.json`);
+      if (status === 200) {
+        const idx    = JSON.parse(body);
+        const xmlDoc = (idx.documents || []).find(d =>
+          d.document?.match(/\.xml$/i) && (d.type === '4' || d.type === '4/A' || !d.type)
+        ) || (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
+        if (xmlDoc) {
+          const { status: xs, body: xml } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlDoc.document}`);
+          if (xs === 200 && xml.includes('ownershipDocument'))
+            return parseForm4(xml, filingDate, accession);
+        }
+      }
+    } catch(e) {}
+  }
+
+  // 3. Common filename fallbacks
+  for (const cik of allCiks) {
+    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml']) {
+      try {
+        const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`);
+        if (status === 200 && body.includes('ownershipDocument'))
+          return parseForm4(body, filingDate, accession);
+      } catch(e) {}
+    }
+  }
+
+  return [];
+}
+
+// ── EDGAR browse-edgar paginated fetch — gets ALL filings since cutoff ──
+// fetchRecentFilings: get all Form 4s filed since sinceDate
+// Strategy: try browse-edgar atom feed (low latency), fall back to EFTS (reliable)
+async function fetchRecentFilings(sinceDate) {
+  // Try EDGAR atom feed with start= pagination
   try {
-    // Use exact=1 so server matches the full name precisely
-    const trades = await apiFetch(`/api/insider?name=${encodeURIComponent(name)}&exact=1`);
-    return trades;
+    const filings = await fetchViaAtom(sinceDate);
+    if (filings.length > 0) {
+      log(`Atom feed: ${filings.length} filings since ${sinceDate}`);
+      return filings;
+    }
+    log(`Atom feed returned 0 — falling back to EFTS`);
   } catch(e) {
+    log(`Atom feed error: ${e.message} — falling back to EFTS`);
+  }
+
+  // Fallback: EFTS search (has ~1hr lag but is reliable)
+  const today = new Date().toISOString().slice(0, 10);
+  const filings = await searchEFTS(sinceDate, today);
+  log(`EFTS fallback: ${filings.length} filings since ${sinceDate}`);
+  return filings;
+}
+
+async function fetchViaAtom(sinceDate) {
+  const filings = [];
+  const seen    = new Set();
+
+  for (let start = 0; start < 2000; start += 40) {
+    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&start=${start}&output=atom`;
+    const r = await get(url, 30000);
+    if (r.status !== 200) {
+      log(`Atom HTTP ${r.status} at start=${start}`);
+      break;
+    }
+
+    const entries = r.body.split('<entry>').slice(1);
+    if (start === 0) log(`Atom page 0: ${entries.length} entries, body length ${r.body.length}`);
+    if (!entries.length) break;
+
+    let oldestOnPage = '';
+    for (const entry of entries) {
+      const dateMatch  = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+      const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0,10);
+      const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
+      if (!linkMatch) continue;
+      const cik    = linkMatch[1];
+      const accRaw = linkMatch[2];
+      const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+      if (!seen.has(accDash)) {
+        seen.add(accDash);
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
+      }
+      if (!oldestOnPage || filingDate < oldestOnPage) oldestOnPage = filingDate;
+    }
+
+    if (oldestOnPage && oldestOnPage < sinceDate) break;
+    if (entries.length < 40) break;
+  }
+
+  return filings.filter(f => f.filingDate >= sinceDate);
+}
+
+
+
+
+
+async function pollRSS() {
+  // For the live 2-min poll, grab everything from today (fast, usually <40 new)
+  const today = new Date().toISOString().slice(0, 10);
+  return fetchRecentFilings(today);
+}
+
+// ── EDGAR daily index (definitive — lists every filing for each day) ─
+// https://www.sec.gov/Archives/edgar/full-index/YYYY/QN/company.idx
+// This is what serious data providers use — it's the authoritative list.
+async function fetchDailyIndex(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const yr = d.getUTCFullYear();
+  const mo = d.getUTCMonth() + 1;
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const q  = Math.ceil(mo / 3);
+
+  // The full-index company.gz file for this quarter lists all filings
+  // But it's updated daily — we parse it and filter by date + form type
+  const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=100&search_text=&action=getcurrent&output=atom`;
+  
+  // Actually use the EDGAR full-index for the specific date
+  // Format: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=YYYYMMDD&owner=include&count=100&search_text=&output=atom
+  const dateFmt = `${yr}${String(mo).padStart(2,'0')}${dd}`;
+  const idxUrl  = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=${dateFmt}&owner=include&count=100&search_text=&output=atom`;
+  
+  try {
+    const { status, body } = await get(idxUrl, 30000);
+    if (status !== 200) return [];
+    return parseAtomFeed(body, dateStr);
+  } catch(e) {
+    log(`Daily index error for ${dateStr}: ${e.message}`);
     return [];
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// SCREENER
-// ═══════════════════════════════════════════════════════
-function toggleChip(el) {
-  el.classList.toggle('active');
-  const type = el.dataset.type;
-  if (el.classList.contains('active')) state.activeTypes.add(type);
-  else state.activeTypes.delete(type);
-}
-function toggleRole(el) {
-  document.querySelectorAll('[data-role]').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  state.activeRole = el.dataset.role;
-}
-function toggleDays(el) {
-  document.querySelectorAll('[data-days]').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  state.days = parseInt(el.dataset.days);
-}
-
-async function loadScreener() {
-  state.minVal = parseInt(document.getElementById('minVal').value) || 0;
-  const days   = state.days || 7;
-
-  document.getElementById('screenerBody').innerHTML =
-    `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div>
-     <span>Loading insider filings...</span></div></td></tr>`;
-  document.getElementById('summaryBar').innerHTML = '';
-
-  try {
-    const resp = await apiFetch('/api/screener?days=' + days);
-
-    // Server is still loading SEC data — poll until ready
-    if (resp && resp.building) {
-      document.getElementById('screenerBody').innerHTML =
-        `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div>
-         <span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span>
-         </div></td></tr>`;
-      setTimeout(loadScreener, 8000);
-      return;
-    }
-
-    let trades = Array.isArray(resp) ? resp : (resp.trades || []);
-
-    if (!trades.length) {
-      // No data for selected period — show most recent available instead
-      document.getElementById('screenerBody').innerHTML =
-        `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div>
-         <span>No recent data yet — loading most recent available...</span></div></td></tr>`;
-      const fallback = await apiFetch('/api/screener?days=365');
-      const all = Array.isArray(fallback) ? fallback : (fallback.trades || []);
-      if (!all.length) {
-        document.getElementById('screenerBody').innerHTML =
-          `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div>
-           <div>No filings found. Check <a href="/api/daily-status" target="_blank" style="color:var(--accent)">/api/daily-status</a> for sync info.</div>
-           </div></td></tr>`;
-        return;
-      }
-      trades = all;
-      // Show a notice about data freshness
-      document.getElementById('summaryBar').innerHTML =
-        `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">
-          ⚠ Recent daily data still loading. Showing most recent available filings.
-          <a href="/api/run-daily?force=1&days=10" target="_blank" style="color:var(--accent);margin-left:8px">Force refresh</a>
-        </div>`;
-    }
-
-    // Apply client-side filters
-    if (state.activeTypes.size > 0) {
-      trades = trades.filter(t => state.activeTypes.has(t.type));
-    }
-    if (state.minVal > 0) {
-      trades = trades.filter(t => t.value >= state.minVal);
-    }
-
-    if (!trades.length) {
-      document.getElementById('screenerBody').innerHTML =
-        `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div>
-         <div>No filings match your filters</div></div></td></tr>`;
-      return;
-    }
-
-    state.screenerData = trades;
-    state.currentPage  = 1;
-    renderScreener();
-
-  } catch(e) {
-    console.error('loadScreener error:', e);
-    document.getElementById('screenerBody').innerHTML =
-      `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div>
-       <div style="color:var(--sell)">Could not load data: ${e.message}</div>
-       </div></td></tr>`;
+function parseAtomFeed(body, expectedDate) {
+  const filings = [];
+  const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+  let m;
+  while ((m = entryRe.exec(body))) {
+    const entry = m[1];
+    const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+    const filingDate = dateMatch ? dateMatch[1] : expectedDate;
+    const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
+    if (!linkMatch) continue;
+    const cik    = linkMatch[1];
+    const accRaw = linkMatch[2];
+    if (accRaw.length !== 18) continue;
+    const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+    filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
   }
+  return filings;
 }
 
-
-function renderScreener() {
-  const data = state.screenerData;
-
-  // Summary
-  const buys = data.filter(t => t.type === 'P');
-  const sells = data.filter(t => t.type === 'S' || t.type === 'S-');
-  const totalBuyVal = buys.reduce((s,t) => s+t.value, 0);
-  const totalSellVal = sells.reduce((s,t) => s+t.value, 0);
-
-  document.getElementById('summaryBar').innerHTML = `
-    <div class="summary-card">
-      <div class="summary-card-label">Total Trades</div>
-      <div class="summary-card-val" style="color:var(--text)">${data.length}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card-label">Buy Volume</div>
-      <div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card-label">Sell Volume</div>
-      <div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card-label">Buy/Sell Ratio</div>
-      <div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length ? (buys.length/sells.length).toFixed(2) : '∞'}x</div>
-    </div>
-    <div class="summary-card">
-      <div class="summary-card-label">Unique Tickers</div>
-      <div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div>
-    </div>
-  `;
-
-  document.getElementById('screenerMeta').textContent =
-    `${data.length} filings · Last updated ${new Date().toLocaleTimeString()}`;
-
-  // Sort — API returns 'trade' for trade_date, 'filing' for filing_date
-  const SORT_FIELD = { date: 'filing', trade: 'trade', filing: 'filing',
-                       ticker: 'ticker', insider: 'insider', type: 'type',
-                       shares: 'qty', price: 'price', value: 'value', owned: 'owned' };
-  const field = SORT_FIELD[state.sortCol] || state.sortCol;
-  const sorted = [...data].sort((a,b) => {
-    let av = a[field], bv = b[field];
-    if (field === 'trade' || field === 'filing') {
-      // Sort as strings — ISO dates sort correctly lexicographically
-      av = av || ''; bv = bv || '';
-    } else {
-      av = parseFloat(av) || 0; bv = parseFloat(bv) || 0;
-    }
-    if (av < bv) return state.sortDir;
-    if (av > bv) return -state.sortDir;
-    return 0;
-  });
-
-  // Paginate
-  const start = (state.currentPage-1) * state.pageSize;
-  const page  = sorted.slice(start, start + state.pageSize);
-  const total = sorted.length;
-  const pages = Math.ceil(total / state.pageSize);
-
-  const tbody = document.getElementById('screenerBody');
-  if (!page.length) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = page.map(t => `
-    <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.filing||t.trade)}</span>
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">trade: ${fmtDate(t.trade)}</span></td>
-      <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()">
-        <span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span>
-        <span class="insider-title">${t.title}</span>
-      </td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
-    </tr>
-  `).join('');
-
-  // Pagination
-  const pg = document.getElementById('pagination');
-  if (pages <= 1) { pg.innerHTML = ''; return; }
-  let pgHtml = `<button class="page-btn" onclick="changePage(${state.currentPage-1})" ${state.currentPage===1?'disabled':''}>← Prev</button>`;
-  for (let i = 1; i <= Math.min(pages,7); i++) {
-    pgHtml += `<button class="page-btn ${i===state.currentPage?'active':''}" onclick="changePage(${i})">${i}</button>`;
-  }
-  if (pages > 7) pgHtml += `<span style="color:var(--muted);padding:0 8px">...</span>`;
-  pgHtml += `<button class="page-btn" onclick="changePage(${state.currentPage+1})" ${state.currentPage===pages?'disabled':''}>Next →</button>`;
-  pg.innerHTML = pgHtml;
-}
-
-function changePage(p) {
-  state.currentPage = p;
-  renderScreener();
-  document.querySelector('.screener-content').scrollTop = 0;
-}
-
-function sortTable(col) {
-  if (state.sortCol === col) state.sortDir *= -1;
-  else { state.sortCol = col; state.sortDir = -1; }
-  document.querySelectorAll('th').forEach(th => th.classList.remove('sorted'));
-  renderScreener();
-}
-
-function openTickerFromScreener(ticker) {
-  document.getElementById('tickerInput').value = ticker;
-  switchView('stock', document.querySelectorAll('.nav-tab')[1]);
-  document.querySelectorAll('.nav-tab')[1].classList.add('active');
-  document.querySelectorAll('.nav-tab')[0].classList.remove('active');
-  loadStockView(ticker);
-}
-
-// ═══════════════════════════════════════════════════════
-// STOCK VIEW — Lightweight Charts + FMP price + circle markers
-// ═══════════════════════════════════════════════════════
-async function loadStockView(ticker) {
-  state.currentTicker = ticker;
-  document.getElementById('stockContent').innerHTML = `
-    <div class="loading-state" style="height:400px">
-      <div class="spinner"></div>
-      <span>Loading ${ticker}...</span>
-    </div>`;
-
-  const [priceData, insiderData] = await Promise.all([
-    apiFetch('/api/price?symbol=' + encodeURIComponent(ticker)).catch(() => []),
-    fetchInsiderForTicker(ticker).catch(() => []),
-  ]);
-
-  state.tickerTrades     = insiderData;
-  state.currentPriceData = priceData;
-
-  const buys     = insiderData.filter(t => t.type === 'P').length;
-  const sells    = insiderData.filter(t => t.type === 'S' || t.type === 'S-').length;
-  const totalVal = insiderData.reduce((s, t) => s + t.value, 0);
-  const company  = insiderData[0]?.company || '';
-  const last     = priceData[priceData.length - 1];
-  const prev     = priceData[priceData.length - 2];
-  const chg      = last && prev ? last.close - prev.close : 0;
-  const chgPct   = prev ? (chg / prev.close * 100) : 0;
-  const chgColor = chg >= 0 ? 'var(--buy)' : 'var(--sell)';
-  const last252  = priceData.slice(-252);
-  const h52      = last252.reduce((m, d) => d.high  > m ? d.high  : m, 0);
-  const l52      = last252.reduce((m, d) => d.low   < m ? d.low   : m, Infinity);
-
-  document.getElementById('stockContent').innerHTML = `
-    <div class="stock-layout">
-      <div class="stock-header-bar">
-        <div>
-          <div class="stock-ticker-big">${ticker}</div>
-          <div class="stock-name-sub">${company}</div>
-        </div>
-        <div class="stock-price-block">
-          <div class="stock-price">${last ? '$' + last.close.toFixed(2) : '—'}</div>
-          <div class="stock-change" style="color:${chgColor}">
-            ${chg >= 0 ? '+' : ''}${chg.toFixed(2)} (${chg >= 0 ? '+' : ''}${chgPct.toFixed(2)}%) today
-          </div>
-        </div>
-        <div class="stat-grid">
-          <div class="stat-item"><div class="stat-label">52W High</div><div class="stat-val">$${h52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">52W Low</div><div class="stat-val">$${l52 === Infinity ? '—' : '$' + l52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">Buys</div><div class="stat-val" style="color:var(--buy)" id="statBuys">${buys}</div></div>
-          <div class="stat-item"><div class="stat-label">Sells</div><div class="stat-val" style="color:var(--sell)" id="statSells">${sells}</div></div>
-          <div class="stat-item"><div class="stat-label">Insider Value</div><div class="stat-val" id="statVal">${fmt(totalVal)}</div></div>
-        </div>
-      </div>
-
-      <div class="chart-area">
-        <div class="chart-controls" style="flex-wrap:wrap;gap:6px 0;">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
-          <button class="tf-btn" onclick="setRange(30,this)">1M</button>
-          <button class="tf-btn" onclick="setRange(90,this)">3M</button>
-          <button class="tf-btn active" onclick="setRange(180,this)">6M</button>
-          <button class="tf-btn" onclick="setRange(365,this)">1Y</button>
-          <button class="tf-btn" onclick="setRange(730,this)">2Y</button>
-          <button class="tf-btn" onclick="setRange(9999,this)">ALL</button>
-          <div style="margin-left:auto" class="chart-legend">
-            <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--option)"></div>Option</div>
-          </div>
-          <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
-            <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
-            <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="var(--buy)" onclick="toggleChartFilter('P',this)">BUYS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
-          </div>
-        </div>
-        <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
-          ${!priceData.length ? '<div class="empty-state" style="height:500px"><div class="empty-icon">📡</div><div>Price data unavailable</div></div>' : ''}
-        </div>
-        <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
-          <div id="pressureContainer" style="width:100%;height:120px;"></div>
-        </div>
-        <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
-      </div>
-
-      <div class="insider-sidebar">
-        <div class="sidebar-tabs">
-          <div class="sidebar-tab active" onclick="switchSidebarTab('trades',this)">TRADES (${insiderData.length})</div>
-          <div class="sidebar-tab" onclick="switchSidebarTab('summary',this)">SUMMARY</div>
-        </div>
-        <div class="sidebar-content" id="sidebarContent"></div>
-      </div>
-
-      <div class="stock-trades-section">
-        <div class="section-title">ALL INSIDER TRANSACTIONS — ${ticker}</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>TRADE DATE</th><th>INSIDER</th><th>TITLE</th><th>TYPE</th>
-              <th>SHARES</th><th>PRICE</th><th>VALUE</th><th>OWNED AFTER</th><th>FILING DATE</th>
-            </tr></thead>
-            <tbody id="stockTradesBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-
-  renderSidebarTrades(insiderData);
-  renderStockTradesTable(insiderData);
-  renderTradeMarkerList(insiderData);
-
-  if (priceData.length) {
-    buildChart(priceData, insiderData);
-  }
-
-  // Init chart filter button colors
-  ['P','S','O','X'].forEach(g => {
-    chartActiveFilters.add(g); // reset to all-on for each new stock
-    const btn = document.getElementById('chartFilter-' + g);
-    if (btn) {
-      btn.classList.add('active');
-      btn.style.color       = btn.dataset.color || 'var(--accent)';
-      btn.style.borderColor = btn.dataset.color || 'var(--accent)';
-    }
-  });
-}
-
-// ═══════════════════════════════════════════════════════
-// LIGHTWEIGHT CHARTS — candlesticks + circle markers + pressure
-// ═══════════════════════════════════════════════════════
-const CHART_H = 500;
-
-function buildChart(priceData, trades) {
-  const container = document.getElementById('chartContainer');
-  if (!container || !priceData.length) return;
-
-  // Destroy previous instances
-  if (state.chart)    { try { state.chart.remove();         } catch(e) {} state.chart = null; }
-  if (state.pressureChart) { try { state.pressureChart.remove(); } catch(e) {} state.pressureChart = null; }
-  const oldCanvas = document.getElementById('markerCanvas');
-  if (oldCanvas) oldCanvas.remove();
-  container.innerHTML = '';
-
-  // ── Main candlestick chart ────────────────────────────
-  const chart = LightweightCharts.createChart(container, {
-    width:  container.clientWidth,
-    height: CHART_H,
-    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
-    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: '#1e2d3d' } },
-    crosshair: {
-      mode: LightweightCharts.CrosshairMode.Normal,
-      vertLine: { color: '#00d4ff66', labelBackgroundColor: '#0d1117' },
-      horzLine: { color: '#00d4ff44', labelBackgroundColor: '#0d1117' },
-    },
-    rightPriceScale: { borderColor: '#1e2d3d' },
-    timeScale: { borderColor: '#1e2d3d', timeVisible: true },
-  });
-
-  const candles = chart.addCandlestickSeries({
-    upColor:   '#00ff88', downColor: '#ff4466',
-    borderUpColor: '#00ff88', borderDownColor: '#ff4466',
-    wickUpColor:   '#00ff88', wickDownColor:   '#ff4466',
-  });
-  candles.setData(priceData.map(d => ({
-    time: d.time, open: d.open, high: d.high, low: d.low, close: d.close
-  })));
-
-  const volSeries = chart.addHistogramSeries({
-    priceFormat: { type: 'volume' },
-    priceScaleId: 'vol',
-    scaleMargins: { top: 0.82, bottom: 0 },
-  });
-  volSeries.setData(priceData.map(d => ({
-    time: d.time, value: d.volume || 0,
-    color: d.close >= d.open ? 'rgba(0,255,136,0.15)' : 'rgba(255,68,102,0.15)',
-  })));
-
-  state.chart       = chart;
-  state.candleSeries = candles;
-
-  // Show 6 months by default
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 180);
-  const cutStr = cutoff.toISOString().split('T')[0];
-  const visible = priceData.filter(d => d.time >= cutStr);
-  if (visible.length > 0) {
-    chart.timeScale().setVisibleRange({
-      from: visible[0].time,
-      to:   priceData[priceData.length - 1].time,
-    });
-  } else {
-    chart.timeScale().fitContent();
-  }
-
-  // ── Circle overlay ────────────────────────────────────
-  buildCircleOverlay(container, chart, candles, trades, priceData);
-
-  // ── Pressure chart ────────────────────────────────────
-  buildPressureChart(chart, trades, priceData);
-
-  // ── Resize observer ───────────────────────────────────
-  new ResizeObserver(() => {
-    const w = container.clientWidth;
-    if (w > 0 && state.chart) {
-      state.chart.applyOptions({ width: w });
-      const canvas = document.getElementById('markerCanvas');
-      if (canvas) {
-        canvas.width = w;
-        drawCircles();
-      }
-    }
-    if (state.pressureChart) {
-      const pc = document.getElementById('pressureContainer');
-      if (pc) state.pressureChart.applyOptions({ width: pc.clientWidth });
-    }
-  }).observe(container);
-}
-
-// ── CIRCLE OVERLAY ────────────────────────────────────────────
-function buildCircleOverlay(container, chart, series, trades, priceData) {
-  const canvas = document.createElement('canvas');
-  canvas.id    = 'markerCanvas';
-  canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
-  canvas.width  = container.clientWidth;
-  canvas.height = CHART_H;
-  container.appendChild(canvas);
-
-  // Build a date→price lookup and sorted date list for nearest-day lookup
-  const priceMap   = {};
-  const priceDates = [];
-  priceData.forEach(d => { priceMap[d.time] = d; priceDates.push(d.time); });
-  priceDates.sort();
-
-  // Find nearest available trading day at or after a given date
-  function nearestTradingDay(dateStr) {
-    if (priceMap[dateStr]) return dateStr;
-    // Search forward up to 5 days (handles weekends + holidays)
-    for (let i = 1; i <= 5; i++) {
-      const d = new Date(dateStr + 'T12:00:00Z');
-      d.setUTCDate(d.getUTCDate() + i);
-      const s = d.toISOString().slice(0, 10);
-      if (priceMap[s]) return s;
-    }
-    // Search backward
-    for (let i = 1; i <= 5; i++) {
-      const d = new Date(dateStr + 'T12:00:00Z');
-      d.setUTCDate(d.getUTCDate() - i);
-      const s = d.toISOString().slice(0, 10);
-      if (priceMap[s]) return s;
-    }
-    return null;
-  }
-
-  // Group trades by TRADE date (not filing date), snapped to nearest price bar
-  const groups = {};
-  trades.forEach(t => {
-    const raw = (t.trade || t.filing || '').slice(0, 10);
-    const d   = nearestTradingDay(raw);
-    if (!d) return; // no nearby price data — skip
-    const tc = tradeClass(t.type);
-    const k  = d + '|' + tc;
-    if (!groups[k]) groups[k] = { date: d, tc, trades: [], value: 0 };
-    groups[k].trades.push(t);
-    groups[k].value += t.value || 0;
-  });
-
-  state.markerGroups = Object.values(groups);
-
-  const tooltip = document.getElementById('chartTooltip') || (() => {
-    const el = document.createElement('div');
-    el.id = 'chartTooltip';
-    el.style.cssText = 'position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
-    document.body.appendChild(el);
-    return el;
-  })();
-
-  function drawCircles() {
-    const ctx  = canvas.getContext('2d');
-    const W    = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
-    state._circles = [];
-
-    const maxVal = Math.max(...state.markerGroups.map(g => g.value), 1);
-
-    state.markerGroups.forEach(g => {
-      const bar = series.coordinateToLogical
-        ? null
-        : null; // fallback path below
-
-      // Get x from time scale
-      const ts  = chart.timeScale().timeToCoordinate(g.date);
-      if (ts === null || ts === undefined) return;
-
-      // Get y from price scale
-      const pd = priceMap[g.date];
-      if (!pd) return;
-      const isBuy  = g.tc === 'buy';
-      const isSell = g.tc === 'sell';
-      const refPrice = isBuy  ? pd.low  * 0.995
-                      : isSell ? pd.high * 1.005
-                      : pd.close;
-      const yCoord = series.priceToCoordinate(refPrice);
-      if (yCoord === null || yCoord === undefined) return;
-
-      // Radius: 8–22px log-scaled
-      const r = 8 + 14 * Math.log1p(g.value) / Math.log1p(maxVal);
-
-      const color = isBuy  ? 'rgba(0,255,136,'
-                  : isSell ? 'rgba(255,68,102,'
-                  :           'rgba(255,170,0,';
-
-      // Glow
-      ctx.beginPath();
-      ctx.arc(ts, yCoord, r + 3, 0, Math.PI * 2);
-      ctx.fillStyle = color + '0.08)';
-      ctx.fill();
-
-      // Circle
-      ctx.beginPath();
-      ctx.arc(ts, yCoord, r, 0, Math.PI * 2);
-      ctx.fillStyle   = color + '0.20)';
-      ctx.strokeStyle = color + '0.85)';
-      ctx.lineWidth   = 1.5;
-      ctx.fill();
-      ctx.stroke();
-
-      state._circles.push({ x: ts, y: yCoord, r, group: g });
-    });
-  }
-
-  // Redraw on pan/zoom
-  chart.timeScale().subscribeVisibleLogicalRangeChange(() => setTimeout(drawCircles, 10));
-  drawCircles();
-  state.drawCircles = drawCircles;
-
-  // Hover tooltip
-  canvas.style.pointerEvents = 'auto';
-  canvas.addEventListener('mousemove', e => {
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    let hit = null;
-    for (const c of (state._circles || [])) {
-      if (Math.hypot(mx - c.x, my - c.y) <= c.r + 4) { hit = c; break; }
-    }
-    if (hit) {
-      canvas.style.cursor = 'crosshair';
-      const g = hit.group;
-      const tc = g.tc;
-      const color = tc === 'buy' ? '#00ff88' : tc === 'sell' ? '#ff4466' : '#ffaa00';
-      const label = tc === 'buy' ? '▲ BUY' : tc === 'sell' ? '▼ SELL' : '◆ OPTION/AWARD';
-      const rows = g.trades.slice(0, 5).map(t =>
-        `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8">
-          <span style="color:#e8f4fd">${t.insider}</span>
-          ${t.title ? `<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>` : ''}
-          <span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span>
-        </div>`).join('');
-      tooltip.innerHTML = `
-        <div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>
-        ${rows}
-        ${g.trades.length > 5 ? `<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>` : ''}
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">
-          Total: <span style="color:${color}">${fmt(g.value)}</span>
-        </div>`;
-      tooltip.style.display = 'block';
-      const tx = e.clientX + 16, ty = e.clientY - 10;
-      tooltip.style.left = (tx + 280 > window.innerWidth ? e.clientX - 296 : tx) + 'px';
-      tooltip.style.top  = ty + 'px';
-    } else {
-      canvas.style.cursor = '';
-      tooltip.style.display = 'none';
-    }
-  });
-  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
-}
-
-// ── PRESSURE CHART ─────────────────────────────────────────────
-function buildPressureChart(mainChart, trades, priceData) {
-  const pc = document.getElementById('pressureContainer');
-  if (!pc || !trades.length) return;
-  pc.innerHTML = '';
-
-  // Aggregate net value per day using TRADE date
-  const byDay = {};
-  trades.forEach(t => {
-    const d  = (t.trade || t.filing || '').slice(0, 10);
-    if (!d) return;
-    if (!byDay[d]) byDay[d] = { net: 0, total: 0 };
-    const tc = tradeClass(t.type);
-    const v  = t.value || 0;
-    // Only count buys and sells toward net pressure
-    if (tc === 'buy')  { byDay[d].net += v;  byDay[d].total += v; }
-    if (tc === 'sell') { byDay[d].net -= v;  byDay[d].total += v; }
-    // Options still contribute to total but not to net directional pressure
-  });
-
-  // Build continuous line across all price dates.
-  // Days with trades get the net pressure value; days without hold at 0.
-  // The line is segmented by colour: green when positive, red when negative, grey at zero.
-  const allDates = priceData.map(d => d.time);
-  const maxTotal = Math.max(...Object.values(byDay).map(d => d.total), 1);
-
-  // Build value series — 0 on days with no trades, net pressure on days with trades
-  const valueByDate = {};
-  Object.entries(byDay).forEach(([date, d]) => {
-    valueByDate[date] = +(d.net / maxTotal * 100).toFixed(2);
-  });
-
-  // Split into coloured segments: each contiguous run of same sign gets one series
-  // Lightweight Charts doesn't support per-point line colour, so we use area series
-  // with a baseline at 0 and topColor/bottomColor to get green/red fills with a line
-  const pChart = LightweightCharts.createChart(pc, {
-    width:  pc.clientWidth || 800,
-    height: 120,
-    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
-    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: '#1e2d3d22' } },
-    rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.1, bottom: 0.1 } },
-    timeScale: { borderColor: '#1e2d3d', visible: false },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    handleScroll: false, handleScale: false,
-  });
-
-  // Baseline area series — green above zero, red below
-  const areaSeries = pChart.addBaselineSeries({
-    baseValue:               { type: 'price', price: 0 },
-    topLineColor:            'rgba(0,255,136,1)',
-    topFillColor1:           'rgba(0,255,136,0.20)',
-    topFillColor2:           'rgba(0,255,136,0.02)',
-    bottomLineColor:         'rgba(255,68,102,1)',
-    bottomFillColor1:        'rgba(255,68,102,0.02)',
-    bottomFillColor2:        'rgba(255,68,102,0.20)',
-    lineWidth:               2,
-    priceLineVisible:        false,
-    lastValueVisible:        false,
-    crosshairMarkerVisible:  true,
-    crosshairMarkerRadius:   3,
-  });
-
-  const lineData = allDates.map(t => ({ time: t, value: valueByDate[t] ?? 0 }));
-  areaSeries.setData(lineData);
-
-  // Build per-day trade summary for tooltip
-  // byDay already has net/total — also store individual trades
-  const byDayTrades = {};
-  trades.forEach(t => {
-    const d = (t.trade || t.filing || '').slice(0, 10);
-    if (!d) return;
-    if (!byDayTrades[d]) byDayTrades[d] = [];
-    byDayTrades[d].push(t);
-  });
-
-  // Canvas overlay for hover tooltip on pressure bars
-  const pCanvas = document.createElement('canvas');
-  pCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:auto;z-index:5;';
-  pCanvas.width  = pc.clientWidth || 800;
-  pCanvas.height = 120;
-  pc.style.position = 'relative';
-  pc.appendChild(pCanvas);
-
-  const pTooltip = document.getElementById('chartTooltip') || (() => {
-    const el = document.createElement('div');
-    el.id = 'chartTooltip';
-    el.style.cssText = 'position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
-    document.body.appendChild(el);
-    return el;
-  })();
-
-  pCanvas.addEventListener('mousemove', e => {
-    const rect = pCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const ts = pChart.timeScale().coordinateToTime(x);
-    if (!ts) { pTooltip.style.display = 'none'; return; }
-    const dateStr = typeof ts === 'string' ? ts : new Date(ts * 1000).toISOString().slice(0,10);
-    const dayTrades = byDayTrades[dateStr];
-    if (!dayTrades || !dayTrades.length) { pTooltip.style.display = 'none'; return; }
-
-    const buys  = dayTrades.filter(t => tradeClass(t.type) === 'buy');
-    const sells = dayTrades.filter(t => tradeClass(t.type) === 'sell');
-    const buyVal  = buys.reduce((s,t) => s + (t.value||0), 0);
-    const sellVal = sells.reduce((s,t) => s + (t.value||0), 0);
-    const net = buyVal - sellVal;
-    const netColor = net >= 0 ? 'var(--buy)' : 'var(--sell)';
-
-    const insiders = [...new Set(dayTrades.map(t => t.insider).filter(Boolean))];
-
-    pTooltip.innerHTML = `
-      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>
-      ${buys.length  ? `<div style="color:var(--buy)">▲ BUY &nbsp;${buys.length} insider${buys.length>1?'s':''} · ${fmt(buyVal)}</div>` : ''}
-      ${sells.length ? `<div style="color:var(--sell)">▼ SELL ${sells.length} insider${sells.length>1?'s':''} · ${fmt(sellVal)}</div>` : ''}
-      <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d">
-        <span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span>
-      </div>
-      <div style="margin-top:4px;font-size:10px;color:var(--muted)">${insiders.slice(0,3).join(', ')}${insiders.length>3?' +'+( insiders.length-3)+' more':''}</div>`;
-    pTooltip.style.display = 'block';
-    const tx = e.clientX + 16, ty = e.clientY - 10;
-    pTooltip.style.left = (tx + 280 > window.innerWidth ? e.clientX - 296 : tx) + 'px';
-    pTooltip.style.top  = ty + 'px';
-  });
-  pCanvas.addEventListener('mouseleave', () => { pTooltip.style.display = 'none'; });
-
-  state.pressureChart = pChart;
-
-  // Sync initial range to match main chart immediately on load
-  try {
-    const initialRange = mainChart.timeScale().getVisibleLogicalRange();
-    if (initialRange) pChart.timeScale().setVisibleLogicalRange(initialRange);
-  } catch(e) {}
-
-  // Then keep in sync as user pans/zooms
-  mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-    if (range && state.pressureChart) {
-      state.pressureChart.timeScale().setVisibleLogicalRange(range);
-    }
-  });
-
-  // Label
-  const label = document.createElement('div');
-  label.style.cssText = 'position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent = 'INSIDER PRESSURE';
-  document.getElementById('pressureWrapper').style.position = 'relative';
-  document.getElementById('pressureWrapper').appendChild(label);
-}
-
-// ── RANGE BUTTONS ──────────────────────────────────────────────
-function setRange(days, btn) {
-  document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  if (!state.chart || !state.currentPriceData?.length) return;
-  const all = state.currentPriceData;
-  if (days >= 9999) {
-    state.chart.timeScale().fitContent();
-  } else {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const cutStr  = cutoff.toISOString().split('T')[0];
-    const visible = all.filter(d => d.time >= cutStr);
-    if (visible.length > 0) {
-      state.chart.timeScale().setVisibleRange({
-        from: visible[0].time,
-        to:   all[all.length - 1].time,
-      });
-    }
-  }
-  setTimeout(() => { if (state.drawCircles) state.drawCircles(); }, 50);
-}
-
-function buildPressureFromTrades() {} // no-op, handled by buildPressureChart above
-
-// ─── CHART TRADE TYPE FILTER ───────────────────────────────────
-// P=Buy S=Sell M/A/D/F/G/W=Other  option types: C/X/M
-const chartActiveFilters = new Set(['P','S','O','X']);
-const OPTION_TYPES = new Set(['C','X','M','A']);
-const BUY_TYPES    = new Set(['P']);
-const SELL_TYPES   = new Set(['S','D']);
-
-function tradeFilterGroup(type) {
-  if (BUY_TYPES.has(type))    return 'P';
-  if (SELL_TYPES.has(type))   return 'S';
-  if (OPTION_TYPES.has(type)) return 'O';
-  return 'X';
-}
-
-function toggleChartFilter(group, btn) {
-  if (chartActiveFilters.has(group)) {
-    chartActiveFilters.delete(group);
-    btn.classList.remove('active');
-    btn.style.color       = 'var(--muted)';
-    btn.style.borderColor = 'var(--border)';
-  } else {
-    chartActiveFilters.add(group);
-    btn.classList.add('active');
-    btn.style.color       = btn.dataset.color || 'var(--accent)';
-    btn.style.borderColor = btn.dataset.color || 'var(--accent)';
-  }
-  if (!state.tickerTrades || !state.currentPriceData) return;
-
-  const filtered = state.tickerTrades.filter(t => chartActiveFilters.has(tradeFilterGroup(t.type)));
-
-  // Update stat-grid counts
-  const statBuys = document.getElementById('statBuys');
-  const statSells = document.getElementById('statSells');
-  const statVal   = document.getElementById('statVal');
-  if (statBuys)  statBuys.textContent  = filtered.filter(t => t.type === 'P').length;
-  if (statSells) statSells.textContent = filtered.filter(t => t.type === 'S' || t.type === 'S-').length;
-  if (statVal)   statVal.textContent   = fmt(filtered.reduce((s,t) => s + (t.value||0), 0));
-
-  // Rebuild markerGroups using same nearest-trading-day logic
-  if (state.currentPriceData) {
-    const pm = {};
-    state.currentPriceData.forEach(d => { pm[d.time] = true; });
-    function snapDay(dateStr) {
-      if (pm[dateStr]) return dateStr;
-      for (let i = 1; i <= 5; i++) {
-        const d = new Date(dateStr + 'T12:00:00Z');
-        d.setUTCDate(d.getUTCDate() + i);
-        const s = d.toISOString().slice(0, 10);
-        if (pm[s]) return s;
-      }
-      for (let i = 1; i <= 5; i++) {
-        const d = new Date(dateStr + 'T12:00:00Z');
-        d.setUTCDate(d.getUTCDate() - i);
-        const s = d.toISOString().slice(0, 10);
-        if (pm[s]) return s;
-      }
-      return null;
-    }
-    const groups = {};
-    filtered.forEach(t => {
-      const raw = (t.trade || t.filing || '').slice(0, 10);
-      const d   = snapDay(raw);
-      if (!d) return;
-      const tc = tradeClass(t.type);
-      const k  = d + '|' + tc;
-      if (!groups[k]) groups[k] = { date: d, tc, trades: [], value: 0 };
-      groups[k].trades.push(t);
-      groups[k].value += t.value || 0;
-    });
-    state.markerGroups = Object.values(groups);
-  }
-
-  // Redraw circles on existing canvas (no new canvas created)
-  if (state.drawCircles) state.drawCircles();
-
-  // Refresh sidebar, trades table, and marker list to match active filters
-  renderSidebarTrades(filtered);
-  renderStockTradesTable(filtered);
-  renderTradeMarkerList(filtered);
-
-  // Rebuild pressure chart
-  buildPressureChart(state.chart, filtered, state.currentPriceData);
-}
-
-// ═══════════════════════════════════════════════════════
-// TRADE PILL LIST
-
-// ═══════════════════════════════════════════════════════
-function renderTradeMarkerList(trades) {
-  const el = document.getElementById('tradeMarkerList');
-  if (!el) return;
-  const sorted = [...trades].sort((a, b) => new Date(b.trade || b.filing) - new Date(a.trade || a.filing));
-  el.innerHTML = sorted.slice(0, 15).map(t => {
-    const tc     = tradeClass(t.type);
-    const color  = tc === 'buy' ? 'var(--buy)'  : tc === 'sell' ? 'var(--sell)'  : 'var(--option)';
-    const border = tc === 'buy' ? 'rgba(0,255,136,0.3)' : tc === 'sell' ? 'rgba(255,68,102,0.3)' : 'rgba(255,170,0,0.3)';
-    const bg     = tc === 'buy' ? 'rgba(0,255,136,0.07)' : tc === 'sell' ? 'rgba(255,68,102,0.07)' : 'rgba(255,170,0,0.07)';
-    return `
-      <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
-                  background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer"
-           onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
-        <span style="color:${color};font-size:10px;font-weight:700">${tc === 'buy' ? '▲' : '▼'} ${tradeLabel(t.type)}</span>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade || t.filing)}</span>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
-        <span style="font-size:10px;color:var(--muted)">${t.insider ? t.insider.split(' ').slice(-1)[0] : ''}</span>
-      </div>`;
-  }).join('');
-  if (trades.length > 15) {
-    el.innerHTML += `<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length - 15} more — see table below</div>`;
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// SIDEBAR
-// ═══════════════════════════════════════════════════════
-function switchSidebarTab(tab, el) {
-  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  if (tab === 'trades') renderSidebarTrades(state.tickerTrades);
-  else renderSidebarSummary(state.tickerTrades);
-}
-
-function renderSidebarTrades(trades) {
-  const el = document.getElementById('sidebarContent');
-  if (!el) return;
-  if (!trades.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;
-    return;
-  }
-  el.innerHTML = trades.map(t => `
-    <div class="trade-card ${tradeClass(t.type)}">
-      <div class="trade-card-top">
-        <span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span>
-        <span class="trade-date">${fmtDate(t.trade||t.filing)}</span>
-      </div>
-      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</div>
-      <div class="trade-role">${t.title}</div>
-      <div class="trade-numbers">
-        <div class="trade-num-item">
-          <div class="trade-num-label">Shares</div>
-          <div class="trade-num-val">${fmtShares(t.qty)}</div>
-        </div>
-        <div class="trade-num-item">
-          <div class="trade-num-label">Price</div>
-          <div class="trade-num-val">$${(t.price||0).toFixed(2)}</div>
-        </div>
-        <div class="trade-num-item" style="grid-column:1/-1">
-          <div class="trade-num-label">Total Value</div>
-          <div class="trade-num-val" style="color:${tradeClass(t.type)==='buy'?'var(--buy)':tradeClass(t.type)==='sell'?'var(--sell)':'var(--option)'}">${fmt(t.value)}</div>
-        </div>
-      </div>
-    </div>
-  `).join('');
-}
-
-function renderSidebarSummary(trades) {
-  const el = document.getElementById('sidebarContent');
-  if (!el) return;
-
-  const buys  = trades.filter(t => t.type === 'P');
-  const sells = trades.filter(t => t.type === 'S' || t.type === 'S-');
-  const opts  = trades.filter(t => t.type === 'A');
-
-  const buyVal  = buys.reduce((s,t)=>s+t.value,0);
-  const sellVal = sells.reduce((s,t)=>s+t.value,0);
-
-  // Unique insiders
-  const insiderMap = {};
-  trades.forEach(t => {
-    if (!insiderMap[t.insider]) insiderMap[t.insider] = {name:t.insider, title:t.title, trades:0, netVal:0};
-    insiderMap[t.insider].trades++;
-    insiderMap[t.insider].netVal += t.type==='P' ? t.value : -t.value;
-  });
-  const topInsiders = Object.values(insiderMap).sort((a,b) => Math.abs(b.netVal)-Math.abs(a.netVal)).slice(0,5);
-
-  el.innerHTML = `
-    <div style="margin-bottom:16px">
-      <div class="trade-num-label" style="margin-bottom:8px">ACTIVITY BREAKDOWN</div>
-      <div style="display:grid;gap:6px">
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(0,255,136,0.07);border-radius:4px;border:1px solid rgba(0,255,136,0.2)">
-          <span style="color:var(--buy);font-size:12px">▲ Buys (${buys.length})</span>
-          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,68,102,0.07);border-radius:4px;border:1px solid rgba(255,68,102,0.2)">
-          <span style="color:var(--sell);font-size:12px">▼ Sells (${sells.length})</span>
-          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,170,0,0.07);border-radius:4px;border:1px solid rgba(255,170,0,0.2)">
-          <span style="color:var(--option);font-size:12px">◆ Options/Other (${opts.length + trades.length - buys.length - sells.length})</span>
-          <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
-    ${topInsiders.map(ins => `
-      <div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px">
-        <div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div>
-        <div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">
-          Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}
-        </div>
-      </div>
-    `).join('')}
-  `;
-}
-
-function renderStockTradesTable(trades) {
-  const el = document.getElementById('stockTradesBody');
-  if (!el) return;
-  if (!trades.length) {
-    el.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;
-    return;
-  }
-  el.innerHTML = trades.map(t => `
-    <tr>
-      <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span></td>
-      <td style="color:var(--muted);font-size:12px">${t.title}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
-    </tr>
-  `).join('');
-}
-
-// ═══════════════════════════════════════════════════════
-// INSIDER PROFILE
-// ═══════════════════════════════════════════════════════
-
-function escName(str) {
-  return (str||'').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
-
-async function openInsiderProfile(name, title) {
-  // Switch to insider view
-  const tab = document.getElementById('insiderTab');
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  tab.classList.add('active');
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-insider').classList.add('active');
-  // Delegate to the unified profile function
-  await openInsiderProfileFull(name, title);
-}
-
-
-
-function renderInsiderProfile(name, title, trades) {
-  const buys  = trades.filter(t => t.type === 'P');
-  const sells = trades.filter(t => t.type === 'S' || t.type === 'S-');
-  const buyVal  = buys.reduce((s,t)=>s+t.value,0);
-  const sellVal = sells.reduce((s,t)=>s+t.value,0);
-  const netVal  = buyVal - sellVal;
-
-  // Unique companies/tickers
-  const tickerMap = {};
-  trades.forEach(t => {
-    if (!tickerMap[t.ticker]) tickerMap[t.ticker] = { ticker: t.ticker, company: t.company||t.ticker, buyVal:0, sellVal:0, count:0 };
-    if (t.type==='P') tickerMap[t.ticker].buyVal += t.value;
-    else tickerMap[t.ticker].sellVal += t.value;
-    tickerMap[t.ticker].count++;
-  });
-  const tickerList = Object.values(tickerMap).sort((a,b) => (b.buyVal+b.sellVal)-(a.buyVal+a.sellVal));
-  const maxTickerVal = Math.max(...tickerList.map(t => t.buyVal + t.sellVal), 1);
-
-  // Initials for avatar
-  const initials = name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
-
-  // Most recent title
-  const latestTitle = trades[0]?.title || title || 'Executive';
-
-  // Date of first and most recent trade
-  const dates = trades.map(t=>new Date(t.trade||t.filing)).filter(Boolean).sort((a,b)=>a-b);
-  const firstTrade = dates[0] ? fmtDate(dates[0].toISOString().split('T')[0]) : '—';
-  const lastTrade  = dates[dates.length-1] ? fmtDate(dates[dates.length-1].toISOString().split('T')[0]) : '—';
-
-  document.getElementById('insiderContent').innerHTML = `
-    <div class="insider-profile-layout">
-
-      <button class="back-btn" onclick="goBack()">← Back</button>
-
-      <!-- Hero -->
-      <div class="insider-hero">
-        <div class="insider-avatar">${initials}</div>
-        <div class="insider-hero-info">
-          <div class="insider-hero-name">${name}</div>
-          <div class="insider-hero-title">${latestTitle}</div>
-          <div class="insider-hero-companies">
-            ${tickerList.map(t => `<span class="company-tag" onclick="openTickerFromScreener('${t.ticker}')">${t.ticker}</span>`).join('')}
-          </div>
-        </div>
-        <div class="insider-hero-stats">
-          <div class="insider-stat">
-            <div class="insider-stat-label">Total Trades</div>
-            <div class="insider-stat-val" style="color:var(--text)">${trades.length}</div>
-          </div>
-          <div class="insider-stat">
-            <div class="insider-stat-label">Total Bought</div>
-            <div class="insider-stat-val" style="color:var(--buy)">${fmt(buyVal)}</div>
-          </div>
-          <div class="insider-stat">
-            <div class="insider-stat-label">Total Sold</div>
-            <div class="insider-stat-val" style="color:var(--sell)">${fmt(sellVal)}</div>
-          </div>
-          <div class="insider-stat">
-            <div class="insider-stat-label">Net Position</div>
-            <div class="insider-stat-val" style="color:${netVal>=0?'var(--buy)':'var(--sell)'}">${netVal>=0?'+':''}${fmt(netVal)}</div>
-          </div>
-          <div class="insider-stat">
-            <div class="insider-stat-label">Active Since</div>
-            <div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="profile-grid">
-        <!-- Left: timeline chart + full trade table -->
-        <div>
-          <!-- Mini activity timeline -->
-          <div class="activity-chart-wrap">
-            <div class="activity-chart-title">Trade Activity Timeline</div>
-            <div id="insiderActivityChart" style="position:relative;height:160px;overflow:hidden;">
-              ${buildCSSTimeline(trades)}
-            </div>
-          </div>
-
-          <!-- Full trade history table -->
-          <div class="section-title">FULL TRANSACTION HISTORY</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>TRADE DATE</th>
-                  <th>TICKER</th>
-                  <th>TYPE</th>
-                  <th>SHARES</th>
-                  <th>PRICE</th>
-                  <th>VALUE</th>
-                  <th>OWNED AFTER</th>
-                  <th>FILING</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${trades.map(t => `
-                  <tr style="cursor:pointer" onclick="openTickerFromScreener('${t.ticker}')">
-                    <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-                    <td class="ticker-cell">${t.ticker}</td>
-                    <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-                    <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-                    <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-                    <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-                    <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-                    <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Right: ticker breakdown -->
-        <div>
-          <div class="ticker-breakdown">
-            <div class="activity-chart-title" style="margin-bottom:14px">Activity by Ticker</div>
-            ${tickerList.map(t => {
-              const total = t.buyVal + t.sellVal;
-              const buyW  = total ? (t.buyVal/total*100).toFixed(1) : 0;
-              const sellW = total ? (t.sellVal/total*100).toFixed(1) : 0;
-              const barW  = (total/maxTickerVal*100).toFixed(1);
-              return `
-              <div class="ticker-row" onclick="openTickerFromScreener('${t.ticker}')">
-                <div class="ticker-bar-label">${t.ticker}</div>
-                <div style="flex:1">
-                  <div class="ticker-bar-track" title="Buy: ${fmt(t.buyVal)} / Sell: ${fmt(t.sellVal)}">
-                    <div style="display:flex;height:100%;width:${barW}%">
-                      <div class="ticker-bar-fill" style="width:${buyW}%;background:var(--buy-dim)"></div>
-                      <div class="ticker-bar-fill" style="width:${sellW}%;background:var(--sell-dim)"></div>
-                    </div>
-                  </div>
-                  <div style="display:flex;gap:6px;margin-top:3px">
-                    ${t.buyVal  ? `<span style="font-size:9px;color:var(--buy)">${fmt(t.buyVal)}</span>` : ''}
-                    ${t.sellVal ? `<span style="font-size:9px;color:var(--sell)">${fmt(t.sellVal)}</span>` : ''}
-                  </div>
-                </div>
-                <div class="ticker-bar-val">${t.count} trade${t.count!==1?'s':''}</div>
-              </div>`;
-            }).join('')}
-          </div>
-
-          <!-- Buy vs Sell donut summary -->
-          <div class="ticker-breakdown" style="margin-top:16px">
-            <div class="activity-chart-title">Buy vs Sell Breakdown</div>
-            <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
-              <div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                  <span style="font-size:11px;color:var(--buy)">▲ Open Buys (${buys.length})</span>
-                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy)">${fmt(buyVal)}</span>
-                </div>
-                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-                  <div style="height:100%;width:${buyVal+sellVal?((buyVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--buy);border-radius:3px;transition:width .5s"></div>
-                </div>
-              </div>
-              <div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                  <span style="font-size:11px;color:var(--sell)">▼ Open Sells (${sells.length})</span>
-                  <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--sell)">${fmt(sellVal)}</span>
-                </div>
-                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-                  <div style="height:100%;width:${buyVal+sellVal?((sellVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--sell);border-radius:3px;transition:width .5s"></div>
-                </div>
-              </div>
-              <div style="padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
-                <span style="font-size:11px;color:var(--muted)">Net Conviction</span>
-                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${netVal>=0?'var(--buy)':'var(--sell)'}">
-                  ${netVal>=0?'NET BUYER':'NET SELLER'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  // profile rendered — no canvas needed
-}
-
-function buildCSSTimeline(trades) {
-  if (!trades.length) return '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">No trade history</div>';
-
-  const sorted = [...trades].sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
-  const minT = new Date(sorted[0].trade||sorted[0].filing).getTime();
-  const maxT = new Date(sorted[sorted.length-1].trade||sorted[sorted.length-1].filing).getTime();
-  const span = maxT - minT || 86400000 * 30;
-
-  const maxVal = Math.max(...trades.map(t => t.value||1));
-
-  // Year markers
-  const firstYear = new Date(minT).getFullYear();
-  const lastYear  = new Date(maxT).getFullYear();
-  let yearMarkers = '';
-  for (let y = firstYear; y <= lastYear; y++) {
-    const yt = new Date(y, 0, 1).getTime();
-    const pct = Math.max(0, Math.min(100, ((yt - minT) / span) * 100));
-    yearMarkers += `<div style="position:absolute;left:${pct}%;top:0;bottom:0;width:1px;background:rgba(30,45,61,0.8);">
-      <span style="position:absolute;bottom:2px;left:3px;font-size:9px;color:#4a6580;font-family:'Space Mono',monospace;white-space:nowrap">${y}</span>
-    </div>`;
-  }
-
-  // Centre line
-  const centreLine = `<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#1e2d3d;transform:translateY(-50%)"></div>`;
-
-  // Lollipop dots
-  let dots = '';
-  sorted.forEach(t => {
-    const d = new Date(t.trade||t.filing).getTime();
-    const pct = ((d - minT) / span) * 100;
-    const isBuy = t.type === 'P';
-    const isOpt = tradeClass(t.type) === 'option';
-    const color = isBuy ? '#00ff88' : isOpt ? '#ffaa00' : '#ff4466';
-    // Size: 6px min, 14px max based on value
-    const size = 6 + Math.min(8, (Math.log10(t.value||1) - 3) * 2);
-    // Stem height: proportional to value vs max
-    const stemH = 20 + ((t.value||0) / maxVal) * 40;
-    const above = !isBuy; // buys below midline stem goes up, sells above stem goes down
-
-    dots += `
-      <div title="${t.insider} — ${tradeLabel(t.type)} ${fmt(t.value)} on ${fmtDate(t.trade||t.filing)}"
-           style="position:absolute;left:${pct}%;transform:translateX(-50%);
-                  ${isBuy ? `bottom:calc(50%)` : `top:calc(50%)`};
-                  display:flex;flex-direction:column;align-items:center;cursor:pointer"
-           onclick="openTickerFromScreener('${t.ticker}')">
-        ${isBuy ? `
-          <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}66;flex-shrink:0"></div>
-          <div style="width:1.5px;height:${stemH}px;background:${color}66;flex-shrink:0"></div>
-        ` : `
-          <div style="width:1.5px;height:${stemH}px;background:${color}66;flex-shrink:0"></div>
-          <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}66;flex-shrink:0"></div>
-        `}
-      </div>`;
-  });
-
-  return `
-    <div style="position:relative;width:100%;height:100%;padding:0 8px;">
-      ${centreLine}
-      ${yearMarkers}
-      ${dots}
-      <div style="position:absolute;left:8px;top:4px;font-size:9px;color:#00ff88;font-family:'Space Mono',monospace">▲ BUYS</div>
-      <div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:#ff4466;font-family:'Space Mono',monospace">▼ SELLS</div>
-    </div>`;
-}
-
-function goBack() {
-  // Return to whichever view made sense — default screener
-  const tab = document.getElementById('insiderTab');
-  tab.style.display = 'none';
-  const screenerTab = document.querySelectorAll('.nav-tab')[0];
-  switchView('screener', screenerTab);
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  screenerTab.classList.add('active');
-}
-
-// ═══════════════════════════════════════════════════════
-// INSIDER SEARCH
-// ═══════════════════════════════════════════════════════
-
-async function runInsiderSearch() {
-  const q = (document.getElementById('insiderSearchInput')?.value || '').trim();
-  if (!q) return;
-
-  // Hide profile, show results
-  document.getElementById('insiderProfileWrap').style.display = 'none';
-  document.getElementById('insiderSearchResults').style.display = '';
-
-  document.getElementById('insiderSearchTitle').textContent = `INSIDER SEARCH`;
-  document.getElementById('insiderSearchMeta').textContent  = `Searching for "${q}"...`;
-  document.getElementById('insiderResultsBody').innerHTML   =
-    `<div class="loading-state"><div class="spinner"></div><span>Searching...</span></div>`;
-
-  try {
-    const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(q));
-    if (!trades.length) {
-      document.getElementById('insiderSearchMeta').textContent = `No results for "${q}"`;
-      document.getElementById('insiderResultsBody').innerHTML  =
-        `<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;
-      return;
-    }
-
-    // Group by insider name
-    const byInsider = {};
-    trades.forEach(t => {
-      const key = t.insider || 'Unknown';
-      if (!byInsider[key]) byInsider[key] = { name: key, title: t.title, trades: [], totalBuy: 0, totalSell: 0, tickers: new Set() };
-      byInsider[key].trades.push(t);
-      byInsider[key].tickers.add(t.ticker);
-      if (tradeClass(t.type) === 'buy')  byInsider[key].totalBuy  += t.value || 0;
-      if (tradeClass(t.type) === 'sell') byInsider[key].totalSell += t.value || 0;
-    });
-
-    const insiders = Object.values(byInsider).sort((a,b) => b.trades.length - a.trades.length);
-    document.getElementById('insiderSearchMeta').textContent = `${insiders.length} insider${insiders.length>1?'s':''} · ${trades.length} trades`;
-    document.getElementById('insiderSearchTitle').textContent = `RESULTS: "${q.toUpperCase()}"`;
-
-    document.getElementById('insiderResultsBody').innerHTML = `
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>INSIDER</th>
-            <th>TITLE</th>
-            <th class="hide-mobile">TRADES</th>
-            <th class="hide-mobile">COMPANIES</th>
-            <th>TOTAL BOUGHT</th>
-            <th>TOTAL SOLD</th>
-            <th></th>
-          </tr></thead>
-          <tbody>
-            ${insiders.map(ins => `
-              <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title)}')" style="cursor:pointer">
-                <td style="font-weight:500;color:var(--text)">${ins.name}</td>
-                <td style="color:var(--muted);font-size:11px">${ins.title || '—'}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?'…':''}</td>
-                <td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.totalBuy ? fmt(ins.totalBuy) : '—'}</td>
-                <td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.totalSell ? fmt(ins.totalSell) : '—'}</td>
-                <td style="color:var(--accent);font-size:11px">VIEW →</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
-  } catch(e) {
-    document.getElementById('insiderResultsBody').innerHTML =
-      `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
-  }
-}
-
-// ── INSIDER VIEW STATE MACHINE ─────────────────────────────────────────────
-// Three states: 'landing', 'results', 'profile'
-// All rendered into #insiderViewBody — no nested show/hide fragility.
-
-function insiderLanding() {
-  const body = document.getElementById('insiderViewBody');
-  if (!body) return;
-  body.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      <!-- Search bar -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:12px">SEARCH INSIDER</div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div style="position:relative;flex:1;min-width:200px">
-            <input id="insiderSearchInput" type="text" placeholder="Search by name, e.g. Zuckerberg"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s"
-              onkeydown="if(event.key==='Enter')runInsiderSearch()"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" />
-            <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
-          </div>
-          <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:10px 22px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">SEARCH</button>
-        </div>
-        <div style="margin-top:10px;font-size:11px;color:var(--muted)">
-          Quick search:
-          ${['Zuckerberg','Musk','Cook','Bezos','Pichai','Nadella','Dimon'].map(n=>
-            `<span onclick="document.getElementById('insiderSearchInput').value='${n}';runInsiderSearch()" style="color:var(--accent);cursor:pointer;margin-left:8px">${n}</span>`
-          ).join('')}
-        </div>
-      </div>
-      <!-- Dashboard sections -->
-      <div id="insiderDashboard">
-        <div class="loading-state"><div class="spinner"></div><span>Loading insider activity...</span></div>
-      </div>
-    </div>`;
-  loadInsiderDashboard();
-}
-
-async function loadInsiderDashboard() {
-  const dash = document.getElementById('insiderDashboard');
-  if (!dash) return;
-  try {
-    // Pull recent trades for dashboard stats
-    const recent = await apiFetch('/api/screener?days=30');
-    if (!recent.length) { dash.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div>No recent data</div></div>'; return; }
-
-    // Most active buyers (last 30d by $ value)
-    const buyMap = {}, sellMap = {}, countMap = {};
-    recent.forEach(t => {
-      const k = t.insider;
-      if (!k) return;
-      countMap[k] = (countMap[k]||0) + 1;
-      if (t.type === 'P') buyMap[k]  = (buyMap[k]||0)  + (t.value||0);
-      if (t.type === 'S' || t.type === 'S-') sellMap[k] = (sellMap[k]||0) + (t.value||0);
-    });
-
-    const topBuyers = Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    const topSellers= Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    const mostActive= Object.entries(countMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-
-    // Biggest single trades
-    const bigTrades = [...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
-
-    // Recent cluster buys (multiple insiders buying same stock — filtered by actual trade date)
-    const clusterCutoff = new Date();
-    clusterCutoff.setDate(clusterCutoff.getDate() - 30);
-    const tickerBuyers = {};
-    recent.filter(t => {
-      if (t.type !== 'P') return false;
-      return new Date(t.trade || t.filing) >= clusterCutoff;
-    }).forEach(t => {
-      if (!tickerBuyers[t.ticker]) tickerBuyers[t.ticker] = new Set();
-      tickerBuyers[t.ticker].add(t.insider);
-    });
-    const clusters = Object.entries(tickerBuyers).filter(([,s])=>s.size>=2).sort((a,b)=>b[1].size-a[1].size).slice(0,8);
-
-    dash.innerHTML = `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-
-        <!-- Most Active Buyers -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--buy);font-size:14px">▲</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span>
-          </div>
-          <div style="padding:0">
-            ${topBuyers.map(([name,val],i)=>`
-              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
-                <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(val)}</span>
-              </div>`).join('')}
-          </div>
-        </div>
-
-        <!-- Most Active Sellers -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--sell);font-size:14px">▼</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span>
-          </div>
-          <div>
-            ${topSellers.map(([name,val],i)=>`
-              <div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span>
-                <span style="flex:1;font-size:13px;color:var(--text)">${name}</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span>
-              </div>`).join('')}
-          </div>
-        </div>
-
-        <!-- Cluster Buys -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--option);font-size:14px">⚡</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span>
-            <span style="font-size:10px;color:var(--muted);margin-left:auto">2+ insiders buying same stock</span>
-          </div>
-          <div>
-            ${clusters.map(([ticker, insiders])=> {
-              const tickerTrades = recent.filter(t=>t.ticker===ticker&&t.type==='P');
-              const totalVal = tickerTrades.reduce((s,t)=>s+(t.value||0),0);
-              return `<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span>
-                <span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>
-
-        <!-- Biggest Single Trades -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="color:var(--accent);font-size:14px">💰</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span>
-          </div>
-          <div>
-            ${bigTrades.map(t=>{
-              const isBuy = t.type==='P';
-              return `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-                <span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span>
-                <span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span>
-                <span class="badge ${isBuy?'badge-buy':'badge-sell'}" style="margin-right:6px">${isBuy?'BUY':'SELL'}</span>
-                <span style="font-family:'Space Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>
-
-      </div>`;
-  } catch(e) {
-    dash.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`;
-  }
-}
-
-async function runInsiderSearch() {
-  const input = document.getElementById('insiderSearchInput');
-  const q = (input?.value || '').trim();
-  if (!q) return;
-
-  const body = document.getElementById('insiderViewBody');
-  body.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      <!-- Persistent search bar -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;gap:10px;align-items:center">
-        <div style="position:relative;flex:1">
-          <input id="insiderSearchInput" type="text" value="${q.replace(/"/g,'&quot;')}" placeholder="Search by name"
-            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 14px;color:var(--text);font-size:13px;outline:none"
-            onkeydown="if(event.key==='Enter')runInsiderSearch()" />
-          <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div>
-        </div>
-        <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:9px 18px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
-        <button onclick="insiderLanding()" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-size:12px;cursor:pointer">← Dashboard</button>
-      </div>
-      <div id="insiderResultsArea">
-        <div class="loading-state"><div class="spinner"></div><span>Searching for "${q}"...</span></div>
-      </div>
-    </div>`;
-
-  // Re-attach autocomplete
-  document.getElementById('insiderSearchInput').addEventListener('input', e => insiderAutocomplete(e.target.value));
-  document.getElementById('insiderSearchInput').addEventListener('keydown', e => { if(e.key==='Enter') runInsiderSearch(); });
-
-  try {
-    const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(q));
-    const area = document.getElementById('insiderResultsArea');
-    if (!trades.length) {
-      area.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;
-      return;
-    }
-
-    // Group by exact insider name
-    const byInsider = {};
-    trades.forEach(t => {
-      const k = t.insider || 'Unknown';
-      if (!byInsider[k]) byInsider[k] = { name:k, title:t.title, trades:[], buyVal:0, sellVal:0, tickers:new Set() };
-      byInsider[k].trades.push(t);
-      byInsider[k].tickers.add(t.ticker);
-      if (t.type==='P') byInsider[k].buyVal  += t.value||0;
-      if (t.type==='S'||t.type==='S-') byInsider[k].sellVal += t.value||0;
-    });
-
-    const insiders = Object.values(byInsider).sort((a,b)=>b.trades.length-a.trades.length);
-
-    area.innerHTML = `
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">
-        ${insiders.length} INSIDER${insiders.length>1?'S':''} FOUND FOR "${q.toUpperCase()}"
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>INSIDER</th><th>TITLE</th>
-            <th class="hide-mobile">TRADES</th>
-            <th class="hide-mobile">COMPANIES</th>
-            <th>TOTAL BOUGHT</th><th>TOTAL SOLD</th>
-            <th></th>
-          </tr></thead>
-          <tbody>
-            ${insiders.map(ins=>`
-              <tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title||'')}')" style="cursor:pointer">
-                <td style="font-weight:500;color:var(--text)">${ins.name}</td>
-                <td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td>
-                <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td>
-                <td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td>
-                <td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td>
-                <td style="color:var(--accent);font-size:11px">VIEW →</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
-  } catch(e) {
-    document.getElementById('insiderResultsArea').innerHTML =
-      `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
-  }
-}
-
-async function openInsiderProfileFull(name, title) {
-  const body = document.getElementById('insiderViewBody');
-  body.innerHTML = `<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
-
-  try {
-    const trades = await fetchInsiderByName(name);
-    if (!trades.length) {
-      body.innerHTML = `<div class="empty-state" style="height:60vh">
-        <div class="empty-icon">📭</div><div>No trades found for ${name}</div>
-        <button class="back-btn" style="margin-top:16px" onclick="history.back()">← Back</button>
-      </div>`;
-      return;
-    }
-    // Render into a wrapper inside insiderViewBody
-    const wrap = document.createElement('div');
-    wrap.id = 'insiderContent';
-    body.innerHTML = '';
-    body.appendChild(wrap);
-    renderInsiderProfile(name, title, trades);
-
-    // Override back button to go back in history
-    body.querySelectorAll('.back-btn').forEach(btn => {
-      btn.textContent = '← Back to results';
-      btn.onclick = () => history.back();
-    });
-  } catch(e) {
-    body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`;
-  }
-}
-
-// Autocomplete
-let _acTimer;
-function insiderAutocomplete(val) {
-  clearTimeout(_acTimer);
-  const box = document.getElementById('insiderSuggest');
-  if (!box) return;
-  if (!val || val.length < 2) { box.style.display = 'none'; return; }
-  _acTimer = setTimeout(async () => {
+// ── EFTS search — paginates through ALL Form 4s in date range ────
+async function searchEFTS(startDate, endDate) {
+  const filings = [];
+  // Use category=form-type to get exact form type matching
+  for (let from = 0; from < 10000; from += 100) {
+    const url = `https://efts.sec.gov/LATEST/search-index?forms=4,4%2FA&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
     try {
-      const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(val));
-      const names  = [...new Set(trades.map(t=>t.insider).filter(Boolean))].slice(0,8);
-      if (!names.length) { box.style.display = 'none'; return; }
-      box.innerHTML = names.map(n =>
-        `<div onclick="document.getElementById('insiderSearchInput').value='${escName(n)}';document.getElementById('insiderSuggest').style.display='none';runInsiderSearch()"
-          style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
-          onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`
-      ).join('');
-      box.style.display = 'block';
-    } catch(e) {}
-  }, 280);
-}
-document.addEventListener('click', e => {
-  if (!e.target.closest('#insiderSearchInput') && !e.target.closest('#insiderSuggest')) {
-    const box = document.getElementById('insiderSuggest');
-    if (box) box.style.display = 'none';
+      const { status, body } = await get(url, 30000);
+      if (status !== 200) { log(`EFTS HTTP ${status}`); break; }
+      const data = JSON.parse(body);
+      const hits = data.hits?.hits || [];
+      if (!hits.length) break;
+      for (const h of hits) {
+        const raw     = h._id || '';
+        const colonAt = raw.indexOf(':');
+        const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
+        const xmlFile = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
+        const fd      = parseDate(h._source?.file_date) || endDate;
+        const ciks    = h._source?.ciks || [];
+        if (accDash.match(/^\d{10}-\d{2}-\d{6}$/))
+          filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd });
+      }
+      if (hits.length < 100) break;
+    } catch(e) { log(`EFTS error: ${e.message}`); break; }
   }
-});
-
-// ═══════════════════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════════════════
-
-// Measure actual header height (wraps on mobile) and offset main content
-function measureHeader() {
-  const h = document.querySelector('header');
-  const m = document.querySelector('main');
-  if (h && m) m.style.paddingTop = h.offsetHeight + 'px';
+  log(`EFTS returned ${filings.length} filings for ${startDate}→${endDate}`);
+  return filings;
 }
-measureHeader();
-window.addEventListener('resize', measureHeader);
 
-loadScreener();
-</script>
-</body>
-</html>
+// ── EDGAR full-index — authoritative list of every filing by quarter ─
+// URL: https://www.sec.gov/Archives/edgar/full-index/YYYY/QTRN/form.idx
+// Updated daily. Lists every Form 4/4A with CIK, date, and accession path.
+async function fetchFullIndex(startDate, endDate) {
+  const filings = [];
+  const start = new Date(startDate + 'T12:00:00Z');
+  const end   = new Date(endDate   + 'T12:00:00Z');
+
+  // Collect unique quarter keys spanning the date range
+  const quarters = new Set();
+  const cur = new Date(start);
+  while (cur <= end) {
+    const yr = cur.getUTCFullYear();
+    const q  = Math.ceil((cur.getUTCMonth() + 1) / 3);
+    quarters.add(`${yr}|${q}`);
+    cur.setUTCMonth(cur.getUTCMonth() + 3);
+  }
+
+  for (const qkey of quarters) {
+    const [yr, q] = qkey.split('|');
+    const url = `https://www.sec.gov/Archives/edgar/full-index/${yr}/QTR${q}/form.idx`;
+    log(`Fetching full-index: ${url}`);
+    try {
+      const { status, body } = await get(url, 60000);
+      if (status !== 200) { log(`full-index HTTP ${status} for ${yr}Q${q}`); continue; }
+
+      // form.idx fixed-width format:
+      //   Form Type  Company Name        CIK         Date Filed  Filename
+      //   ---------- ------------------- ----------- ----------- ---------------------------------
+      //   4          ACME CORP           0001234567  2026-02-28  edgar/data/1234567/0001234567-26-000001.txt
+      //
+      // Strategy: skip header lines, match form type at start, extract date+filename by regex.
+      const lines = body.split('\n');
+      let pastHeader = false;
+      let scanned = 0;
+      let maxDateSeen = '';
+      let debugPrinted = 0;
+
+      for (const line of lines) {
+        // The separator line is all dashes and spaces
+        if (!pastHeader) {
+          if (/^-{5}/.test(line.trim())) pastHeader = true;
+          continue;
+        }
+        if (line.length < 30) continue;
+
+        // Debug: print first 3 lines after header so we can see actual format
+        if (debugPrinted < 3) {
+          log(`  form.idx sample line: "${line.slice(0, 120)}"`);
+          debugPrinted++;
+        }
+
+        const formType = line.slice(0, 12).trim();
+        if (formType !== '4' && formType !== '4/A') continue;
+        scanned++;
+
+        // Date filed — ISO format YYYY-MM-DD
+        let dateFiled = '';
+        const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
+        const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (isoMatch) {
+          dateFiled = isoMatch[1];
+        } else if (mdyMatch) {
+          dateFiled = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
+        } else continue;
+
+        if (dateFiled > maxDateSeen) maxDateSeen = dateFiled;
+        if (dateFiled < startDate || dateFiled > endDate) continue;
+
+        // Accession path — always edgar/data/CIK/XXXXXXXXXX-XX-XXXXXX.txt
+        const fm = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
+        if (!fm) continue;
+        const cik   = fm[1];
+        const parts = fm[2].split('-');
+        if (parts.length !== 3) continue;
+        const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled });
+      }
+      log(`  form.idx ${yr}Q${q}: scanned ${scanned} Form-4 lines, most recent date: ${maxDateSeen}, ${filings.length} total in range`);
+    } catch(e) { log(`full-index error ${yr}Q${q}: ${e.message}`); }
+  }
+
+  log(`Full-index found ${filings.length} Form 4 filings for ${startDate}→${endDate}`);
+  return filings;
+}
+
+
+
+
+// ── Process filings — no seen-cache, rely on DB UNIQUE constraint ──
+async function processBatch(filings, label) {
+  if (!filings.length) return 0;
+  log(`${label}: processing ${filings.length} filings`);
+
+  let inserted = 0;
+  let failed   = 0;
+  const CONCURRENCY = 6;
+
+  for (let i = 0; i < filings.length; i += CONCURRENCY) {
+    const batch   = filings.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks))
+    );
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value?.length) {
+        inserted += doInsert(r.value);
+      } else if (r.status === 'rejected') {
+        failed++;
+      }
+    }
+    if ((i + CONCURRENCY) % 60 === 0)
+      log(`  ${i + CONCURRENCY}/${filings.length} — inserted:${inserted} failed:${failed}`);
+  }
+
+  log(`${label} done — inserted:${inserted} failed:${failed} from ${filings.length} filings`);
+  return inserted;
+}
+
+// ── Backfill: form.idx for older data, paginated RSS for last 5 days ──
+async function runBackfill(daysBack) {
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date();
+  start.setDate(start.getDate() - daysBack);
+  const startDate = start.toISOString().slice(0, 10);
+
+  // Split: form.idx covers up to 5 days ago (reliable), RSS covers last 5 days
+  const recentCutoff = new Date();
+  recentCutoff.setDate(recentCutoff.getDate() - 5);
+  const recentCutoffStr = recentCutoff.toISOString().slice(0, 10);
+
+  log(`Backfill: ${startDate} → ${today} (idx: ${startDate}→${recentCutoffStr}, rss: ${recentCutoffStr}→${today})`);
+
+  try {
+    let allFilings = [];
+
+    // 1. form.idx for older portion (more than 5 days ago)
+    if (startDate < recentCutoffStr) {
+      const idxFilings = await fetchFullIndex(startDate, recentCutoffStr);
+      log(`form.idx returned ${idxFilings.length} filings for older range`);
+      allFilings = allFilings.concat(idxFilings);
+    }
+
+    // 2. Paginated RSS for last 5 days (bypasses form.idx lag)
+    const rssFilings = await fetchRecentFilings(recentCutoffStr);
+    log(`Paginated RSS returned ${rssFilings.length} filings for recent range`);
+    allFilings = allFilings.concat(rssFilings);
+
+    if (!allFilings.length) {
+      log('No filings found from any source');
+      return;
+    }
+
+    const inserted = await processBatch(allFilings, 'Backfill');
+
+    const byDate = {};
+    allFilings.forEach(f => { byDate[f.filingDate] = (byDate[f.filingDate] || 0) + 1; });
+    const upsert = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
+    const upsertMany = db.transaction(entries => {
+      for (const [date, count] of entries) upsert.run(date, count, 0);
+    });
+    upsertMany(Object.entries(byDate));
+    db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)').run(today, allFilings.length, inserted);
+
+    log(`Backfill complete: ${inserted} trades inserted across ${Object.keys(byDate).length} days`);
+  } catch(e) {
+    log(`Backfill error: ${e.message}\n${e.stack}`);
+  }
+}
+
+// ── RSS poll ──────────────────────────────────────────────────────
+async function runRSSPoll() {
+  try {
+    const filings  = await pollRSS();
+    const inserted = await processBatch(filings, 'RSS');
+    if (inserted > 0) log(`RSS poll: +${inserted} trades`);
+  } catch(e) {
+    log(`RSS poll error: ${e.message}`);
+  }
+}
+
+// ── MAIN ─────────────────────────────────────────────────────────
+const daysBack = parseInt(process.argv[2] || '3');
+const mode     = process.argv[3] || 'poll';
+
+async function main() {
+  log(`=== daily-worker v2 start (mode=${mode}, daysBack=${daysBack}) ===`);
+
+  if (mode === 'backfill') {
+    await runBackfill(daysBack);
+    db.close();
+    process.exit(0);
+  }
+
+  // Continuous poll mode:
+  // 1. Full backfill on startup
+  await runBackfill(daysBack);
+
+  // 2. RSS every 2 minutes
+  log('Starting RSS poll (every 2 min)...');
+  setInterval(runRSSPoll, 2 * 60 * 1000);
+  await runRSSPoll();
+
+  // 3. EFTS backfill every 4 hours to catch anything RSS missed
+  setInterval(() => runBackfill(2), 4 * 60 * 60 * 1000);
+}
+
+main().catch(e => {
+  log(`FATAL: ${e.message}\n${e.stack}`);
+  db.close();
+  process.exit(1);
+});
