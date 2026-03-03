@@ -1,6 +1,6 @@
 'use strict';
 
-// daily-worker.js — v2
+// daily-worker.js — v3 (form.idx date debug)
 // Fixes:
 //  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
 //  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
@@ -303,6 +303,7 @@ async function fetchFullIndex(startDate, endDate) {
       const lines = body.split('\n');
       let pastHeader = false;
       let scanned = 0;
+      let debugPrinted = 0; // print first 3 data lines to confirm format
 
       for (const line of lines) {
         // The separator line is all dashes and spaces
@@ -311,6 +312,12 @@ async function fetchFullIndex(startDate, endDate) {
           continue;
         }
         if (line.length < 30) continue;
+
+        // Debug: print first 3 lines after header so we can see actual format
+        if (debugPrinted < 3) {
+          log(`  form.idx sample line: "${line.slice(0, 120)}"`);
+          debugPrinted++;
+        }
 
         const formType = line.slice(0, 12).trim();
         if (formType !== '4' && formType !== '4/A') continue;
