@@ -316,10 +316,16 @@ async function fetchFullIndex(startDate, endDate) {
         if (formType !== '4' && formType !== '4/A') continue;
         scanned++;
 
-        // Date filed — always YYYY-MM-DD in the line
-        const dm = line.match(/(\d{4}-\d{2}-\d{2})/);
-        if (!dm) continue;
-        const dateFiled = dm[1];
+        // Date filed — SEC form.idx uses MM/DD/YYYY format (not ISO)
+        // e.g. "02/28/2026" — convert to YYYY-MM-DD for comparison
+        let dateFiled = '';
+        const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
+        const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (isoMatch) {
+          dateFiled = isoMatch[1];
+        } else if (mdyMatch) {
+          dateFiled = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
+        } else continue;
         if (dateFiled < startDate || dateFiled > endDate) continue;
 
         // Accession path — always edgar/data/CIK/XXXXXXXXXX-XX-XXXXXX.txt
