@@ -1,6 +1,6 @@
 'use strict';
 
-// daily-worker.js — v7 (paginated RSS for recent data)
+// daily-worker.js — v8 (paginated RSS for recent data)
 // Fixes:
 //  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
 //  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
@@ -84,7 +84,8 @@ function parseDate(s) {
   const d = s.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
   const yr = parseInt(d.slice(0, 4), 10);
-  if (yr < 2000 || yr > 2030) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  if (d > today || yr < 2000) return null;
   return d;
 }
 
@@ -173,24 +174,35 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
 
 // ── EDGAR browse-edgar paginated fetch — gets ALL filings since cutoff ──
 // fetchRecentFilings: get all Form 4s filed since sinceDate
-// Strategy: try browse-edgar atom feed (low latency), fall back to EFTS (reliable)
+// Combines atom feed (low latency) + per-day EFTS (fills gaps)
 async function fetchRecentFilings(sinceDate) {
-  // Try EDGAR atom feed with start= pagination
+  const seen    = new Set();
+  let   filings = [];
+
+  // 1. Atom feed — paginated, low latency
   try {
-    const filings = await fetchViaAtom(sinceDate);
-    if (filings.length > 0) {
-      log(`Atom feed: ${filings.length} filings since ${sinceDate}`);
-      return filings;
-    }
-    log(`Atom feed returned 0 — falling back to EFTS`);
+    const atomFilings = await fetchViaAtom(sinceDate);
+    atomFilings.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); } });
+    log(`Atom feed: ${atomFilings.length} filings since ${sinceDate}`);
   } catch(e) {
-    log(`Atom feed error: ${e.message} — falling back to EFTS`);
+    log(`Atom feed error: ${e.message}`);
   }
 
-  // Fallback: EFTS search (has ~1hr lag but is reliable)
+  // 2. EFTS per-day supplement — catches anything atom missed (slight lag but complete)
   const today = new Date().toISOString().slice(0, 10);
-  const filings = await searchEFTS(sinceDate, today);
-  log(`EFTS fallback: ${filings.length} filings since ${sinceDate}`);
+  const start = new Date(sinceDate + 'T12:00:00Z');
+  const end   = new Date(today     + 'T12:00:00Z');
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dateStr = d.toISOString().slice(0, 10);
+    try {
+      const dayFilings = await searchEFTS(dateStr, dateStr);
+      let added = 0;
+      dayFilings.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); added++; } });
+      if (added > 0) log(`EFTS ${dateStr}: +${added} filings not in atom feed`);
+    } catch(e) {}
+  }
+
+  log(`fetchRecentFilings total: ${filings.length} since ${sinceDate}`);
   return filings;
 }
 
@@ -198,7 +210,7 @@ async function fetchViaAtom(sinceDate) {
   const filings = [];
   const seen    = new Set();
 
-  for (let start = 0; start < 2000; start += 40) {
+  for (let start = 0; start < 4000; start += 40) {
     const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&start=${start}&output=atom`;
     const r = await get(url, 30000);
     if (r.status !== 200) {
@@ -505,7 +517,7 @@ const daysBack = parseInt(process.argv[2] || '3');
 const mode     = process.argv[3] || 'poll';
 
 async function main() {
-  log(`=== daily-worker v7 start (mode=${mode}, daysBack=${daysBack}) ===`);
+  log(`=== daily-worker v8 start (mode=${mode}, daysBack=${daysBack}) ===`);
 
   // Clean up any rows with implausible trade_date or filing_date values
   const cleaned = db.prepare(`
