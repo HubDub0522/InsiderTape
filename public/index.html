@@ -1030,14 +1030,14 @@
         <table id="screenerTable">
           <thead>
             <tr>
-              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span><br><span style="font-size:9px;font-weight:400;opacity:0.5;cursor:pointer" onclick="event.stopPropagation();sortTable('filing')">sort by filed ↕</span></th>
-              <th onclick="sortTable('ticker')">TICKER</th>
-              <th onclick="sortTable('insider')">INSIDER</th>
-              <th onclick="sortTable('type')">TYPE</th>
-              <th onclick="sortTable('shares')" class="hide-mobile">SHARES</th>
-              <th onclick="sortTable('price')" class="hide-mobile">PRICE</th>
-              <th onclick="sortTable('value')">VALUE</th>
-              <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER</th>
+              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
+              <th onclick="sortTable('ticker')">TICKER <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('insider')">INSIDER <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('type')">TYPE <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('shares')" class="hide-mobile">SHARES <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('price')" class="hide-mobile">PRICE <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('value')">VALUE <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER <span class="sort-arrow">↕</span></th>
             </tr>
           </thead>
           <tbody id="screenerBody">
@@ -1402,24 +1402,25 @@ function changePage(p) {
 }
 
 function sortTable(col) {
-  if (state.sortCol === col) state.sortDir *= -1;
-  else { state.sortCol = col; state.sortDir = -1; }
-  // Update sort arrow
-  document.querySelectorAll('th').forEach(th => {
-    th.classList.remove('sorted');
-    const arrow = th.querySelector('.sort-arrow');
-    if (arrow) arrow.textContent = '↕';
-  });
-  const colMap = { trade: 0, ticker: 1, insider: 2, type: 3, shares: 4, price: 5, value: 6, owned: 7 };
-  const thIdx = colMap[col];
-  if (thIdx !== undefined) {
-    const th = document.querySelectorAll('#screenerTable th')[thIdx];
-    if (th) {
-      th.classList.add('sorted');
-      const arrow = th.querySelector('.sort-arrow');
-      if (arrow) arrow.textContent = state.sortDir === -1 ? '↓' : '↑';
-    }
+  if (state.sortCol === col) {
+    state.sortDir = state.sortDir === -1 ? 1 : -1;
+  } else {
+    state.sortCol = col;
+    state.sortDir = -1; // always start descending on a new column
   }
+  // Update header arrows
+  document.querySelectorAll('#screenerTable th').forEach((th, i) => {
+    const arrow = th.querySelector('.sort-arrow');
+    if (!arrow) return;
+    const cols = ['trade','ticker','insider','type','shares','price','value','owned'];
+    if (cols[i] === state.sortCol) {
+      th.classList.add('sorted');
+      arrow.textContent = state.sortDir === -1 ? '↓' : '↑';
+    } else {
+      th.classList.remove('sorted');
+      arrow.textContent = '↕';
+    }
+  });
   renderScreener();
 }
 
