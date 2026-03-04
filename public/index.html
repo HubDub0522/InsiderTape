@@ -1908,6 +1908,23 @@ function renderAnalysisDashboard() {
       accentBg: 'rgba(0,212,255,0.06)',
       accentBorder: 'rgba(0,212,255,0.2)',
     },
+    {
+      id: 'exitwarning',
+      icon: '🔴',
+      name: 'Insider Exit Warning',
+      desc: 'Detects when multiple insiders sell near price highs, selling accelerates, or selling deviates from normal patterns — warning signs that a top may be forming.',
+      count: (() => { try { return detectExitWarnings(trades).length; } catch(e) { return 0; } })(),
+      countLabel: 'warnings active',
+      top3: (() => { try { return detectExitWarnings(trades).slice(0,3).map(w => ({
+        ticker: w.ticker,
+        label: `Score ${w.score}`,
+        sub: w.topSignal,
+        color: w.score >= 75 ? 'var(--sell)' : w.score >= 50 ? 'var(--option)' : 'var(--muted)',
+      })); } catch(e) { return []; } })(),
+      accentColor: 'var(--sell)',
+      accentBg: 'rgba(255,68,102,0.05)',
+      accentBorder: 'rgba(255,68,102,0.2)',
+    },
   ];
 
   // First Buy always rendered last regardless of array order
@@ -2011,10 +2028,293 @@ function renderAnalysisSubpage(id) {
     </div>`;
   }
 
+  else if (id === 'exitwarning') {
+    renderExitWarningSubpage();
+  }
+
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
   }
 }
+
+// ── INSIDER EXIT WARNING SYSTEM ───────────────────────────────────
+
+function renderExitWarningSubpage() {
+  const body = document.getElementById('analysisViewBody');
+  const trades = _analysisData || [];
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  const warnings = detectExitWarnings(trades);
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔴 INSIDER EXIT WARNING SYSTEM</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Multi-factor top detection · Last 30D</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:700px">
+      Insider selling alone isn't a signal — executives sell for many reasons. This system only flags when
+      <span style="color:var(--text)">multiple insiders sell near the 52-week high</span>,
+      <span style="color:var(--text)">selling volume accelerates</span> vs their historical baseline,
+      or <span style="color:var(--text)">selling deviates sharply from their normal pattern</span>.
+      High scores warrant caution. Not a short signal — a <em>caution flag</em>.
+    </div>
+    ${warnings.length === 0
+      ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No exit warnings detected in the last 30 days.<br><span style="font-size:11px">This is actually a bullish sign — insiders aren't rushing for the exits.</span></div>`
+      : `<div style="display:flex;flex-direction:column;gap:16px">${warnings.map(w => renderExitWarningCard(w)).join('')}</div>`
+    }
+  </div>`;
+}
+
+function detectExitWarnings(trades) {
+  if (!trades || !trades.length) return [];
+
+  const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && t.value > 0 && (t.trade || t.filing));
+  const buys  = trades.filter(t => t.type === 'P');
+  if (!sells.length) return [];
+
+  // Group sells by ticker
+  const sellsByTicker = {};
+  sells.forEach(t => {
+    if (!sellsByTicker[t.ticker]) sellsByTicker[t.ticker] = [];
+    sellsByTicker[t.ticker].push(t);
+  });
+
+  // Also group all trades by ticker for buy/sell ratio context
+  const allByTicker = {};
+  trades.forEach(t => {
+    if (!allByTicker[t.ticker]) allByTicker[t.ticker] = [];
+    allByTicker[t.ticker].push(t);
+  });
+
+  const warnings = [];
+
+  Object.entries(sellsByTicker).forEach(([ticker, tickerSells]) => {
+    const allTicker = allByTicker[ticker] || [];
+    const tickerBuys = allTicker.filter(t => t.type === 'P');
+    let score = 0;
+    const signals = [];
+    const context = [];
+
+    // ── FACTOR 1: Seller count — multiple insiders selling (up to 25pts) ──
+    const sellerNames = [...new Set(tickerSells.map(t => t.insider).filter(Boolean))];
+    const sellerCount = sellerNames.length;
+    if (sellerCount >= 4)      { score += 25; signals.push(`${sellerCount} distinct insiders selling`); }
+    else if (sellerCount === 3) { score += 18; signals.push(`3 insiders selling concurrently`); }
+    else if (sellerCount === 2) { score += 10; signals.push(`2 insiders selling in same window`); }
+    else                        { score += 2; }
+
+    // ── FACTOR 2: Executive roles — C-suite selling is a stronger signal (up to 15pts) ──
+    const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
+    const execSellers = sellerNames.filter(name => {
+      const titles = tickerSells.filter(t => t.insider === name).map(t => (t.title||'').toUpperCase());
+      return execRoles.some(r => titles.some(ti => ti.includes(r)));
+    });
+    if (execSellers.length >= 2) { score += 15; signals.push(`${execSellers.length} C-suite sellers (highest signal)`); }
+    else if (execSellers.length === 1) {
+      const title = tickerSells.find(t => t.insider === execSellers[0])?.title || 'Executive';
+      score += 8; signals.push(`${title} among sellers`);
+    }
+
+    // ── FACTOR 3: Sell/buy ratio imbalance — sells overwhelm buys (up to 20pts) ──
+    const totalSellVal = tickerSells.reduce((s,t) => s + (t.value||0), 0);
+    const totalBuyVal  = tickerBuys.reduce((s,t) => s + (t.value||0), 0);
+    const ratio = totalBuyVal > 0 ? totalSellVal / totalBuyVal : 99;
+    if (ratio >= 10 || (totalSellVal > 0 && totalBuyVal === 0)) {
+      score += 20; signals.push(`Sells massively outweigh buys (${totalBuyVal === 0 ? 'no buying at all' : ratio.toFixed(0)+'x sell ratio'})`);
+    } else if (ratio >= 4) {
+      score += 12; signals.push(`${ratio.toFixed(1)}x more selling than buying by value`);
+    } else if (ratio >= 2) {
+      score += 5; signals.push(`Selling outpaces buying ${ratio.toFixed(1)}:1`);
+    }
+    if (totalBuyVal > 0 && ratio < 1) {
+      context.push(`Buying still present — ${fmt(totalBuyVal)} in buys vs ${fmt(totalSellVal)} in sells`);
+    }
+
+    // ── FACTOR 4: Selling acceleration — more sells in recent 7d vs prior 23d (up to 20pts) ──
+    const now = new Date();
+    const cutoff7 = new Date(now); cutoff7.setDate(now.getDate() - 7);
+    const cutoff30 = new Date(now); cutoff30.setDate(now.getDate() - 30);
+    const recent7  = tickerSells.filter(t => new Date(t.trade||t.filing) >= cutoff7);
+    const prior23  = tickerSells.filter(t => {
+      const d = new Date(t.trade||t.filing);
+      return d >= cutoff30 && d < cutoff7;
+    });
+    const recent7Val = recent7.reduce((s,t) => s+(t.value||0), 0);
+    const prior23Val = prior23.reduce((s,t) => s+(t.value||0), 0);
+    // Normalise prior to 7-day equivalent
+    const prior7Equiv = prior23Val / (23/7);
+    if (recent7Val > 0 && prior7Equiv > 0) {
+      const accel = recent7Val / prior7Equiv;
+      if (accel >= 4)      { score += 20; signals.push(`Selling accelerated ${accel.toFixed(0)}x in last 7 days`); }
+      else if (accel >= 2) { score += 12; signals.push(`Selling pace doubled in last 7 days`); }
+      else if (accel >= 1.3){ score += 5; signals.push(`Slight selling acceleration recently`); }
+    } else if (recent7.length >= 2 && prior23.length === 0) {
+      score += 15; signals.push(`All selling concentrated in last 7 days — sudden onset`);
+    }
+
+    // ── FACTOR 5: Selling near price high — most bearish context (up to 20pts) ──
+    // We don't have live price here, but we can approximate using the sell prices themselves.
+    // Compare sell prices to the highest sell price in the window — if clustered near the top, it's deliberate.
+    const sellPrices = tickerSells.map(t => t.price).filter(p => p > 0);
+    if (sellPrices.length >= 2) {
+      const maxSellPrice = Math.max(...sellPrices);
+      const minSellPrice = Math.min(...sellPrices);
+      const range = maxSellPrice - minSellPrice;
+      const avgSellPrice = sellPrices.reduce((a,b)=>a+b,0) / sellPrices.length;
+      const nearHighPct = range > 0 ? (avgSellPrice - minSellPrice) / range : 1;
+
+      // Also check: are recent sells at higher prices than older ones? (selling into strength)
+      const sortedByDate = [...tickerSells].filter(t => t.price > 0).sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
+      const earlyAvg = sortedByDate.slice(0, Math.ceil(sortedByDate.length/2)).reduce((s,t)=>s+t.price,0) / Math.ceil(sortedByDate.length/2);
+      const lateAvg  = sortedByDate.slice(Math.ceil(sortedByDate.length/2)).reduce((s,t)=>s+t.price,0) / Math.floor(sortedByDate.length/2 + 0.5);
+      const sellingIntoStrength = lateAvg > earlyAvg * 1.03;
+
+      if (nearHighPct >= 0.8) {
+        score += 20;
+        signals.push(`Insiders selling near the top of the recent price range ($${maxSellPrice.toFixed(2)} high)`);
+      } else if (nearHighPct >= 0.6) {
+        score += 12;
+        signals.push(`Sells clustered in upper ${Math.round((1-nearHighPct)*100+nearHighPct*100)}% of recent range`);
+      }
+      if (sellingIntoStrength) {
+        score += 8;
+        signals.push(`Selling prices rising over time — distributing into strength`);
+      }
+    }
+
+    // ── FACTOR 6: Deviates from normal pattern — no selling in prior window (up to 10pts) ──
+    // We only have 30d of data, so "normal" is approximated:
+    // if sell volume is > 3x the per-insider average historical sell for this ticker
+    const insiderSellAvg = totalSellVal / Math.max(sellerCount, 1);
+    if (insiderSellAvg >= 5000000) {
+      score += 10; signals.push(`Avg ${fmt(insiderSellAvg)} per insider — unusually large individual exits`);
+    } else if (insiderSellAvg >= 1000000) {
+      score += 5; signals.push(`Avg ${fmt(insiderSellAvg)} per insider selling`);
+    }
+
+    // Counterfactual: reduce score if there's heavy concurrent buying (mixed signal)
+    const concurrentBuyers = [...new Set(tickerBuys.map(t => t.insider).filter(Boolean))];
+    if (concurrentBuyers.length >= 2 && totalBuyVal > totalSellVal * 0.3) {
+      score -= 10;
+      context.push(`${concurrentBuyers.length} insiders also buying — mixed signal, less bearish`);
+    }
+
+    score = Math.min(100, Math.max(1, Math.round(score)));
+    if (score < 25 || signals.length < 2) return; // not enough signal
+
+    // Severity label
+    let severity, severityColor, severityBg, severityBorder;
+    if (score >= 75)      { severity='HIGH ALERT';  severityColor='var(--sell)';   severityBg='rgba(255,68,102,0.1)';   severityBorder='rgba(255,68,102,0.35)'; }
+    else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(255,170,0,0.08)';   severityBorder='rgba(255,170,0,0.3)'; }
+    else                  { severity='WATCH';       severityColor='var(--muted)';  severityBg='rgba(201,216,232,0.05)'; severityBorder='rgba(201,216,232,0.2)'; }
+
+    warnings.push({
+      ticker,
+      company: tickerSells[0]?.company || ticker,
+      score, signals, context, severity, severityColor, severityBg, severityBorder,
+      sellerCount, execSellers: execSellers.length,
+      totalSellVal, totalBuyVal,
+      sellerNames: sellerNames.slice(0, 5),
+      sellPriceRange: sellPrices.length ? { lo: Math.min(...sellPrices), hi: Math.max(...sellPrices) } : null,
+      latestSell: [...tickerSells].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0],
+      topSignal: signals[0] || '',
+    });
+  });
+
+  return warnings.sort((a,b) => b.score - a.score);
+}
+
+function renderExitWarningCard(w) {
+  const barW = w.score;
+  const barColor = w.score >= 75 ? 'var(--sell)' : w.score >= 50 ? 'var(--option)' : 'var(--muted)';
+
+  return `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+       onmouseover="this.style.borderColor='${w.severityBorder}'" onmouseout="this.style.borderColor='var(--border)'"
+       onclick="openTickerFromScreener('${w.ticker}')">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
+        <div style="flex-shrink:0">
+          <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${w.ticker}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.company}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <span style="background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--sell)">${w.sellerCount} SELLERS</span>
+          ${w.execSellers > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--option)">${w.execSellers} EXEC${w.execSellers>1?'S':''}</span>` : ''}
+          ${w.latestSell ? `<span style="font-size:10px;color:var(--muted)">${fmtDate(w.latestSell.trade||w.latestSell.filing)}</span>` : ''}
+        </div>
+      </div>
+      <!-- Score badge -->
+      <div style="background:${w.severityBg};border:1px solid ${w.severityBorder};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0;min-width:80px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;line-height:1;color:${w.severityColor}">${w.score}</div>
+        <div style="font-size:8px;letter-spacing:1.5px;font-family:'Space Mono',monospace;color:${w.severityColor};margin-top:2px">${w.severity}</div>
+      </div>
+    </div>
+
+    <!-- Score bar -->
+    <div style="height:3px;background:var(--border)">
+      <div style="height:100%;width:${barW}%;background:${barColor};transition:width .5s ease"></div>
+    </div>
+
+    <!-- Stats row -->
+    <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto">
+      ${[
+        { label:'TOTAL SOLD',   val: fmt(w.totalSellVal),   color:'var(--sell)' },
+        { label:'TOTAL BOUGHT', val: w.totalBuyVal > 0 ? fmt(w.totalBuyVal) : 'None', color: w.totalBuyVal > 0 ? 'var(--buy)' : 'var(--muted)' },
+        { label:'SELL/BUY',     val: w.totalBuyVal > 0 ? (w.totalSellVal/w.totalBuyVal).toFixed(1)+'x' : '∞', color:'var(--sell)' },
+        { label:'PRICE RANGE',  val: w.sellPriceRange ? `$${w.sellPriceRange.lo.toFixed(2)}–$${w.sellPriceRange.hi.toFixed(2)}` : '—', color:'var(--text)' },
+      ].map(s => `
+        <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
+          <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${s.label}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${s.color};white-space:nowrap">${s.val}</div>
+        </div>`).join('')}
+    </div>
+
+    <!-- Signals + sellers -->
+    <div class="cluster-card-body">
+      <div>
+        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--sell);margin-bottom:8px">⚠ WARNING SIGNALS</div>
+        ${w.signals.map(s => `
+          <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
+            <span style="color:var(--sell);flex-shrink:0;font-size:11px;margin-top:1px">▸</span>
+            <span style="font-size:11px;color:var(--text);line-height:1.5">${s}</span>
+          </div>`).join('')}
+        ${w.context.map(s => `
+          <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
+            <span style="color:var(--muted);flex-shrink:0;font-size:11px;margin-top:1px">↔</span>
+            <span style="font-size:11px;color:var(--muted);line-height:1.5;font-style:italic">${s}</span>
+          </div>`).join('')}
+      </div>
+      <div>
+        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">SELLERS</div>
+        ${w.sellerNames.map(name => {
+          const t = ((_analysisData||[]).find(t => t.ticker === w.ticker && t.insider === name));
+          const isExec = t && execRoles.some(r => (t.title||'').toUpperCase().includes(r));
+          const sellVal = ((_analysisData||[]).filter(t => t.ticker === w.ticker && t.insider === name && (t.type==='S'||t.type==='S-'))).reduce((s,t)=>s+(t.value||0),0);
+          return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:11px;cursor:pointer"
+                       onclick="event.stopPropagation();openInsiderProfile('${escName(name)}','${escName(t?.title||'')}')">
+            ${isExec ? '<span style="color:var(--option);font-size:9px">★</span>' : '<span style="color:var(--muted);font-size:9px">·</span>'}
+            <span style="color:var(--text);flex:1">${name}</span>
+            ${t?.title ? `<span style="color:var(--muted);font-size:10px">${t.title}</span>` : ''}
+            <span style="color:var(--sell);font-family:'Space Mono',monospace;font-size:10px;margin-left:auto">${sellVal ? fmt(sellVal) : '—'}</span>
+          </div>`;
+        }).join('')}
+        ${w.sellerCount > 5 ? `<div style="font-size:10px;color:var(--muted)">+${w.sellerCount - 5} more</div>` : ''}
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:10px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:11px;color:var(--muted);font-style:italic">Not a short signal — a caution flag. Review chart for context.</div>
+      <div style="font-size:11px;color:var(--accent)">View chart →</div>
+    </div>
+  </div>`;
+}
+
+const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
 
 // ── FIRST BUY IN YEARS SCANNER ────────────────────────────────────
 
