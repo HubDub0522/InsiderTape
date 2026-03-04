@@ -1348,17 +1348,36 @@ async function renderInsiderProfile(name, title, trades) {
         </div>
       </div>
     </div>`;
-  computeAndRenderScore(name, buys);
+  computeAndRenderScore(name, buys, trades);
 }
 
 // ── SCORER ENGINE ─────────────────────────────────────────────────
-async function computeAndRenderScore(insiderName, buyTrades) {
+async function computeAndRenderScore(insiderName, buyTrades, allTrades) {
   const scorerBody = document.querySelector('#scorerSection .scorer-body');
   if (!scorerBody) return;
   const scoreable = buyTrades.filter(t => t.type==='P' && t.price>0 && (t.trade||t.filing));
   if (scoreable.length < 2) {
     scorerBody.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0">Not enough open-market buy trades (need ≥2 with known price) to compute a meaningful score.</div>`;
     return;
+  }
+
+  // Build per-ticker sell map: ticker → sorted array of sell dates
+  // Used to detect when a position was actually closed (sell filed after buy)
+  const sellsByTicker = {};
+  if (allTrades) {
+    allTrades.filter(t => t.type === 'S' || t.type === 'S-').forEach(t => {
+      const d = (t.trade || t.filing || '').slice(0, 10);
+      if (!d || !t.ticker) return;
+      if (!sellsByTicker[t.ticker]) sellsByTicker[t.ticker] = [];
+      sellsByTicker[t.ticker].push(d);
+    });
+    // Sort ascending
+    Object.keys(sellsByTicker).forEach(k => sellsByTicker[k].sort());
+  }
+
+  function firstSellAfter(ticker, buyDate) {
+    const sells = sellsByTicker[ticker] || [];
+    return sells.find(d => d > buyDate) || null;
   }
   const tickers = [...new Set(scoreable.map(t => t.ticker))];
   const priceCache = {};
@@ -1386,10 +1405,13 @@ async function computeAndRenderScore(insiderName, buyTrades) {
     const p30 = priceOn(t.ticker, addDays(tradeDate,30));
     const p60 = priceOn(t.ticker, addDays(tradeDate,60));
     const p90 = priceOn(t.ticker, addDays(tradeDate,90));
+    const sellDate = firstSellAfter(t.ticker, tradeDate);
+    const sellPrice = sellDate ? priceOn(t.ticker, sellDate) : null;
+    const isClosed  = !!sellDate;
     return { trade:t, tradeDate, ticker:t.ticker, buyPrice:base,
       ret30:p30?(p30-base)/base*100:null, ret60:p60?(p60-base)/base*100:null, ret90:p90?(p90-base)/base*100:null,
-      isPending: today < addDays(tradeDate,90) };
-  });
+      isPending: today < addDays(tradeDate,90),
+      sellDate, sellPrice, isClosed };\n  });
   const completed = scored.filter(s => s.ret90!==null);
   const pending   = scored.filter(s => s.isPending);
   if (completed.length === 0) {
@@ -1805,29 +1827,39 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
     ${timingBlock}
     ${insightHtml ? `<div class="scorer-insights" style="margin-bottom:18px">${insightHtml}</div>` : ''}
     <div class="scorer-trade-rows">
-      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:8px">FORWARD RETURNS BY TRADE (actual price data)${stats.pendingCount>0?`<span style="margin-left:12px;color:var(--option)">⏳ ${stats.pendingCount} open</span>`:''}</div>
+      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:8px">FORWARD RETURNS BY TRADE (actual price data)${(()=>{const closed=scored.filter(s=>s.isClosed).length,open=scored.filter(s=>s.isPending||(!s.isClosed&&s.ret90!==null)).length;return closed?`<span style="margin-left:10px;color:var(--buy)">✓ ${closed} closed</span>`:'';})()}${stats.pendingCount>0?`<span style="margin-left:10px;color:var(--option)">⏳ ${stats.pendingCount} open</span>`:''}</div>
       <div class="scorer-trade-row-header"><span>DATE</span><span>TICKER</span><span>BUY PRICE</span><span>+30D</span><span>+60D</span><span>+90D</span><span>RESULT</span></div>
-      ${completedSorted.slice(0,12).map(s=>`
-        <div class="scorer-trade-row">
+      ${[...completedSorted.slice(0,12), ...pendingRows.slice(0,4)].map(s => {
+        const isPend = s.isPending && s.ret90 === null;
+        let resultHtml;
+        if (isPend) {
+          // Trade is still within 90-day window — genuinely open
+          resultHtml = `<span style="font-size:10px;color:var(--option)">⏳ OPEN</span>`;
+        } else if (s.isClosed) {
+          // Insider filed a sell after this buy — position was actually closed
+          const sellRet = s.sellPrice ? (s.sellPrice - s.buyPrice) / s.buyPrice * 100 : null;
+          const isWin   = sellRet !== null ? sellRet >= 0 : (s.ret90 !== null ? s.ret90 >= 0 : null);
+          if (isWin === null) {
+            resultHtml = `<span style="font-size:10px;color:var(--muted)">CLOSED</span>`;
+          } else {
+            const retStr = sellRet !== null ? ` ${sellRet>=0?'+':''}${sellRet.toFixed(1)}%` : '';
+            resultHtml = `<span style="font-size:10px;color:${isWin?'var(--buy)':'var(--sell)'};font-weight:600">${isWin?'✓ WIN':'✗ LOSS'}<br><span style="font-weight:400;font-size:9px">${retStr||'at sell'}</span></span>`;
+          }
+        } else {
+          // 90-day window passed but no sell on record — still holding as far as we know
+          resultHtml = `<span style="font-size:9px;color:var(--muted);line-height:1.4;display:inline-block">HOLDING<br><span style="color:${s.ret90>=0?'var(--buy)':'var(--sell)'}">90D ${s.ret90>=0?'+':''}${s.ret90 !== null ? s.ret90.toFixed(1)+'%' : '—'}</span></span>`;
+        }
+        return `<div class="scorer-trade-row" style="${isPend?'opacity:.6':''}">
           <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${s.tradeDate.slice(5)}</span>
           <span style="font-family:'Space Mono',monospace;color:var(--accent);font-size:11px;cursor:pointer" onclick="openTickerFromScreener('${s.ticker}')">${s.ticker}</span>
           <span style="font-size:11px;color:var(--muted)">@$${(s.buyPrice||0).toFixed(2)}</span>
           <span class="r30" style="color:${rc(s.ret30)}">${rs(s.ret30)}</span>
           <span class="r60" style="color:${rc(s.ret60)}">${rs(s.ret60)}</span>
-          <span class="r90" style="color:${rc(s.ret90)}">${rs(s.ret90)}</span>
-          <span style="font-size:10px;color:${s.ret90>=0?'var(--buy)':'var(--sell)'}">${s.ret90>=0?'✓ WIN':'✗ LOSS'}</span>
-        </div>`).join('')}
-      ${pendingRows.slice(0,4).map(s=>`
-        <div class="scorer-trade-row" style="opacity:.6">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${s.tradeDate.slice(5)}</span>
-          <span style="font-family:'Space Mono',monospace;color:var(--accent);font-size:11px">${s.ticker}</span>
-          <span style="font-size:11px;color:var(--muted)">@$${(s.buyPrice||0).toFixed(2)}</span>
-          <span class="r30" style="color:${rc(s.ret30)}">${rs(s.ret30)}</span>
-          <span class="r60" style="color:${rc(s.ret60)}">${rs(s.ret60)}</span>
-          <span style="color:var(--muted);font-size:10px">—</span>
-          <span style="font-size:10px;color:var(--option)">⏳ OPEN</span>
-        </div>`).join('')}
-      ${completedSorted.length>12?`<div style="font-size:10px;color:var(--muted);padding:8px 10px">+${completedSorted.length-12} more completed trades</div>`:''}
+          <span class="r90" style="color:${rc(s.ret90 ?? null)}">${isPend ? '—' : rs(s.ret90)}</span>
+          ${resultHtml}
+        </div>`;
+      }).join('')}
+      ${scored.length>16?`<div style="font-size:10px;color:var(--muted);padding:8px 10px">+${scored.length-16} more trades not shown</div>`:''}
     </div>`;
 }
 
