@@ -1837,8 +1837,10 @@ async function loadAnalysisPage(subpage) {
   }
 
   // Kick off long-history fetch in background (needed for First Buy scanner)
+  // 365 days is enough to detect meaningful gaps; the per-insider history already
+  // spans years from the quarterly sync, so the signal detection still works.
   if (!_analysisDataLong) {
-    apiFetch('/api/screener?days=1095').then(raw => {
+    apiFetch('/api/screener?days=365&limit=2000').then(raw => {
       _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
     }).catch(() => { _analysisDataLong = _analysisData; });
   }
@@ -2026,7 +2028,7 @@ async function renderFirstBuySubpage() {
   // Need long history — wait if still loading
   if (!_analysisDataLong) {
     try {
-      const raw = await apiFetch('/api/screener?days=1095');
+      const raw = await apiFetch('/api/screener?days=365&limit=2000');
       _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
     } catch(e) { _analysisDataLong = _analysisData || []; }
   }
