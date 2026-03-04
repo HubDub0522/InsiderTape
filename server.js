@@ -890,105 +890,195 @@ async function syncCongressTrades() {
 
   let total = 0;
 
-  // ── Source A: Capitol Trades API (free, covers both House & Senate) ────────
-  try {
-    // Fetch up to 5 pages of recent trades
-    for (let page = 1; page <= 5; page++) {
-      const { status, body } = await get(
-        `https://www.capitoltrades.com/api/trades?page=${page}&pageSize=100&sortOrder=desc&sortBy=publishedAt`,
-        20000
-      );
-      if (status !== 200) break;
-      const json = JSON.parse(body.toString());
-      const trades = json?.data || json?.trades || (Array.isArray(json) ? json : []);
-      if (!trades.length) break;
-
-      const inserts = db.transaction(items => {
-        items.forEach(t => {
-          try {
-            const ticker  = (t.instrument?.symbol || t.ticker || t.asset || '').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-            if (!ticker || ticker.length > 10) return;
-            const tradeDate   = (t.publishedAt || t.tradeDate || t.transactionDate || '').slice(0,10);
-            const filingDate  = (t.filedAt || t.filingDate || tradeDate || '').slice(0,10);
-            if (!tradeDate || tradeDate < '2010-01-01') return;
-            const politician = t.politician || t.representative || t.senator || {};
-            const insiderName = (politician.firstName || politician.name || '') + (politician.lastName ? ' ' + politician.lastName : '');
-            const title   = politician.chamber === 'senate' ? 'Senator' :
-                            politician.chamber === 'house'  ? 'Representative' :
-                            politician.party ? `${politician.party} Member` : 'Congress Member';
-            const txType  = (t.type || t.transactionType || '').toLowerCase();
-            const normType = txType.includes('sale') || txType.includes('sell') ? 'S' :
-                             txType.includes('purchase') || txType.includes('buy') ? 'P' : 'X';
-            const value   = Math.abs(+(t.value || t.amount || t.size || 0));
-            const accession = `congress-${insiderName.replace(/\s+/g,'-')}-${ticker}-${tradeDate}`.toLowerCase();
-            insert.run({
-              ticker, company: t.instrument?.name || t.company || ticker,
-              insider: insiderName.trim() || 'Unknown Member',
-              title, trade_date: tradeDate, filing_date: filingDate,
-              type: normType, qty: t.qty || t.shares || 0,
-              price: t.price || (value > 0 && t.qty ? value / Math.abs(t.qty) : 0),
-              value, owned: 0,
-              accession, source: 'congress'
-            });
-            total++;
-          } catch(e) {}
-        });
-      });
-      inserts(trades);
-    }
-    slog(`Congressional sync (Capitol Trades): ${total} rows inserted`);
-  } catch(e) {
-    slog('Capitol Trades sync error: ' + e.message);
+  function normType(str) {
+    const s = (str || '').toLowerCase();
+    if (s.includes('sale') || s.includes('sell') || s === 's') return 'S';
+    if (s.includes('purchase') || s.includes('buy') || s === 'p') return 'P';
+    return 'X';
   }
 
-  // ── Source B: Quiver Quantitative congress endpoint (backup) ──────────────
+  function midRange(rangeStr) {
+    const clean = (rangeStr || '').replace(/[$,\s]/g, '');
+    const parts  = clean.split('-').map(Number).filter(n => !isNaN(n) && n >= 0);
+    if (parts.length === 2) return (parts[0] + parts[1]) / 2;
+    if (parts.length === 1 && parts[0] > 0) return parts[0];
+    return 0;
+  }
+
+  function doInsert(row) {
+    try { insert.run(row); total++; } catch(e) {}
+  }
+
+  // ── Source A: House Stock Watcher API (reliable, aggregates House PTR filings) ──
   try {
     const { status, body } = await get(
-      'https://api.quiverquant.com/beta/bulk/congresstrading',
-      25000
+      'https://house-stock-watcher-data.s3-us-east-2.amazonaws.com/data/all_transactions.json',
+      30000
     );
     if (status === 200) {
       const trades = JSON.parse(body.toString());
       if (Array.isArray(trades) && trades.length) {
-        let qTotal = 0;
-        const inserts = db.transaction(items => {
-          items.forEach(t => {
-            try {
-              const ticker = (t.Ticker || '').toUpperCase().trim();
-              if (!ticker || ticker.length > 10) return;
-              const tradeDate  = (t.TransactionDate || t.ReportDate || '').slice(0,10);
-              const filingDate = (t.ReportDate || tradeDate || '').slice(0,10);
-              if (!tradeDate || tradeDate < '2010-01-01') return;
-              const insiderName = (t.Representative || t.Senator || t.Name || '').trim();
-              if (!insiderName) return;
-              const txType = (t.Transaction || '').toLowerCase();
-              const normType = txType.includes('sale') ? 'S' : txType.includes('purchase') ? 'P' : 'X';
-              // Quiver gives a range like "$1,001 - $15,000" — take midpoint
-              const rangeStr = (t.Range || t.Amount || '').replace(/[$,]/g,'');
-              let value = 0;
-              const parts = rangeStr.split(' - ');
-              if (parts.length === 2) value = (parseFloat(parts[0]) + parseFloat(parts[1])) / 2;
-              else value = parseFloat(rangeStr) || 0;
-              const accession = `quiver-${insiderName.replace(/\s+/g,'-')}-${ticker}-${tradeDate}`.toLowerCase();
-              const chamber = (t.Chamber || '').toLowerCase();
-              const title = chamber === 'senate' ? 'Senator' : 'Representative';
-              insert.run({
-                ticker, company: t.Company || ticker,
-                insider: insiderName, title, trade_date: tradeDate,
-                filing_date: filingDate, type: normType, qty: 0,
-                price: 0, value, owned: 0, accession, source: 'congress'
-              });
-              qTotal++;
-            } catch(e) {}
-          });
+        const tx = db.transaction(items => {
+          for (const t of items) {
+            const ticker = (t.ticker || '').toUpperCase().replace(/[^A-Z0-9.]/g, '').trim();
+            if (!ticker || ticker === '--' || ticker.length > 10) continue;
+            const tradeDate  = (t.transaction_date || t.disclosure_date || '').slice(0, 10);
+            const filingDate = (t.disclosure_date  || tradeDate).slice(0, 10);
+            if (!tradeDate || tradeDate < '2012-01-01') continue;
+            const name = (t.representative || '').replace(/^(Hon\.?|Dr\.?)\s*/i, '').trim();
+            if (!name) continue;
+            const nt  = normType(t.type);
+            const val = midRange(t.amount);
+            doInsert({
+              ticker,
+              company:     t.asset_description || ticker,
+              insider:     name,
+              title:       'Representative',
+              trade_date:  tradeDate,
+              filing_date: filingDate,
+              type:        nt,
+              qty:         0,
+              price:       0,
+              value:       val,
+              owned:       0,
+              accession:   `hsw-${name.replace(/\s+/g, '-').toLowerCase()}-${ticker}-${tradeDate}`,
+              source:      'congress',
+            });
+          }
         });
-        inserts(trades);
-        total += qTotal;
-        slog(`Congressional sync (Quiver): ${qTotal} rows inserted`);
+        tx(trades);
+        slog(`House Stock Watcher: ${total} rows inserted`);
       }
+    } else {
+      slog(`House Stock Watcher returned ${status}`);
     }
   } catch(e) {
-    slog('Quiver congress sync error: ' + e.message);
+    slog('House Stock Watcher error: ' + e.message);
+  }
+
+  const hswTotal = total;
+
+  // ── Source B: Senate eFD bulk JSON (senate.gov official STOCK Act data) ────
+  try {
+    const year  = new Date().getFullYear();
+    const years = [year, year - 1]; // current + prior year
+    for (const yr of years) {
+      try {
+        const { status, body } = await get(
+          `https://efts.senate.gov/LATEST/search-index?q=%22senator%22&dateRange=custom&startDate=${yr}-01-01&endDate=${yr}-12-31&forms=PTR&hits.hits.total.value=true&hits.hits._source.file_date=true`,
+          20000
+        );
+        // Senate eFD search — parse whatever comes back
+        if (status === 200) {
+          const json  = JSON.parse(body.toString());
+          const hits  = json?.hits?.hits || [];
+          slog(`Senate eFD ${yr}: ${hits.length} search hits`);
+        }
+      } catch(e) {}
+
+      // Try bulk Senate PTR data hosted by independent aggregators
+      try {
+        const { status, body } = await get(
+          `https://senate-stock-watcher-data.s3-us-east-2.amazonaws.com/aggregate/all_transactions.json`,
+          30000
+        );
+        if (status === 200) {
+          const trades = JSON.parse(body.toString());
+          if (Array.isArray(trades) && trades.length) {
+            const prevTotal = total;
+            const tx = db.transaction(items => {
+              for (const t of items) {
+                const ticker = (t.ticker || '').toUpperCase().replace(/[^A-Z0-9.]/g, '').trim();
+                if (!ticker || ticker === '--' || ticker.length > 10) continue;
+                const tradeDate  = (t.transaction_date || t.disclosure_date || '').slice(0, 10);
+                const filingDate = (t.disclosure_date  || tradeDate).slice(0, 10);
+                if (!tradeDate || tradeDate < '2012-01-01') continue;
+                const name = (t.senator || t.first_name
+                  ? ((t.first_name || '') + ' ' + (t.last_name || '')).trim()
+                  : '').replace(/^(Hon\.?|Sen\.?)\s*/i, '').trim();
+                if (!name) continue;
+                const nt  = normType(t.type);
+                const val = midRange(t.amount);
+                doInsert({
+                  ticker,
+                  company:     t.asset_description || ticker,
+                  insider:     name,
+                  title:       'Senator',
+                  trade_date:  tradeDate,
+                  filing_date: filingDate,
+                  type:        nt,
+                  qty:         0,
+                  price:       0,
+                  value:       val,
+                  owned:       0,
+                  accession:   `ssw-${name.replace(/\s+/g, '-').toLowerCase()}-${ticker}-${tradeDate}`,
+                  source:      'congress',
+                });
+              }
+            });
+            tx(trades);
+            slog(`Senate Stock Watcher: ${total - prevTotal} rows inserted`);
+            break; // got data, don't retry years
+          }
+        }
+      } catch(e) {
+        slog('Senate Stock Watcher error: ' + e.message);
+      }
+      break; // only need to run once since bulk file covers all years
+    }
+  } catch(e) {
+    slog('Senate sync error: ' + e.message);
+  }
+
+  // ── Source C: CapitolTrades public JSON feed (no auth required on /api endpoint) ──
+  try {
+    for (let page = 1; page <= 8; page++) {
+      const { status, body } = await get(
+        `https://www.capitoltrades.com/api/trades?page=${page}&pageSize=100`,
+        15000
+      );
+      if (status !== 200) break;
+      const json   = JSON.parse(body.toString());
+      const trades = json?.data || (Array.isArray(json) ? json : []);
+      if (!trades.length) break;
+      const prevTotal = total;
+      const tx = db.transaction(items => {
+        for (const t of items) {
+          const ticker = (t.instrument?.symbol || t.ticker || '').toUpperCase().replace(/[^A-Z0-9.]/g,'').trim();
+          if (!ticker || ticker.length > 10) continue;
+          const tradeDate  = (t.transactionDate || t.publishedAt || '').slice(0, 10);
+          const filingDate = (t.filedAt || tradeDate).slice(0, 10);
+          if (!tradeDate || tradeDate < '2012-01-01') continue;
+          const pol  = t.politician || {};
+          const name = ((pol.firstName || '') + ' ' + (pol.lastName || '')).trim() || (pol.name || '').trim();
+          if (!name) continue;
+          const chamber = (pol.chamber || '').toLowerCase();
+          const titleStr = chamber === 'senate' ? 'Senator' : 'Representative';
+          const nt  = normType(t.type);
+          const val = Math.abs(+(t.value || 0)) || midRange(t.range);
+          doInsert({
+            ticker,
+            company:     t.instrument?.name || ticker,
+            insider:     name,
+            title:       titleStr,
+            trade_date:  tradeDate,
+            filing_date: filingDate,
+            type:        nt,
+            qty:         0,
+            price:       0,
+            value:       val,
+            owned:       0,
+            accession:   `ct-${name.replace(/\s+/g, '-').toLowerCase()}-${ticker}-${tradeDate}`,
+            source:      'congress',
+          });
+        }
+      });
+      tx(trades);
+      if (total - prevTotal < 10) break; // sparse page, stop
+    }
+    slog(`Capitol Trades: inserted (running total ${total})`);
+  } catch(e) {
+    slog('Capitol Trades error: ' + e.message);
   }
 
   slog(`=== Congressional sync complete: ${total} total rows ===`);
