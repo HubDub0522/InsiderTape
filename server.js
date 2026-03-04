@@ -205,7 +205,69 @@ app.get('/api/insider', (req, res) => {
 });
 
 // PRICE — FMP with Yahoo Finance fallback
-app.get('/api/price', async (req, res) => {
+// FIRST BUY IN YEARS — scans entire DB history, no date filter
+// Uses window functions to find insiders whose most recent buy on a ticker
+// came after a long gap since their previous buy on that same ticker.
+app.get('/api/firstbuys', (req, res) => {
+  try {
+    const minGapDays  = parseInt(req.query.mingap  || '180');  // default 6 months
+    const lookbackDays = parseInt(req.query.lookback || '90'); // how recent must the new buy be
+    const limit        = parseInt(req.query.limit   || '100');
+
+    // Step 1: get all open-market buys, ordered per insider+ticker
+    // Step 2: self-join to get each buy paired with the previous buy
+    //         for the same insider on the same ticker
+    // Step 3: filter to pairs where:
+    //   - the newer buy is within lookbackDays
+    //   - the gap between the two buys is >= minGapDays
+    const rows = db.prepare(`
+      WITH buys AS (
+        SELECT ticker, company, insider, title,
+               trade_date, filing_date, price, qty, value, owned,
+               ROW_NUMBER() OVER (
+                 PARTITION BY insider, ticker
+                 ORDER BY trade_date DESC, filing_date DESC
+               ) AS rn
+        FROM trades
+        WHERE type = 'P'
+          AND price > 0
+          AND insider IS NOT NULL
+          AND ticker  IS NOT NULL
+      ),
+      latest AS (SELECT * FROM buys WHERE rn = 1),
+      prev   AS (SELECT * FROM buys WHERE rn = 2)
+      SELECT
+        l.ticker,
+        l.company,
+        l.insider,
+        l.title,
+        l.trade_date    AS latest_trade,
+        l.filing_date   AS latest_filing,
+        l.price         AS latest_price,
+        l.qty           AS latest_qty,
+        l.value         AS latest_value,
+        l.owned         AS latest_owned,
+        p.trade_date    AS prev_trade,
+        p.owned         AS prev_owned,
+        CAST(
+          julianday(l.trade_date) - julianday(p.trade_date)
+        AS INTEGER)     AS gap_days
+      FROM latest l
+      JOIN prev p ON l.insider = p.insider AND l.ticker = p.ticker
+      WHERE l.trade_date >= date('now', '-' || ? || ' days')
+        AND (julianday(l.trade_date) - julianday(p.trade_date)) >= ?
+      ORDER BY gap_days DESC
+      LIMIT ?
+    `).all(lookbackDays, minGapDays, limit);
+
+    res.json(rows);
+  } catch(e) {
+    slog('firstbuys error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
 
