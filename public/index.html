@@ -1820,19 +1820,27 @@ document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput'
 
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
-let _analysisData = null; // cache trades so sub-pages don't re-fetch
+let _analysisData = null;     // 30-day trades cache
+let _analysisDataLong = null; // 3-year trades cache for First Buy scanner
 
 async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
 
-  // Fetch data once and cache
+  // Fetch 30-day data once
   if (!_analysisData) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
     try {
       const raw = await apiFetch('/api/screener?days=30');
       _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
     } catch(e) { _analysisData = []; }
+  }
+
+  // Kick off long-history fetch in background (needed for First Buy scanner)
+  if (!_analysisDataLong) {
+    apiFetch('/api/screener?days=1095').then(raw => {
+      _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
+    }).catch(() => { _analysisDataLong = _analysisData; });
   }
 
   if (subpage) {
@@ -1845,10 +1853,12 @@ async function loadAnalysisPage(subpage) {
 function renderAnalysisDashboard() {
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
+  const longTrades = _analysisDataLong || trades;
 
   // Pre-compute top 3 for each tool
-  const convTop3   = buildConvictionData(trades).slice(0, 3);
+  const convTop3    = buildConvictionData(trades).slice(0, 3);
   const clusterTop3 = detectAdvancedClusters(trades).slice(0, 3);
+  const firstBuyTop3 = detectFirstBuys(longTrades).slice(0, 3);
 
   const tools = [
     {
@@ -1884,6 +1894,23 @@ function renderAnalysisDashboard() {
       accentColor: 'var(--accent)',
       accentBg: 'rgba(0,212,255,0.06)',
       accentBorder: 'rgba(0,212,255,0.2)',
+    },
+    {
+      id: 'firstbuy',
+      icon: '🚨',
+      name: 'First Buy in Years',
+      desc: 'Detects insiders who haven\'t bought their own stock in years — then suddenly do. A CEO\'s first open-market buy in 6 years is a rare, powerful signal.',
+      count: firstBuyTop3.length ? detectFirstBuys(longTrades).length : 0,
+      countLabel: firstBuyTop3.length ? 'signals found' : 'loading…',
+      top3: firstBuyTop3.map(s => ({
+        ticker: s.ticker,
+        label: s.gapYears >= 1 ? `${s.gapYears.toFixed(1)}yr gap` : `${s.gapMonths}mo gap`,
+        sub: `${s.insider} · ${s.title || 'Insider'}`,
+        color: s.gapYears >= 3 ? 'var(--buy)' : s.gapYears >= 1 ? 'var(--accent)' : 'var(--option)',
+      })),
+      accentColor: 'var(--sell)',
+      accentBg: 'rgba(255,68,102,0.05)',
+      accentBorder: 'rgba(255,68,102,0.2)',
     },
   ];
 
@@ -1968,9 +1995,229 @@ function renderAnalysisSubpage(id) {
       ${clusterHtml}
     </div>`;
   }
+
+  else if (id === 'firstbuy') {
+    renderFirstBuySubpage();
+  }
 }
 
-// ── CLUSTER BUY DETECTION ENGINE ─────────────────────────────────
+// ── FIRST BUY IN YEARS SCANNER ────────────────────────────────────
+
+async function renderFirstBuySubpage() {
+  const body = document.getElementById('analysisViewBody');
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  const headerHtml = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🚨 FIRST BUY IN YEARS</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying their own stock after a long period of inactivity · Scans full trade history</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:680px">
+      When an insider who hasn't bought in <span style="color:var(--text)">years</span> suddenly opens their wallet, it's one of the rarest signals in Form 4 data.
+      Unlike routine buying, a <span style="color:var(--text)">first purchase after a long gap</span> represents a deliberate, high-conviction decision —
+      they've watched the stock for years and decided <em>now</em> is the time.
+    </div>
+    <div id="firstBuyResults"><div class="loading-state"><div class="spinner"></div><span>Scanning trade history for inactivity gaps...</span></div></div>
+  </div>`;
+
+  body.innerHTML = headerHtml;
+
+  // Need long history — wait if still loading
+  if (!_analysisDataLong) {
+    try {
+      const raw = await apiFetch('/api/screener?days=1095');
+      _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
+    } catch(e) { _analysisDataLong = _analysisData || []; }
+  }
+
+  const signals = detectFirstBuys(_analysisDataLong);
+  const el = document.getElementById('firstBuyResults');
+  if (!el) return;
+
+  if (!signals.length) {
+    el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No first-buy-after-gap signals found in the available trade history.<br><span style="font-size:11px">Expand your DB history window to surface more signals.</span></div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      ${signals.map(s => renderFirstBuyCard(s)).join('')}
+    </div>`;
+}
+
+function detectFirstBuys(trades) {
+  if (!trades || !trades.length) return [];
+
+  // Group all trades by insider+ticker pair
+  const byPair = {};
+  trades.forEach(t => {
+    if (!t.insider || !t.ticker) return;
+    const key = `${t.insider}::${t.ticker}`;
+    if (!byPair[key]) byPair[key] = { insider: t.insider, title: t.title || '', ticker: t.ticker, company: t.company || t.ticker, trades: [] };
+    byPair[key].trades.push(t);
+  });
+
+  // Also build full per-insider history across ALL tickers to find any prior buy activity
+  const insiderAllBuys = {};
+  trades.forEach(t => {
+    if (!t.insider || t.type !== 'P') return;
+    if (!insiderAllBuys[t.insider]) insiderAllBuys[t.insider] = [];
+    insiderAllBuys[t.insider].push(t);
+  });
+
+  const signals = [];
+  const now = new Date();
+  // Look at buys that happened in the last 60 days
+  const recentCutoff = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - 60);
+
+  Object.values(byPair).forEach(({ insider, title, ticker, company, trades: pairTrades }) => {
+    const buys = pairTrades.filter(t => t.type === 'P').sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
+    if (buys.length < 2) return; // need at least one old + one new
+
+    // Find the most recent buy
+    const latestBuy = buys[buys.length - 1];
+    const latestDate = new Date(latestBuy.trade || latestBuy.filing);
+    if (latestDate < recentCutoff) return; // not a recent buy
+
+    // Find the previous buy on this ticker
+    const prevBuys = buys.slice(0, -1);
+    const mostRecentPrev = prevBuys[prevBuys.length - 1];
+    const prevDate = new Date(mostRecentPrev.trade || mostRecentPrev.filing);
+
+    const gapDays   = (latestDate - prevDate) / 86400000;
+    const gapMonths = Math.round(gapDays / 30.4);
+    const gapYears  = +(gapDays / 365).toFixed(1);
+
+    // Only surface meaningful gaps (6+ months)
+    if (gapDays < 180) return;
+
+    // Position change: compare owned shares
+    const prevOwned   = mostRecentPrev.owned || 0;
+    const latestOwned = latestBuy.owned || 0;
+    const posChangePct = prevOwned > 0 ? ((latestOwned - prevOwned) / prevOwned * 100) : null;
+
+    // Also check across ALL tickers — was this insider buying anything else in the gap?
+    const allInsiderBuys = (insiderAllBuys[insider] || []).filter(t => t.ticker !== ticker);
+    const buysInGap = allInsiderBuys.filter(t => {
+      const d = new Date(t.trade || t.filing);
+      return d > prevDate && d < latestDate;
+    });
+    const wasActiveElsewhere = buysInGap.length > 0;
+
+    // Significance tier
+    let tier, tierColor, tierBg, tierBorder;
+    if (gapYears >= 5 && !wasActiveElsewhere) {
+      tier = 'EXTREME'; tierColor = 'var(--buy)'; tierBg = 'rgba(0,255,136,0.08)'; tierBorder = 'rgba(0,255,136,0.3)';
+    } else if (gapYears >= 3) {
+      tier = 'VERY HIGH'; tierColor = 'var(--accent)'; tierBg = 'rgba(0,212,255,0.07)'; tierBorder = 'rgba(0,212,255,0.25)';
+    } else if (gapYears >= 1.5) {
+      tier = 'HIGH'; tierColor = 'var(--option)'; tierBg = 'rgba(255,170,0,0.07)'; tierBorder = 'rgba(255,170,0,0.25)';
+    } else {
+      tier = 'NOTABLE'; tierColor = 'var(--text)'; tierBg = 'rgba(201,216,232,0.04)'; tierBorder = 'rgba(201,216,232,0.15)';
+    }
+
+    signals.push({
+      insider, title, ticker, company,
+      latestBuy, latestDate: latestDate.toISOString().slice(0,10),
+      prevDate: prevDate.toISOString().slice(0,10),
+      gapDays, gapMonths, gapYears,
+      posChangePct, wasActiveElsewhere,
+      buysInGapCount: buysInGap.length,
+      totalBuyVal: latestBuy.value || 0,
+      latestPrice: latestBuy.price || 0,
+      latestOwned, prevOwned,
+      allPrevBuys: prevBuys.length,
+      tier, tierColor, tierBg, tierBorder,
+    });
+  });
+
+  // Sort by gap length descending, then tier
+  return signals.sort((a,b) => {
+    const tierOrder = { EXTREME:0, 'VERY HIGH':1, HIGH:2, NOTABLE:3 };
+    const td = (tierOrder[a.tier]||3) - (tierOrder[b.tier]||3);
+    return td !== 0 ? td : b.gapDays - a.gapDays;
+  });
+}
+
+function renderFirstBuyCard(s) {
+  const gapLabel = s.gapYears >= 1 ? `${s.gapYears} years` : `${s.gapMonths} months`;
+  const posLabel = s.posChangePct !== null
+    ? (s.posChangePct >= 0 ? `+${s.posChangePct.toFixed(0)}%` : `${s.posChangePct.toFixed(0)}%`)
+    : null;
+  const posColor = s.posChangePct !== null ? (s.posChangePct >= 100 ? 'var(--buy)' : s.posChangePct >= 20 ? 'var(--accent)' : 'var(--option)') : 'var(--muted)';
+
+  const highlights = [];
+  if (s.gapYears >= 5) highlights.push({ icon: '🔥', text: `First buy in ${gapLabel} — extremely rare signal`, color: 'var(--buy)' });
+  else if (s.gapYears >= 3) highlights.push({ icon: '⚡', text: `Broke a ${gapLabel} buying drought`, color: 'var(--accent)' });
+  else highlights.push({ icon: '📌', text: `First purchase in ${gapLabel}`, color: 'var(--option)' });
+
+  if (s.posChangePct !== null && s.posChangePct >= 50) highlights.push({ icon: '📈', text: `Position increased by ${posLabel} in one trade`, color: posColor });
+  else if (s.posChangePct !== null && s.posChangePct >= 10) highlights.push({ icon: '📊', text: `Added ${posLabel} to existing position`, color: posColor });
+
+  if (!s.wasActiveElsewhere) highlights.push({ icon: '🎯', text: `No other insider buying activity during the gap — this is targeted`, color: 'var(--text)' });
+  else highlights.push({ icon: '↔', text: `Was active on ${s.buysInGapCount} other ticker${s.buysInGapCount>1?'s':''} during gap`, color: 'var(--muted)' });
+
+  if (s.totalBuyVal >= 1000000) highlights.push({ icon: '💰', text: `${fmt(s.totalBuyVal)} invested in this purchase`, color: 'var(--buy)' });
+
+  return `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+       onmouseover="this.style.borderColor='${s.tierBorder}'" onmouseout="this.style.borderColor='var(--border)'"
+       onclick="openTickerFromScreener('${s.ticker}')">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
+        <!-- Ticker + company -->
+        <div style="flex-shrink:0">
+          <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${s.ticker}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px">${s.company}</div>
+        </div>
+        <!-- Insider info -->
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.insider}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${s.title || 'Insider'}</div>
+        </div>
+      </div>
+      <!-- Gap badge -->
+      <div style="background:${s.tierBg};border:1px solid ${s.tierBorder};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;line-height:1;color:${s.tierColor}">${gapLabel}</div>
+        <div style="font-size:8px;letter-spacing:1.5px;font-family:'Space Mono',monospace;color:${s.tierColor};margin-top:3px">SINCE LAST BUY</div>
+      </div>
+    </div>
+
+    <!-- Stats row -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto">
+      ${[
+        { label:'BUY DATE',     val: s.latestDate.slice(5),                         color:'var(--text)' },
+        { label:'PREV BUY',     val: s.prevDate.slice(0,7),                         color:'var(--muted)' },
+        { label:'PRICE',        val: s.latestPrice ? `$${s.latestPrice.toFixed(2)}` : '—', color:'var(--text)' },
+        { label:'VALUE',        val: s.totalBuyVal ? fmt(s.totalBuyVal) : '—',      color:'var(--buy)' },
+        { label:'POS CHANGE',   val: posLabel || '—',                               color: posColor },
+        { label:'SHARES AFTER', val: s.latestOwned ? s.latestOwned.toLocaleString() : '—', color:'var(--text)' },
+      ].map(stat => `
+        <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
+          <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${stat.label}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${stat.color};white-space:nowrap">${stat.val}</div>
+        </div>`).join('')}
+    </div>
+
+    <!-- Highlights + tier badge -->
+    <div style="padding:12px 18px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        ${highlights.map(h => `
+          <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
+            <span style="font-size:13px;flex-shrink:0;margin-top:1px">${h.icon}</span>
+            <span style="font-size:11px;color:${h.color};line-height:1.5">${h.text}</span>
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+        <div style="background:${s.tierBg};border:1px solid ${s.tierBorder};border-radius:20px;padding:4px 12px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:${s.tierColor};letter-spacing:1px">${s.tier} SIGNAL</div>
+        <div style="font-size:11px;color:var(--accent)">View chart →</div>
+      </div>
+    </div>
+  </div>`;
+}
 
 function renderClusterEngine(trades) {
   const clusters = detectAdvancedClusters(trades);
