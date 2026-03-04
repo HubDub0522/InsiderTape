@@ -911,8 +911,13 @@ async function loadStockView(ticker, opts={}) {
         <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
           ${!priceData.length?'<div class="empty-state" style="height:500px"><div class="empty-icon">📡</div><div>Price data unavailable</div></div>':''}
         </div>
-        <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
-          <div id="pressureContainer" style="width:100%;height:120px;"></div>
+        <div id="accumulationWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;position:relative;">
+          <!-- Panel 1: Weekly net flow bars + cumulative line -->
+          <div id="flowContainer" style="width:100%;height:130px;position:relative;"></div>
+          <!-- Divider -->
+          <div style="height:1px;background:#1e2d3d;"></div>
+          <!-- Panel 2: Accumulation zone map (canvas) -->
+          <div id="zoneContainer" style="width:100%;height:52px;position:relative;"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
@@ -953,7 +958,8 @@ function buildChart(priceData, trades) {
   const container = document.getElementById('chartContainer');
   if (!container||!priceData.length) return;
   if (state.chart) { try{state.chart.remove();}catch(e){} state.chart=null; }
-  if (state.pressureChart) { try{state.pressureChart.remove();}catch(e){} state.pressureChart=null; }
+  if (state.flowChart) { try{state.flowChart.remove();}catch(e){} state.flowChart=null; }
+  state.drawZones = null;
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
   container.innerHTML = '';
   const chart = LightweightCharts.createChart(container, {
@@ -974,11 +980,12 @@ function buildChart(priceData, trades) {
   if (visible.length>0) chart.timeScale().setVisibleRange({from:visible[0].time,to:priceData[priceData.length-1].time});
   else chart.timeScale().fitContent();
   buildCircleOverlay(container,chart,candles,trades,priceData);
-  buildPressureChart(chart,trades,priceData);
+  buildAccumulationMap(chart,trades,priceData);
   new ResizeObserver(()=>{
     const w=container.clientWidth;
     if(w>0&&state.chart){state.chart.applyOptions({width:w});const cv=document.getElementById('markerCanvas');if(cv){cv.width=w;if(state.drawCircles)state.drawCircles();}}
-    if(state.pressureChart){const pc=document.getElementById('pressureContainer');if(pc)state.pressureChart.applyOptions({width:pc.clientWidth});}
+    if(state.flowChart){const fc=document.getElementById('flowContainer');if(fc)state.flowChart.applyOptions({width:fc.clientWidth});}
+    if(state.drawZones){state.drawZones();}
   }).observe(container);
 }
 
@@ -1044,66 +1051,391 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
   canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 }
 
-function buildPressureChart(mainChart,trades,priceData) {
-  const pc=document.getElementById('pressureContainer'); if(!pc||!trades.length)return; pc.innerHTML='';
-  const byDay={};
-  trades.forEach(t=>{
-    const d=(t.trade||t.filing||'').slice(0,10); if(!d)return;
-    if(!byDay[d])byDay[d]={net:0,total:0};
-    const tc=tradeClass(t.type); const v=t.value||0;
-    if(tc==='buy'){byDay[d].net+=v;byDay[d].total+=v;}
-    if(tc==='sell'){byDay[d].net-=v;byDay[d].total+=v;}
+function buildAccumulationMap(mainChart, trades, priceData) {
+  // ── Containers ────────────────────────────────────────────────────
+  const flowEl = document.getElementById('flowContainer');
+  const zoneEl = document.getElementById('zoneContainer');
+  if (!flowEl || !priceData.length) return;
+
+  // Clean up old charts
+  if (state.flowChart) { try { state.flowChart.remove(); } catch(e){} state.flowChart = null; }
+  flowEl.innerHTML = '';
+  if (zoneEl) zoneEl.innerHTML = '';
+
+  const tooltip = document.getElementById('chartTooltip') || document.createElement('div');
+
+  // ── Step 1: Bucket all trades by ISO week (Mon–Sun) ─────────────
+  function isoWeekStart(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00Z');
+    const day = d.getUTCDay() || 7; // Mon=1 … Sun=7
+    d.setUTCDate(d.getUTCDate() - (day - 1));
+    return d.toISOString().slice(0, 10);
+  }
+
+  const weekMap = {}; // weekStart → { buyVal, sellVal, insiders: Set }
+  trades.forEach(t => {
+    const raw = (t.trade || t.filing || '').slice(0, 10);
+    if (!raw) return;
+    const wk = isoWeekStart(raw);
+    if (!weekMap[wk]) weekMap[wk] = { buyVal: 0, sellVal: 0, insiders: new Set(), trades: [] };
+    const v = t.value || 0;
+    const tc = tradeClass(t.type);
+    if (tc === 'buy')  { weekMap[wk].buyVal  += v; }
+    if (tc === 'sell') { weekMap[wk].sellVal += v; }
+    weekMap[wk].insiders.add(t.insider);
+    weekMap[wk].trades.push(t);
   });
-  const allDates=priceData.map(d=>d.time);
-  const maxTotal=Math.max(...Object.values(byDay).map(d=>d.total),1);
-  const valueByDate={};
-  Object.entries(byDay).forEach(([date,d])=>{valueByDate[date]=+(d.net/maxTotal*100).toFixed(2);});
-  const pChart=LightweightCharts.createChart(pc,{
-    width:pc.clientWidth||800,height:120,
-    layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
-    grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
-    rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.1,bottom:0.1}},
-    timeScale:{borderColor:'#1e2d3d',visible:false},
-    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-    handleScroll:false,handleScale:false,
+
+  // ── Step 2: Align to price data time axis ─────────────────────────
+  // For the LightweightCharts panel we need data on every price bar date.
+  // Strategy: emit the weekly net on the Friday (last trading day) of that week,
+  // which is the most natural "end of week" marker. We snap to nearest price date.
+  const priceSet = new Set(priceData.map(d => d.time));
+  function snapToPrice(dateStr, direction = 1) {
+    if (priceSet.has(dateStr)) return dateStr;
+    for (let i = 1; i <= 5; i++) {
+      const d = new Date(dateStr + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + i * direction);
+      const s = d.toISOString().slice(0, 10);
+      if (priceSet.has(s)) return s;
+    }
+    return null;
+  }
+
+  // Build weekly bar data for LightweightCharts
+  const weekEntries = Object.entries(weekMap).sort(([a],[b]) => a < b ? -1 : 1);
+
+  // Snap each week's anchor date to Friday of that week, then to nearest price date
+  const weekBars = []; // { time, net, buyVal, sellVal, insiders, trades }
+  weekEntries.forEach(([wkStart, data]) => {
+    const wkDate = new Date(wkStart + 'T12:00:00Z');
+    wkDate.setUTCDate(wkDate.getUTCDate() + 4); // Friday
+    const fri = wkDate.toISOString().slice(0, 10);
+    const snapped = snapToPrice(fri, 1) || snapToPrice(fri, -1);
+    if (!snapped) return;
+    const net = data.buyVal - data.sellVal;
+    weekBars.push({ time: snapped, net, buyVal: data.buyVal, sellVal: data.sellVal,
+      insiders: data.insiders, trades: data.trades });
   });
-  const areaSeries=pChart.addBaselineSeries({
-    baseValue:{type:'price',price:0},
-    topLineColor:'rgba(0,255,136,1)',topFillColor1:'rgba(0,255,136,0.20)',topFillColor2:'rgba(0,255,136,0.02)',
-    bottomLineColor:'rgba(255,68,102,1)',bottomFillColor1:'rgba(255,68,102,0.02)',bottomFillColor2:'rgba(255,68,102,0.20)',
-    lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:true,crosshairMarkerRadius:3,
+
+  // ── Step 3: Cumulative net (raw, no smoothing) ────────────────────
+  // Emit on every price date; cumulative carries forward from last known week
+  let runningCum = 0;
+  const weekIndex = {};
+  weekBars.forEach(w => { weekIndex[w.time] = w; });
+
+  const allPriceTimes = priceData.map(d => d.time);
+  const cumData = [];
+  allPriceTimes.forEach(t => {
+    if (weekIndex[t]) runningCum += weekIndex[t].net;
+    cumData.push({ time: t, value: +(runningCum / 1e6).toFixed(4) }); // in $M
   });
-  areaSeries.setData(allDates.map(t=>({time:t,value:valueByDate[t]??0})));
-  const byDayTrades={};
-  trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
-  const pCanvas=document.createElement('canvas');
-  pCanvas.style.cssText='position:absolute;top:0;left:0;pointer-events:auto;z-index:5;';
-  pCanvas.width=pc.clientWidth||800; pCanvas.height=120; pc.style.position='relative'; pc.appendChild(pCanvas);
-  const pTooltip=document.getElementById('chartTooltip')||document.createElement('div');
-  pCanvas.addEventListener('mousemove',e=>{
-    const rect=pCanvas.getBoundingClientRect(); const x=e.clientX-rect.left;
-    const ts=pChart.timeScale().coordinateToTime(x); if(!ts){pTooltip.style.display='none';return;}
-    const dateStr=typeof ts==='string'?ts:new Date(ts*1000).toISOString().slice(0,10);
-    const dayTrades=byDayTrades[dateStr]; if(!dayTrades||!dayTrades.length){pTooltip.style.display='none';return;}
-    const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
-    const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
-    const netColor=net>=0?'var(--buy)':'var(--sell)';
-    const ins=[...new Set(dayTrades.map(t=>t.insider).filter(Boolean))];
-    pTooltip.innerHTML=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>${bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:''}${sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d"><span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span></div><div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
-    pTooltip.style.display='block';
-    const tx=e.clientX+16,ty=e.clientY-10;
-    pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; pTooltip.style.top=ty+'px';
+
+  // ── Step 4: Build flow bar chart ──────────────────────────────────
+  if (!weekBars.length) {
+    flowEl.innerHTML = `<div style="height:130px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);">No insider activity in visible range</div>`;
+    return;
+  }
+
+  const maxNet = Math.max(...weekBars.map(w => Math.abs(w.net)), 1);
+
+  const fChart = LightweightCharts.createChart(flowEl, {
+    width: flowEl.clientWidth || 800,
+    height: 130,
+    layout: { background: { type: 'solid', color: '#080b0f' }, textColor: '#4a6580' },
+    grid:   { vertLines: { color: '#1e2d3d' }, horzLines: { color: '#1e2d3d44' } },
+    rightPriceScale: { borderColor: '#1e2d3d', scaleMargins: { top: 0.15, bottom: 0.15 } },
+    timeScale: { borderColor: '#1e2d3d', visible: false },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { color: '#00d4ff44', labelBackgroundColor: '#0d1117' },
+      horzLine: { color: '#00d4ff22', labelBackgroundColor: '#0d1117' } },
+    handleScroll: false, handleScale: false,
   });
-  pCanvas.addEventListener('mouseleave',()=>{pTooltip.style.display='none';});
-  state.pressureChart=pChart;
-  try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir)pChart.timeScale().setVisibleLogicalRange(ir);}catch(e){}
-  mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
-  const label=document.createElement('div');
-  label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent='INSIDER PRESSURE';
-  document.getElementById('pressureWrapper').style.position='relative';
-  document.getElementById('pressureWrapper').appendChild(label);
+
+  // Weekly net bars
+  const barSeries = fChart.addHistogramSeries({
+    priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+    priceScaleId: 'right',
+    lastValueVisible: false,
+    priceLineVisible: false,
+  });
+
+  // Build bar data on all price dates (zero where no week activity)
+  const barData = allPriceTimes.map(t => ({
+    time: t,
+    value: weekIndex[t] ? +(weekIndex[t].net / 1e6).toFixed(4) : 0,
+    color: weekIndex[t]
+      ? (weekIndex[t].net >= 0 ? 'rgba(0,255,136,0.75)' : 'rgba(255,68,102,0.75)')
+      : 'transparent',
+  }));
+  barSeries.setData(barData);
+
+  // Cumulative line overlay on same price scale but secondary scale
+  const cumLine = fChart.addLineSeries({
+    color: '#00d4ff',
+    lineWidth: 2,
+    priceScaleId: 'cum',
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+  });
+  fChart.priceScale('cum').applyOptions({
+    scaleMargins: { top: 0.05, bottom: 0.05 },
+    visible: false, // hide right-side cum scale to keep clean
+  });
+  cumLine.setData(cumData);
+
+  // Zero baseline marker
+  const zeroLine = fChart.addLineSeries({
+    color: '#1e2d3d',
+    lineWidth: 1,
+    priceScaleId: 'right',
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+  });
+  zeroLine.setData(allPriceTimes.map(t => ({ time: t, value: 0 })));
+
+  // Sync time axis with main chart (bi-directional)
+  try {
+    const ir = mainChart.timeScale().getVisibleLogicalRange();
+    if (ir) fChart.timeScale().setVisibleLogicalRange(ir);
+  } catch(e) {}
+  mainChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (range && state.flowChart) state.flowChart.timeScale().setVisibleLogicalRange(range);
+  });
+  fChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (range && state.chart) state.chart.timeScale().setVisibleLogicalRange(range);
+  });
+
+  state.flowChart = fChart;
+
+  // ── Panel 1 labels ────────────────────────────────────────────────
+  const wrapper = document.getElementById('accumulationWrapper');
+  // Remove old labels if rebuilding
+  wrapper.querySelectorAll('.acc-label').forEach(el => el.remove());
+
+  const addLabel = (text, cssExtra) => {
+    const lbl = document.createElement('div');
+    lbl.className = 'acc-label';
+    lbl.style.cssText = `position:absolute;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:3;${cssExtra}`;
+    lbl.textContent = text;
+    wrapper.appendChild(lbl);
+  };
+  addLabel('WEEKLY NET FLOW', 'top:6px;left:10px;');
+  addLabel('— CUMULATIVE', 'top:6px;left:160px;color:#00d4ff88;');
+
+  // ── Step 5: Tooltip on flow panel ─────────────────────────────────
+  const flowCanvas = document.createElement('canvas');
+  flowCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:auto;z-index:5;background:transparent;';
+  flowCanvas.width = flowEl.clientWidth || 800;
+  flowCanvas.height = 130;
+  flowEl.style.position = 'relative';
+  flowEl.appendChild(flowCanvas);
+
+  flowCanvas.addEventListener('mousemove', e => {
+    const rect = flowCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ts = fChart.timeScale().coordinateToTime(x);
+    if (!ts) { tooltip.style.display = 'none'; return; }
+    const dateStr = typeof ts === 'string' ? ts : new Date(ts * 1000).toISOString().slice(0, 10);
+
+    // Find which week this date belongs to
+    const wkStart = isoWeekStart(dateStr);
+    const wkFri = (() => { const d = new Date(wkStart+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+4); return d.toISOString().slice(0,10); })();
+    const snapped = snapToPrice(wkFri, 1) || snapToPrice(wkFri, -1);
+    const wk = snapped ? weekIndex[snapped] : null;
+
+    // Find cumulative value at this date
+    const cumPoint = cumData.find(c => c.time === dateStr);
+    const cumVal = cumPoint ? cumPoint.value : null;
+
+    if (!wk && cumVal === null) { tooltip.style.display = 'none'; return; }
+
+    const net = wk ? wk.net : 0;
+    const netColor = net >= 0 ? 'var(--buy)' : 'var(--sell)';
+    const insArr = wk ? [...wk.insiders].filter(Boolean) : [];
+
+    tooltip.innerHTML = `
+      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">Week of ${wkStart}</div>
+      ${wk?.buyVal  ? `<div style="color:var(--buy);font-size:11px">▲ BUY ${fmt(wk.buyVal)}</div>`  : ''}
+      ${wk?.sellVal ? `<div style="color:var(--sell);font-size:11px">▼ SELL ${fmt(wk.sellVal)}</div>` : ''}
+      <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d">
+        <span style="color:var(--muted);font-size:10px">WEEKLY NET </span>
+        <span style="color:${netColor};font-weight:700">${net >= 0 ? '+' : ''}${fmt(net)}</span>
+      </div>
+      ${cumVal !== null ? `<div style="margin-top:4px"><span style="color:var(--muted);font-size:10px">CUMULATIVE </span><span style="color:#00d4ff">${cumVal >= 0 ? '+' : ''}$${Math.abs(cumVal).toFixed(1)}M</span></div>` : ''}
+      ${insArr.length ? `<div style="margin-top:4px;font-size:10px;color:var(--muted)">${insArr.slice(0,3).join(', ')}${insArr.length>3?' +'+(insArr.length-3)+' more':''}</div>` : ''}`;
+    tooltip.style.display = 'block';
+    const tx = e.clientX + 16, ty = e.clientY - 10;
+    tooltip.style.left = (tx + 280 > window.innerWidth ? e.clientX - 296 : tx) + 'px';
+    tooltip.style.top = ty + 'px';
+  });
+  flowCanvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  // ── Step 6: Accumulation zones canvas panel ───────────────────────
+  if (!zoneEl) return;
+
+  // Detect accumulation zones: windows where net buy > threshold, no sells in same window
+  // We work in price-bar coordinates for canvas drawing
+  const zones = [];
+  const minZoneNet = 100000; // $100k minimum net to count as a zone
+
+  // Sliding 10-trading-day window
+  const WINDOW = 10;
+  for (let i = 0; i <= priceData.length - WINDOW; i++) {
+    const slice = priceData.slice(i, i + WINDOW);
+    const sliceDates = new Set(slice.map(d => d.time));
+    let zoneNet = 0, zoneBuy = 0, zoneSell = 0, zoneInsiders = new Set();
+    trades.forEach(t => {
+      const raw = (t.trade || t.filing || '').slice(0, 10);
+      if (!sliceDates.has(raw)) return;
+      const v = t.value || 0;
+      const tc = tradeClass(t.type);
+      if (tc === 'buy')  { zoneNet += v; zoneBuy += v; zoneInsiders.add(t.insider); }
+      if (tc === 'sell') { zoneNet -= v; zoneSell += v; }
+    });
+    if (zoneNet >= minZoneNet && zoneSell === 0) {
+      // Pure accumulation with no selling
+      const lo = Math.min(...slice.map(d => d.low  || d.close));
+      const hi = Math.max(...slice.map(d => d.high || d.close));
+      zones.push({
+        startDate: slice[0].time,
+        endDate:   slice[slice.length - 1].time,
+        startIdx: i,
+        endIdx: i + WINDOW - 1,
+        lo, hi,
+        net: zoneNet,
+        buyers: zoneInsiders.size,
+      });
+    }
+  }
+
+  // Merge overlapping zones
+  const merged = [];
+  zones.sort((a,b) => a.startIdx - b.startIdx).forEach(z => {
+    if (merged.length && z.startIdx <= merged[merged.length-1].endIdx + 2) {
+      const last = merged[merged.length-1];
+      last.endIdx   = Math.max(last.endIdx, z.endIdx);
+      last.endDate  = priceData[last.endIdx]?.time || last.endDate;
+      last.lo  = Math.min(last.lo, z.lo);
+      last.hi  = Math.max(last.hi, z.hi);
+      last.net += z.net;
+      last.buyers = Math.max(last.buyers, z.buyers);
+    } else {
+      merged.push({ ...z });
+    }
+  });
+
+  const drawZones = () => {
+    if (!zoneEl || !state.chart) return;
+    zoneEl.innerHTML = '';
+
+    const zCanvas = document.createElement('canvas');
+    const W = zoneEl.clientWidth || flowEl.clientWidth || 800;
+    const H = 52;
+    zCanvas.width = W; zCanvas.height = H;
+    zCanvas.style.cssText = 'position:absolute;top:0;left:0;display:block;';
+    zoneEl.style.position = 'relative';
+    zoneEl.appendChild(zCanvas);
+    const ctx = zCanvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = '#080b0f';
+    ctx.fillRect(0, 0, W, H);
+
+    // Label
+    ctx.font = '9px "Space Mono", monospace';
+    ctx.fillStyle = '#4a6580';
+    ctx.letterSpacing = '1.5px';
+    ctx.fillText('ACCUMULATION ZONES', 10, 14);
+
+    if (!merged.length) {
+      ctx.fillStyle = '#2a3a4a';
+      ctx.font = '10px "Space Mono", monospace';
+      ctx.fillText('No clean accumulation zones detected', 10, 34);
+      return;
+    }
+
+    // Map dates to x-coordinates using the main chart time scale
+    const ts = state.chart.timeScale();
+    const BAR_H = 20;
+    const Y_BASE = H - 8;
+
+    merged.forEach(z => {
+      try {
+        // Get x pixel positions for start and end dates
+        const x1 = ts.timeToCoordinate(z.startDate);
+        const x2 = ts.timeToCoordinate(z.endDate);
+        if (x1 === null || x2 === null) return;
+        const left  = Math.min(x1, x2);
+        const right = Math.max(x1, x2);
+        const width = Math.max(right - left, 4);
+
+        // Zone intensity by net buying
+        const intensity = Math.min(1, z.net / 3e6); // saturates at $3M
+        const alpha = 0.25 + intensity * 0.55;
+
+        // Draw zone bar
+        ctx.fillStyle = `rgba(0,255,136,${alpha})`;
+        ctx.fillRect(left, Y_BASE - BAR_H, width, BAR_H);
+
+        // Zone border
+        ctx.strokeStyle = `rgba(0,255,136,${alpha + 0.2})`;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(left, Y_BASE - BAR_H, width, BAR_H);
+
+        // Label if wide enough
+        if (width > 40) {
+          ctx.fillStyle = '#00ff88';
+          ctx.font = 'bold 9px "Space Mono", monospace';
+          ctx.fillText(fmt(z.net).replace('$',''), left + 4, Y_BASE - 6);
+        } else if (width > 16) {
+          ctx.fillStyle = '#00ff88';
+          ctx.fillRect(left + width/2 - 2, Y_BASE - BAR_H/2 - 2, 4, 4);
+        }
+      } catch(e) {}
+    });
+
+    // Zone tooltip
+    zCanvas.onmousemove = (e) => {
+      const rect = zCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const hit = merged.find(z => {
+        try {
+          const x1 = ts.timeToCoordinate(z.startDate);
+          const x2 = ts.timeToCoordinate(z.endDate);
+          if (x1 === null || x2 === null) return false;
+          return mx >= Math.min(x1,x2) - 2 && mx <= Math.max(x1,x2) + 2;
+        } catch(e) { return false; }
+      });
+      if (!hit) { tooltip.style.display = 'none'; return; }
+      tooltip.innerHTML = `
+        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:4px">ACCUMULATION ZONE</div>
+        <div style="font-size:11px;color:var(--buy)">Net buying: ${fmt(hit.net)}</div>
+        <div style="font-size:10px;color:var(--text);margin-top:4px">${hit.startDate} → ${hit.endDate}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${hit.buyers} insider${hit.buyers!==1?'s':''} · No offsetting sells</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Price range $${hit.lo.toFixed(2)} – $${hit.hi.toFixed(2)}</div>`;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 16) + 'px';
+      tooltip.style.top  = (e.clientY - 10)  + 'px';
+    };
+    zCanvas.onmouseleave = () => { tooltip.style.display = 'none'; };
+  };
+
+  state.drawZones = drawZones;
+  drawZones();
+
+  // Redraw zones when main chart scrolls/zooms
+  mainChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+    setTimeout(() => { if (state.drawZones) state.drawZones(); }, 30);
+  });
+
+  // Zone label
+  addLabel('▬ ACCUMULATION ZONES  (green = net buying, no sells)', 'top:193px;left:10px;');
 }
+
 
 function setRange(days,btn) {
   document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active')); if(btn)btn.classList.add('active');
@@ -1140,7 +1472,7 @@ function toggleChartFilter(group,btn) {
   }
   if(state.drawCircles)state.drawCircles();
   renderSidebarTrades(filtered); renderStockTradesTable(filtered); renderTradeMarkerList(filtered);
-  buildPressureChart(state.chart,filtered,state.currentPriceData);
+  buildAccumulationMap(state.chart,filtered,state.currentPriceData);
 }
 
 function renderTradeMarkerList(trades) {
