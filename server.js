@@ -1,3481 +1,799 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>INSIDERTAPE — Follow the Smart Money</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
+'use strict';
 
-  :root {
-    --bg:        #080b0f;
-    --bg2:       #0d1117;
-    --bg3:       #111820;
-    --border:    #1e2d3d;
-    --border2:   #253447;
-    --text:      #c9d8e8;
-    --muted:     #4a6580;
-    --accent:    #00d4ff;
-    --accent2:   #0099cc;
-    --buy:       #00ff88;
-    --buy-dim:   #00993a;
-    --sell:      #ff4466;
-    --sell-dim:  #992233;
-    --option:    #ffaa00;
-    --header-h:  64px;
-  }
+const express  = require('express');
+const cors     = require('cors');
+const https    = require('https');
+const path     = require('path');
+const fs       = require('fs');
+const { spawn } = require('child_process');
+const Database = require('better-sqlite3');
 
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+const app  = express();
+const PORT = process.env.PORT || 3000;
+const FMP  = process.env.FMP_KEY || 'OJfv9bPVEMrnwPX7noNpJLZCFLLFTmlu';
 
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 14px;
-    overflow-x: hidden;
-  }
+const DATA_DIR = fs.existsSync('/var/data') ? '/var/data' : path.join(__dirname, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const DB_PATH = path.join(DATA_DIR, 'trades.db');
 
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: var(--bg2); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+app.use(cors());
+app.use(express.static(path.join(__dirname, 'public')));
 
-  header {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-    height: var(--header-h);
-    background: rgba(8,11,15,0.92);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 24px;
-    gap: 16px;
-  }
+// Global safety net — log crashes but keep the process alive
+process.on('uncaughtException',  err => console.error('UNCAUGHT:', err.message));
+process.on('unhandledRejection', err => console.error('UNHANDLED:', err?.message || err));
 
-  .logo {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 26px;
-    letter-spacing: 3px;
-    color: var(--accent);
-    text-shadow: 0 0 20px rgba(0,212,255,0.4);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .logo span { color: var(--text); opacity: 0.5; }
-
-  .search-wrap { position: relative; flex: 1; max-width: 420px; }
-  .search-wrap input {
-    width: 100%;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 9px 16px 9px 42px;
-    color: var(--text);
-    font-family: 'Space Mono', monospace;
-    font-size: 13px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    outline: none;
-    transition: border-color .2s, box-shadow .2s;
-  }
-  .search-wrap input::placeholder { color: var(--muted); text-transform: none; letter-spacing: 0; font-family: 'DM Sans', sans-serif; }
-  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,0.1); }
-  .search-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
-  .search-btn {
-    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-    background: var(--accent); color: var(--bg);
-    border: none; border-radius: 4px;
-    padding: 5px 12px;
-    font-family: 'Space Mono', monospace;
-    font-size: 11px; font-weight: 700;
-    cursor: pointer; transition: background .2s;
-  }
-  .search-btn:hover { background: #33ddff; }
-
-  .nav-tabs { display: flex; gap: 4px; flex-shrink: 0; }
-  .nav-tab {
-    padding: 7px 16px;
-    border: 1px solid transparent;
-    border-radius: 5px;
-    font-size: 12px; font-weight: 500;
-    cursor: pointer; transition: all .2s;
-    color: var(--muted); background: transparent; white-space: nowrap;
-  }
-  .nav-tab:hover { color: var(--text); border-color: var(--border); }
-  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
-
-  main { margin-top: var(--header-h); min-height: calc(100vh - var(--header-h)); }
-  .view { display: none; }
-  .view.active { display: block; }
-
-  .screener-layout { display: grid; grid-template-columns: 260px 1fr; gap: 0; min-height: calc(100vh - var(--header-h)); }
-
-  .filter-panel {
-    background: var(--bg2); border-right: 1px solid var(--border);
-    padding: 20px 16px; position: sticky; top: var(--header-h);
-    height: calc(100vh - var(--header-h)); overflow-y: auto;
-  }
-  .filter-section { margin-bottom: 24px; }
-  .filter-label { font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; display: block; }
-  .filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); font-size: 11px; cursor: pointer; transition: all .15s; color: var(--muted); background: transparent; }
-  .chip:hover { border-color: var(--border2); color: var(--text); }
-  .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
-  .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
-  .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
-  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(255,170,0,0.08); }
-  .filter-range { display: flex; flex-direction: column; gap: 8px; }
-  .filter-range select, .filter-range input[type=number] { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; color: var(--text); font-size: 12px; outline: none; width: 100%; }
-  .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
-  .apply-btn { width: 100%; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; padding: 10px; font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; transition: background .2s; margin-top: 8px; }
-  .apply-btn:hover { background: #33ddff; }
-
-  .screener-content { padding: 20px; }
-  .screener-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  .screener-title { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--text); }
-  .screener-meta { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); }
-  .live-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); border-radius: 20px; font-size: 11px; color: var(--buy); }
-  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--buy); animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-  .table-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  table { width: 100%; border-collapse: collapse; }
-  thead tr { background: var(--bg3); border-bottom: 1px solid var(--border); }
-  th { padding: 11px 14px; text-align: left; font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; white-space: nowrap; cursor: pointer; user-select: none; transition: color .15s; }
-  th:hover { color: var(--text); }
-  th.sorted { color: var(--accent); }
-  th .sort-arrow { margin-left: 4px; opacity: 0.5; }
-  tbody tr { border-bottom: 1px solid var(--border); transition: background .12s; cursor: pointer; }
-  tbody tr:last-child { border-bottom: none; }
-  tbody tr:hover { background: rgba(255,255,255,0.03); }
-  td { padding: 11px 14px; font-size: 13px; white-space: nowrap; }
-  .ticker-cell { font-family: 'Space Mono', monospace; font-weight: 700; color: var(--accent); font-size: 13px; }
-  .ticker-cell:hover { text-decoration: underline; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
-  .badge-buy  { background: rgba(0,255,136,0.15); color: var(--buy); border: 1px solid rgba(0,255,136,0.3); }
-  .badge-sell { background: rgba(255,68,102,0.15); color: var(--sell); border: 1px solid rgba(255,68,102,0.3); }
-  .badge-option { background: rgba(255,170,0,0.15); color: var(--option); border: 1px solid rgba(255,170,0,0.3); }
-  .val-positive { color: var(--buy); font-weight: 500; }
-  .val-negative { color: var(--sell); font-weight: 500; }
-  .val-neutral  { color: var(--option); font-weight: 500; }
-  .insider-name { color: var(--text); }
-  .insider-title { color: var(--muted); font-size: 11px; display: block; margin-top: 1px; }
-  .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px; border-top: 1px solid var(--border); }
-  .page-btn { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 5px 12px; color: var(--text); font-size: 12px; cursor: pointer; transition: all .15s; }
-  .page-btn:hover, .page-btn.active { border-color: var(--accent); color: var(--accent); }
-  .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-  .stock-layout { display: grid; grid-template-columns: 1fr 320px; grid-template-rows: auto 1fr; gap: 0; min-height: calc(100vh - var(--header-h)); }
-  .stock-header-bar { grid-column: 1 / -1; background: var(--bg2); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: flex-start; gap: 32px; flex-wrap: wrap; }
-  .stock-ticker-big { font-family: 'Bebas Neue', sans-serif; font-size: 42px; line-height: 1; color: var(--accent); letter-spacing: 3px; }
-  .stock-name-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
-  .stock-price-block { display: flex; flex-direction: column; justify-content: center; }
-  .stock-price { font-family: 'Space Mono', monospace; font-size: 28px; font-weight: 700; color: var(--text); }
-  .stock-change { font-family: 'Space Mono', monospace; font-size: 13px; margin-top: 3px; }
-  .stat-grid { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; margin-left: auto; }
-  .stat-item { text-align: right; }
-  .stat-label { font-family: 'Space Mono', monospace; font-size: 9px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; }
-  .stat-val { font-family: 'Space Mono', monospace; font-size: 13px; color: var(--text); margin-top: 2px; }
-  .chart-area { background: var(--bg); padding: 16px; display: flex; flex-direction: column; gap: 0; }
-  .chart-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .tf-btn { padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--muted); font-family: 'Space Mono', monospace; font-size: 11px; cursor: pointer; transition: all .15s; }
-  .tf-btn:hover { color: var(--text); }
-  .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
-  #chartContainer { width: 100%; height: 480px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
-  .insider-sidebar { background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; height: calc(100vh - var(--header-h) - 110px); overflow: hidden; }
-  .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .sidebar-tab { flex: 1; padding: 12px 8px; text-align: center; font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 1px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; text-transform: uppercase; }
-  .sidebar-tab:hover { color: var(--text); }
-  .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
-  .trade-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: border-color .15s, background .15s; position: relative; overflow: hidden; }
-  .trade-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
-  .trade-card.buy::before  { background: var(--buy); }
-  .trade-card.sell::before { background: var(--sell); }
-  .trade-card.option::before { background: var(--option); }
-  .trade-card:hover { border-color: var(--border2); background: rgba(255,255,255,0.02); }
-  .trade-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-  .trade-type-label { font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-  .trade-card.buy  .trade-type-label { color: var(--buy); }
-  .trade-card.sell .trade-type-label { color: var(--sell); }
-  .trade-card.option .trade-type-label { color: var(--option); }
-  .trade-date { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); }
-  .trade-insider { font-size: 12px; font-weight: 500; color: var(--text); }
-  .trade-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .trade-numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-  .trade-num-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-family: 'Space Mono', monospace; }
-  .trade-num-val { font-family: 'Space Mono', monospace; font-size: 12px; color: var(--text); margin-top: 2px; }
-  .stock-trades-section { grid-column: 1 / -1; padding: 0 16px 24px; }
-  .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 2px; color: var(--text); margin-bottom: 12px; margin-top: 20px; }
-  .loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--muted); gap: 12px; }
-  .spinner { width: 32px; height: 32px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; gap: 12px; color: var(--muted); text-align: center; }
-  .empty-icon { font-size: 36px; opacity: 0.3; }
-
-  .insider-profile-layout { padding: 24px; max-width: 1200px; margin: 0 auto; }
-  .back-btn { display: inline-flex; align-items: center; gap: 8px; background: transparent; border: 1px solid var(--border); border-radius: 5px; padding: 6px 14px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all .15s; margin-bottom: 20px; }
-  .back-btn:hover { color: var(--text); border-color: var(--border2); }
-  .insider-hero { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 24px 28px; margin-bottom: 20px; display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap; position: relative; overflow: hidden; }
-  .insider-hero::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent), transparent); }
-  .insider-avatar { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg, var(--accent2), var(--bg3)); display: flex; align-items: center; justify-content: center; font-family: 'Bebas Neue', sans-serif; font-size: 26px; color: var(--bg); flex-shrink: 0; border: 2px solid var(--border2); }
-  .insider-hero-info { flex: 1; min-width: 200px; }
-  .insider-hero-name { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; color: var(--text); line-height: 1; }
-  .insider-hero-title { color: var(--muted); font-size: 13px; margin-top: 5px; }
-  .insider-hero-companies { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-  .company-tag { padding: 3px 10px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2); border-radius: 20px; font-family: 'Space Mono', monospace; font-size: 11px; color: var(--accent); cursor: pointer; transition: background .15s; }
-  .company-tag:hover { background: rgba(0,212,255,0.15); }
-  .insider-hero-stats { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; margin-left: auto; }
-  .insider-stat { text-align: center; padding: 12px 16px; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px; min-width: 100px; }
-  .insider-stat-label { font-family: 'Space Mono', monospace; font-size: 9px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; }
-  .insider-stat-val { font-family: 'Space Mono', monospace; font-size: 18px; margin-top: 4px; }
-  .profile-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
-  .activity-chart-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  .activity-chart-title { font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-bottom: 12px; }
-  .ticker-breakdown { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
-  .ticker-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
-  .ticker-row:hover .ticker-bar-label { color: var(--accent); }
-  .ticker-bar-label { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text); width: 50px; flex-shrink: 0; transition: color .15s; }
-  .ticker-bar-track { flex: 1; height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
-  .ticker-bar-fill { height: 100%; border-radius: 4px; transition: width .4s ease; }
-  .ticker-bar-val { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); width: 70px; text-align: right; flex-shrink: 0; }
-  .insider-name-link { color: var(--accent); cursor: pointer; text-decoration: none; transition: opacity .15s; border-bottom: 1px solid rgba(0,212,255,0.3); padding-bottom: 1px; }
-  .insider-name-link:hover { opacity: 0.75; }
-  #insiderActivityChart { width: 100%; height: 160px; border-radius: 4px; }
-  .toast { position: fixed; bottom: 24px; right: 24px; z-index: 999; background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px; padding: 12px 20px; font-size: 13px; color: var(--text); box-shadow: 0 8px 32px rgba(0,0,0,0.5); transform: translateY(80px); opacity: 0; transition: all .3s; }
-  .toast.show { transform: translateY(0); opacity: 1; }
-  .toast.error { border-color: var(--sell); }
-  .chart-legend { display: flex; gap: 16px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
-  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
-  .summary-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-  .summary-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; flex: 1; min-width: 120px; }
-  .summary-card-label { font-family: 'Space Mono', monospace; font-size: 9px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; }
-  .summary-card-val { font-family: 'Space Mono', monospace; font-size: 18px; margin-top: 4px; }
-
-  /* ── SCORER ── */
-  .scorer-section { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0; margin-bottom: 20px; overflow: hidden; position: relative; }
-  .scorer-section::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, var(--accent), #818cf8); }
-  .scorer-header { padding: 18px 22px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-  .scorer-title { font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 2px; color: var(--text); display: flex; align-items: center; gap: 10px; }
-  .scorer-title .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.5s infinite; }
-  .scorer-body { padding: 20px 22px; }
-  .scorer-loading { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; padding: 12px 0; }
-  .score-ring-wrap { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; margin-bottom: 20px; }
-  .score-ring-big { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 90px; height: 90px; border-radius: 50%; border: 3px solid var(--accent); box-shadow: 0 0 20px rgba(0,212,255,0.2); flex-shrink: 0; }
-  .score-ring-big .snum { font-family: 'Space Mono', monospace; font-size: 22px; font-weight: 700; color: var(--accent); line-height: 1; }
-  .score-ring-big .sdenom { font-size: 10px; color: var(--muted); font-family: 'Space Mono', monospace; }
-  .score-summary { flex: 1; min-width: 180px; }
-  .score-tier-label { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; margin-bottom: 4px; }
-  .score-summary-text { font-size: 12px; color: var(--muted); line-height: 1.6; }
-  .score-follow-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700; border: 1px solid; margin-top: 8px; }
-  .scorer-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
-  .scorer-stat-cell { background: var(--bg3); padding: 14px 16px; }
-  .scorer-stat-cell .slabel { font-family: 'Space Mono', monospace; font-size: 9px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; margin-bottom: 5px; }
-  .scorer-stat-cell .sval { font-family: 'Space Mono', monospace; font-size: 17px; font-weight: 700; }
-  .scorer-stat-cell .ssub { font-size: 10px; color: var(--muted); margin-top: 2px; }
-  .timing-bar-wrap { margin-bottom: 16px; }
-  .timing-bar-label { display: flex; justify-content: space-between; font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); margin-bottom: 5px; }
-  .timing-bar-track { height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
-  .timing-bar-fill { height: 100%; border-radius: 4px; transition: width .8s ease; }
-  .scorer-insights { display: flex; flex-direction: column; gap: 8px; }
-  .insight-row { display: flex; align-items: flex-start; gap: 10px; background: rgba(255,255,255,.025); border-radius: 6px; padding: 10px 13px; border-left: 3px solid; }
-  .insight-row.good { border-color: var(--buy); }
-  .insight-row.bad  { border-color: var(--sell); }
-  .insight-row.info { border-color: #818cf8; }
-  .insight-row .iicon { font-size: 14px; margin-top: 1px; flex-shrink: 0; }
-  .insight-row .itext { font-size: 12px; line-height: 1.55; color: var(--text); }
-  .scorer-trade-rows { margin-top: 16px; }
-  .scorer-trade-row-header { display: grid; grid-template-columns: 80px 60px 1fr 80px 80px 80px 80px; gap: 8px; padding: 6px 10px; font-family: 'Space Mono', monospace; font-size: 9px; letter-spacing: 1.2px; color: var(--muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
-  .scorer-trade-row { display: grid; grid-template-columns: 80px 60px 1fr 80px 80px 80px 80px; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; align-items: center; }
-  .scorer-trade-row:last-child { border-bottom: none; }
-  .scorer-trade-row .r30, .scorer-trade-row .r60, .scorer-trade-row .r90 { font-family: 'Space Mono', monospace; font-size: 11px; }
-
-  /* ── HIGH CONVICTION ── */
-  .conviction-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-bottom: 8px; }
-  .analysis-tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
-  .insider-dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  .cluster-card-body { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 14px 18px; }
-  .conviction-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
-  .conviction-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-  .conviction-card-header { padding: 14px 16px 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
-  .conviction-ticker { font-family: 'Bebas Neue', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--accent); }
-  .conviction-company { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .conviction-score-badge { display: flex; flex-direction: column; align-items: center; border-radius: 8px; padding: 6px 12px; min-width: 60px; border: 1px solid; }
-  .conviction-score-num { font-family: 'Space Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; }
-  .conviction-score-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; margin-top: 2px; }
-  .conviction-body { padding: 12px 16px; }
-  .conviction-reasons { list-style: none; display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
-  .conviction-reasons li { font-size: 11px; color: var(--muted); display: flex; align-items: flex-start; gap: 6px; line-height: 1.4; }
-  .conviction-reasons li::before { content: '•'; color: var(--accent); flex-shrink: 0; margin-top: 1px; }
-  .conviction-footer { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--border); }
-  .conviction-val { font-family: 'Space Mono', monospace; font-size: 13px; color: var(--buy); }
-  .conviction-date { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); }
-
-  /* ── RESPONSIVE ── */
-  @media (max-width: 900px) {
-    header { padding: 0 14px; gap: 10px; }
-    .logo  { font-size: 22px; letter-spacing: 2px; }
-    .search-wrap { max-width: 260px; }
-    .screener-layout { grid-template-columns: 1fr; }
-    .filter-panel { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 14px 14px 10px; }
-    .filter-section { margin-bottom: 14px; }
-    .stock-layout { grid-template-columns: 1fr; }
-    .insider-sidebar { border-left: none; border-top: 1px solid var(--border); height: 360px; }
-    .stock-trades-section { grid-column: 1; }
-    .stat-grid { margin-left: 0; gap: 14px; }
-    .profile-grid { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 640px) {
-    :root { --header-h: auto; }
-    html, body { overflow-x: hidden; width: 100%; max-width: 100vw; }
-    header {
-      flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px;
-      align-items: center; position: fixed; top: 0; left: 0; right: 0;
-    }
-    .logo { font-size: 19px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
-    .nav-tabs { order: 1; margin-left: auto; gap: 2px; flex-shrink: 0; overflow-x: auto; max-width: calc(100vw - 120px); -webkit-overflow-scrolling: touch; }
-    .nav-tab { padding: 5px 9px; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
-    .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
-    main { padding-top: 100px; }
-    /* Screener */
-    .filter-panel { padding: 10px 12px; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 12px; align-items: flex-start; -webkit-overflow-scrolling: touch; }
-    .filter-section { margin-bottom: 0; flex-shrink: 0; min-width: 140px; }
-    .apply-btn { width: auto; white-space: nowrap; flex-shrink: 0; align-self: flex-end; }
-    .screener-content { padding: 10px; }
-    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
-    table { min-width: 480px; }
-    td, th { padding: 9px 8px; font-size: 11px; }
-    /* Stock view */
-    .stock-header-bar { flex-direction: column; gap: 12px; padding: 12px; }
-    .stock-ticker-big { font-size: 32px; }
-    .stock-price { font-size: 22px; }
-    .stat-grid { margin-left: 0; gap: 10px; }
-    .stat-item { text-align: left; }
-    .chart-controls { flex-wrap: wrap; gap: 4px; }
-    .tf-btn { padding: 4px 8px; font-size: 10px; }
-    .chart-area { padding: 10px; }
-    #chartContainer { height: 300px !important; }
-    .insider-sidebar { height: 260px; }
-    .stock-trades-section { padding: 0 10px 16px; overflow-x: auto; }
-    /* Insider profile */
-    .insider-profile-layout { padding: 12px; }
-    .summary-bar { gap: 8px; }
-    .summary-card { min-width: 90px; padding: 10px 10px; }
-    .summary-card-val { font-size: 14px; }
-    /* Scorecard trade rows */
-    .scorer-trade-row-header,
-    .scorer-trade-row { grid-template-columns: 60px 44px 1fr 60px 60px; }
-    .scorer-trade-row-header > *:nth-child(6),
-    .scorer-trade-row > *:nth-child(6),
-    .scorer-trade-row-header > *:nth-child(7),
-    .scorer-trade-row > *:nth-child(7) { display: none; }
-    /* Timing quality grid 2-col → 1-col */
-    .timing-quality-grid { grid-template-columns: 1fr !important; }
-    /* Conviction + analysis grids */
-    .conviction-grid { grid-template-columns: 1fr; }
-    .analysis-tool-grid { grid-template-columns: 1fr !important; }
-    /* Insider dashboard 2-col → 1-col */
-    .insider-dash-grid { grid-template-columns: 1fr !important; }
-    /* Cluster card body */
-    .cluster-card-body { grid-template-columns: 1fr !important; }
-    /* Hide less critical table cols */
-    .hide-mobile { display: none !important; }
-    #screenerBody tr td:nth-child(5),
-    #screenerBody tr td:nth-child(6),
-    #screenerBody tr td:nth-child(8) { display: none; }
-    #stockTradesBody tr td:nth-child(3),
-    #stockTradesBody tr td:nth-child(6),
-    #stockTradesBody tr td:nth-child(8),
-    #stockTradesBody tr td:nth-child(9) { display: none; }
-  }
-  @media (max-width: 380px) {
-    .logo { font-size: 17px; }
-    .nav-tab { padding: 4px 7px; font-size: 10px; }
-    #chartContainer { height: 260px !important; }
-  }
-</style>
-</head>
-<body>
-
-<header>
-  <div class="logo" onclick="switchView('screener', document.querySelectorAll('.nav-tab')[0])" style="cursor:pointer">INSIDER<span>TAPE</span></div>
-  <div class="search-wrap">
-    <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    <input type="text" id="tickerInput" placeholder="Search ticker  (e.g. AAPL)" maxlength="10">
-    <button class="search-btn" onclick="searchTicker()">GO</button>
-  </div>
-  <nav class="nav-tabs">
-    <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
-    <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
-    <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
-    <button class="nav-tab" id="analysisTab" onclick="switchView('analysis', this)">ANALYSIS</button>
-  </nav>
-</header>
-
-<main>
-
-<div id="view-screener" class="view active">
-  <div class="screener-layout">
-    <aside class="filter-panel">
-      <span class="filter-label">Trade Type</span>
-      <div class="filter-chips" style="margin-bottom:20px">
-        <div class="chip buy-chip active"  data-type="P" onclick="toggleChip(this)">Buy</div>
-        <div class="chip sell-chip active" data-type="S" onclick="toggleChip(this)">Sell</div>
-        <div class="chip opt-chip active"  data-type="A" onclick="toggleChip(this)">Option Ex.</div>
-        <div class="chip opt-chip active"  data-type="M" onclick="toggleChip(this)">Other</div>
-      </div>
-      <div class="filter-section">
-        <span class="filter-label">Insider Role</span>
-        <div class="filter-chips">
-          <div class="chip active" data-role="all" onclick="toggleRole(this)">All</div>
-          <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
-          <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
-          <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="10%"  onclick="toggleRole(this)">10%+ Owner</div>
-        </div>
-      </div>
-      <div class="filter-section">
-        <span class="filter-label">Min Transaction Value</span>
-        <div class="filter-range">
-          <select id="minVal">
-            <option value="0">Any amount</option>
-            <option value="50000">$50,000+</option>
-            <option value="100000" selected>$100,000+</option>
-            <option value="500000">$500,000+</option>
-            <option value="1000000">$1,000,000+</option>
-            <option value="5000000">$5,000,000+</option>
-          </select>
-        </div>
-      </div>
-      <div class="filter-section">
-        <span class="filter-label">Time Period</span>
-        <div class="filter-chips">
-          <div class="chip active" data-days="7"   onclick="toggleDays(this)">7D</div>
-          <div class="chip" data-days="30"  onclick="toggleDays(this)">30D</div>
-          <div class="chip" data-days="90"  onclick="toggleDays(this)">90D</div>
-          <div class="chip" data-days="365" onclick="toggleDays(this)">1Y</div>
-        </div>
-      </div>
-      <button class="apply-btn" onclick="loadScreener()">APPLY FILTERS</button>
-      <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
-        <span class="filter-label">Data Source</span>
-        <p style="font-size:11px;color:var(--muted);line-height:1.6">
-          Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
-          Price data via Yahoo Finance.<br><br>
-          <span style="color:var(--accent)">Note:</span> Data may be delayed up to 48hrs from SEC filing.
-        </p>
-      </div>
-    </aside>
-    <div class="screener-content">
-
-      <div class="screener-header">
-        <div>
-          <div class="screener-title">RECENT INSIDER TRADES</div>
-          <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <div class="live-badge"><div class="live-dot"></div>LIVE</div>
-        </div>
-      </div>
-      <div class="summary-bar" id="summaryBar"></div>
-      <div class="table-wrap">
-        <table id="screenerTable">
-          <thead>
-            <tr>
-              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
-              <th onclick="sortTable('ticker')">TICKER <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('insider')">INSIDER <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('type')">TYPE <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('shares')" class="hide-mobile">SHARES <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('price')" class="hide-mobile">PRICE <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('value')">VALUE <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER <span class="sort-arrow">↕</span></th>
-            </tr>
-          </thead>
-          <tbody id="screenerBody">
-            <tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Fetching insider filings...</span></div></td></tr>
-          </tbody>
-        </table>
-        <div class="pagination" id="pagination"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div id="view-stock" class="view">
-  <div id="stockContent">
-    <div class="empty-state">
-      <div class="empty-icon">📈</div>
-      <div style="font-size:15px;color:var(--text)">Search a ticker to get started</div>
-      <div style="font-size:12px">Enter a stock symbol in the search bar above</div>
-    </div>
-  </div>
-</div>
-
-<div id="view-insider" class="view">
-  <div id="insiderViewBody"></div>
-</div>
-
-<div id="view-analysis" class="view">
-  <div id="analysisViewBody"></div>
-</div>
-
-</main>
-<div class="toast" id="toast"></div>
-
-<script>
-const state = {
-  screenerData: [], currentPage: 1, pageSize: 25,
-  sortCol: 'trade', sortDir: -1,
-  activeTypes: new Set(['P','S','A','M']),
-  activeRole: 'all', minVal: 100000, days: 7,
-  currentTicker: null, tickerTrades: [],
-  chart: null, candleSeries: null, markers: [],
-};
-
-function fmt(n) {
-  if (n == null || isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
-  if (Math.abs(n) >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
-  if (Math.abs(n) >= 1e3) return '$' + (n/1e3).toFixed(1) + 'K';
-  return '$' + n.toFixed(2);
-}
-function fmtShares(n) {
-  if (n == null || isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M';
-  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1)+'K';
-  return n.toLocaleString();
-}
-function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'2-digit'});
-}
-function tradeClass(type) {
-  if (!type) return '';
-  const t = type.toUpperCase();
-  if (t === 'P') return 'buy';
-  if (t === 'S' || t === 'S-') return 'sell';
-  return 'option';
-}
-function tradeLabel(type) {
-  if (!type) return 'Unknown';
-  const map = { P:'Open Buy', S:'Open Sell', 'S-':'Sell', A:'Option Ex.', M:'Transfer', C:'Conv.', F:'Tax Sale', G:'Gift', J:'Other', L:'Gift', W:'Will', Z:'Trust' };
-  return map[type.toUpperCase()] || type;
-}
-function badgeClass(type) {
-  const c = tradeClass(type);
-  if (c === 'buy') return 'badge-buy';
-  if (c === 'sell') return 'badge-sell';
-  return 'badge-option';
-}
-function showToast(msg, isError=false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = 'toast show' + (isError?' error':'');
-  setTimeout(() => t.className = 'toast', 3500);
-}
-function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
-
-function switchView(view, btn, opts={}) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('view-' + view).classList.add('active');
-  if (btn) btn.classList.add('active');
-  else {
-    const idx = {screener:0, stock:1, insider:2, analysis:3}[view];
-    if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
-  }
-  if (view === 'insider') {
-    const body = document.getElementById('insiderViewBody');
-    if (body && (!body.hasChildNodes() || body.dataset.showing !== 'dashboard')) {
-      body.dataset.showing = 'dashboard';
-      insiderLanding();
-    }
-  }
-  if (view === 'analysis') {
-    const body = document.getElementById('analysisViewBody');
-    if (!body) return;
-    if (!_analysisData) {
-      loadAnalysisPage();
-    } else if (!body.hasChildNodes() || body.querySelector('.loading-state')) {
-      renderAnalysisDashboard();
-    }
-    // If already showing content, leave it (user may be on a subpage)
-  }
-  // Push URL unless we're being called from popstate
-  if (!opts.fromPopstate) {
-    const url = view === 'screener' ? '/' : '/' + view;
-    history.pushState({view, subview: null}, '', url);
-    updateTitle(view);
-  }
-}
-
-function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis'};
-  document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
-}
-function searchTicker() {
-  const val = document.getElementById('tickerInput').value.trim().toUpperCase();
-  if (!val) return showToast('Please enter a ticker symbol', true);
-  loadStockView(val);
-}
-document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.key==='Enter') searchTicker(); });
-
-const API_BASE = '';
-async function apiFetch(path) {
-  const resp = await fetch(API_BASE + path);
-  if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
-  return resp.json();
-}
-async function fetchInsiderForTicker(ticker) { return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`); }
-async function fetchInsiderByName(name) {
-  try { return await apiFetch(`/api/insider?name=${encodeURIComponent(name)}&exact=1`); }
-  catch(e) { return []; }
-}
-
-// ── SCREENER ──────────────────────────────────────────────────────
-function toggleChip(el) {
-  el.classList.toggle('active');
-  const type = el.dataset.type;
-  if (el.classList.contains('active')) state.activeTypes.add(type);
-  else state.activeTypes.delete(type);
-}
-function toggleRole(el) {
-  document.querySelectorAll('[data-role]').forEach(c => c.classList.remove('active'));
-  el.classList.add('active'); state.activeRole = el.dataset.role;
-}
-function toggleDays(el) {
-  document.querySelectorAll('[data-days]').forEach(c => c.classList.remove('active'));
-  el.classList.add('active'); state.days = parseInt(el.dataset.days);
-}
-
-async function loadScreener() {
-  state.minVal = parseInt(document.getElementById('minVal').value) || 0;
-  const days = state.days || 7;
-  document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
-  document.getElementById('summaryBar').innerHTML = '';
-  try {
-    const resp = await apiFetch('/api/screener?days=' + days);
-    if (resp && resp.building) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span></div></td></tr>`;
-      setTimeout(loadScreener, 8000); return;
-    }
-    let trades = Array.isArray(resp) ? resp : (resp.trades || []);
-    if (!trades.length) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>No recent data yet — loading most recent available...</span></div></td></tr>`;
-      const fallback = await apiFetch('/api/screener?days=365');
-      const all = Array.isArray(fallback) ? fallback : (fallback.trades || []);
-      if (!all.length) {
-        document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found.</div></div></td></tr>`;
-        return;
-      }
-      trades = all;
-      document.getElementById('summaryBar').innerHTML = `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">⚠ Recent daily data still loading. Showing most recent available filings.</div>`;
-    }
-    if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-    if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
-    if (!trades.length) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings match your filters</div></div></td></tr>`;
-      return;
-    }
-    state.screenerData = trades;
-    state.currentPage = 1;
-    renderScreener();
-    computeConvictionScores(trades);
-  } catch(e) {
-    document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load data: ${e.message}</div></div></td></tr>`;
-  }
-}
-
-// ── HIGH CONVICTION SCORING ───────────────────────────────────────
-function buildConvictionData(trades) {
-  const buys = trades.filter(t => t.type === 'P' && t.value > 0);
-  if (!buys.length) return [];
-  const allByTicker = {};
-  trades.forEach(t => { if (!allByTicker[t.ticker]) allByTicker[t.ticker] = []; allByTicker[t.ticker].push(t); });
-  const buysByTicker = {};
-  buys.forEach(t => { if (!buysByTicker[t.ticker]) buysByTicker[t.ticker] = []; buysByTicker[t.ticker].push(t); });
-  const scored = [];
-  Object.entries(buysByTicker).forEach(([ticker, tickerBuys]) => {
-    const allTrades = allByTicker[ticker] || [];
-    let score = 0; const reasons = [];
-    const uniqueInsiders = new Set(tickerBuys.map(t => t.insider)).size;
-    if (uniqueInsiders >= 3) { score += 25; reasons.push(`${uniqueInsiders} insiders buying simultaneously`); }
-    else if (uniqueInsiders === 2) { score += 15; reasons.push(`2 insiders buying in the same window`); }
-    let bestStakeIncrease = 0, bestStakeInsider = '';
-    tickerBuys.forEach(t => {
-      if (t.owned > 0 && t.qty > 0) {
-        const prior = t.owned - t.qty;
-        if (prior > 0) { const pct = (t.qty / prior) * 100; if (pct > bestStakeIncrease) { bestStakeIncrease = pct; bestStakeInsider = t.title || t.insider || ''; } }
-      }
-    });
-    if (bestStakeIncrease >= 50) { score += 22; reasons.push(`${bestStakeInsider} increased stake by ${bestStakeIncrease.toFixed(0)}%`); }
-    else if (bestStakeIncrease >= 20) { score += 14; reasons.push(`${bestStakeInsider} increased stake by ${bestStakeIncrease.toFixed(0)}%`); }
-    else if (bestStakeIncrease >= 5)  { score += 7;  reasons.push(`${bestStakeInsider} added to position (${bestStakeIncrease.toFixed(0)}% increase)`); }
-    const totalBuyVal = tickerBuys.reduce((s, t) => s + (t.value || 0), 0);
-    const maxOwned = Math.max(...tickerBuys.map(t => t.owned || 0));
-    const maxPrice = (tickerBuys.find(t => t.owned === maxOwned) || {}).price || 0;
-    const estPortfolio = maxOwned * maxPrice;
-    if (estPortfolio > 0) {
-      const pct = (totalBuyVal / estPortfolio) * 100;
-      if (pct >= 15) { score += 20; reasons.push(`Purchase is ${pct.toFixed(0)}% of known position value`); }
-      else if (pct >= 5) { score += 10; reasons.push(`Significant outlay — ${pct.toFixed(0)}% of known position`); }
-    } else if (totalBuyVal >= 5000000) { score += 15; reasons.push(`Large outright purchase of ${fmt(totalBuyVal)}`); }
-    else if (totalBuyVal >= 1000000)   { score += 8;  reasons.push(`${fmt(totalBuyVal)} total committed`); }
-    const sortedBuys = [...tickerBuys].sort((a, b) => new Date(a.trade || a.filing) - new Date(b.trade || b.filing));
-    if (sortedBuys.length >= 3) { score += 15; reasons.push(`${sortedBuys.length} separate buy transactions — consistent accumulation`); }
-    else if (sortedBuys.length === 2) { score += 8; reasons.push(`Repeated buying across multiple dates`); }
-    const earliestBuy = (sortedBuys[0] || {}).trade || (sortedBuys[0] || {}).filing || '';
-    const sellsAfter = allTrades.filter(t => (t.type === 'S' || t.type === 'S-') && (t.trade || t.filing) >= earliestBuy);
-    if (sellsAfter.length === 0 && sortedBuys.length > 0) { score += 10; reasons.push(`No selling since buying began`); }
-    else if (sellsAfter.length > 0) { score -= 8; reasons.push(`Note: ${sellsAfter.length} sell transaction${sellsAfter.length > 1 ? 's' : ''} also on record`); }
-    const highRoles = ['CEO', 'CFO', 'PRESIDENT', 'CHAIRMAN', 'DIRECTOR'];
-    const hasHighRole = tickerBuys.some(t => highRoles.some(r => ((t.title || '').toUpperCase()).includes(r)));
-    if (hasHighRole) {
-      score += 8;
-      if (!reasons.some(r => r.includes('stake'))) {
-        const roleList = [...new Set(tickerBuys.map(t => t.title || '').filter(Boolean))].slice(0, 2).join(', ');
-        reasons.push(`${roleList} — high-signal executive`);
-      }
-    }
-    score = Math.min(100, Math.max(0, Math.round(score)));
-    if (score >= 40) scored.push({
-      ticker, score, reasons: reasons.slice(0, 4), totalVal: totalBuyVal,
-      company: tickerBuys[0] ? tickerBuys[0].company || ticker : ticker,
-      latestDate: sortedBuys[sortedBuys.length - 1] ? (sortedBuys[sortedBuys.length - 1].trade || sortedBuys[sortedBuys.length - 1].filing || '') : '',
-    });
+// Per-request timeout: kill any request that takes > 25s so it returns a proper error
+// rather than hanging until the platform kills the whole dyno
+app.use((req, res, next) => {
+  res.setTimeout(25000, () => {
+    if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
   });
-  return scored.sort((a, b) => b.score - a.score).slice(0, 9);
-}
-
-function renderConvictionCards(trades) {
-  const top = buildConvictionData(trades);
-  if (!top.length) return '<div style="color:var(--muted);font-size:12px;padding:16px">No high-conviction trades found. Try expanding the time period.</div>';
-  return top.map(c => {
-    const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)';
-    const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.08)' : c.score >= 60 ? 'rgba(0,212,255,0.08)' : 'rgba(255,170,0,0.08)';
-    const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.25)' : c.score >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(255,170,0,0.2)';
-    return `<div class="conviction-card" onclick="openTickerFromScreener('${c.ticker}')">
-      <div class="conviction-card-header">
-        <div><div class="conviction-ticker">${c.ticker}</div><div class="conviction-company">${c.company}</div></div>
-        <div class="conviction-score-badge" style="background:${scoreBg};border-color:${scoreBorder}">
-          <div class="conviction-score-num" style="color:${scoreColor}">${c.score}</div>
-          <div class="conviction-score-label" style="color:${scoreColor}">CONVICTION</div>
-        </div>
-      </div>
-      <div class="conviction-body">
-        <ul class="conviction-reasons">${c.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
-        <div class="conviction-footer">
-          <span class="conviction-val">${fmt(c.totalVal)}</span>
-          <span class="conviction-date">${fmtDate(c.latestDate)}</span>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function computeConvictionScores(trades) {
-  // No-op — conviction now lives on the Insider page dashboard
-}
-
-function renderScreener() {
-  const data = state.screenerData;
-  const buys = data.filter(t => t.type==='P'), sells = data.filter(t => t.type==='S'||t.type==='S-');
-  const totalBuyVal = buys.reduce((s,t)=>s+t.value,0), totalSellVal = sells.reduce((s,t)=>s+t.value,0);
-  const existingSummary = document.getElementById('summaryBar').innerHTML;
-  if (!existingSummary.includes('⚠')) {
-    document.getElementById('summaryBar').innerHTML = `
-      <div class="summary-card"><div class="summary-card-label">Total Trades</div><div class="summary-card-val" style="color:var(--text)">${data.length}</div></div>
-      <div class="summary-card"><div class="summary-card-label">Buy Volume</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div></div>
-      <div class="summary-card"><div class="summary-card-label">Sell Volume</div><div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div></div>
-      <div class="summary-card"><div class="summary-card-label">Buy/Sell Ratio</div><div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length?(buys.length/sells.length).toFixed(2):'∞'}x</div></div>
-      <div class="summary-card"><div class="summary-card-label">Unique Tickers</div><div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div></div>`;
-  }
-  document.getElementById('screenerMeta').textContent = `${data.length} filings · Last updated ${new Date().toLocaleTimeString()}`;
-  const SORT_FIELD = { date:'trade',trade:'trade',filing:'filing',ticker:'ticker',insider:'insider',type:'type',shares:'qty',price:'price',value:'value',owned:'owned' };
-  const field = SORT_FIELD[state.sortCol] || state.sortCol;
-  const sorted = [...data].sort((a,b) => {
-    let av = a[field], bv = b[field];
-    if (field==='trade'||field==='filing') { av=av||''; bv=bv||''; if(!av&&!bv)return 0; if(!av)return 1; if(!bv)return -1; }
-    else { av=parseFloat(av)||0; bv=parseFloat(bv)||0; }
-    if (av<bv) return -state.sortDir; if (av>bv) return state.sortDir; return 0;
-  });
-  const start = (state.currentPage-1)*state.pageSize;
-  const page = sorted.slice(start, start+state.pageSize);
-  const pages = Math.ceil(sorted.length/state.pageSize);
-  const tbody = document.getElementById('screenerBody');
-  if (!page.length) { tbody.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
-  tbody.innerHTML = page.map(t => `
-    <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span></td>
-      <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span></td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-    </tr>`).join('');
-  const pg = document.getElementById('pagination');
-  if (pages<=1){pg.innerHTML='';return;}
-  let pgHtml = `<button class="page-btn" onclick="changePage(${state.currentPage-1})" ${state.currentPage===1?'disabled':''}>← Prev</button>`;
-  for (let i=1;i<=Math.min(pages,7);i++) pgHtml+=`<button class="page-btn ${i===state.currentPage?'active':''}" onclick="changePage(${i})">${i}</button>`;
-  if (pages>7) pgHtml+=`<span style="color:var(--muted);padding:0 8px">...</span>`;
-  pgHtml+=`<button class="page-btn" onclick="changePage(${state.currentPage+1})" ${state.currentPage===pages?'disabled':''}>Next →</button>`;
-  pg.innerHTML = pgHtml;
-}
-function changePage(p) { state.currentPage=p; renderScreener(); }
-function sortTable(col) {
-  if (state.sortCol===col) state.sortDir = state.sortDir===-1?1:-1;
-  else { state.sortCol=col; state.sortDir=-1; }
-  document.querySelectorAll('#screenerTable th').forEach((th,i) => {
-    const arrow = th.querySelector('.sort-arrow'); if(!arrow)return;
-    const cols=['trade','ticker','insider','type','shares','price','value','owned'];
-    if (cols[i]===state.sortCol){th.classList.add('sorted');arrow.textContent=state.sortDir===-1?'↓':'↑';}
-    else{th.classList.remove('sorted');arrow.textContent='↕';}
-  });
-  renderScreener();
-}
-function openTickerFromScreener(ticker) {
-  document.getElementById('tickerInput').value = ticker;
-  loadStockView(ticker);
-}
-
-// ── STOCK VIEW ────────────────────────────────────────────────────
-async function loadStockView(ticker, opts={}) {
-  // Activate the stock view + nav tab
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('view-stock').classList.add('active');
-  document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
-  document.getElementById('tickerInput').value = ticker;
-  if (!opts.fromPopstate) {
-    history.pushState({view:'stock', ticker}, '', '/stock/' + ticker);
-    updateTitle('stock', ticker);
-  } else {
-    updateTitle('stock', ticker);
-  }
-  state.currentTicker = ticker;
-  document.getElementById('stockContent').innerHTML = `<div class="loading-state" style="height:400px"><div class="spinner"></div><span>Loading ${ticker}...</span></div>`;
-  const [priceData, insiderData] = await Promise.all([
-    apiFetch('/api/price?symbol='+encodeURIComponent(ticker)).catch(()=>[]),
-    fetchInsiderForTicker(ticker).catch(()=>[]),
-  ]);
-  state.tickerTrades = insiderData; state.currentPriceData = priceData;
-  const buys=insiderData.filter(t=>t.type==='P').length, sells=insiderData.filter(t=>t.type==='S'||t.type==='S-').length;
-  const totalVal=insiderData.reduce((s,t)=>s+t.value,0), company=insiderData[0]?.company||'';
-  const last=priceData[priceData.length-1], prev=priceData[priceData.length-2];
-  const chg=last&&prev?last.close-prev.close:0, chgPct=prev?(chg/prev.close*100):0;
-  const chgColor=chg>=0?'var(--buy)':'var(--sell)';
-  const last252=priceData.slice(-252);
-  const h52=last252.reduce((m,d)=>d.high>m?d.high:m,0), l52=last252.reduce((m,d)=>d.low<m?d.low:m,Infinity);
-  document.getElementById('stockContent').innerHTML = `
-    <div class="stock-layout">
-      <div class="stock-header-bar">
-        <div><div class="stock-ticker-big">${ticker}</div><div class="stock-name-sub">${company}</div></div>
-        <div class="stock-price-block">
-          <div class="stock-price">${last?'$'+last.close.toFixed(2):'—'}</div>
-          <div class="stock-change" style="color:${chgColor}">${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today</div>
-        </div>
-        <div class="stat-grid">
-          <div class="stat-item"><div class="stat-label">52W High</div><div class="stat-val">$${h52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">52W Low</div><div class="stat-val">${l52===Infinity?'—':'$'+l52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">Buys</div><div class="stat-val" style="color:var(--buy)" id="statBuys">${buys}</div></div>
-          <div class="stat-item"><div class="stat-label">Sells</div><div class="stat-val" style="color:var(--sell)" id="statSells">${sells}</div></div>
-          <div class="stat-item"><div class="stat-label">Insider Value</div><div class="stat-val" id="statVal">${fmt(totalVal)}</div></div>
-        </div>
-      </div>
-      <div class="chart-area">
-        <div class="chart-controls" style="flex-wrap:wrap;gap:6px 0;">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
-          <button class="tf-btn" onclick="setRange(30,this)">1M</button>
-          <button class="tf-btn" onclick="setRange(90,this)">3M</button>
-          <button class="tf-btn" onclick="setRange(180,this)">6M</button>
-          <button class="tf-btn active" onclick="setRange(365,this)">1Y</button>
-          <button class="tf-btn" onclick="setRange(730,this)">2Y</button>
-          <button class="tf-btn" onclick="setRange(9999,this)">ALL</button>
-          <div style="margin-left:auto" class="chart-legend">
-            <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--option)"></div>Option</div>
-          </div>
-          <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
-            <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
-            <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="var(--buy)" onclick="toggleChartFilter('P',this)">BUYS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
-          </div>
-        </div>
-        <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
-          ${!priceData.length?'<div class="empty-state" style="height:500px"><div class="empty-icon">📡</div><div>Price data unavailable</div></div>':''}
-        </div>
-        <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
-          <div id="pressureContainer" style="width:100%;height:120px;"></div>
-        </div>
-        <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
-      </div>
-      <div class="insider-sidebar">
-        <div class="sidebar-tabs">
-          <div class="sidebar-tab active" onclick="switchSidebarTab('trades',this)">TRADES (${insiderData.length})</div>
-          <div class="sidebar-tab" onclick="switchSidebarTab('summary',this)">SUMMARY</div>
-        </div>
-        <div class="sidebar-content" id="sidebarContent"></div>
-      </div>
-      <div class="stock-trades-section">
-        <div class="section-title">ALL INSIDER TRANSACTIONS — ${ticker}</div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>TRADE DATE</th><th>INSIDER</th><th>TITLE</th><th>TYPE</th>
-              <th>SHARES</th><th>PRICE</th><th>VALUE</th><th>OWNED AFTER</th><th>FILING DATE</th>
-            </tr></thead>
-            <tbody id="stockTradesBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-  renderSidebarTrades(insiderData);
-  renderStockTradesTable(insiderData);
-  renderTradeMarkerList(insiderData);
-  if (priceData.length) buildChart(priceData, insiderData);
-  ['P','S','O','X'].forEach(g => {
-    chartActiveFilters.add(g);
-    const btn = document.getElementById('chartFilter-'+g);
-    if (btn) { btn.classList.add('active'); btn.style.color=btn.dataset.color||'var(--accent)'; btn.style.borderColor=btn.dataset.color||'var(--accent)'; }
-  });
-}
-
-// ── CHART ─────────────────────────────────────────────────────────
-const CHART_H = 500;
-function buildChart(priceData, trades) {
-  const container = document.getElementById('chartContainer');
-  if (!container||!priceData.length) return;
-  if (state.chart) { try{state.chart.remove();}catch(e){} state.chart=null; }
-  if (state.pressureChart) { try{state.pressureChart.remove();}catch(e){} state.pressureChart=null; }
-  const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
-  container.innerHTML = '';
-  const chart = LightweightCharts.createChart(container, {
-    width:container.clientWidth, height:CHART_H,
-    layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
-    grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
-    crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
-    rightPriceScale:{borderColor:'#1e2d3d'},timeScale:{borderColor:'#1e2d3d',timeVisible:true},
-  });
-  const candles = chart.addCandlestickSeries({upColor:'#00ff88',downColor:'#ff4466',borderUpColor:'#00ff88',borderDownColor:'#ff4466',wickUpColor:'#00ff88',wickDownColor:'#ff4466'});
-  candles.setData(priceData.map(d=>({time:d.time,open:d.open,high:d.high,low:d.low,close:d.close})));
-  const volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',scaleMargins:{top:0.82,bottom:0}});
-  volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
-  state.chart=chart; state.candleSeries=candles;
-  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
-  const cutStr=cutoff.toISOString().split('T')[0];
-  const visible=priceData.filter(d=>d.time>=cutStr);
-  if (visible.length>0) chart.timeScale().setVisibleRange({from:visible[0].time,to:priceData[priceData.length-1].time});
-  else chart.timeScale().fitContent();
-  buildCircleOverlay(container,chart,candles,trades,priceData);
-  buildPressureChart(chart,trades,priceData);
-  new ResizeObserver(()=>{
-    const w=container.clientWidth;
-    if(w>0&&state.chart){state.chart.applyOptions({width:w});const cv=document.getElementById('markerCanvas');if(cv){cv.width=w;if(state.drawCircles)state.drawCircles();}}
-    if(state.pressureChart){const pc=document.getElementById('pressureContainer');if(pc)state.pressureChart.applyOptions({width:pc.clientWidth});}
-  }).observe(container);
-}
-
-function buildCircleOverlay(container,chart,series,trades,priceData) {
-  const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
-  canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
-  canvas.width=container.clientWidth; canvas.height=CHART_H; container.appendChild(canvas);
-  const priceMap={};
-  priceData.forEach(d=>{priceMap[d.time]=d;});
-  function nearestTradingDay(dateStr) {
-    if(priceMap[dateStr])return dateStr;
-    for(let i=1;i<=5;i++){const d=new Date(dateStr+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+i);const s=d.toISOString().slice(0,10);if(priceMap[s])return s;}
-    for(let i=1;i<=5;i++){const d=new Date(dateStr+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-i);const s=d.toISOString().slice(0,10);if(priceMap[s])return s;}
-    return null;
-  }
-  const groups={};
-  trades.forEach(t=>{
-    const raw=(t.trade||t.filing||'').slice(0,10); const d=nearestTradingDay(raw); if(!d)return;
-    const tc=tradeClass(t.type); const k=d+'|'+tc;
-    if(!groups[k])groups[k]={date:d,tc,trades:[],value:0};
-    groups[k].trades.push(t); groups[k].value+=t.value||0;
-  });
-  state.markerGroups=Object.values(groups);
-  const tooltip=document.getElementById('chartTooltip')||(() => {
-    const el=document.createElement('div'); el.id='chartTooltip';
-    el.style.cssText='position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
-    document.body.appendChild(el); return el;
-  })();
-  function drawCircles() {
-    const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); state._circles=[];
-    const maxVal=Math.max(...state.markerGroups.map(g=>g.value),1);
-    state.markerGroups.forEach(g=>{
-      const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
-      const pd=priceMap[g.date]; if(!pd)return;
-      const isBuy=g.tc==='buy',isSell=g.tc==='sell';
-      const refPrice=isBuy?pd.low*0.995:isSell?pd.high*1.005:pd.close;
-      const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
-      const r=8+14*Math.log1p(g.value)/Math.log1p(maxVal);
-      const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(255,170,0,';
-      ctx.beginPath(); ctx.arc(ts,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=color+'0.08)'; ctx.fill();
-      ctx.beginPath(); ctx.arc(ts,yCoord,r,0,Math.PI*2); ctx.fillStyle=color+'0.20)'; ctx.strokeStyle=color+'0.85)'; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
-      state._circles.push({x:ts,y:yCoord,r,group:g});
-    });
-  }
-  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
-  drawCircles(); state.drawCircles=drawCircles;
-  canvas.style.pointerEvents='auto';
-  canvas.addEventListener('mousemove',e=>{
-    const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left,my=e.clientY-rect.top;
-    let hit=null;
-    for(const c of(state._circles||[])){if(Math.hypot(mx-c.x,my-c.y)<=c.r+4){hit=c;break;}}
-    if(hit){
-      canvas.style.cursor='crosshair'; const g=hit.group; const tc=g.tc;
-      const color=tc==='buy'?'#00ff88':tc==='sell'?'#ff4466':'#ffaa00';
-      const label=tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'◆ OPTION/AWARD';
-      const rows=g.trades.slice(0,5).map(t=>`<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${t.insider}</span>${t.title?`<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>`:''}<span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span></div>`).join('');
-      tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>${rows}${g.trades.length>5?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Total: <span style="color:${color}">${fmt(g.value)}</span></div>`;
-      tooltip.style.display='block';
-      const tx=e.clientX+16,ty=e.clientY-10;
-      tooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; tooltip.style.top=ty+'px';
-    } else { canvas.style.cursor=''; tooltip.style.display='none'; }
-  });
-  canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
-}
-
-function buildPressureChart(mainChart,trades,priceData) {
-  const pc=document.getElementById('pressureContainer'); if(!pc||!trades.length)return; pc.innerHTML='';
-  const byDay={};
-  trades.forEach(t=>{
-    const d=(t.trade||t.filing||'').slice(0,10); if(!d)return;
-    if(!byDay[d])byDay[d]={net:0,total:0};
-    const tc=tradeClass(t.type); const v=t.value||0;
-    if(tc==='buy'){byDay[d].net+=v;byDay[d].total+=v;}
-    if(tc==='sell'){byDay[d].net-=v;byDay[d].total+=v;}
-  });
-  const allDates=priceData.map(d=>d.time);
-  const maxTotal=Math.max(...Object.values(byDay).map(d=>d.total),1);
-  const valueByDate={};
-  Object.entries(byDay).forEach(([date,d])=>{valueByDate[date]=+(d.net/maxTotal*100).toFixed(2);});
-  const pChart=LightweightCharts.createChart(pc,{
-    width:pc.clientWidth||800,height:120,
-    layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
-    grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
-    rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.1,bottom:0.1}},
-    timeScale:{borderColor:'#1e2d3d',visible:false},
-    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-    handleScroll:false,handleScale:false,
-  });
-  const areaSeries=pChart.addBaselineSeries({
-    baseValue:{type:'price',price:0},
-    topLineColor:'rgba(0,255,136,1)',topFillColor1:'rgba(0,255,136,0.20)',topFillColor2:'rgba(0,255,136,0.02)',
-    bottomLineColor:'rgba(255,68,102,1)',bottomFillColor1:'rgba(255,68,102,0.02)',bottomFillColor2:'rgba(255,68,102,0.20)',
-    lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:true,crosshairMarkerRadius:3,
-  });
-  areaSeries.setData(allDates.map(t=>({time:t,value:valueByDate[t]??0})));
-  const byDayTrades={};
-  trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
-  const pCanvas=document.createElement('canvas');
-  pCanvas.style.cssText='position:absolute;top:0;left:0;pointer-events:auto;z-index:5;';
-  pCanvas.width=pc.clientWidth||800; pCanvas.height=120; pc.style.position='relative'; pc.appendChild(pCanvas);
-  const pTooltip=document.getElementById('chartTooltip')||document.createElement('div');
-  pCanvas.addEventListener('mousemove',e=>{
-    const rect=pCanvas.getBoundingClientRect(); const x=e.clientX-rect.left;
-    const ts=pChart.timeScale().coordinateToTime(x); if(!ts){pTooltip.style.display='none';return;}
-    const dateStr=typeof ts==='string'?ts:new Date(ts*1000).toISOString().slice(0,10);
-    const dayTrades=byDayTrades[dateStr]; if(!dayTrades||!dayTrades.length){pTooltip.style.display='none';return;}
-    const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
-    const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
-    const netColor=net>=0?'var(--buy)':'var(--sell)';
-    const ins=[...new Set(dayTrades.map(t=>t.insider).filter(Boolean))];
-    pTooltip.innerHTML=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>${bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:''}${sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d"><span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span></div><div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
-    pTooltip.style.display='block';
-    const tx=e.clientX+16,ty=e.clientY-10;
-    pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; pTooltip.style.top=ty+'px';
-  });
-  pCanvas.addEventListener('mouseleave',()=>{pTooltip.style.display='none';});
-  state.pressureChart=pChart;
-  try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir)pChart.timeScale().setVisibleLogicalRange(ir);}catch(e){}
-  mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
-  const label=document.createElement('div');
-  label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent='INSIDER PRESSURE';
-  document.getElementById('pressureWrapper').style.position='relative';
-  document.getElementById('pressureWrapper').appendChild(label);
-}
-
-
-function setRange(days,btn) {
-  document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active')); if(btn)btn.classList.add('active');
-  if(!state.chart||!state.currentPriceData?.length)return;
-  const all=state.currentPriceData;
-  if(days>=9999){state.chart.timeScale().fitContent();}
-  else{
-    const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-days);
-    const cutStr=cutoff.toISOString().split('T')[0];
-    const visible=all.filter(d=>d.time>=cutStr);
-    if(visible.length>0)state.chart.timeScale().setVisibleRange({from:visible[0].time,to:all[all.length-1].time});
-  }
-  setTimeout(()=>{if(state.drawCircles)state.drawCircles();},50);
-}
-
-const chartActiveFilters=new Set(['P','S','O','X']);
-const OPTION_TYPES=new Set(['C','X','M','A']),BUY_TYPES=new Set(['P']),SELL_TYPES=new Set(['S','D']);
-function tradeFilterGroup(type){if(BUY_TYPES.has(type))return'P';if(SELL_TYPES.has(type))return'S';if(OPTION_TYPES.has(type))return'O';return'X';}
-function toggleChartFilter(group,btn) {
-  if(chartActiveFilters.has(group)){chartActiveFilters.delete(group);btn.classList.remove('active');btn.style.color='var(--muted)';btn.style.borderColor='var(--border)';}
-  else{chartActiveFilters.add(group);btn.classList.add('active');btn.style.color=btn.dataset.color||'var(--accent)';btn.style.borderColor=btn.dataset.color||'var(--accent)';}
-  if(!state.tickerTrades||!state.currentPriceData)return;
-  const filtered=state.tickerTrades.filter(t=>chartActiveFilters.has(tradeFilterGroup(t.type)));
-  const sb=document.getElementById('statBuys'),ss=document.getElementById('statSells'),sv=document.getElementById('statVal');
-  if(sb)sb.textContent=filtered.filter(t=>t.type==='P').length;
-  if(ss)ss.textContent=filtered.filter(t=>t.type==='S'||t.type==='S-').length;
-  if(sv)sv.textContent=fmt(filtered.reduce((s,t)=>s+(t.value||0),0));
-  if(state.currentPriceData){
-    const pm={};state.currentPriceData.forEach(d=>{pm[d.time]=true;});
-    function snapDay(ds){if(pm[ds])return ds;for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}return null;}
-    const groups={};
-    filtered.forEach(t=>{const raw=(t.trade||t.filing||'').slice(0,10);const d=snapDay(raw);if(!d)return;const tc=tradeClass(t.type);const k=d+'|'+tc;if(!groups[k])groups[k]={date:d,tc,trades:[],value:0};groups[k].trades.push(t);groups[k].value+=t.value||0;});
-    state.markerGroups=Object.values(groups);
-  }
-  if(state.drawCircles)state.drawCircles();
-  renderSidebarTrades(filtered); renderStockTradesTable(filtered); renderTradeMarkerList(filtered);
-  buildPressureChart(state.chart,filtered,state.currentPriceData);
-}
-
-function renderTradeMarkerList(trades) {
-  const el=document.getElementById('tradeMarkerList'); if(!el)return;
-  const sorted=[...trades].sort((a,b)=>new Date(b.trade||b.filing)-new Date(a.trade||a.filing));
-  el.innerHTML=sorted.slice(0,15).map(t=>{
-    const tc=tradeClass(t.type),color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--option)';
-    const border=tc==='buy'?'rgba(0,255,136,0.3)':tc==='sell'?'rgba(255,68,102,0.3)':'rgba(255,170,0,0.3)';
-    const bg=tc==='buy'?'rgba(0,255,136,0.07)':tc==='sell'?'rgba(255,68,102,0.07)':'rgba(255,170,0,0.07)';
-    return `<div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
-      <span style="color:${color};font-size:10px;font-weight:700">${tc==='buy'?'▲':'▼'} ${tradeLabel(t.type)}</span>
-      <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.trade||t.filing)}</span>
-      <span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</span>
-      <span style="font-size:10px;color:var(--muted)">${t.insider?t.insider.split(' ').slice(-1)[0]:''}</span>
-    </div>`;
-  }).join('');
-  if(trades.length>15)el.innerHTML+=`<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length-15} more — see table below</div>`;
-}
-
-function switchSidebarTab(tab,el) {
-  document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active');
-  if(tab==='trades')renderSidebarTrades(state.tickerTrades); else renderSidebarSummary(state.tickerTrades);
-}
-function renderSidebarTrades(trades) {
-  const el=document.getElementById('sidebarContent'); if(!el)return;
-  if(!trades.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;return;}
-  el.innerHTML=trades.map(t=>`
-    <div class="trade-card ${tradeClass(t.type)}">
-      <div class="trade-card-top"><span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
-      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</div>
-      <div class="trade-role">${t.title}</div>
-      <div class="trade-numbers">
-        <div class="trade-num-item"><div class="trade-num-label">Shares</div><div class="trade-num-val">${fmtShares(t.qty)}</div></div>
-        <div class="trade-num-item"><div class="trade-num-label">Price</div><div class="trade-num-val">$${(t.price||0).toFixed(2)}</div></div>
-        <div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Total Value</div><div class="trade-num-val" style="color:${tradeClass(t.type)==='buy'?'var(--buy)':tradeClass(t.type)==='sell'?'var(--sell)':'var(--option)'}">${fmt(t.value)}</div></div>
-      </div>
-    </div>`).join('');
-}
-function renderSidebarSummary(trades) {
-  const el=document.getElementById('sidebarContent'); if(!el)return;
-  const buys=trades.filter(t=>t.type==='P'),sells=trades.filter(t=>t.type==='S'||t.type==='S-'),opts=trades.filter(t=>t.type==='A');
-  const buyVal=buys.reduce((s,t)=>s+t.value,0),sellVal=sells.reduce((s,t)=>s+t.value,0);
-  const insiderMap={};
-  trades.forEach(t=>{if(!insiderMap[t.insider])insiderMap[t.insider]={name:t.insider,title:t.title,trades:0,netVal:0};insiderMap[t.insider].trades++;insiderMap[t.insider].netVal+=t.type==='P'?t.value:-t.value;});
-  const topInsiders=Object.values(insiderMap).sort((a,b)=>Math.abs(b.netVal)-Math.abs(a.netVal)).slice(0,5);
-  el.innerHTML=`
-    <div style="margin-bottom:16px">
-      <div class="trade-num-label" style="margin-bottom:8px">ACTIVITY BREAKDOWN</div>
-      <div style="display:grid;gap:6px">
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(0,255,136,0.07);border-radius:4px;border:1px solid rgba(0,255,136,0.2)"><span style="color:var(--buy);font-size:12px">▲ Buys (${buys.length})</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,68,102,0.07);border-radius:4px;border:1px solid rgba(255,68,102,0.2)"><span style="color:var(--sell);font-size:12px">▼ Sells (${sells.length})</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,170,0,0.07);border-radius:4px;border:1px solid rgba(255,170,0,0.2)"><span style="color:var(--option);font-size:12px">◆ Other (${opts.length+trades.length-buys.length-sells.length})</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span></div>
-      </div>
-    </div>
-    <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
-    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
-}
-function renderStockTradesTable(trades) {
-  const el=document.getElementById('stockTradesBody'); if(!el)return;
-  if(!trades.length){el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;return;}
-  el.innerHTML=trades.map(t=>`
-    <tr>
-      <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span></td>
-      <td style="color:var(--muted);font-size:12px">${t.title}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-      <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
-    </tr>`).join('');
-}
-
-// ── INSIDER PROFILE ───────────────────────────────────────────────
-async function openInsiderProfile(name, title, opts={}) {
-  const tab=document.getElementById('insiderTab');
-  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active')); tab.classList.add('active');
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  document.getElementById('view-insider').classList.add('active');
-  if (!opts.fromPopstate) {
-    const slug = encodeURIComponent(name);
-    history.pushState({view:'insider', name, title}, '', '/insider/' + slug);
-    updateTitle('insider', name);
-  } else {
-    updateTitle('insider', name);
-  }
-  await openInsiderProfileFull(name, title);
-}
-
-async function renderInsiderProfile(name, title, trades) {
-  const buys=trades.filter(t=>t.type==='P'), sells=trades.filter(t=>t.type==='S'||t.type==='S-');
-  const buyVal=buys.reduce((s,t)=>s+t.value,0), sellVal=sells.reduce((s,t)=>s+t.value,0), netVal=buyVal-sellVal;
-  const tickerMap={};
-  trades.forEach(t=>{
-    if(!tickerMap[t.ticker])tickerMap[t.ticker]={ticker:t.ticker,company:t.company||t.ticker,buyVal:0,sellVal:0,count:0};
-    if(t.type==='P')tickerMap[t.ticker].buyVal+=t.value; else tickerMap[t.ticker].sellVal+=t.value;
-    tickerMap[t.ticker].count++;
-  });
-  const tickerList=Object.values(tickerMap).sort((a,b)=>(b.buyVal+b.sellVal)-(a.buyVal+a.sellVal));
-  const maxTickerVal=Math.max(...tickerList.map(t=>t.buyVal+t.sellVal),1);
-  const initials=name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
-  const latestTitle=trades[0]?.title||title||'Executive';
-  const dates=trades.map(t=>new Date(t.trade||t.filing)).filter(Boolean).sort((a,b)=>a-b);
-  const firstTrade=dates[0]?fmtDate(dates[0].toISOString().split('T')[0]):'—';
-
-  document.getElementById('insiderContent').innerHTML = `
-    <div class="insider-profile-layout">
-      <button class="back-btn" onclick="goBack()">← Back</button>
-      <div class="insider-hero">
-        <div class="insider-avatar">${initials}</div>
-        <div class="insider-hero-info">
-          <div class="insider-hero-name">${name}</div>
-          <div class="insider-hero-title">${latestTitle}</div>
-          <div class="insider-hero-companies">
-            ${tickerList.map(t=>`<span class="company-tag" onclick="openTickerFromScreener('${t.ticker}')">${t.ticker}</span>`).join('')}
-          </div>
-        </div>
-        <div class="insider-hero-stats">
-          <div class="insider-stat"><div class="insider-stat-label">Total Trades</div><div class="insider-stat-val" style="color:var(--text)">${trades.length}</div></div>
-          <div class="insider-stat"><div class="insider-stat-label">Total Bought</div><div class="insider-stat-val" style="color:var(--buy)">${fmt(buyVal)}</div></div>
-          <div class="insider-stat"><div class="insider-stat-label">Total Sold</div><div class="insider-stat-val" style="color:var(--sell)">${fmt(sellVal)}</div></div>
-          <div class="insider-stat"><div class="insider-stat-label">Net Position</div><div class="insider-stat-val" style="color:${netVal>=0?'var(--buy)':'var(--sell)'}">${netVal>=0?'+':''}${fmt(netVal)}</div></div>
-          <div class="insider-stat"><div class="insider-stat-label">Active Since</div><div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div></div>
-        </div>
-      </div>
-      <div class="scorer-section" id="scorerSection">
-        <div class="scorer-header">
-          <div class="scorer-title"><div class="pulse-dot"></div>INSIDER SCORE CARD</div>
-          <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">Computed from actual forward returns on past buys</div>
-        </div>
-        <div class="scorer-body">
-          <div class="scorer-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div>Fetching price data to compute forward returns…</div>
-        </div>
-      </div>
-      <div class="profile-grid">
-        <div>
-          <div class="activity-chart-wrap">
-            <div class="activity-chart-title">Trade Activity Timeline</div>
-            <div id="insiderActivityChart" style="position:relative;height:160px;overflow:hidden;">${buildCSSTimeline(trades)}</div>
-          </div>
-          <div class="section-title">FULL TRANSACTION HISTORY</div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>TRADE DATE</th><th>TICKER</th><th>TYPE</th>
-                <th>SHARES</th><th>PRICE</th><th>VALUE</th><th>OWNED AFTER</th><th>FILING</th>
-              </tr></thead>
-              <tbody>
-                ${trades.map(t=>`
-                  <tr style="cursor:pointer" onclick="openTickerFromScreener('${t.ticker}')">
-                    <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-                    <td class="ticker-cell">${t.ticker}</td>
-                    <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
-                    <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-                    <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
-                    <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-                    <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
-                    <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div>
-          <div class="ticker-breakdown">
-            <div class="activity-chart-title" style="margin-bottom:14px">Activity by Ticker</div>
-            ${tickerList.map(t=>{
-              const total=t.buyVal+t.sellVal,buyW=total?(t.buyVal/total*100).toFixed(1):0,sellW=total?(t.sellVal/total*100).toFixed(1):0,barW=(total/maxTickerVal*100).toFixed(1);
-              return `<div class="ticker-row" onclick="openTickerFromScreener('${t.ticker}')">
-                <div class="ticker-bar-label">${t.ticker}</div>
-                <div style="flex:1">
-                  <div class="ticker-bar-track"><div style="display:flex;height:100%;width:${barW}%"><div class="ticker-bar-fill" style="width:${buyW}%;background:var(--buy-dim)"></div><div class="ticker-bar-fill" style="width:${sellW}%;background:var(--sell-dim)"></div></div></div>
-                  <div style="display:flex;gap:6px;margin-top:3px">${t.buyVal?`<span style="font-size:9px;color:var(--buy)">${fmt(t.buyVal)}</span>`:''} ${t.sellVal?`<span style="font-size:9px;color:var(--sell)">${fmt(t.sellVal)}</span>`:''}</div>
-                </div>
-                <div class="ticker-bar-val">${t.count} trade${t.count!==1?'s':''}</div>
-              </div>`;
-            }).join('')}
-          </div>
-          <div class="ticker-breakdown" style="margin-top:16px">
-            <div class="activity-chart-title">Buy vs Sell Breakdown</div>
-            <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px">
-              <div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--buy)">▲ Open Buys (${buys.length})</span><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy)">${fmt(buyVal)}</span></div>
-                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${buyVal+sellVal?((buyVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--buy);border-radius:3px;transition:width .5s"></div></div>
-              </div>
-              <div>
-                <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--sell)">▼ Open Sells (${sells.length})</span><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--sell)">${fmt(sellVal)}</span></div>
-                <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${buyVal+sellVal?((sellVal/(buyVal+sellVal))*100).toFixed(1):0}%;background:var(--sell);border-radius:3px;transition:width .5s"></div></div>
-              </div>
-              <div style="padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between">
-                <span style="font-size:11px;color:var(--muted)">Net Conviction</span>
-                <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${netVal>=0?'var(--buy)':'var(--sell)'}">${netVal>=0?'NET BUYER':'NET SELLER'}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  computeAndRenderScore(name, buys);
-}
-
-// ── SCORER ENGINE ─────────────────────────────────────────────────
-async function computeAndRenderScore(insiderName, buyTrades) {
-  const scorerBody = document.querySelector('#scorerSection .scorer-body');
-  if (!scorerBody) return;
-  const scoreable = buyTrades.filter(t => t.type==='P' && t.price>0 && (t.trade||t.filing));
-  if (scoreable.length < 2) {
-    scorerBody.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0">Not enough open-market buy trades (need ≥2 with known price) to compute a meaningful score.</div>`;
-    return;
-  }
-  const tickers = [...new Set(scoreable.map(t => t.ticker))];
-  const priceCache = {};
-  await Promise.all(tickers.map(sym =>
-    apiFetch('/api/price?symbol='+encodeURIComponent(sym))
-      .then(bars => { priceCache[sym] = bars; })
-      .catch(() => { priceCache[sym] = []; })
-  ));
-  function priceOn(sym, dateStr) {
-    const bars = priceCache[sym] || []; if (!bars.length) return null;
-    const map = {}; bars.forEach(b => { map[b.time] = b.close; });
-    for (let d=0; d<=5; d++) {
-      const dt = new Date(dateStr+'T12:00:00Z'); dt.setUTCDate(dt.getUTCDate()+d);
-      const s = dt.toISOString().slice(0,10); if (map[s]!=null) return map[s];
-    }
-    return null;
-  }
-  function addDays(dateStr, n) {
-    const d = new Date(dateStr+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10);
-  }
-  const today = new Date().toISOString().slice(0,10);
-  const scored = scoreable.map(t => {
-    const tradeDate = (t.trade||t.filing).slice(0,10);
-    const base = t.price;
-    const p30 = priceOn(t.ticker, addDays(tradeDate,30));
-    const p60 = priceOn(t.ticker, addDays(tradeDate,60));
-    const p90 = priceOn(t.ticker, addDays(tradeDate,90));
-    return { trade:t, tradeDate, ticker:t.ticker, buyPrice:base,
-      ret30:p30?(p30-base)/base*100:null, ret60:p60?(p60-base)/base*100:null, ret90:p90?(p90-base)/base*100:null,
-      isPending: today < addDays(tradeDate,90) };
-  });
-  const completed = scored.filter(s => s.ret90!==null);
-  const pending   = scored.filter(s => s.isPending);
-  if (completed.length === 0) {
-    scorerBody.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0">All buy trades are too recent to compute 90-day returns. ${pending.length} trade${pending.length!==1?'s':''} still open.</div>`;
-    return;
-  }
-  const avg    = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
-  const stddev = arr => { const m=avg(arr); return Math.sqrt(avg(arr.map(x=>(x-m)**2))); };
-  const rets90=completed.map(s=>s.ret90), rets60=completed.filter(s=>s.ret60!==null).map(s=>s.ret60), rets30=completed.filter(s=>s.ret30!==null).map(s=>s.ret30);
-  const winRate=Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
-  const avgRet90=avg(rets90), avgRet60=rets60.length?avg(rets60):null, avgRet30=rets30.length?avg(rets30):null;
-  const avgMag=avg(rets90.map(Math.abs)), bestTrade=Math.max(...rets90), worstTrade=Math.min(...rets90);
-  const consistency=rets90.length>1?Math.max(0,100-stddev(rets90)*2):50;
-  const winScore=winRate, retScore=Math.min(35,Math.max(0,avgRet90/20*35)), consScore=consistency*0.15, sampleBonus=Math.min(10,completed.length*1.2);
-  const accuracyScore=Math.round(Math.min(100,Math.max(0,winScore*0.40+retScore+consScore+sampleBonus)));
-  const timingEdge=+(avgRet90-2.2).toFixed(1);
-  const tier=accuracyScore>=75?'ELITE':accuracyScore>=55?'STRONG':accuracyScore>=35?'AVERAGE':'WEAK';
-  const tierColor={ELITE:'var(--buy)',STRONG:'var(--accent)',AVERAGE:'var(--option)',WEAK:'var(--sell)'}[tier];
-  const followRec=accuracyScore>=75?{label:'FOLLOW CLOSELY',color:'var(--buy)',bg:'rgba(0,255,136,.1)',border:'rgba(0,255,136,.3)'}
-    :accuracyScore>=55?{label:'MONITOR',color:'var(--accent)',bg:'rgba(0,212,255,.08)',border:'rgba(0,212,255,.25)'}
-    :accuracyScore>=35?{label:'LOW PRIORITY',color:'var(--option)',bg:'rgba(255,170,0,.08)',border:'rgba(255,170,0,.25)'}
-    :{label:'IGNORE',color:'var(--sell)',bg:'rgba(255,68,102,.08)',border:'rgba(255,68,102,.25)'};
-
-  // ── TIMING QUALITY: analyse where in the price range each buy landed ──
-  const timing = computeTimingQuality(scored, priceCache, buyTrades);
-
-  const statsForAI={name:insiderName,tradeCount:completed.length,pendingCount:pending.length,accuracyScore,tier,winRate,
-    avgRet30:avgRet30!==null?+avgRet30.toFixed(1):null,avgRet60:avgRet60!==null?+avgRet60.toFixed(1):null,
-    avgRet90:+avgRet90.toFixed(1),avgMagnitude:+avgMag.toFixed(1),timingEdge,bestTrade:+bestTrade.toFixed(1),
-    worstTrade:+worstTrade.toFixed(1),consistency:+consistency.toFixed(0),
-    tickers:[...new Set(completed.map(s=>s.ticker))].join(', ')};
-
-  // Render immediately with timing data, no AI yet
-  scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, null);
-
-  // AI summary + insights
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key': '',   // handled by proxy
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514', max_tokens:600,
-        messages:[{role:'user', content:
-          `You are a financial analyst specializing in SEC Form 4 insider trading data.
-Analyze this insider's ACTUAL computed trade performance and return a JSON object.
-
-INSIDER: ${statsForAI.name}
-TRADES ANALYZED: ${statsForAI.tradeCount} completed buys (${statsForAI.pendingCount} too recent)
-TICKERS: ${statsForAI.tickers}
-ACCURACY SCORE: ${statsForAI.accuracyScore}/100 (${statsForAI.tier})
-WIN RATE: ${statsForAI.winRate}%
-AVG 30D RETURN: ${statsForAI.avgRet30!==null?statsForAI.avgRet30+'%':'N/A'}
-AVG 60D RETURN: ${statsForAI.avgRet60!==null?statsForAI.avgRet60+'%':'N/A'}
-AVG 90D RETURN: ${statsForAI.avgRet90}%
-TIMING ALPHA SCORE: ${timing ? timing.timingAlpha + '/100 — ' + timing.verdict : 'N/A'}
-BUYS NEAR 12M LOW: ${timing ? timing.nearLowPct + '%' : 'N/A'}
-SELLS NEAR 12M HIGH: ${timing ? (timing.nearHighSellPct !== null ? timing.nearHighSellPct + '%' : 'no sells') : 'N/A'}
-FWD RETURNS: ${timing ? `+30d avg ${timing.avgRet30 !== null ? timing.avgRet30+'%' : '—'} · +90d avg ${timing.avgRet90 !== null ? timing.avgRet90+'%' : '—'} · +180d avg ${timing.avgRet180 !== null ? timing.avgRet180+'%' : '—'}` : 'N/A'}
-TIMING EDGE VS MARKET: ${statsForAI.timingEdge>0?'+':''}${statsForAI.timingEdge}%
-BEST TRADE: +${statsForAI.bestTrade}%   WORST: ${statsForAI.worstTrade}%
-CONSISTENCY: ${statsForAI.consistency}/100
-
-Respond ONLY with valid JSON (no markdown, no backticks):
-{"summary":"<2 sentences assessing this insider's track record and timing quality>","insights":[{"type":"good|bad|info","icon":"<emoji>","text":"<specific insight about their pattern>"},{"type":"...","icon":"...","text":"..."},{"type":"...","icon":"...","text":"..."}]}`
-        }]
-      })
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const raw = (data.content||[]).map(b=>b.text||'').join('');
-    const clean = raw.replace(/```json|```/g,'').trim();
-    const ai = JSON.parse(clean);
-    scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, ai);
-  } catch(e) {
-    // Score + timing already rendered — silently keep what we have
-    console.warn('Scorecard AI error:', e.message);
-  }
-}
-
-// ── TIMING QUALITY ENGINE ─────────────────────────────────────────
-function computeTimingQuality(scored, priceCache, allTrades) {
-  // ── Per-buy analysis using 12-month window ────────────────────────
-  const buyResults = [];
-  scored.forEach(s => {
-    const bars = priceCache[s.ticker] || [];
-    if (!bars.length || !s.buyPrice) return;
-
-    const buyDate  = s.tradeDate;
-    const buyPrice = s.buyPrice;
-
-    // 12-month window ending on trade date
-    const yr1Start = new Date(buyDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
-    const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0,10) && b.time <= buyDate);
-    if (yr1Bars.length < 20) return; // need enough history
-
-    const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
-    const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
-    const yr1Rng = yr1Hi - yr1Lo;
-    if (yr1Rng < 0.01) return;
-
-    // Is buy within 20% of 12-month low?
-    const pctAboveLow  = (buyPrice - yr1Lo) / yr1Lo * 100;
-    const nearYrLow    = pctAboveLow <= 20;
-    // Position in full 12-month range (0=low, 1=high)
-    const posInYrRange = (buyPrice - yr1Lo) / yr1Rng;
-
-    // Forward returns at 30 / 90 / 180 days
-    const fwdReturn = days => {
-      const fwdDate = new Date(buyDate+'T12:00:00Z'); fwdDate.setUTCDate(fwdDate.getUTCDate()+days);
-      const fwdStr  = fwdDate.toISOString().slice(0,10);
-      const fwdBar  = bars.find(b => b.time >= fwdStr);
-      return fwdBar ? +((fwdBar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
-    };
-    const ret30  = fwdReturn(30);
-    const ret90  = fwdReturn(90);
-    const ret180 = fwdReturn(180);
-
-    // Trend context: slope of 20-bar SMA prior to buy
-    const preBars  = yr1Bars.slice(-25);
-    let inUptrend = false, inDowntrend = false;
-    if (preBars.length >= 10) {
-      const closes = preBars.map(b => b.close);
-      const early  = closes.slice(0,5).reduce((a,b)=>a+b,0)/5;
-      const late   = closes.slice(-5).reduce((a,b)=>a+b,0)/5;
-      const slope  = (late - early) / early;
-      inUptrend    = slope >  0.04;
-      inDowntrend  = slope < -0.04;
-    }
-
-    buyResults.push({ ticker: s.ticker, buyDate, buyPrice,
-      nearYrLow, posInYrRange, pctAboveLow,
-      inUptrend, inDowntrend,
-      ret30, ret90, ret180 });
-  });
-
-  // ── Per-sell analysis using 12-month window ───────────────────────
-  // allTrades is the raw trade list — look for sells matching this insider
-  const sellResults = [];
-  if (allTrades) {
-    const sells = allTrades.filter(t => t.type === 'S' || t.type === 'S-');
-    sells.forEach(t => {
-      if (!t.price || !t.ticker) return;
-      const bars = priceCache[t.ticker] || [];
-      if (!bars.length) return;
-      const sellDate  = (t.trade || t.filing || '').slice(0,10); if (!sellDate) return;
-      const sellPrice = t.price;
-
-      const yr1Start = new Date(sellDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
-      const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0,10) && b.time <= sellDate);
-      if (yr1Bars.length < 20) return;
-
-      const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
-      const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
-      const yr1Rng = yr1Hi - yr1Lo;
-      if (yr1Rng < 0.01) return;
-
-      // Is sell within 20% of 12-month high?
-      const pctBelowHigh = (yr1Hi - sellPrice) / yr1Hi * 100;
-      const nearYrHigh   = pctBelowHigh <= 20;
-      const posInYrRange = (sellPrice - yr1Lo) / yr1Rng;
-
-      sellResults.push({ ticker: t.ticker, sellDate, sellPrice, nearYrHigh, posInYrRange, pctBelowHigh });
-    });
-  }
-
-  if (!buyResults.length) return null;
-
-  // ── Aggregate metrics ─────────────────────────────────────────────
-  const n = buyResults.length;
-  const nSell = sellResults.length;
-
-  const nearLowPct  = Math.round(buyResults.filter(r => r.nearYrLow).length / n * 100);
-  const nearHighSellPct = nSell > 0 ? Math.round(sellResults.filter(r => r.nearYrHigh).length / nSell * 100) : null;
-
-  // Forward return distributions
-  const validRet = (arr, key) => arr.filter(r => r[key] !== null).map(r => r[key]);
-  const mean = arr => arr.length ? +(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1) : null;
-  const win  = arr => arr.length ? Math.round(arr.filter(v=>v>0).length/arr.length*100) : null;
-
-  const rets30  = validRet(buyResults, 'ret30');
-  const rets90  = validRet(buyResults, 'ret90');
-  const rets180 = validRet(buyResults, 'ret180');
-
-  const avgRet30  = mean(rets30);
-  const avgRet90  = mean(rets90);
-  const avgRet180 = mean(rets180);
-  const win30  = win(rets30);
-  const win90  = win(rets90);
-  const win180 = win(rets180);
-
-  // Avg position in 12-month range (0=low, 1=high) — lower = better bottom-picker
-  const avgPos = +(buyResults.reduce((a,b)=>a+b.posInYrRange,0)/n).toFixed(2);
-
-  // ── Timing Alpha Score (0–100) ────────────────────────────────────
-  // Four components, each 0–25:
-  // 1. Buy-near-low rate: 50% base → 25pts, scales linearly, 0% → 0pts
-  const compLow   = Math.round(Math.min(25, (nearLowPct / 100) * 50));
-  // 2. Avg position in range: lower = better. 0.3 or below → 25pts, 0.7+ → 0pts
-  const compPos   = Math.round(Math.min(25, Math.max(0, (0.7 - avgPos) / 0.4 * 25)));
-  // 3. Forward return quality: avg90 at +10% → 25pts, 0% → 12pts, negative → 0
-  const compFwd   = avgRet90 !== null
-    ? Math.round(Math.min(25, Math.max(0, (avgRet90 / 10) * 25)))
-    : 12; // no data: neutral
-  // 4. Sell discipline (only if sells available): nearHighSellPct
-  const compSell  = nearHighSellPct !== null
-    ? Math.round(Math.min(25, (nearHighSellPct / 100) * 40))
-    : 12; // no sells: neutral
-
-  const timingAlpha = Math.min(100, Math.max(0, compLow + compPos + compFwd + compSell));
-
-  // ── Verdict ───────────────────────────────────────────────────────
-  let verdict, verdictColor, verdictDetail;
-  if (timingAlpha >= 80) {
-    if (nearLowPct >= 50) {
-      verdict = 'This insider buys near bottoms';
-      verdictColor = 'var(--buy)';
-      verdictDetail = `${nearLowPct}% of buys fall within 20% of the 12-month low — elite accumulation timing`;
-    } else {
-      verdict = 'Elite timing — strong forward returns';
-      verdictColor = 'var(--buy)';
-      verdictDetail = avgRet90 !== null ? `Avg +${avgRet90}% at 90 days — highly predictive buying` : 'Consistent early entry before major moves';
-    }
-  } else if (timingAlpha >= 60) {
-    verdict = 'Above-average timing discipline';
-    verdictColor = 'var(--accent)';
-    verdictDetail = nearLowPct >= 35 ? `${nearLowPct}% of buys near 12-month lows — discernible bottom-picking tendency` : 'Buys generally in the lower half of annual range';
-  } else if (timingAlpha >= 40) {
-    verdict = 'Moderate timing — mixed signals';
-    verdictColor = 'var(--option)';
-    verdictDetail = `Avg entry at ${Math.round(avgPos*100)}th percentile of 12-month range`;
-  } else {
-    verdict = 'Poor timing — tends to buy high';
-    verdictColor = 'var(--sell)';
-    verdictDetail = `${100-nearLowPct}% of buys are in the upper portion of the annual range`;
-  }
-
-  // Legacy fields kept for AI prompt compatibility
-  const nearHighPct       = Math.round(buyResults.filter(r => r.posInYrRange >= 0.75).length / n * 100);
-  const inTrendPct        = Math.round(buyResults.filter(r => r.inUptrend).length / n * 100);
-  const inConsolidationPct = Math.round(buyResults.filter(r => !r.inUptrend && !r.inDowntrend).length / n * 100);
-
-  return {
-    // New fields
-    timingAlpha,
-    nearLowPct, nearHighSellPct,
-    avgRet30, avgRet90, avgRet180,
-    win30, win90, win180,
-    avgPos,
-    compLow, compPos, compFwd, compSell,
-    // Legacy
-    nearHighPct, inTrendPct, inConsolidationPct,
-    verdict, verdictColor, verdictDetail,
-    avgPosInRange: Math.round(avgPos*100),
-    n, nSell,
-  };
-}
-
-function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, timing, ai) {
-  const rs = v => v===null?'—':(v>=0?'+':'')+v.toFixed(1)+'%';
-  const rc = v => v===null?'var(--muted)':v>=0?'var(--buy)':'var(--sell)';
-  const edgeSign=timingEdge>0?'+':'', edgeColor=timingEdge>2?'var(--buy)':timingEdge<0?'var(--sell)':'var(--option)';
-  const timingBarW=Math.min(100,Math.max(0,((timingEdge+20)/60)*100)).toFixed(1);
-  const timingBarColor=timingEdge>2?'var(--buy)':timingEdge<0?'var(--sell)':'var(--option)';
-
-  // AI insights or placeholder
-  const insightHtml = ai?.insights?.map(i =>
-    `<div class="insight-row ${i.type}"><span class="iicon">${i.icon}</span><span class="itext">${i.text}</span></div>`
-  ).join('') || '';
-
-  // Timing Quality Tracker block
-  const timingBlock = timing ? (() => {
-    const ta = timing.timingAlpha;
-    const taColor  = ta >= 80 ? 'var(--buy)' : ta >= 60 ? 'var(--accent)' : ta >= 40 ? 'var(--option)' : 'var(--sell)';
-    const taBg     = ta >= 80 ? 'rgba(0,255,136,0.08)'  : ta >= 60 ? 'rgba(0,212,255,0.07)'  : ta >= 40 ? 'rgba(255,170,0,0.06)'  : 'rgba(255,68,102,0.06)';
-    const taBorder = ta >= 80 ? 'rgba(0,255,136,0.3)'   : ta >= 60 ? 'rgba(0,212,255,0.25)'  : ta >= 40 ? 'rgba(255,170,0,0.2)'   : 'rgba(255,68,102,0.2)';
-
-    const rs = v => v === null ? '—' : (v >= 0 ? '+' : '') + v + '%';
-    const rc = v => v === null ? 'var(--muted)' : v >= 0 ? 'var(--buy)' : 'var(--sell)';
-
-    // Metric rows
-    const metrics = [
-      {
-        label: 'Buys Near 12M Low',
-        value: timing.nearLowPct + '%',
-        desc: '% of buys within 20% of 12-month low',
-        color: timing.nearLowPct >= 50 ? 'var(--buy)' : timing.nearLowPct >= 30 ? 'var(--option)' : 'var(--muted)',
-        pct: timing.nearLowPct,
-        sub: timing.nearLowPct >= 50 ? 'Buys at bottoms' : timing.nearLowPct >= 30 ? 'Some low-range timing' : 'No clear bottom-picking',
-      },
-      {
-        label: 'Sells Near 12M High',
-        value: timing.nearHighSellPct !== null ? timing.nearHighSellPct + '%' : 'No sells',
-        desc: '% of sells within 20% of 12-month high',
-        color: timing.nearHighSellPct >= 50 ? 'var(--buy)' : timing.nearHighSellPct >= 30 ? 'var(--option)' : 'var(--muted)',
-        pct: timing.nearHighSellPct ?? 0,
-        sub: timing.nearHighSellPct === null ? 'No sell data' : timing.nearHighSellPct >= 50 ? 'Sells at tops' : 'Mixed sell timing',
-      },
-    ];
-
-    // Return distribution table
-    const distRows = [
-      { label: '+30D', avg: timing.avgRet30, win: timing.win30 },
-      { label: '+90D', avg: timing.avgRet90, win: timing.win90 },
-      { label: '+180D', avg: timing.avgRet180, win: timing.win180 },
-    ];
-
-    // Score components breakdown
-    const compRows = [
-      { label: 'Buy-low rate',    score: timing.compLow,  max: 25 },
-      { label: 'Entry quality',   score: timing.compPos,  max: 25 },
-      { label: 'Fwd returns',     score: timing.compFwd,  max: 25 },
-      { label: 'Sell discipline', score: timing.compSell, max: 25 },
-    ];
-
-    return `
-    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px">
-
-      <!-- Header row: Score badge + verdict -->
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap">
-        <div style="background:${taBg};border:1px solid ${taBorder};border-radius:8px;padding:10px 16px;text-align:center;flex-shrink:0">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;line-height:1;color:${taColor}">${ta}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.5px;color:${taColor};margin-top:2px">TIMING ALPHA</div>
-        </div>
-        <div style="flex:1;min-width:0">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--text);margin-bottom:4px">🎯 TIMING ALPHA SCORE</div>
-          <div style="font-size:12px;color:${timing.verdictColor};font-weight:600;margin-bottom:3px">${timing.verdict}</div>
-          <div style="font-size:11px;color:var(--muted);line-height:1.5">${timing.verdictDetail}</div>
-        </div>
-      </div>
-
-      <!-- Score bar -->
-      <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:14px">
-        <div style="height:100%;width:${ta}%;background:${taColor};border-radius:2px;transition:width .6s ease"></div>
-      </div>
-
-      <!-- Two metrics: near-low buys + near-high sells -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px" class="timing-quality-grid">
-        ${metrics.map(m => `
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:9px 12px">
-          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${m.desc}</div>
-          <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:5px">
-            <span style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:${m.color}">${m.value}</span>
-            <span style="font-size:10px;color:var(--muted)">${m.label}</span>
-          </div>
-          <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:4px">
-            <div style="height:100%;width:${Math.min(100, m.pct)}%;background:${m.color};border-radius:2px;transition:width .5s ease"></div>
-          </div>
-          <div style="font-size:9px;color:${m.color}">${m.sub}</div>
-        </div>`).join('')}
-      </div>
-
-      <!-- Forward return distribution -->
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px">
-        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.2px;color:var(--muted);margin-bottom:8px">FORWARD RETURN DISTRIBUTION · AFTER BUY DATE</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-          ${distRows.map(d => `
-          <div style="text-align:center">
-            <div style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:${rc(d.avg)}">${rs(d.avg)}</div>
-            <div style="font-size:9px;color:var(--muted);margin:2px 0">${d.label} avg</div>
-            <div style="font-size:9px;color:${d.win >= 55 ? 'var(--buy)' : d.win >= 45 ? 'var(--option)' : 'var(--muted)'}">
-              ${d.win !== null ? d.win + '% win rate' : '—'}
-            </div>
-          </div>`).join('')}
-        </div>
-      </div>
-
-      <!-- Score components -->
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
-        ${compRows.map(c => {
-          const cPct = Math.round(c.score / c.max * 100);
-          const cColor = cPct >= 70 ? 'var(--buy)' : cPct >= 40 ? 'var(--option)' : 'var(--muted)';
-          return `<div style="text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:6px 4px">
-            <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${cColor}">${c.score}<span style="font-size:8px;color:var(--muted)">/${c.max}</span></div>
-            <div style="font-size:8px;color:var(--muted);margin-top:2px;line-height:1.3">${c.label}</div>
-          </div>`;
-        }).join('')}
-      </div>
-
-    </div>`;
-  })() : '';
-
-  const completedSorted=scored.filter(s=>s.ret90!==null).sort((a,b)=>new Date(b.tradeDate)-new Date(a.tradeDate));
-  const pendingRows=scored.filter(s=>s.isPending).sort((a,b)=>new Date(b.tradeDate)-new Date(a.tradeDate));
-
-  return `
-    <div class="score-ring-wrap">
-      <div class="score-ring-big" style="border-color:${tierColor};box-shadow:0 0 20px ${tierColor}33">
-        <div class="snum" style="color:${tierColor}">${stats.accuracyScore}</div><div class="sdenom">/100</div>
-      </div>
-      <div class="score-summary">
-        <div class="score-tier-label" style="color:${tierColor}">${tier} INSIDER</div>
-        <div class="score-summary-text">${ai?.summary || `${stats.tradeCount} completed trades scored · ${stats.winRate}% win rate · avg ${stats.avgRet90>=0?'+':''}${stats.avgRet90}% at 90 days`}</div>
-        <div class="score-follow-badge" style="color:${followRec.color};background:${followRec.bg};border-color:${followRec.border}">${followRec.label}</div>
-      </div>
-    </div>
-    <div class="scorer-stats-grid">
-      <div class="scorer-stat-cell"><div class="slabel">Avg 30d Return</div><div class="sval" style="color:${rc(stats.avgRet30)}">${rs(stats.avgRet30)}</div><div class="ssub">after open buy</div></div>
-      <div class="scorer-stat-cell"><div class="slabel">Avg 60d Return</div><div class="sval" style="color:${rc(stats.avgRet60)}">${rs(stats.avgRet60)}</div><div class="ssub">after open buy</div></div>
-      <div class="scorer-stat-cell"><div class="slabel">Avg 90d Return</div><div class="sval" style="color:${rc(stats.avgRet90)}">${(stats.avgRet90>=0?'+':'')+stats.avgRet90+'%'}</div><div class="ssub">${stats.tradeCount} buys scored</div></div>
-      <div class="scorer-stat-cell"><div class="slabel">Win Rate</div><div class="sval" style="color:${stats.winRate>=55?'var(--buy)':stats.winRate>=40?'var(--option)':'var(--sell)'}">${stats.winRate}%</div><div class="ssub">positive 90d return</div></div>
-      <div class="scorer-stat-cell"><div class="slabel">Avg Magnitude</div><div class="sval" style="color:var(--option)">±${stats.avgMagnitude}%</div><div class="ssub">90d absolute move</div></div>
-      <div class="scorer-stat-cell"><div class="slabel">Timing Edge</div><div class="sval" style="color:${edgeColor}">${edgeSign}${stats.timingEdge}%</div><div class="ssub">vs market avg</div></div>
-    </div>
-    <div class="timing-bar-wrap">
-      <div class="timing-bar-label"><span>Poor timing</span><span style="color:${edgeColor}">${edgeSign}${stats.timingEdge}% edge vs market</span><span>Elite timing</span></div>
-      <div class="timing-bar-track"><div class="timing-bar-fill" style="width:${timingBarW}%;background:${timingBarColor}"></div></div>
-    </div>
-    ${timingBlock}
-    ${insightHtml ? `<div class="scorer-insights" style="margin-bottom:18px">${insightHtml}</div>` : ''}
-    <div class="scorer-trade-rows">
-      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:8px">FORWARD RETURNS BY TRADE (actual price data)${stats.pendingCount>0?`<span style="margin-left:12px;color:var(--option)">⏳ ${stats.pendingCount} open</span>`:''}</div>
-      <div class="scorer-trade-row-header"><span>DATE</span><span>TICKER</span><span>BUY PRICE</span><span>+30D</span><span>+60D</span><span>+90D</span><span>RESULT</span></div>
-      ${completedSorted.slice(0,12).map(s=>`
-        <div class="scorer-trade-row">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${s.tradeDate.slice(5)}</span>
-          <span style="font-family:'Space Mono',monospace;color:var(--accent);font-size:11px;cursor:pointer" onclick="openTickerFromScreener('${s.ticker}')">${s.ticker}</span>
-          <span style="font-size:11px;color:var(--muted)">@$${(s.buyPrice||0).toFixed(2)}</span>
-          <span class="r30" style="color:${rc(s.ret30)}">${rs(s.ret30)}</span>
-          <span class="r60" style="color:${rc(s.ret60)}">${rs(s.ret60)}</span>
-          <span class="r90" style="color:${rc(s.ret90)}">${rs(s.ret90)}</span>
-          <span style="font-size:10px;color:${s.ret90>=0?'var(--buy)':'var(--sell)'}">${s.ret90>=0?'✓ WIN':'✗ LOSS'}</span>
-        </div>`).join('')}
-      ${pendingRows.slice(0,4).map(s=>`
-        <div class="scorer-trade-row" style="opacity:.6">
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${s.tradeDate.slice(5)}</span>
-          <span style="font-family:'Space Mono',monospace;color:var(--accent);font-size:11px">${s.ticker}</span>
-          <span style="font-size:11px;color:var(--muted)">@$${(s.buyPrice||0).toFixed(2)}</span>
-          <span class="r30" style="color:${rc(s.ret30)}">${rs(s.ret30)}</span>
-          <span class="r60" style="color:${rc(s.ret60)}">${rs(s.ret60)}</span>
-          <span style="color:var(--muted);font-size:10px">—</span>
-          <span style="font-size:10px;color:var(--option)">⏳ OPEN</span>
-        </div>`).join('')}
-      ${completedSorted.length>12?`<div style="font-size:10px;color:var(--muted);padding:8px 10px">+${completedSorted.length-12} more completed trades</div>`:''}
-    </div>`;
-}
-
-function buildCSSTimeline(trades) {
-  if (!trades.length) return '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">No trade history</div>';
-  const sorted=[...trades].sort((a,b)=>new Date(a.trade||a.filing)-new Date(b.trade||b.filing));
-  const minT=new Date(sorted[0].trade||sorted[0].filing).getTime(), maxT=new Date(sorted[sorted.length-1].trade||sorted[sorted.length-1].filing).getTime();
-  const span=maxT-minT||86400000*30, maxVal=Math.max(...trades.map(t=>t.value||1));
-  const firstYear=new Date(minT).getFullYear(), lastYear=new Date(maxT).getFullYear();
-  let yearMarkers='';
-  for(let y=firstYear;y<=lastYear;y++){
-    const yt=new Date(y,0,1).getTime(), pct=Math.max(0,Math.min(100,((yt-minT)/span)*100));
-    yearMarkers+=`<div style="position:absolute;left:${pct}%;top:0;bottom:0;width:1px;background:rgba(30,45,61,0.8);"><span style="position:absolute;bottom:2px;left:3px;font-size:9px;color:#4a6580;font-family:'Space Mono',monospace;white-space:nowrap">${y}</span></div>`;
-  }
-  const centreLine=`<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#1e2d3d;transform:translateY(-50%)"></div>`;
-  let dots='';
-  sorted.forEach(t=>{
-    const d=new Date(t.trade||t.filing).getTime(), pct=((d-minT)/span)*100;
-    const isBuy=t.type==='P', isOpt=tradeClass(t.type)==='option';
-    const color=isBuy?'#00ff88':isOpt?'#ffaa00':'#ff4466';
-    const size=6+Math.min(8,(Math.log10(t.value||1)-3)*2);
-    const stemH=20+((t.value||0)/maxVal)*40;
-    dots+=`<div title="${t.insider} — ${tradeLabel(t.type)} ${fmt(t.value)} on ${fmtDate(t.trade||t.filing)}" style="position:absolute;left:${pct}%;transform:translateX(-50%);${isBuy?'bottom:calc(50%)':'top:calc(50%)'};display:flex;flex-direction:column;align-items:center;cursor:pointer" onclick="openTickerFromScreener('${t.ticker}')">
-      ${isBuy?`<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}66;flex-shrink:0"></div><div style="width:1.5px;height:${stemH}px;background:${color}66;flex-shrink:0"></div>`:`<div style="width:1.5px;height:${stemH}px;background:${color}66;flex-shrink:0"></div><div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}66;flex-shrink:0"></div>`}
-    </div>`;
-  });
-  return `<div style="position:relative;width:100%;height:100%;padding:0 8px;">${centreLine}${yearMarkers}${dots}<div style="position:absolute;left:8px;top:4px;font-size:9px;color:#00ff88;font-family:'Space Mono',monospace">▲ BUYS</div><div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:#ff4466;font-family:'Space Mono',monospace">▼ SELLS</div></div>`;
-}
-
-function goBack() {
-  history.back();
-}
-
-// ── INSIDER SEARCH / DASHBOARD ────────────────────────────────────
-function insiderLanding(opts={}) {
-  const body=document.getElementById('insiderViewBody'); if(!body)return;
-  body.dataset.showing = 'dashboard';
-  if (!opts.fromPopstate) {
-    history.pushState({view:'insider', subview:'dashboard'}, '', '/insider');
-    updateTitle('insider');
-  }
-  body.innerHTML=`
-    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:12px">SEARCH INSIDER</div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <div style="position:relative;flex:1;min-width:200px">
-            <input id="insiderSearchInput" type="text" placeholder="Search by name, e.g. Zuckerberg"
-              style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s"
-              onkeydown="if(event.key==='Enter')runInsiderSearch()"
-              onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"/>
-            <div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
-          </div>
-          <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:10px 22px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">SEARCH</button>
-        </div>
-        <div style="margin-top:10px;font-size:11px;color:var(--muted)">Quick search:
-          ${['Zuckerberg','Musk','Cook','Bezos','Pichai','Nadella','Dimon'].map(n=>`<span onclick="document.getElementById('insiderSearchInput').value='${n}';runInsiderSearch()" style="color:var(--accent);cursor:pointer;margin-left:8px">${n}</span>`).join('')}
-        </div>
-      </div>
-      <div id="insiderDashboard"><div class="loading-state"><div class="spinner"></div><span>Loading insider activity...</span></div></div>
-    </div>`;
-  loadInsiderDashboard();
-}
-
-async function loadInsiderDashboard() {
-  const dash=document.getElementById('insiderDashboard'); if(!dash)return;
-  try {
-    const recent=await apiFetch('/api/screener?days=30');
-    if(!recent.length){dash.innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><div>No recent data</div></div>';return;}
-    const buyMap={},sellMap={},countMap={};
-    recent.forEach(t=>{const k=t.insider;if(!k)return;countMap[k]=(countMap[k]||0)+1;if(t.type==='P')buyMap[k]=(buyMap[k]||0)+(t.value||0);if(t.type==='S'||t.type==='S-')sellMap[k]=(sellMap[k]||0)+(t.value||0);});
-    const topBuyers=Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    const topSellers=Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    const bigTrades=[...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
-    const clusterCutoff=new Date(); clusterCutoff.setDate(clusterCutoff.getDate()-30);
-    const tickerPurchases={};
-    recent.filter(t=>t.type==='P'&&new Date(t.trade||t.filing)>=clusterCutoff).forEach(t=>{if(!tickerPurchases[t.ticker])tickerPurchases[t.ticker]=[];tickerPurchases[t.ticker].push(t);});
-    const clusterMap={};
-    Object.entries(tickerPurchases).forEach(([ticker,trades])=>{
-      if(trades.length<2)return;
-      const sorted=trades.slice().sort((a,b)=>(a.trade||a.filing)>(b.trade||b.filing)?1:-1);
-      for(let i=0;i<sorted.length;i++){
-        const anchor=new Date(sorted[i].trade||sorted[i].filing).getTime();
-        const window=sorted.filter(t=>{const d=new Date(t.trade||t.filing).getTime();return d>=anchor&&d<=anchor+3*86400000;});
-        const insiders=new Set(window.map(t=>t.insider));
-        if(insiders.size>=2){if(!clusterMap[ticker]||insiders.size>clusterMap[ticker].insiders.size)clusterMap[ticker]={insiders,trades:window};}
-      }
-    });
-    const clusters=Object.entries(clusterMap).sort((a,b)=>b[1].insiders.size-a[1].insiders.size).slice(0,8);
-    dash.innerHTML=`
-      <div class="insider-dash-grid">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--buy);font-size:14px">▲</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span></div>
-          <div>${topBuyers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(val)}</span></div>`).join('')}</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--sell);font-size:14px">▼</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span></div>
-          <div>${topSellers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--option);font-size:14px">⚡</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span><span style="font-size:10px;color:var(--muted);margin-left:auto">2+ insiders buying same stock</span></div>
-          <div>${clusters.map(([ticker,{insiders,trades:clTrades}])=>{const totalVal=clTrades.reduce((s,t)=>s+(t.value||0),0);const dates=clTrades.map(t=>t.trade||t.filing).filter(Boolean).sort();const dateRange=dates.length>1?`${dates[0].slice(5)} – ${dates[dates.length-1].slice(5)}`:(dates[0]||'').slice(5);return`<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span><span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders · ${dateRange}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span></div>`;}).join('')}</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--accent);font-size:14px">💰</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span></div>
-          <div>${bigTrades.map(t=>{const isBuy=t.type==='P';return`<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span><span class="badge ${isBuy?'badge-buy':'badge-sell'}" style="margin-right:6px">${isBuy?'BUY':'SELL'}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span></div>`;}).join('')}</div>
-        </div>
-      </div>`;
-  } catch(e) { dash.innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`; }
-}
-
-async function runInsiderSearch() {
-  const input=document.getElementById('insiderSearchInput'); const q=(input?.value||'').trim(); if(!q)return;
-  const body=document.getElementById('insiderViewBody');
-  body.innerHTML=`
-    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;gap:10px;align-items:center">
-        <div style="position:relative;flex:1"><input id="insiderSearchInput" type="text" value="${q.replace(/"/g,'&quot;')}" placeholder="Search by name" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 14px;color:var(--text);font-size:13px;outline:none" onkeydown="if(event.key==='Enter')runInsiderSearch()"/><div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div></div>
-        <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:9px 18px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
-        <button onclick="insiderLanding()" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-size:12px;cursor:pointer">← Dashboard</button>
-      </div>
-      <div id="insiderResultsArea"><div class="loading-state"><div class="spinner"></div><span>Searching for "${q}"...</span></div></div>
-    </div>`;
-  document.getElementById('insiderSearchInput').addEventListener('input',e=>insiderAutocomplete(e.target.value));
-  document.getElementById('insiderSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter')runInsiderSearch();});
-  try {
-    const trades=await apiFetch('/api/insider?name='+encodeURIComponent(q));
-    const area=document.getElementById('insiderResultsArea');
-    if(!trades.length){area.innerHTML=`<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;return;}
-    const byInsider={};
-    trades.forEach(t=>{const k=t.insider||'Unknown';if(!byInsider[k])byInsider[k]={name:k,title:t.title,trades:[],buyVal:0,sellVal:0,tickers:new Set()};byInsider[k].trades.push(t);byInsider[k].tickers.add(t.ticker);if(t.type==='P')byInsider[k].buyVal+=t.value||0;if(t.type==='S'||t.type==='S-')byInsider[k].sellVal+=t.value||0;});
-    const insiders=Object.values(byInsider).sort((a,b)=>b.trades.length-a.trades.length);
-    area.innerHTML=`
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">${insiders.length} INSIDER${insiders.length>1?'S':''} FOUND FOR "${q.toUpperCase()}"</div>
-      <div class="table-wrap"><table><thead><tr><th>INSIDER</th><th>TITLE</th><th class="hide-mobile">TRADES</th><th class="hide-mobile">COMPANIES</th><th>TOTAL BOUGHT</th><th>TOTAL SOLD</th><th></th></tr></thead>
-      <tbody>${insiders.map(ins=>`<tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title||'')}')" style="cursor:pointer"><td style="font-weight:500;color:var(--text)">${ins.name}</td><td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td><td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td><td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td><td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td><td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td><td style="color:var(--accent);font-size:11px">VIEW →</td></tr>`).join('')}</tbody></table></div>`;
-  } catch(e) { document.getElementById('insiderResultsArea').innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`; }
-}
-
-async function openInsiderProfileFull(name, title) {
-  const body=document.getElementById('insiderViewBody');
-  body.dataset.showing = 'profile';
-  body.innerHTML=`<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
-  try {
-    const trades=await fetchInsiderByName(name);
-    if(!trades.length){body.innerHTML=`<div class="empty-state" style="height:60vh"><div class="empty-icon">📭</div><div>No trades found for ${name}</div><button class="back-btn" style="margin-top:16px" onclick="insiderLanding()">← Back</button></div>`;return;}
-    const wrap=document.createElement('div'); wrap.id='insiderContent'; body.innerHTML=''; body.appendChild(wrap);
-    await renderInsiderProfile(name,title,trades);
-  } catch(e) { body.innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`; }
-}
-
-let _acTimer;
-function insiderAutocomplete(val) {
-  clearTimeout(_acTimer); const box=document.getElementById('insiderSuggest'); if(!box)return;
-  if(!val||val.length<2){box.style.display='none';return;}
-  _acTimer=setTimeout(async()=>{
-    try{const trades=await apiFetch('/api/insider?name='+encodeURIComponent(val));const names=[...new Set(trades.map(t=>t.insider).filter(Boolean))].slice(0,8);if(!names.length){box.style.display='none';return;}
-    box.innerHTML=names.map(n=>`<div onclick="document.getElementById('insiderSearchInput').value='${escName(n)}';document.getElementById('insiderSuggest').style.display='none';runInsiderSearch()" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`).join('');box.style.display='block';}catch(e){}
-  },280);
-}
-document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput')&&!e.target.closest('#insiderSuggest')){const box=document.getElementById('insiderSuggest');if(box)box.style.display='none';}});
-
-// ── ANALYSIS PAGE ────────────────────────────────────────────────
-
-let _analysisData = null;     // 30-day trades cache
-let _analysisDataLong = null; // 365-day trades cache
-let _firstBuyCache = null;      // firstbuys API results cache
-let _rankerCache = null;        // opportunity ranker results cache
-let _insiderScoreCache = null;  // top insider accuracy scores cache
-let _timingAlphaCache = null;   // top timing alpha scores cache
-
-async function loadAnalysisPage(subpage) {
-  const body = document.getElementById('analysisViewBody');
-  if (!body) return;
-
-  // Fetch 30-day data once
-  if (!_analysisData) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
-    try {
-      const raw = await apiFetch('/api/screener?days=30');
-      _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
-    } catch(e) { _analysisData = []; }
-  }
-
-  // Kick off long-history fetch in background (needed for First Buy scanner)
-  if (!_analysisDataLong) {
-    apiFetch('/api/screener?days=365&limit=2000').then(raw => {
-      _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
-    }).catch(() => { _analysisDataLong = _analysisData; });
-  }
-
-  // Kick off ranker data in background — refreshes tile once ready
-  if (!_rankerCache) {
-    apiFetch('/api/ranker?days=30').then(async rows => {
-      // Enrich with price data (52-week low proximity) for top 40 by buy value
-      const top40 = rows.slice(0, 40);
-      const priceResults = await Promise.allSettled(
-        top40.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)))
-      );
-      top40.forEach((r, i) => {
-        const bars = priceResults[i].status === 'fulfilled' ? priceResults[i].value : [];
-        if (Array.isArray(bars) && bars.length >= 50) {
-          const year = bars.slice(-252);
-          const hi52 = Math.max(...year.map(b => b.high || b.close));
-          const lo52 = Math.min(...year.map(b => b.low  || b.close));
-          const last  = bars[bars.length - 1]?.close || 0;
-          r._hi52 = hi52; r._lo52 = lo52; r._last = last;
-          r._pctFromLow  = lo52 > 0 ? ((last - lo52)  / lo52  * 100) : null;
-          r._pctFromHigh = hi52 > 0 ? ((hi52 - last)  / hi52  * 100) : null;
-        }
-      });
-      _rankerCache = scoreOpportunityRanker(rows);
-      // Refresh dashboard tiles
-      const body = document.getElementById('analysisViewBody');
-      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _rankerCache = []; });
-  }
-
-  // Kick off leaderboard scoring in background (accuracy + timing alpha)
-  if (!_insiderScoreCache && !_timingAlphaCache) {
-    computeLeaderboardScores();
-  }
-
-  if (subpage) {
-    renderAnalysisSubpage(subpage);
-  } else {
-    renderAnalysisDashboard();
-  }
-}
-
-function renderAnalysisDashboard() {
-  const body = document.getElementById('analysisViewBody');
-  const trades = _analysisData || [];
-  const longTrades = _analysisDataLong || trades;
-
-  // Pre-compute top 3 for each tool
-  const convTop3    = buildConvictionData(trades).slice(0, 3);
-  const clusterTop3 = detectAdvancedClusters(trades).slice(0, 3);
-  const firstBuyTop3 = _firstBuyCache ? _firstBuyCache.slice(0, 3) : [];
-
-  // Kick off API fetch for first-buy tile data if not cached yet
-  if (!_firstBuyCache) {
-    apiFetch('/api/firstbuys?mingap=1825&lookback=90&limit=50').then(rows => {
-      _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
-      // Refresh dashboard tiles once data arrives
-      const body = document.getElementById('analysisViewBody');
-      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _firstBuyCache = []; });
-  }
-
-  const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
-
-  const tools = [
-    {
-      id: 'ranker',
-      icon: '🏆',
-      name: 'Insider Opportunity Ranker',
-      desc: 'Combines every signal into one score per ticker: cluster buying, conviction, insider accuracy, 52-week low proximity, and no selling. The single most actionable view.',
-      count: _rankerCache ? _rankerCache.length : '…',
-      countLabel: 'tickers ranked',
-      top3: rankerTop3.map(r => ({
-        ticker: r.ticker,
-        label: `Score ${r.score}`,
-        sub: r.topFactors[0] || '',
-        color: r.score >= 80 ? 'var(--buy)' : r.score >= 60 ? 'var(--accent)' : 'var(--option)',
-      })),
-      accentColor: '#ffd700',
-      accentBg: 'rgba(255,215,0,0.06)',
-      accentBorder: 'rgba(255,215,0,0.25)',
-    },
-    {
-      id: 'conviction',
-      icon: '⚡',
-      name: 'High Conviction Trades',
-      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size. Surfaces insiders making their biggest, most deliberate bets.',
-      count: buildConvictionData(trades).length,
-      countLabel: 'signals detected',
-      top3: convTop3.map(c => ({
-        ticker: c.ticker,
-        label: `Score ${c.score}`,
-        sub: c.reasons[0] || '',
-        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
-      })),
-      accentColor: 'var(--buy)',
-      accentBg: 'rgba(0,255,136,0.06)',
-      accentBorder: 'rgba(0,255,136,0.2)',
-    },
-    {
-      id: 'clusters',
-      icon: '🔬',
-      name: 'Cluster Buy Detection',
-      desc: 'Advanced multi-factor engine detecting true cluster buys: multiple insiders, tight price range, short timeframe, after a decline, with no offsetting sells.',
-      count: detectAdvancedClusters(trades).length,
-      countLabel: 'clusters scored',
-      top3: clusterTop3.map(c => ({
-        ticker: c.ticker,
-        label: `Score ${c.score}`,
-        sub: `${c.insiderCount} insiders · ${c.daySpan <= 1 ? 'same day' : c.daySpan + 'd window'}`,
-        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
-      })),
-      accentColor: 'var(--accent)',
-      accentBg: 'rgba(0,212,255,0.06)',
-      accentBorder: 'rgba(0,212,255,0.2)',
-    },
-    {
-      id: 'exitwarning',
-      icon: '🔴',
-      name: 'Insider Exit Warning',
-      desc: 'Detects when multiple insiders sell near price highs, selling accelerates, or selling deviates from normal patterns — warning signs that a top may be forming.',
-      count: (() => { try { return detectExitWarnings(trades).length; } catch(e) { return 0; } })(),
-      countLabel: 'warnings active',
-      top3: (() => { try { return detectExitWarnings(trades).slice(0,3).map(w => ({
-        ticker: w.ticker,
-        label: `Score ${w.score}`,
-        sub: w.topSignal,
-        color: w.score >= 75 ? 'var(--sell)' : w.score >= 50 ? 'var(--option)' : 'var(--muted)',
-      })); } catch(e) { return []; } })(),
-      accentColor: 'var(--sell)',
-      accentBg: 'rgba(255,68,102,0.05)',
-      accentBorder: 'rgba(255,68,102,0.2)',
-    },
-    {
-      id: 'topscores',
-      icon: '🥇',
-      name: 'Top Insider Scores',
-      desc: 'Ranks insiders by their historical accuracy score — win rate, average forward return, and consistency across all tracked trades.',
-      count: _insiderScoreCache ? _insiderScoreCache.length : '…',
-      countLabel: 'insiders scored',
-      top3: (_insiderScoreCache || []).slice(0,3).map(r => ({
-        ticker: r.name.split(' ')[0],
-        label: `Score ${r.accuracyScore}`,
-        sub: `${r.winRate}% win · ${r.tradeCount} trades`,
-        color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
-      })),
-      accentColor: '#ffd700',
-      accentBg: 'rgba(255,215,0,0.05)',
-      accentBorder: 'rgba(255,215,0,0.22)',
-    },
-    {
-      id: 'timingleaders',
-      icon: '⏱',
-      name: 'Best Timing Insiders',
-      desc: 'Ranks insiders by Timing Alpha Score — who consistently buys near 12-month lows, sells near highs, and achieves the best forward returns after each trade.',
-      count: _timingAlphaCache ? _timingAlphaCache.length : '…',
-      countLabel: 'insiders ranked',
-      top3: (_timingAlphaCache || []).slice(0,3).map(r => ({
-        ticker: r.name.split(' ')[0],
-        label: `Alpha ${r.timingAlpha}`,
-        sub: `${r.nearLowPct}% buys near low`,
-        color: r.timingAlpha >= 80 ? 'var(--buy)' : r.timingAlpha >= 60 ? 'var(--accent)' : 'var(--option)',
-      })),
-      accentColor: 'var(--accent)',
-      accentBg: 'rgba(0,212,255,0.05)',
-      accentBorder: 'rgba(0,212,255,0.2)',
-    },
-  ];
-
-  // First Buy always rendered last regardless of array order
-  const firstBuyTool = {
-    id: 'firstbuy',
-    icon: '🚨',
-    name: 'First Buy in Years',
-    desc: 'Detects insiders making their first open-market purchase after 5+ years of inactivity on a stock. One of the rarest and most deliberate signals in Form 4 data.',
-    count: _firstBuyCache ? _firstBuyCache.length : '…',
-    countLabel: 'signals found',
-    top3: firstBuyTop3.map(s => ({
-      ticker: s.ticker,
-      label: `${s.gapYears.toFixed(1)}yr gap`,
-      sub: `${s.insider} · ${s.title || 'Insider'}`,
-      color: 'var(--buy)',
-    })),
-    accentColor: 'var(--sell)',
-    accentBg: 'rgba(255,68,102,0.05)',
-    accentBorder: 'rgba(255,68,102,0.2)',
-  };
-
-  body.innerHTML = `
-  <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    <div style="margin-bottom:28px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">ANALYSIS</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
-    </div>
-    <div class="analysis-tool-grid">
-      ${[...tools, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
-    </div>
-  </div>`;
-}
-
-function renderAnalysisTile(tool) {
-  const top3Html = tool.top3.length ? `
-    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
-      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">TOP SIGNALS</div>
-      ${tool.top3.map((item, i) => `
-        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;${i < tool.top3.length-1 ? 'border-bottom:1px solid rgba(30,45,61,0.6)' : ''}">
-          <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${item.color};min-width:52px">${item.ticker}</span>
-          <span style="flex:1;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.sub}</span>
-          <span style="font-family:'Space Mono',monospace;font-size:11px;color:${item.color};flex-shrink:0">${item.label}</span>
-        </div>`).join('')}
-    </div>` : `<div style="margin-top:14px;font-size:11px;color:var(--muted)">No signals in current window.</div>`;
-
-  return `
-  <div onclick="renderAnalysisSubpage('${tool.id}')"
-       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;cursor:pointer;transition:border-color .15s,background .15s;position:relative;overflow:hidden"
-       onmouseover="this.style.borderColor='${tool.accentBorder}';this.style.background='${tool.accentBg}'"
-       onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg2)'">
-    <!-- Accent bar top -->
-    <div style="position:absolute;top:0;left:0;right:0;height:2px;background:${tool.accentColor};opacity:0.6"></div>
-    <!-- Header -->
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:22px;line-height:1">${tool.icon}</span>
-        <div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px;color:var(--text)">${tool.name}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:10px;color:${tool.accentColor};margin-top:1px">${tool.count} ${tool.countLabel}</div>
-        </div>
-      </div>
-      <div style="font-size:11px;color:var(--muted);white-space:nowrap;margin-top:2px">VIEW ALL →</div>
-    </div>
-    <!-- Description -->
-    <div style="font-size:12px;color:var(--muted);line-height:1.6">${tool.desc}</div>
-    <!-- Top 3 -->
-    ${top3Html}
-  </div>`;
-}
-
-function renderAnalysisSubpage(id) {
-  const body = document.getElementById('analysisViewBody');
-  const trades = _analysisData || [];
-
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  if (id === 'ranker') {
-    renderRankerSubpage();
-  }
-
-  else if (id === 'conviction') {
-    const convHtml = renderConvictionCards(trades);
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div style="margin-bottom:20px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ HIGH CONVICTION TRADES</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">Scored by stake increase, cluster buying, repeat behavior &amp; position size · Last 30D</div>
-      </div>
-      <div class="conviction-grid">${convHtml}</div>
-    </div>`;
-  }
-
-  else if (id === 'clusters') {
-    const clusterHtml = renderClusterEngine(trades);
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div style="margin-bottom:12px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔬 CLUSTER BUY DETECTION ENGINE</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced multi-factor cluster scoring · Last 30D</div>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7">
-        Requires <span style="color:var(--text)">multiple distinct insiders</span>, buying within a <span style="color:var(--text)">tight price range</span>, in a <span style="color:var(--text)">short timeframe</span>, <span style="color:var(--text)">after a price decline</span>, with <span style="color:var(--text)">no offsetting sells</span>. Each cluster scored 1–100.
-      </div>
-      ${clusterHtml}
-    </div>`;
-  }
-
-  else if (id === 'exitwarning') {
-    renderExitWarningSubpage();
-  }
-
-  else if (id === 'topscores') {
-    renderTopScoresSubpage();
-  }
-
-  else if (id === 'timingleaders') {
-    renderTimingLeadersSubpage();
-  }
-
-  else if (id === 'firstbuy') {
-    renderFirstBuySubpage();
-  }
-}
-
-// ── INSIDER LEADERBOARDS ──────────────────────────────────────────
-
-async function computeLeaderboardScores() {
-  try {
-    const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
-    _insiderScoreCache = data.accuracy || [];
-    _timingAlphaCache  = data.timing   || [];
-  } catch(e) {
-    _insiderScoreCache = [];
-    _timingAlphaCache  = [];
-  }
-
-  const body = document.getElementById('analysisViewBody');
-  if (!body) return;
-  if (body.querySelector('.analysis-tool-grid')) {
-    renderAnalysisDashboard();
-  } else {
-    const tsc = document.getElementById('topScoresContent');
-    const tlc = document.getElementById('timingLeadersContent');
-    if (tsc) tsc.innerHTML = renderTopScoresList(_insiderScoreCache);
-    if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache);
-  }
-}
-
-function renderTopScoresList(ranked) {
-  if (!ranked || !ranked.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No scored insiders yet.</div>';
-  return ranked.map((r, i) => {
-    const sc = r.accuracyScore;
-    const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
-    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
-                 onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}')">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers}</div>
-        <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
-          <span style="font-size:10px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}% win rate</span>
-          <span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>
-          <span style="font-size:10px;color:var(--muted)">${r.tradeCount} trades scored</span>
-        </div>
-      </div>
-      <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:${scColor}">${sc}</div>
-        <div style="font-size:8px;font-family:'Space Mono',monospace;color:${scColor};margin-top:1px">${r.tier}</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function renderTimingLeadersList(ranked) {
-  if (!ranked || !ranked.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No timing data yet.</div>';
-  return ranked.map((r, i) => {
-    const ta = r.timingAlpha;
-    const taColor  = ta>=80?'var(--buy)':ta>=60?'var(--accent)':ta>=40?'var(--option)':'var(--muted)';
-    const taBg     = ta>=80?'rgba(0,255,136,0.08)':ta>=60?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
-    const taBorder = ta>=80?'rgba(0,255,136,0.28)':ta>=60?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
-    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
-                 onmouseover="this.style.borderColor='${taBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}')">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers}</div>
-        <div style="font-size:11px;color:${taColor};margin-top:4px;font-style:italic">${r.verdict}</div>
-        <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
-          <span style="font-size:10px;color:var(--buy)">${r.nearLowPct}% buys near 12M low</span>
-          ${r.avgRet90!==null?`<span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>`:''}
-        </div>
-      </div>
-      <div style="background:${taBg};border:1px solid ${taBorder};border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:${taColor}">${ta}</div>
-        <div style="font-size:8px;font-family:'Space Mono',monospace;color:${taColor};margin-top:1px">TIMING α</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function renderTopScoresSubpage() {
-  const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-  const loading = _insiderScoreCache === null;
-  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">🥇 TOP INSIDER ACCURACY SCORES</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by win rate, avg forward return & consistency · Click to open scorecard</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:660px">
-      Open-market buys scored against actual price data at <span style="color:var(--text)">+30 / +90 days</span>.
-      Only insiders with <span style="color:var(--text)">4+ completed trades</span> are ranked.
-      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_insiderScoreCache.length} insiders ranked</span>`}
-    </div>
-    <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
-      ${loading ? '<div class="loading-state"><div class="spinner"></div><span>Scoring insiders server-side…</span></div>' : renderTopScoresList(_insiderScoreCache)}
-    </div>
-  </div>`;
-  if (loading) {
-    const poll = setInterval(() => {
-      if (_insiderScoreCache !== null) {
-        clearInterval(poll);
-        const el = document.getElementById('topScoresContent');
-        if (el) el.innerHTML = renderTopScoresList(_insiderScoreCache);
-      }
-    }, 800);
-  }
-}
-
-function renderTimingLeadersSubpage() {
-  const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-  const loading = _timingAlphaCache === null;
-  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">⏱ BEST TIMING INSIDERS</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by Timing Alpha Score — who buys near 12-month lows and achieves the best forward returns</div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:660px">
-      <span style="color:var(--text)">Timing Alpha</span> measures: % of buys within 20% of 12-month low,
-      entry position in annual range, and forward return quality.
-      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_timingAlphaCache.length} insiders ranked</span>`}
-    </div>
-    <div id="timingLeadersContent" style="display:flex;flex-direction:column;gap:8px">
-      ${loading ? '<div class="loading-state"><div class="spinner"></div><span>Computing timing alpha…</span></div>' : renderTimingLeadersList(_timingAlphaCache)}
-    </div>
-  </div>`;
-  if (loading) {
-    const poll = setInterval(() => {
-      if (_timingAlphaCache !== null) {
-        clearInterval(poll);
-        const el = document.getElementById('timingLeadersContent');
-        if (el) el.innerHTML = renderTimingLeadersList(_timingAlphaCache);
-      }
-    }, 800);
-  }
-}
-
-
-// ── INSIDER OPPORTUNITY RANKER ────────────────────────────────────
-
-async function renderRankerSubpage() {
-  const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🏆 INSIDER OPPORTUNITY RANKER</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Every buy signal combined into one score · Last 30D</div>
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:700px">
-      Combines <span style="color:var(--text)">cluster buying</span>, <span style="color:var(--text)">conviction score</span>,
-      <span style="color:var(--text)">52-week low proximity</span>, <span style="color:var(--text)">no insider selling</span>,
-      <span style="color:var(--text)">executive involvement</span>, and <span style="color:var(--text)">stake size</span>
-      into a single 0–100 Opportunity Score. Higher = more insiders are putting real money to work, with less noise.
-    </div>
-    <div id="rankerResults"><div class="loading-state"><div class="spinner"></div><span>Scoring all tickers…</span></div></div>
-  </div>`;
-
-  // Use cache if already computed
-  if (_rankerCache) {
-    renderRankerResults(_rankerCache);
-    return;
-  }
-
-  try {
-    const rows = await apiFetch('/api/ranker?days=30');
-    // Enrich top 50 with price data
-    const top50 = rows.slice(0, 50);
-    const priceResults = await Promise.allSettled(
-      top50.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)))
-    );
-    top50.forEach((r, i) => {
-      const bars = priceResults[i].status === 'fulfilled' ? priceResults[i].value : [];
-      if (Array.isArray(bars) && bars.length >= 50) {
-        const year = bars.slice(-252);
-        const hi52 = Math.max(...year.map(b => b.high || b.close));
-        const lo52 = Math.min(...year.map(b => b.low  || b.close));
-        const last  = bars[bars.length - 1]?.close || 0;
-        r._hi52 = hi52; r._lo52 = lo52; r._last = last;
-        r._pctFromLow  = lo52 > 0 ? ((last - lo52)  / lo52  * 100) : null;
-        r._pctFromHigh = hi52 > 0 ? ((hi52 - last)  / hi52  * 100) : null;
-      }
-    });
-    _rankerCache = scoreOpportunityRanker(rows);
-    renderRankerResults(_rankerCache);
-  } catch(e) {
-    const el = document.getElementById('rankerResults');
-    if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px">${e.message}</div>`;
-  }
-}
-
-function scoreOpportunityRanker(rows) {
-  return rows.map(r => {
-    let score = 0;
-    const factors = [];
-
-    // ── 1. Cluster / buyer count (0–25 pts) ──────────────────────
-    if (r.buyer_count >= 5)      { score += 25; factors.push(`${r.buyer_count} insiders buying`); }
-    else if (r.buyer_count >= 3) { score += 18; factors.push(`${r.buyer_count} insiders buying`); }
-    else if (r.buyer_count >= 2) { score += 10; factors.push(`2 insiders buying`); }
-    else                         { score += 3; }
-
-    // ── 2. Executive involvement (0–15 pts) ──────────────────────
-    if (r.has_exec_buyer) { score += 15; factors.push(`C-suite / executive buyer`); }
-
-    // ── 3. Stake size increase (0–15 pts) ────────────────────────
-    if (r.max_stake_pct >= 50)     { score += 15; factors.push(`Stake increased ${r.max_stake_pct}%`); }
-    else if (r.max_stake_pct >= 20){ score += 10; factors.push(`Stake increased ${r.max_stake_pct}%`); }
-    else if (r.max_stake_pct >= 5) { score += 5;  factors.push(`Position added to`); }
-
-    // ── 4. Capital committed (0–15 pts) ──────────────────────────
-    if (r.total_buy_val >= 10000000)     { score += 15; factors.push(`${fmt(r.total_buy_val)} total invested`); }
-    else if (r.total_buy_val >= 2000000) { score += 10; factors.push(`${fmt(r.total_buy_val)} total invested`); }
-    else if (r.total_buy_val >= 500000)  { score += 5;  factors.push(`${fmt(r.total_buy_val)} invested`); }
-
-    // ── 5. No recent selling (0–15 pts) / penalty if selling ─────
-    if (r.sell_count === 0) {
-      score += 15; factors.push(`No insider selling — clean signal`);
-    } else {
-      const sellRatio = r.total_sell_val / Math.max(r.total_buy_val, 1);
-      if (sellRatio >= 2)      { score -= 15; factors.push(`⚠ Selling outweighs buying ${sellRatio.toFixed(1)}x`); }
-      else if (sellRatio >= 1) { score -= 8;  factors.push(`⚠ Concurrent insider selling`); }
-      else                     { score -= 3; }
-    }
-
-    // ── 6. 52-week low proximity (0–15 pts) — requires price data ─
-    if (r._pctFromLow != null) {
-      if (r._pctFromLow <= 5)       { score += 15; factors.push(`Near 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
-      else if (r._pctFromLow <= 15) { score += 10; factors.push(`Close to 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
-      else if (r._pctFromLow <= 30) { score += 5;  factors.push(`Moderate pullback from low`); }
-      else if (r._pctFromLow >= 80) { score -= 5;  factors.push(`Near 52-week high — buying into strength`); }
-    }
-
-    // ── 7. Recency bonus (0–5 pts) ───────────────────────────────
-    if (r.days_since_buy <= 3)      { score += 5; factors.push(`Bought within last 3 days`); }
-    else if (r.days_since_buy <= 7) { score += 3; factors.push(`Bought within last week`); }
-
-    score = Math.min(100, Math.max(1, Math.round(score)));
-
-    const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
-                  score >= 55 ? 'B'  : score >= 45 ? 'C+': score >= 35 ? 'C' : 'D';
-    const scoreColor  = score >= 75 ? 'var(--buy)'    : score >= 55 ? 'var(--accent)' : score >= 40 ? 'var(--option)' : 'var(--muted)';
-    const scoreBg     = score >= 75 ? 'rgba(0,255,136,0.08)'  : score >= 55 ? 'rgba(0,212,255,0.07)'  : 'rgba(255,170,0,0.06)';
-    const scoreBorder = score >= 75 ? 'rgba(0,255,136,0.3)'   : score >= 55 ? 'rgba(0,212,255,0.25)'  : 'rgba(255,170,0,0.2)';
-
-    return { ...r, score, factors, grade, scoreColor, scoreBg, scoreBorder,
-      topFactors: factors.filter(f => !f.startsWith('⚠')).slice(0, 3) };
-  })
-  .filter(r => r.score >= 30)
-  .sort((a, b) => b.score - a.score);
-}
-
-function renderRankerResults(ranked) {
-  const el = document.getElementById('rankerResults');
-  if (!el) return;
-
-  if (!ranked.length) {
-    el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No tickers scored above threshold in current window.</div>`;
-    return;
-  }
-
-  el.innerHTML = `
-    <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px">${ranked.length} TICKERS RANKED · SORTED BY OPPORTUNITY SCORE</div>
-    <div style="display:flex;flex-direction:column;gap:12px">
-      ${ranked.map((r, idx) => renderRankerCard(r, idx)).join('')}
-    </div>`;
-}
-
-function renderRankerCard(r, idx) {
-  const rank = idx + 1;
-  const rankColor = rank === 1 ? '#ffd700' : rank === 2 ? '#c0c0c0' : rank === 3 ? '#cd7f32' : 'var(--muted)';
-  const barW = r.score;
-
-  const priceBlock = r._last ? `
-    <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
-      <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">PRICE</div>
-      <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--text)">$${r._last.toFixed(2)}</div>
-    </div>
-    <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
-      <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">FROM 52W LOW</div>
-      <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${r._pctFromLow <= 15 ? 'var(--buy)' : 'var(--text)'}">+${r._pctFromLow?.toFixed(1) ?? '—'}%</div>
-    </div>` : '';
-
-  return `
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-       onmouseover="this.style.borderColor='${r.scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${r.ticker}')">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);gap:12px">
-      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
-        <!-- Rank -->
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:${rankColor};min-width:28px;text-align:center;line-height:1">#${rank}</div>
-        <!-- Ticker + company -->
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent)">${r.ticker}</span>
-            <span style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${r.company}</span>
-          </div>
-          <!-- Factor pills -->
-          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">
-            ${r.buyer_count >= 2 ? `<span style="background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--buy)">${r.buyer_count} BUYERS</span>` : ''}
-            ${r.has_exec_buyer ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--option)">EXEC</span>` : ''}
-            ${r.sell_count === 0 ? `<span style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.15);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--buy)">NO SELLS</span>` : `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--sell)">${r.seller_count} SELLING</span>`}
-            ${r._pctFromLow != null && r._pctFromLow <= 15 ? `<span style="background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--accent)">NEAR LOW</span>` : ''}
-          </div>
-        </div>
-      </div>
-      <!-- Score badge -->
-      <div style="background:${r.scoreBg};border:1px solid ${r.scoreBorder};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:30px;line-height:1;color:${r.scoreColor}">${r.score}</div>
-        <div style="font-size:9px;letter-spacing:1px;font-family:'Space Mono',monospace;color:${r.scoreColor};margin-top:1px">OPP SCORE</div>
-        <div style="font-size:11px;font-family:'Space Mono',monospace;color:${r.scoreColor};font-weight:700">${r.grade}</div>
-      </div>
-    </div>
-
-    <!-- Score bar -->
-    <div style="height:3px;background:var(--border)">
-      <div style="height:100%;width:${barW}%;background:${r.scoreColor};transition:width .6s ease"></div>
-    </div>
-
-    <!-- Stats + factors -->
-    <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto">
-      <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">TOTAL BOUGHT</div>
-        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--buy)">${fmt(r.total_buy_val)}</div>
-      </div>
-      <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">BUYERS</div>
-        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--text)">${r.buyer_count}</div>
-      </div>
-      <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">MAX STAKE Δ</div>
-        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${r.max_stake_pct >= 20 ? 'var(--buy)' : 'var(--text)'}">${r.max_stake_pct > 0 ? '+' + r.max_stake_pct + '%' : '—'}</div>
-      </div>
-      ${priceBlock}
-      <div style="padding:10px 14px;flex:1;min-width:80px">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">LAST BUY</div>
-        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--text)">${r.latest_buy_date ? fmtDate(r.latest_buy_date) : '—'}</div>
-      </div>
-    </div>
-
-    <!-- Factors list -->
-    <div style="padding:12px 18px;display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start">
-      ${r.factors.map(f => {
-        const isWarn = f.startsWith('⚠');
-        return `<div style="display:flex;align-items:center;gap:5px;background:${isWarn ? 'rgba(255,68,102,0.06)' : 'rgba(255,255,255,0.03)'};border:1px solid ${isWarn ? 'rgba(255,68,102,0.2)' : 'var(--border)'};border-radius:4px;padding:4px 9px">
-          <span style="font-size:10px;color:${isWarn ? 'var(--sell)' : 'var(--buy)'}">${isWarn ? '⚠' : '✓'}</span>
-          <span style="font-size:11px;color:${isWarn ? 'var(--sell)' : 'var(--text)'}">${f.replace(/^⚠\s*/,'')}</span>
-        </div>`;
-      }).join('')}
-    </div>
-  </div>`;
-}
-
-// ── INSIDER EXIT WARNING SYSTEM ───────────────────────────────────
-
-function renderExitWarningSubpage() {
-  const body = document.getElementById('analysisViewBody');
-  const trades = _analysisData || [];
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  const warnings = detectExitWarnings(trades);
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔴 INSIDER EXIT WARNING SYSTEM</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Multi-factor top detection · Last 30D</div>
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:700px">
-      Insider selling alone isn't a signal — executives sell for many reasons. This system only flags when
-      <span style="color:var(--text)">multiple insiders sell near the 52-week high</span>,
-      <span style="color:var(--text)">selling volume accelerates</span> vs their historical baseline,
-      or <span style="color:var(--text)">selling deviates sharply from their normal pattern</span>.
-      High scores warrant caution. Not a short signal — a <em>caution flag</em>.
-    </div>
-    ${warnings.length === 0
-      ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No exit warnings detected in the last 30 days.<br><span style="font-size:11px">This is actually a bullish sign — insiders aren't rushing for the exits.</span></div>`
-      : `<div style="display:flex;flex-direction:column;gap:16px">${warnings.map(w => renderExitWarningCard(w)).join('')}</div>`
-    }
-  </div>`;
-}
-
-function detectExitWarnings(trades) {
-  if (!trades || !trades.length) return [];
-
-  const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && t.value > 0 && (t.trade || t.filing));
-  const buys  = trades.filter(t => t.type === 'P');
-  if (!sells.length) return [];
-
-  // Group sells by ticker
-  const sellsByTicker = {};
-  sells.forEach(t => {
-    if (!sellsByTicker[t.ticker]) sellsByTicker[t.ticker] = [];
-    sellsByTicker[t.ticker].push(t);
-  });
-
-  // Also group all trades by ticker for buy/sell ratio context
-  const allByTicker = {};
-  trades.forEach(t => {
-    if (!allByTicker[t.ticker]) allByTicker[t.ticker] = [];
-    allByTicker[t.ticker].push(t);
-  });
-
-  const warnings = [];
-
-  Object.entries(sellsByTicker).forEach(([ticker, tickerSells]) => {
-    const allTicker = allByTicker[ticker] || [];
-    const tickerBuys = allTicker.filter(t => t.type === 'P');
-    let score = 0;
-    const signals = [];
-    const context = [];
-
-    // ── FACTOR 1: Seller count — multiple insiders selling (up to 25pts) ──
-    const sellerNames = [...new Set(tickerSells.map(t => t.insider).filter(Boolean))];
-    const sellerCount = sellerNames.length;
-    if (sellerCount >= 4)      { score += 25; signals.push(`${sellerCount} distinct insiders selling`); }
-    else if (sellerCount === 3) { score += 18; signals.push(`3 insiders selling concurrently`); }
-    else if (sellerCount === 2) { score += 10; signals.push(`2 insiders selling in same window`); }
-    else                        { score += 2; }
-
-    // ── FACTOR 2: Executive roles — C-suite selling is a stronger signal (up to 15pts) ──
-    const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
-    const execSellers = sellerNames.filter(name => {
-      const titles = tickerSells.filter(t => t.insider === name).map(t => (t.title||'').toUpperCase());
-      return execRoles.some(r => titles.some(ti => ti.includes(r)));
-    });
-    if (execSellers.length >= 2) { score += 15; signals.push(`${execSellers.length} C-suite sellers (highest signal)`); }
-    else if (execSellers.length === 1) {
-      const title = tickerSells.find(t => t.insider === execSellers[0])?.title || 'Executive';
-      score += 8; signals.push(`${title} among sellers`);
-    }
-
-    // ── FACTOR 3: Sell/buy ratio imbalance — sells overwhelm buys (up to 20pts) ──
-    const totalSellVal = tickerSells.reduce((s,t) => s + (t.value||0), 0);
-    const totalBuyVal  = tickerBuys.reduce((s,t) => s + (t.value||0), 0);
-    const ratio = totalBuyVal > 0 ? totalSellVal / totalBuyVal : 99;
-    if (ratio >= 10 || (totalSellVal > 0 && totalBuyVal === 0)) {
-      score += 20; signals.push(`Sells massively outweigh buys (${totalBuyVal === 0 ? 'no buying at all' : ratio.toFixed(0)+'x sell ratio'})`);
-    } else if (ratio >= 4) {
-      score += 12; signals.push(`${ratio.toFixed(1)}x more selling than buying by value`);
-    } else if (ratio >= 2) {
-      score += 5; signals.push(`Selling outpaces buying ${ratio.toFixed(1)}:1`);
-    }
-    if (totalBuyVal > 0 && ratio < 1) {
-      context.push(`Buying still present — ${fmt(totalBuyVal)} in buys vs ${fmt(totalSellVal)} in sells`);
-    }
-
-    // ── FACTOR 4: Selling acceleration — more sells in recent 7d vs prior 23d (up to 20pts) ──
-    const now = new Date();
-    const cutoff7 = new Date(now); cutoff7.setDate(now.getDate() - 7);
-    const cutoff30 = new Date(now); cutoff30.setDate(now.getDate() - 30);
-    const recent7  = tickerSells.filter(t => new Date(t.trade||t.filing) >= cutoff7);
-    const prior23  = tickerSells.filter(t => {
-      const d = new Date(t.trade||t.filing);
-      return d >= cutoff30 && d < cutoff7;
-    });
-    const recent7Val = recent7.reduce((s,t) => s+(t.value||0), 0);
-    const prior23Val = prior23.reduce((s,t) => s+(t.value||0), 0);
-    // Normalise prior to 7-day equivalent
-    const prior7Equiv = prior23Val / (23/7);
-    if (recent7Val > 0 && prior7Equiv > 0) {
-      const accel = recent7Val / prior7Equiv;
-      if (accel >= 4)      { score += 20; signals.push(`Selling accelerated ${accel.toFixed(0)}x in last 7 days`); }
-      else if (accel >= 2) { score += 12; signals.push(`Selling pace doubled in last 7 days`); }
-      else if (accel >= 1.3){ score += 5; signals.push(`Slight selling acceleration recently`); }
-    } else if (recent7.length >= 2 && prior23.length === 0) {
-      score += 15; signals.push(`All selling concentrated in last 7 days — sudden onset`);
-    }
-
-    // ── FACTOR 5: Selling near price high — most bearish context (up to 20pts) ──
-    // We don't have live price here, but we can approximate using the sell prices themselves.
-    // Compare sell prices to the highest sell price in the window — if clustered near the top, it's deliberate.
-    const sellPrices = tickerSells.map(t => t.price).filter(p => p > 0);
-    if (sellPrices.length >= 2) {
-      const maxSellPrice = Math.max(...sellPrices);
-      const minSellPrice = Math.min(...sellPrices);
-      const range = maxSellPrice - minSellPrice;
-      const avgSellPrice = sellPrices.reduce((a,b)=>a+b,0) / sellPrices.length;
-      const nearHighPct = range > 0 ? (avgSellPrice - minSellPrice) / range : 1;
-
-      // Also check: are recent sells at higher prices than older ones? (selling into strength)
-      const sortedByDate = [...tickerSells].filter(t => t.price > 0).sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
-      const earlyAvg = sortedByDate.slice(0, Math.ceil(sortedByDate.length/2)).reduce((s,t)=>s+t.price,0) / Math.ceil(sortedByDate.length/2);
-      const lateAvg  = sortedByDate.slice(Math.ceil(sortedByDate.length/2)).reduce((s,t)=>s+t.price,0) / Math.floor(sortedByDate.length/2 + 0.5);
-      const sellingIntoStrength = lateAvg > earlyAvg * 1.03;
-
-      if (nearHighPct >= 0.8) {
-        score += 20;
-        signals.push(`Insiders selling near the top of the recent price range ($${maxSellPrice.toFixed(2)} high)`);
-      } else if (nearHighPct >= 0.6) {
-        score += 12;
-        signals.push(`Sells clustered in upper ${Math.round((1-nearHighPct)*100+nearHighPct*100)}% of recent range`);
-      }
-      if (sellingIntoStrength) {
-        score += 8;
-        signals.push(`Selling prices rising over time — distributing into strength`);
-      }
-    }
-
-    // ── FACTOR 6: Deviates from normal pattern — no selling in prior window (up to 10pts) ──
-    // We only have 30d of data, so "normal" is approximated:
-    // if sell volume is > 3x the per-insider average historical sell for this ticker
-    const insiderSellAvg = totalSellVal / Math.max(sellerCount, 1);
-    if (insiderSellAvg >= 5000000) {
-      score += 10; signals.push(`Avg ${fmt(insiderSellAvg)} per insider — unusually large individual exits`);
-    } else if (insiderSellAvg >= 1000000) {
-      score += 5; signals.push(`Avg ${fmt(insiderSellAvg)} per insider selling`);
-    }
-
-    // Counterfactual: reduce score if there's heavy concurrent buying (mixed signal)
-    const concurrentBuyers = [...new Set(tickerBuys.map(t => t.insider).filter(Boolean))];
-    if (concurrentBuyers.length >= 2 && totalBuyVal > totalSellVal * 0.3) {
-      score -= 10;
-      context.push(`${concurrentBuyers.length} insiders also buying — mixed signal, less bearish`);
-    }
-
-    score = Math.min(100, Math.max(1, Math.round(score)));
-    if (score < 25 || signals.length < 2) return; // not enough signal
-
-    // Severity label
-    let severity, severityColor, severityBg, severityBorder;
-    if (score >= 75)      { severity='HIGH ALERT';  severityColor='var(--sell)';   severityBg='rgba(255,68,102,0.1)';   severityBorder='rgba(255,68,102,0.35)'; }
-    else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(255,170,0,0.08)';   severityBorder='rgba(255,170,0,0.3)'; }
-    else                  { severity='WATCH';       severityColor='var(--muted)';  severityBg='rgba(201,216,232,0.05)'; severityBorder='rgba(201,216,232,0.2)'; }
-
-    warnings.push({
-      ticker,
-      company: tickerSells[0]?.company || ticker,
-      score, signals, context, severity, severityColor, severityBg, severityBorder,
-      sellerCount, execSellers: execSellers.length,
-      totalSellVal, totalBuyVal,
-      sellerNames: sellerNames.slice(0, 5),
-      sellPriceRange: sellPrices.length ? { lo: Math.min(...sellPrices), hi: Math.max(...sellPrices) } : null,
-      latestSell: [...tickerSells].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0],
-      topSignal: signals[0] || '',
-    });
-  });
-
-  return warnings.sort((a,b) => b.score - a.score);
-}
-
-function renderExitWarningCard(w) {
-  const barW = w.score;
-  const barColor = w.score >= 75 ? 'var(--sell)' : w.score >= 50 ? 'var(--option)' : 'var(--muted)';
-
-  return `
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-       onmouseover="this.style.borderColor='${w.severityBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${w.ticker}')">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
-        <div style="flex-shrink:0">
-          <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${w.ticker}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${w.company}</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <span style="background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--sell)">${w.sellerCount} SELLERS</span>
-          ${w.execSellers > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--option)">${w.execSellers} EXEC${w.execSellers>1?'S':''}</span>` : ''}
-          ${w.latestSell ? `<span style="font-size:10px;color:var(--muted)">${fmtDate(w.latestSell.trade||w.latestSell.filing)}</span>` : ''}
-        </div>
-      </div>
-      <!-- Score badge -->
-      <div style="background:${w.severityBg};border:1px solid ${w.severityBorder};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0;min-width:80px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;line-height:1;color:${w.severityColor}">${w.score}</div>
-        <div style="font-size:8px;letter-spacing:1.5px;font-family:'Space Mono',monospace;color:${w.severityColor};margin-top:2px">${w.severity}</div>
-      </div>
-    </div>
-
-    <!-- Score bar -->
-    <div style="height:3px;background:var(--border)">
-      <div style="height:100%;width:${barW}%;background:${barColor};transition:width .5s ease"></div>
-    </div>
-
-    <!-- Stats row -->
-    <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto">
-      ${[
-        { label:'TOTAL SOLD',   val: fmt(w.totalSellVal),   color:'var(--sell)' },
-        { label:'TOTAL BOUGHT', val: w.totalBuyVal > 0 ? fmt(w.totalBuyVal) : 'None', color: w.totalBuyVal > 0 ? 'var(--buy)' : 'var(--muted)' },
-        { label:'SELL/BUY',     val: w.totalBuyVal > 0 ? (w.totalSellVal/w.totalBuyVal).toFixed(1)+'x' : '∞', color:'var(--sell)' },
-        { label:'PRICE RANGE',  val: w.sellPriceRange ? `$${w.sellPriceRange.lo.toFixed(2)}–$${w.sellPriceRange.hi.toFixed(2)}` : '—', color:'var(--text)' },
-      ].map(s => `
-        <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
-          <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${s.label}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${s.color};white-space:nowrap">${s.val}</div>
-        </div>`).join('')}
-    </div>
-
-    <!-- Signals + sellers -->
-    <div class="cluster-card-body">
-      <div>
-        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--sell);margin-bottom:8px">⚠ WARNING SIGNALS</div>
-        ${w.signals.map(s => `
-          <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
-            <span style="color:var(--sell);flex-shrink:0;font-size:11px;margin-top:1px">▸</span>
-            <span style="font-size:11px;color:var(--text);line-height:1.5">${s}</span>
-          </div>`).join('')}
-        ${w.context.map(s => `
-          <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
-            <span style="color:var(--muted);flex-shrink:0;font-size:11px;margin-top:1px">↔</span>
-            <span style="font-size:11px;color:var(--muted);line-height:1.5;font-style:italic">${s}</span>
-          </div>`).join('')}
-      </div>
-      <div>
-        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">SELLERS</div>
-        ${w.sellerNames.map(name => {
-          const t = ((_analysisData||[]).find(t => t.ticker === w.ticker && t.insider === name));
-          const isExec = t && execRoles.some(r => (t.title||'').toUpperCase().includes(r));
-          const sellVal = ((_analysisData||[]).filter(t => t.ticker === w.ticker && t.insider === name && (t.type==='S'||t.type==='S-'))).reduce((s,t)=>s+(t.value||0),0);
-          return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:11px;cursor:pointer"
-                       onclick="event.stopPropagation();openInsiderProfile('${escName(name)}','${escName(t?.title||'')}')">
-            ${isExec ? '<span style="color:var(--option);font-size:9px">★</span>' : '<span style="color:var(--muted);font-size:9px">·</span>'}
-            <span style="color:var(--text);flex:1">${name}</span>
-            ${t?.title ? `<span style="color:var(--muted);font-size:10px">${t.title}</span>` : ''}
-            <span style="color:var(--sell);font-family:'Space Mono',monospace;font-size:10px;margin-left:auto">${sellVal ? fmt(sellVal) : '—'}</span>
-          </div>`;
-        }).join('')}
-        ${w.sellerCount > 5 ? `<div style="font-size:10px;color:var(--muted)">+${w.sellerCount - 5} more</div>` : ''}
-      </div>
-    </div>
-
-    <!-- Footer -->
-    <div style="padding:10px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:space-between">
-      <div style="font-size:11px;color:var(--muted);font-style:italic">Not a short signal — a caution flag. Review chart for context.</div>
-      <div style="font-size:11px;color:var(--accent)">View chart →</div>
-    </div>
-  </div>`;
-}
-
-const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
-
-// ── FIRST BUY IN YEARS SCANNER ────────────────────────────────────
-
-async function renderFirstBuySubpage() {
-  const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  // Controls
-  const [minGap, lookback] = [
-    parseInt(document.getElementById('fbMinGap')?.value   || '1825'),
-    parseInt(document.getElementById('fbLookback')?.value || '90'),
-  ];
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🚨 FIRST BUY IN YEARS</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying their own stock after a long gap · Full database history</div>
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7;max-width:680px">
-      When an insider who hasn't bought in <span style="color:var(--text)">years</span> suddenly opens their wallet, it's one of the rarest signals in Form 4 data.
-      Unlike routine buying, a <span style="color:var(--text)">first purchase after a long gap</span> is deliberate —
-      they've watched the stock for years and decided <em>now</em> is the time.
-    </div>
-
-    <!-- Filters -->
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:24px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);white-space:nowrap">MIN GAP</span>
-        <select id="fbMinGap" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
-          <option value="90"  ${minGap===90?'selected':''}>3 months</option>
-          <option value="180" ${minGap===180?'selected':''}>6 months</option>
-          <option value="365" ${minGap===365?'selected':''}>1 year</option>
-          <option value="730" ${minGap===730?'selected':''}>2 years</option>
-          <option value="1095" ${minGap===1095?'selected':''}>3 years</option>
-          <option value="1825" ${minGap===1825?'selected':''}>5 years</option>
-        </select>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);white-space:nowrap">NEW BUY WITHIN</span>
-        <select id="fbLookback" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
-          <option value="14"  ${lookback===14?'selected':''}>14 days</option>
-          <option value="30"  ${lookback===30?'selected':''}>30 days</option>
-          <option value="60"  ${lookback===60?'selected':''}>60 days</option>
-          <option value="90"  ${lookback===90?'selected':''}>90 days</option>
-        </select>
-      </div>
-      <div style="font-size:11px;color:var(--muted)">Scanning full DB history — no date cap</div>
-    </div>
-
-    <div id="firstBuyResults"><div class="loading-state"><div class="spinner"></div><span>Scanning full trade history...</span></div></div>
-  </div>`;
-
-  try {
-    const rows = await apiFetch(`/api/firstbuys?mingap=${minGap}&lookback=${lookback}&limit=100`);
-    const el = document.getElementById('firstBuyResults');
-    if (!el) return;
-
-    if (!rows.length) {
-      el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
-        No signals found with current filters.<br>
-        <span style="font-size:11px">Try reducing the minimum gap or extending the lookback window.</span>
-      </div>`;
-      return;
-    }
-
-    const signals = rows.map(r => buildFirstBuySignal(r));
-    el.innerHTML = `
-      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:12px">${signals.length} SIGNAL${signals.length!==1?'S':''} FOUND · SORTED BY GAP LENGTH</div>
-      <div style="display:flex;flex-direction:column;gap:14px">
-        ${signals.map(s => renderFirstBuyCard(s)).join('')}
-      </div>`;
-  } catch(e) {
-    const el = document.getElementById('firstBuyResults');
-    if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px">${e.message}</div>`;
-  }
-}
-
-function buildFirstBuySignal(r) {
-  const gapDays   = r.gap_days || 0;
-  const gapMonths = Math.round(gapDays / 30.4);
-  const gapYears  = +(gapDays / 365).toFixed(1);
-
-  const prevOwned   = r.prev_owned   || 0;
-  const latestOwned = r.latest_owned || 0;
-  const posChangePct = prevOwned > 0 ? ((latestOwned - prevOwned) / prevOwned * 100) : null;
-
-  let tier, tierColor, tierBg, tierBorder;
-  if (gapYears >= 5)       { tier='EXTREME';   tierColor='var(--buy)';    tierBg='rgba(0,255,136,0.08)';  tierBorder='rgba(0,255,136,0.3)'; }
-  else if (gapYears >= 3)  { tier='VERY HIGH'; tierColor='var(--accent)'; tierBg='rgba(0,212,255,0.07)';  tierBorder='rgba(0,212,255,0.25)'; }
-  else if (gapYears >= 1)  { tier='HIGH';      tierColor='var(--option)'; tierBg='rgba(255,170,0,0.07)';  tierBorder='rgba(255,170,0,0.25)'; }
-  else                     { tier='NOTABLE';   tierColor='var(--text)';   tierBg='rgba(201,216,232,0.04)';tierBorder='rgba(201,216,232,0.15)'; }
-
-  return {
-    insider: r.insider, title: r.title || '', ticker: r.ticker, company: r.company || r.ticker,
-    latestDate: r.latest_trade || r.latest_filing || '',
-    prevDate:   r.prev_trade   || '',
-    gapDays, gapMonths, gapYears,
-    posChangePct,
-    totalBuyVal:  r.latest_value || 0,
-    latestPrice:  r.latest_price || 0,
-    latestOwned, prevOwned,
-    tier, tierColor, tierBg, tierBorder,
-  };
-}
-
-function detectFirstBuys(trades) {
-  // Legacy JS fallback — used for dashboard tile top-3 preview only
-  if (!trades || !trades.length) return [];
-  const byPair = {};
-  trades.forEach(t => {
-    if (!t.insider || !t.ticker || t.type !== 'P') return;
-    const key = `${t.insider}::${t.ticker}`;
-    if (!byPair[key]) byPair[key] = [];
-    byPair[key].push(t);
-  });
-  const now = new Date();
-  const recentCutoff = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - 90);
-  const signals = [];
-  Object.entries(byPair).forEach(([key, buys]) => {
-    const sorted = buys.sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
-    if (sorted.length < 2) return;
-    const latest = sorted[sorted.length - 1];
-    const prev   = sorted[sorted.length - 2];
-    const latestDate = new Date(latest.trade || latest.filing);
-    if (latestDate < recentCutoff) return;
-    const gapDays  = (latestDate - new Date(prev.trade || prev.filing)) / 86400000;
-    const gapYears = +(gapDays / 365).toFixed(1);
-    if (gapDays < 180) return;
-    signals.push({ ticker: latest.ticker, insider: latest.insider, title: latest.title, gapYears, gapMonths: Math.round(gapDays/30.4) });
-  });
-  return signals.sort((a,b) => b.gapYears - a.gapYears);
-}
-
-function renderFirstBuyCard(s) {
-  const gapLabel = s.gapYears >= 1 ? `${s.gapYears} years` : `${s.gapMonths} months`;
-  const posLabel = s.posChangePct !== null
-    ? (s.posChangePct >= 0 ? `+${s.posChangePct.toFixed(0)}%` : `${s.posChangePct.toFixed(0)}%`)
-    : null;
-  const posColor = s.posChangePct !== null ? (s.posChangePct >= 100 ? 'var(--buy)' : s.posChangePct >= 20 ? 'var(--accent)' : 'var(--option)') : 'var(--muted)';
-
-  const highlights = [];
-  if (s.gapYears >= 5) highlights.push({ icon: '🔥', text: `First buy in ${gapLabel} — extremely rare signal`, color: 'var(--buy)' });
-  else if (s.gapYears >= 3) highlights.push({ icon: '⚡', text: `Broke a ${gapLabel} buying drought`, color: 'var(--accent)' });
-  else highlights.push({ icon: '📌', text: `First purchase in ${gapLabel}`, color: 'var(--option)' });
-
-  if (s.posChangePct !== null && s.posChangePct >= 50) highlights.push({ icon: '📈', text: `Position increased by ${posLabel} in one trade`, color: posColor });
-  else if (s.posChangePct !== null && s.posChangePct >= 10) highlights.push({ icon: '📊', text: `Added ${posLabel} to existing position`, color: posColor });
-
-  if (!s.wasActiveElsewhere) highlights.push({ icon: '🎯', text: `No other insider buying activity during the gap — this is targeted`, color: 'var(--text)' });
-  else highlights.push({ icon: '↔', text: `Was active on ${s.buysInGapCount} other ticker${s.buysInGapCount>1?'s':''} during gap`, color: 'var(--muted)' });
-
-  if (s.totalBuyVal >= 1000000) highlights.push({ icon: '💰', text: `${fmt(s.totalBuyVal)} invested in this purchase`, color: 'var(--buy)' });
-
-  return `
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-       onmouseover="this.style.borderColor='${s.tierBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${s.ticker}')">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
-        <!-- Ticker + company -->
-        <div style="flex-shrink:0">
-          <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${s.ticker}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px">${s.company}</div>
-        </div>
-        <!-- Insider info -->
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.insider}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">${s.title || 'Insider'}</div>
-        </div>
-      </div>
-      <!-- Gap badge -->
-      <div style="background:${s.tierBg};border:1px solid ${s.tierBorder};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;line-height:1;color:${s.tierColor}">${gapLabel}</div>
-        <div style="font-size:8px;letter-spacing:1.5px;font-family:'Space Mono',monospace;color:${s.tierColor};margin-top:3px">SINCE LAST BUY</div>
-      </div>
-    </div>
-
-    <!-- Stats row -->
-    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);overflow-x:auto">
-      ${[
-        { label:'BUY DATE',     val: s.latestDate.slice(5),                         color:'var(--text)' },
-        { label:'PREV BUY',     val: s.prevDate.slice(0,7),                         color:'var(--muted)' },
-        { label:'PRICE',        val: s.latestPrice ? `$${s.latestPrice.toFixed(2)}` : '—', color:'var(--text)' },
-        { label:'VALUE',        val: s.totalBuyVal ? fmt(s.totalBuyVal) : '—',      color:'var(--buy)' },
-        { label:'POS CHANGE',   val: posLabel || '—',                               color: posColor },
-        { label:'SHARES AFTER', val: s.latestOwned ? s.latestOwned.toLocaleString() : '—', color:'var(--text)' },
-      ].map(stat => `
-        <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
-          <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${stat.label}</div>
-          <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${stat.color};white-space:nowrap">${stat.val}</div>
-        </div>`).join('')}
-    </div>
-
-    <!-- Highlights + tier badge -->
-    <div style="padding:12px 18px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
-      <div style="flex:1;min-width:200px">
-        ${highlights.map(h => `
-          <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
-            <span style="font-size:13px;flex-shrink:0;margin-top:1px">${h.icon}</span>
-            <span style="font-size:11px;color:${h.color};line-height:1.5">${h.text}</span>
-          </div>`).join('')}
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
-        <div style="background:${s.tierBg};border:1px solid ${s.tierBorder};border-radius:20px;padding:4px 12px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:${s.tierColor};letter-spacing:1px">${s.tier} SIGNAL</div>
-        <div style="font-size:11px;color:var(--accent)">View chart →</div>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderClusterEngine(trades) {
-  const clusters = detectAdvancedClusters(trades);
-  if (!clusters.length) return `<div style="color:var(--muted);font-size:12px;padding:20px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;text-align:center">No qualifying clusters detected in the last 30 days. Try a broader time window.</div>`;
-
-  return `
-  <div style="display:flex;flex-direction:column;gap:16px">
-    ${clusters.map(c => renderClusterCard(c)).join('')}
-  </div>`;
-}
-
-function detectAdvancedClusters(trades) {
-  // Only open-market buys
-  const buys = trades.filter(t => t.type === 'P' && t.value > 0 && t.price > 0 && (t.trade || t.filing));
-
-  // Group by ticker
-  const byTicker = {};
-  trades.forEach(t => { if (!byTicker[t.ticker]) byTicker[t.ticker] = []; byTicker[t.ticker].push(t); });
-
-  const results = [];
-
-  Object.entries(byTicker).forEach(([ticker, allTicker]) => {
-    const tickerBuys = buys.filter(t => t.ticker === ticker);
-    if (tickerBuys.length < 2) return;
-
-    // Sort by date
-    const sorted = [...tickerBuys].sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
-
-    // Sliding 14-day windows — find the densest cluster
-    let bestCluster = null;
-
-    for (let i = 0; i < sorted.length; i++) {
-      const anchor = new Date((sorted[i].trade||sorted[i].filing)+'T12:00:00Z').getTime();
-      const window14 = sorted.filter(t => {
-        const d = new Date((t.trade||t.filing)+'T12:00:00Z').getTime();
-        return d >= anchor && d <= anchor + 14 * 86400000;
-      });
-      const uniqueInsiders = new Set(window14.map(t => t.insider)).size;
-      if (uniqueInsiders < 2) continue;
-
-      // Score this candidate
-      const cluster = scoreCluster(ticker, window14, allTicker);
-      if (!bestCluster || cluster.score > bestCluster.score) bestCluster = cluster;
-    }
-
-    if (bestCluster && bestCluster.score >= 30) results.push(bestCluster);
-  });
-
-  return results.sort((a, b) => b.score - a.score).slice(0, 12);
-}
-
-function scoreCluster(ticker, clusterBuys, allTicker) {
-  let score = 0;
-  const signals = [];
-  const penalties = [];
-
-  // ── FACTOR 1: Insider count (up to 30 pts) ────────────────────
-  const insiderNames = [...new Set(clusterBuys.map(t => t.insider))];
-  const insiderCount = insiderNames.length;
-  const insiderRoles = clusterBuys.map(t => (t.title||'').toUpperCase());
-  const highSigRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
-  const execCount = insiderNames.filter(n => {
-    const titles = clusterBuys.filter(t => t.insider === n).map(t => (t.title||'').toUpperCase());
-    return highSigRoles.some(r => titles.some(ti => ti.includes(r)));
-  }).length;
-
-  if (insiderCount >= 5)      { score += 30; signals.push(`${insiderCount} distinct insiders buying`); }
-  else if (insiderCount === 4) { score += 25; signals.push(`${insiderCount} insiders buying`); }
-  else if (insiderCount === 3) { score += 18; signals.push(`${insiderCount} insiders buying`); }
-  else                         { score += 8;  signals.push(`2 insiders buying`); }
-
-  if (execCount >= 2) { score += 10; signals.push(`${execCount} C-suite / senior execs involved`); }
-  else if (execCount === 1) { score += 5; signals.push(`${clusterBuys.find(t=>highSigRoles.some(r=>(t.title||'').toUpperCase().includes(r)))?.title||'Executive'} among buyers`); }
-
-  // ── FACTOR 2: Price tightness (up to 20 pts) ──────────────────
-  const prices = clusterBuys.map(t => t.price).filter(p => p > 0);
-  const priceHi = Math.max(...prices), priceLo = Math.min(...prices);
-  const priceSpread = priceHi > 0 ? (priceHi - priceLo) / priceLo * 100 : 100;
-
-  if (priceSpread <= 2)       { score += 20; signals.push(`All buys within ${priceSpread.toFixed(1)}% price range`); }
-  else if (priceSpread <= 5)  { score += 14; signals.push(`Buys within tight ${priceSpread.toFixed(1)}% range`); }
-  else if (priceSpread <= 10) { score += 7;  signals.push(`Buys within ${priceSpread.toFixed(1)}% range`); }
-  else                        { penalties.push(`Wide price spread: ${priceSpread.toFixed(1)}%`); score -= 5; }
-
-  // ── FACTOR 3: Timeframe compression (up to 15 pts) ────────────
-  const dates = clusterBuys.map(t => new Date((t.trade||t.filing)+'T12:00:00Z').getTime());
-  const daySpan = (Math.max(...dates) - Math.min(...dates)) / 86400000;
-
-  if (daySpan <= 1)       { score += 15; signals.push(`All buys within 24 hours`); }
-  else if (daySpan <= 3)  { score += 12; signals.push(`Compressed into ${Math.ceil(daySpan)}-day window`); }
-  else if (daySpan <= 7)  { score += 7;  signals.push(`Cluster within ${Math.ceil(daySpan)} days`); }
-  else                    { score += 2; }
-
-  // ── FACTOR 4: Bought after price decline (up to 20 pts) ───────
-  // We infer from price data: compare buy price vs 30d earlier price (use relative dates)
-  // Proxy: if most recent buy price is below first buy price in cluster and still positive → consolidation
-  // Better: we check if the cluster buy price appears to be a local low vs the prior 30d
-  // Since we don't have price bars here, we use SEC filing lag as proxy and note it as a signal if sells precede
-  // We DO have trade dates — compute price trajectory from the cluster's own data
-  const allTickerBuys = allTicker.filter(t => t.type === 'P' && t.price > 0);
-  const preBuys = allTickerBuys.filter(t => new Date(t.trade||t.filing) < new Date((clusterBuys[0].trade||clusterBuys[0].filing)));
-  const avgClusterPrice = prices.reduce((a,b)=>a+b,0) / prices.length;
-  if (preBuys.length > 0) {
-    const recentPrePrice = preBuys.sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0].price;
-    const priceDelta = (avgClusterPrice - recentPrePrice) / recentPrePrice * 100;
-    if (priceDelta <= -15)      { score += 20; signals.push(`Bought after ${Math.abs(priceDelta).toFixed(0)}% price decline`); }
-    else if (priceDelta <= -8)  { score += 14; signals.push(`Bought after ${Math.abs(priceDelta).toFixed(0)}% pullback`); }
-    else if (priceDelta <= -3)  { score += 8;  signals.push(`Bought on minor ${Math.abs(priceDelta).toFixed(0)}% dip`); }
-    else if (priceDelta > 10)   { score -= 5;  penalties.push(`Buying into +${priceDelta.toFixed(0)}% price run-up`); }
-    else                        { score += 3; }
-  } else {
-    score += 5; signals.push(`First known insider buys on record`);
-  }
-
-  // ── FACTOR 5: No offsetting sells (up to 15 pts) ──────────────
-  const earliestClusterDate = new Date(Math.min(...clusterBuys.map(t => new Date(t.trade||t.filing)))).toISOString().slice(0,10);
-  const concurrentSells = allTicker.filter(t =>
-    (t.type === 'S' || t.type === 'S-') &&
-    (t.trade||t.filing) >= earliestClusterDate &&
-    insiderNames.includes(t.insider)
+  next();
+});
+
+// ─── DB ───────────────────────────────────────────────────────
+const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
+    trade_date TEXT NOT NULL, filing_date TEXT,
+    type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER, accession TEXT,
+    UNIQUE(accession, insider, trade_date, type, qty)
   );
-  const otherSells = allTicker.filter(t =>
-    (t.type === 'S' || t.type === 'S-') &&
-    (t.trade||t.filing) >= earliestClusterDate &&
-    !insiderNames.includes(t.insider)
+  CREATE INDEX IF NOT EXISTS idx_ticker     ON trades(ticker);
+  CREATE INDEX IF NOT EXISTS idx_trade_date ON trades(trade_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_insider    ON trades(insider);
+  CREATE TABLE IF NOT EXISTS sync_log (
+    quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
+  );
+`);
+
+// ─── SYNC via child process ────────────────────────────────────
+let syncRunning = false;
+const syncLog   = [];
+
+function slog(msg) {
+  const line = `[${new Date().toISOString().slice(11,19)}] ${msg}`;
+  console.log(line);
+  syncLog.push(line);
+  if (syncLog.length > 300) syncLog.shift();
+}
+
+function runSync(numQ = 4) {
+  if (syncRunning) { slog('sync already running'); return; }
+  syncRunning = true;
+  slog(`=== spawning sync-worker (${numQ} quarters) ===`);
+
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=400', path.join(__dirname, 'sync-worker.js'), String(numQ)],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
   );
 
-  if (concurrentSells.length === 0 && otherSells.length === 0) {
-    score += 15; signals.push(`No insider selling concurrent with cluster`);
-  } else if (concurrentSells.length === 0) {
-    score += 8; signals.push(`Cluster buyers not selling`);
-    if (otherSells.length > 0) penalties.push(`${otherSells.length} sell(s) from other insiders`);
-  } else {
-    score -= 12;
-    penalties.push(`${concurrentSells.length} cluster member(s) also selling — conflicting signal`);
-  }
-
-  // ── FACTOR 6: Total committed capital (up to 10 pts) ──────────
-  const totalVal = clusterBuys.reduce((s,t) => s + (t.value||0), 0);
-  if (totalVal >= 10000000)      { score += 10; signals.push(`${fmt(totalVal)} total committed`); }
-  else if (totalVal >= 2000000)  { score += 7;  signals.push(`${fmt(totalVal)} combined outlay`); }
-  else if (totalVal >= 500000)   { score += 4;  signals.push(`${fmt(totalVal)} invested`); }
-  else                           { penalties.push(`Modest outlay: ${fmt(totalVal)}`); }
-
-  score = Math.min(100, Math.max(1, Math.round(score)));
-
-  return {
-    ticker,
-    company: clusterBuys[0]?.company || ticker,
-    score,
-    signals,
-    penalties,
-    insiderCount,
-    insiderNames: insiderNames.slice(0, 4),
-    execCount,
-    daySpan: Math.ceil(daySpan),
-    priceSpread: +priceSpread.toFixed(1),
-    avgPrice: +avgClusterPrice.toFixed(2),
-    totalVal,
-    earliestDate: earliestClusterDate,
-    latestDate: new Date(Math.max(...clusterBuys.map(t => new Date(t.trade||t.filing)))).toISOString().slice(0,10),
-    trades: clusterBuys,
-    concurrentSells: concurrentSells.length,
-  };
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('ERR: '+l)));
+  worker.on('exit', code => {
+    syncRunning = false;
+    slog(`=== worker exited (code ${code}) ===`);
+  });
 }
 
-function renderClusterCard(c) {
-  const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : c.score >= 40 ? 'var(--option)' : 'var(--sell)';
-  const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.06)' : c.score >= 60 ? 'rgba(0,212,255,0.06)' : c.score >= 40 ? 'rgba(255,170,0,0.06)' : 'rgba(255,68,102,0.06)';
-  const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.3)' : c.score >= 60 ? 'rgba(0,212,255,0.25)' : c.score >= 40 ? 'rgba(255,170,0,0.25)' : 'rgba(255,68,102,0.25)';
-  const strengthLabel = c.score >= 80 ? 'STRONG CLUSTER' : c.score >= 60 ? 'MODERATE CLUSTER' : c.score >= 40 ? 'WEAK CLUSTER' : 'NOISE';
-  const barW = c.score;
-
-  return `
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-       onmouseover="this.style.borderColor='var(--border2)'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${c.ticker}')">
-
-    <!-- Card header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;gap:14px">
-        <div>
-          <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${c.ticker}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.company}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px">
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <span style="background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--buy)">${c.insiderCount} INSIDERS</span>
-            <span style="background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--accent)">${c.daySpan <= 1 ? 'SAME DAY' : c.daySpan + '-DAY WINDOW'}</span>
-            ${c.execCount > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
-            ${c.concurrentSells > 0 ? `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--sell)">⚠ ${c.concurrentSells} SELL${c.concurrentSells>1?'S':''}</span>` : ''}
-          </div>
-          <div style="font-size:10px;color:var(--muted)">${fmtDate(c.earliestDate)}${c.latestDate !== c.earliestDate ? ` – ${fmtDate(c.latestDate)}` : ''} · avg @$${c.avgPrice}</div>
-        </div>
-      </div>
-      <!-- Score badge -->
-      <div style="text-align:center;background:${scoreBg};border:1px solid ${scoreBorder};border-radius:8px;padding:8px 14px;min-width:72px;flex-shrink:0">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;line-height:1;color:${scoreColor}">${c.score}</div>
-        <div style="font-size:8px;letter-spacing:1.5px;font-family:'Space Mono',monospace;color:${scoreColor};margin-top:2px">${strengthLabel}</div>
-      </div>
-    </div>
-
-    <!-- Score bar -->
-    <div style="height:3px;background:var(--border)">
-      <div style="height:100%;width:${barW}%;background:${scoreColor};transition:width .5s ease"></div>
-    </div>
-
-    <!-- Body -->
-    <div class="cluster-card-body">
-      <!-- Signals -->
-      <div>
-        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--buy);margin-bottom:7px">✓ BULLISH SIGNALS</div>
-        ${c.signals.map(s => `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;font-size:11px;color:var(--text)"><span style="color:var(--buy);flex-shrink:0;margin-top:1px">▸</span>${s}</div>`).join('')}
-      </div>
-      <!-- Penalties + insiders -->
-      <div>
-        ${c.penalties.length ? `
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--sell);margin-bottom:7px">⚠ RISK FACTORS</div>
-          ${c.penalties.map(s => `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;font-size:11px;color:var(--text)"><span style="color:var(--sell);flex-shrink:0;margin-top:1px">▸</span>${s}</div>`).join('')}
-        ` : ''}
-        <div style="margin-top:${c.penalties.length?'10px':'0'}">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:7px">BUYERS</div>
-          ${c.insiderNames.map(name => {
-            const t = c.trades.find(t => t.insider === name);
-            const isExec = t && ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'].some(r => (t.title||'').toUpperCase().includes(r));
-            return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;cursor:pointer" onclick="event.stopPropagation();openInsiderProfile('${escName(name)}','${escName(t?.title||'')}')">
-              ${isExec ? '<span style="color:var(--option);font-size:9px">★</span>' : '<span style="color:var(--muted);font-size:9px">·</span>'}
-              <span style="color:var(--text)">${name}</span>
-              ${t?.title ? `<span style="color:var(--muted);font-size:10px">· ${t.title}</span>` : ''}
-              <span style="color:var(--buy);font-family:\'Space Mono\',monospace;font-size:10px;margin-left:auto">${fmt(c.trades.filter(tr=>tr.insider===name).reduce((s,tr)=>s+(tr.value||0),0))}</span>
-            </div>`;
-          }).join('')}
-          ${c.insiderCount > 4 ? `<div style="font-size:10px;color:var(--muted)">+${c.insiderCount - 4} more</div>` : ''}
-        </div>
-      </div>
-    </div>
-
-    <!-- Footer -->
-    <div style="padding:10px 18px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:space-between">
-      <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy)">${fmt(c.totalVal)} total invested</div>
-      <div style="font-size:11px;color:var(--accent)">View chart →</div>
-    </div>
-  </div>`;
+// ─── HTTP helper ──────────────────────────────────────────────
+function get(url, ms=30000) {
+  return new Promise((resolve,reject) => {
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
+      timeout: ms,
+    }, res => {
+      if ([301,302,303].includes(res.statusCode) && res.headers.location)
+        return get(res.headers.location, ms).then(resolve).catch(reject);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
 }
 
-// ── URL ROUTING ───────────────────────────────────────────────────
-window.addEventListener('popstate', e => {
-  const s = e.state;
-  if (!s) { routeFromPath(location.pathname, true); return; }
-  if (s.view === 'stock' && s.ticker) {
-    loadStockView(s.ticker, {fromPopstate: true});
-  } else if (s.view === 'insider' && s.name) {
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.getElementById('insiderTab').classList.add('active');
-    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    document.getElementById('view-insider').classList.add('active');
-    openInsiderProfile(s.name, s.title||'', {fromPopstate: true});
-  } else if (s.view === 'insider') {
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.getElementById('insiderTab').classList.add('active');
-    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    document.getElementById('view-insider').classList.add('active');
-    const body = document.getElementById('insiderViewBody');
-    body.dataset.showing = 'dashboard';
-    insiderLanding({fromPopstate: true});
-  } else {
-    switchView(s.view || 'screener', null, {fromPopstate: true});
+// ─── DAILY INGESTION (recent Form 4s from EDGAR daily index) ────
+let dailyRunning = false;
+
+function runDaily(daysBack = 3) {
+  if (dailyRunning) return;
+  dailyRunning = true;
+  slog(`=== spawning daily-worker (RSS poll mode, ${daysBack} days backfill) ===`);
+
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack), 'poll'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ' + l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ERR: ' + l)));
+  worker.on('exit', code => {
+    dailyRunning = false;
+    slog(`=== daily-worker exited (code ${code}) — restarting in 30s ===`);
+    setTimeout(() => runDaily(2), 30 * 1000);
+  });
+}
+
+// ─── PRICE CACHE ──────────────────────────────────────────────
+const pc = new Map();
+function getPC(k)      { const c = pc.get(k); return c && Date.now()<c.e ? c.v : null; }
+function setPC(k,v,ms) { pc.set(k, { v, e: Date.now()+ms }); }
+
+// ─── API ROUTES ───────────────────────────────────────────────
+
+// SCREENER
+app.get('/api/screener', (req, res) => {
+  try {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+    if (n === 0 && syncRunning)
+      return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
+
+    const days    = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095); // cap at 3 years
+    const limit   = Math.min(parseInt(req.query.limit || '1000'), 2000);           // cap rows returned
+
+    let rows = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned
+      FROM trades
+      WHERE filing_date >= date('now', '-' || ? || ' days')
+      ORDER BY trade_date DESC, filing_date DESC
+      LIMIT ?
+    `).all(days, limit);
+
+    if (!rows.length && n > 0) {
+      rows = db.prepare(`
+        SELECT ticker, company, insider, title,
+               trade_date AS trade, filing_date AS filing,
+               type, qty, price, value, owned
+        FROM trades
+        ORDER BY trade_date DESC, filing_date DESC
+        LIMIT 500
+      `).all();
+    }
+
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// TICKER
+app.get('/api/ticker', (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'symbol required' });
+  try {
+    const rows = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned
+      FROM trades WHERE ticker = ?
+      ORDER BY trade_date DESC LIMIT 5000
+    `).all(sym);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// INSIDER
+app.get('/api/insider', (req, res) => {
+  const name  = (req.query.name  || '').trim();
+  const exact = req.query.exact === '1';
+  if (!name) return res.status(400).json({ error: 'name required' });
+  if (name.length < 2) return res.status(400).json({ error: 'name too short' });
+  try {
+    const pattern = exact ? name : `%${name}%`;
+    // Exact match: full history up to 2000 rows
+    // Fuzzy match: cap at 500 rows to avoid massive payloads on broad queries
+    const limit = exact ? 2000 : 500;
+    const rows = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned
+      FROM trades WHERE UPPER(insider) LIKE UPPER(?)
+      ORDER BY trade_date DESC LIMIT ?
+    `).all(pattern, limit);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PRICE — FMP with Yahoo Finance fallback
+// FIRST BUY IN YEARS — scans entire DB history, no date filter
+// Uses window functions to find insiders whose most recent buy on a ticker
+// came after a long gap since their previous buy on that same ticker.
+app.get('/api/firstbuys', (req, res) => {
+  try {
+    const minGapDays  = parseInt(req.query.mingap  || '180');  // default 6 months
+    const lookbackDays = parseInt(req.query.lookback || '90'); // how recent must the new buy be
+    const limit        = parseInt(req.query.limit   || '100');
+
+    // Step 1: get all open-market buys, ordered per insider+ticker
+    // Step 2: self-join to get each buy paired with the previous buy
+    //         for the same insider on the same ticker
+    // Step 3: filter to pairs where:
+    //   - the newer buy is within lookbackDays
+    //   - the gap between the two buys is >= minGapDays
+    const rows = db.prepare(`
+      WITH buys AS (
+        SELECT ticker, company, insider, title,
+               trade_date, filing_date, price, qty, value, owned,
+               ROW_NUMBER() OVER (
+                 PARTITION BY insider, ticker
+                 ORDER BY trade_date DESC, filing_date DESC
+               ) AS rn
+        FROM trades
+        WHERE type = 'P'
+          AND price > 0
+          AND insider IS NOT NULL
+          AND ticker  IS NOT NULL
+      ),
+      latest AS (SELECT * FROM buys WHERE rn = 1),
+      prev   AS (SELECT * FROM buys WHERE rn = 2)
+      SELECT
+        l.ticker,
+        l.company,
+        l.insider,
+        l.title,
+        l.trade_date    AS latest_trade,
+        l.filing_date   AS latest_filing,
+        l.price         AS latest_price,
+        l.qty           AS latest_qty,
+        l.value         AS latest_value,
+        l.owned         AS latest_owned,
+        p.trade_date    AS prev_trade,
+        p.owned         AS prev_owned,
+        CAST(
+          julianday(l.trade_date) - julianday(p.trade_date)
+        AS INTEGER)     AS gap_days
+      FROM latest l
+      JOIN prev p ON l.insider = p.insider AND l.ticker = p.ticker
+      WHERE l.trade_date >= date('now', '-' || ? || ' days')
+        AND (julianday(l.trade_date) - julianday(p.trade_date)) >= ?
+      ORDER BY gap_days DESC
+      LIMIT ?
+    `).all(lookbackDays, minGapDays, limit);
+
+    res.json(rows);
+  } catch(e) {
+    slog('firstbuys error: ' + e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
-function routeFromPath(path, fromPopstate) {
-  // /stock/AAPL
-  const stockMatch = path.match(/^\/stock\/([^/]+)/i);
-  if (stockMatch) {
-    const ticker = decodeURIComponent(stockMatch[1]).toUpperCase();
-    document.getElementById('tickerInput').value = ticker;
-    loadStockView(ticker, {fromPopstate});
-    return;
+// OPPORTUNITY RANKER — per-ticker aggregates for frontend scoring
+app.get('/api/ranker', (req, res) => {
+  try {
+    const days = Math.min(parseInt(req.query.days || '30'), 90);
+    const rows = db.prepare(`
+      SELECT
+        ticker,
+        MAX(company) AS company,
+        COUNT(CASE WHEN type='P' THEN 1 END)                            AS buy_count,
+        COUNT(DISTINCT CASE WHEN type='P' THEN insider END)             AS buyer_count,
+        SUM(CASE WHEN type='P' THEN COALESCE(value,0) ELSE 0 END)       AS total_buy_val,
+        MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)           AS latest_buy_date,
+        COUNT(CASE WHEN type IN ('S','S-') THEN 1 END)                  AS sell_count,
+        COUNT(DISTINCT CASE WHEN type IN ('S','S-') THEN insider END)   AS seller_count,
+        SUM(CASE WHEN type IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
+        MAX(CASE WHEN type IN ('S','S-') THEN trade_date ELSE NULL END) AS latest_sell_date,
+        MAX(CASE WHEN type='P' AND (
+          UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR
+          UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%' OR
+          UPPER(title) LIKE '%FOUNDER%' OR UPPER(title) LIKE '%COO%'
+        ) THEN 1 ELSE 0 END)                                            AS has_exec_buyer,
+        CAST(julianday('now') - julianday(
+          MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)
+        ) AS INTEGER)                                                    AS days_since_buy,
+        MAX(CASE WHEN type='P' AND owned>qty AND qty>0
+          THEN CAST(qty*100.0/(owned-qty) AS INTEGER) ELSE 0 END)       AS max_stake_pct
+      FROM trades
+      WHERE filing_date >= date('now', '-' || ? || ' days')
+      GROUP BY ticker
+      HAVING buy_count > 0
+      ORDER BY total_buy_val DESC
+      LIMIT 200
+    `).all(days);
+    res.json(rows);
+  } catch(e) {
+    slog('ranker error: ' + e.message);
+    res.status(500).json({ error: e.message });
   }
-  // /insider/Name  or  /insider
-  const insiderMatch = path.match(/^\/insider\/(.+)/i);
-  if (insiderMatch) {
-    const name = decodeURIComponent(insiderMatch[1]);
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.getElementById('insiderTab').classList.add('active');
-    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    document.getElementById('view-insider').classList.add('active');
-    openInsiderProfile(name, '', {fromPopstate});
-    return;
+});
+
+// LEADERBOARD — top insiders by open-market buy activity (enough history to score)
+app.get('/api/leaderboard', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '40'), 80);
+    const rows = db.prepare(`
+      SELECT
+        insider,
+        MAX(title)                                                          AS title,
+        COUNT(CASE WHEN type='P' THEN 1 END)                               AS buy_count,
+        COUNT(DISTINCT CASE WHEN type='P' THEN ticker END)                 AS ticker_count,
+        SUM(CASE WHEN type='P' THEN COALESCE(value,0) ELSE 0 END)          AS total_buy_val,
+        MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)               AS latest_buy,
+        MIN(CASE WHEN type='P' THEN trade_date ELSE NULL END)               AS earliest_buy,
+        GROUP_CONCAT(DISTINCT CASE WHEN type='P' THEN ticker END)          AS tickers_csv
+      FROM trades
+      WHERE insider IS NOT NULL
+        AND type = 'P'
+        AND price > 0
+      GROUP BY insider
+      HAVING buy_count >= 3
+      ORDER BY buy_count DESC, total_buy_val DESC
+      LIMIT ?
+    `).all(limit);
+    res.json(rows);
+  } catch(e) {
+    slog('leaderboard error: ' + e.message);
+    res.status(500).json({ error: e.message });
   }
-  if (path.startsWith('/insider')) {
-    switchView('insider', null, {fromPopstate});
-    return;
+});
+
+// SCOREBOARD — pre-computes per-insider buy stats + unique tickers needed for pricing
+// Frontend only needs to fetch price data (deduplicated across insiders), not individual trade histories
+// SCOREBOARD — fully server-side: fetches prices, scores every insider, returns results
+// Browser makes ONE request and receives ranked leaderboards ready to render
+app.get('/api/scoreboard', async (req, res) => {
+  try {
+    const minBuys = parseInt(req.query.minbuys || '4');
+    const limit   = Math.min(parseInt(req.query.limit || '30'), 60);
+
+    // Pull qualifying insiders and their packed buy history from DB
+    const rows = db.prepare(`
+      SELECT
+        insider,
+        MAX(title)                                                            AS title,
+        COUNT(*)                                                              AS buy_count,
+        GROUP_CONCAT(ticker || '|' || trade_date || '|' || price, ';;')      AS trade_data,
+        GROUP_CONCAT(DISTINCT ticker)                                         AS tickers_csv,
+        CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
+      FROM trades
+      WHERE type = 'P'
+        AND price > 0
+        AND insider IS NOT NULL
+        AND ticker  IS NOT NULL
+        AND trade_date <= date('now', '-95 days')
+      GROUP BY insider
+      HAVING buy_count >= ? AND span_days >= 90
+      ORDER BY buy_count DESC, span_days DESC
+      LIMIT ?
+    `).all(minBuys, limit);
+
+    if (!rows.length) return res.json({ accuracy: [], timing: [] });
+
+    // Deduplicate tickers across all insiders
+    const allTickers = [...new Set(
+      rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
+    )];
+
+    // ── Fetch all price data server-side in parallel (uses existing in-memory cache) ──
+    async function fetchBars(sym) {
+      const cached = getPC(sym);
+      if (cached) return cached;
+
+      // Try FMP
+      try {
+        const { status, body } = await get(
+          `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`
+        );
+        if (status === 200) {
+          const data = JSON.parse(body.toString());
+          const raw  = Array.isArray(data) ? data : (data?.historical || []);
+          if (raw.length) {
+            const bars = raw.slice().reverse()
+              .map(d => ({ time: d.date, close: +(+d.close).toFixed(2), high: +(+d.high).toFixed(2), low: +(+d.low).toFixed(2) }))
+              .filter(d => d.close > 0 && d.time);
+            if (bars.length) { setPC(sym, bars, 60*60*1000); return bars; }
+          }
+        }
+      } catch(e) {}
+
+      // Fallback: Yahoo
+      try {
+        const now  = Math.floor(Date.now() / 1000);
+        const from = now - 5 * 365 * 86400;
+        const { status, body } = await get(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d`,
+          20000
+        );
+        if (status === 200) {
+          const json   = JSON.parse(body.toString());
+          const result = json?.chart?.result?.[0];
+          const times  = result?.timestamp || [];
+          const q      = result?.indicators?.quote?.[0] || {};
+          if (times.length && q.close?.length) {
+            const bars = times.map((t, i) => ({
+              time:  new Date(t * 1000).toISOString().slice(0, 10),
+              close: +(+(q.close?.[i] || 0)).toFixed(2),
+              high:  +(+(q.high?.[i]  || 0)).toFixed(2),
+              low:   +(+(q.low?.[i]   || 0)).toFixed(2),
+            })).filter(d => d.close > 0 && d.time);
+            if (bars.length) { setPC(sym, bars, 60*60*1000); return bars; }
+          }
+        }
+      } catch(e) {}
+
+      return null;
+    }
+
+    // Fetch all tickers in parallel (server handles concurrency fine, they all hit cache after first)
+    const priceEntries = await Promise.all(allTickers.map(async sym => [sym, await fetchBars(sym)]));
+    const priceCache   = Object.fromEntries(priceEntries.filter(([, v]) => v));
+
+    // ── Score every insider ──
+    const accuracyResults = [];
+    const timingResults   = [];
+
+    rows.forEach(leader => {
+      try {
+        const rawTrades = (leader.trade_data || '').split(';;').map(s => {
+          const [ticker, trade_date, price] = s.split('|');
+          return { ticker, trade: trade_date, price: parseFloat(price) };
+        }).filter(t => t.ticker && t.price > 0 && t.trade);
+
+        if (rawTrades.length < 4) return;
+
+        // Forward returns per trade
+        const scored = rawTrades.map(t => {
+          const bars = priceCache[t.ticker] || [];
+          if (!bars.length) return null;
+          const buyDate = t.trade.slice(0, 10);
+          const fwd = days => {
+            const fd = new Date(buyDate + 'T12:00:00Z'); fd.setUTCDate(fd.getUTCDate() + days);
+            const fs = fd.toISOString().slice(0, 10);
+            const bar = bars.find(b => b.time >= fs);
+            return bar ? +((bar.close - t.price) / t.price * 100).toFixed(2) : null;
+          };
+          return { ticker: t.ticker, tradeDate: buyDate, buyPrice: t.price,
+            ret30: fwd(30), ret90: fwd(90), ret180: fwd(180) };
+        }).filter(Boolean);
+
+        const completed = scored.filter(s => s.ret90 !== null);
+        if (completed.length < 3) return;
+
+        // Accuracy score
+        const rets90    = completed.map(s => s.ret90);
+        const avgRet90  = +(rets90.reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
+        const rets30    = completed.filter(s => s.ret30 !== null).map(s => s.ret30);
+        const avgRet30  = rets30.length ? +(rets30.reduce((a, b) => a + b, 0) / rets30.length).toFixed(1) : null;
+        const winRate   = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
+        const avgMag    = +(rets90.map(Math.abs).reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
+        const sorted    = [...rets90].sort((a, b) => a - b);
+        const median    = sorted[Math.floor(sorted.length / 2)];
+        const consist   = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag, 1) + 1) * 50)));
+        const accScore  = Math.round(Math.min(100, Math.max(0,
+          winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35))
+          + consist * 0.15 + Math.min(10, completed.length * 1.2)
+        )));
+        const tier      = accScore >= 75 ? 'ELITE' : accScore >= 55 ? 'STRONG' : accScore >= 35 ? 'AVERAGE' : 'WEAK';
+        const tickers3  = [...new Set(rawTrades.map(t => t.ticker))].slice(0, 3).join(', ');
+
+        accuracyResults.push({ name: leader.insider, title: leader.title || '',
+          accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
+          tradeCount: completed.length, tickers: tickers3 });
+
+        // Timing alpha — buy-near-low + sell-near-high + fwd returns
+        let nearLowCount = 0, nearHighSellCount = 0, totalSells = 0;
+        let ret30sum = 0, ret90sum = 0, ret180sum = 0, retN = 0;
+
+        scored.forEach(s => {
+          const bars = priceCache[s.ticker] || [];
+          if (!bars.length || !s.buyPrice) return;
+          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
+          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
+          const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate);
+          if (yr1Bars.length < 20) return;
+          const yr1Lo = Math.min(...yr1Bars.map(b => b.low || b.close));
+          const pctAboveLow = (s.buyPrice - yr1Lo) / yr1Lo * 100;
+          if (pctAboveLow <= 20) nearLowCount++;
+          if (s.ret30 !== null)  { ret30sum  += s.ret30;  }
+          if (s.ret90 !== null)  { ret90sum  += s.ret90;  retN++; }
+          if (s.ret180 !== null) { ret180sum += s.ret180; }
+        });
+
+        const n          = scored.length;
+        const nearLowPct = n > 0 ? Math.round(nearLowCount / n * 100) : 0;
+        const avgFwd90   = retN > 0 ? +(ret90sum / retN).toFixed(1) : null;
+        const avgFwd180  = retN > 0 ? +(ret180sum / retN).toFixed(1) : null;
+        const avgPos     = scored.reduce((acc, s) => {
+          const bars = priceCache[s.ticker] || [];
+          if (!bars.length || !s.buyPrice) return acc;
+          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
+          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
+          const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate);
+          if (yr1Bars.length < 20) return acc;
+          const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
+          const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
+          const rng = yr1Hi - yr1Lo;
+          return rng > 0.01 ? { sum: acc.sum + (s.buyPrice - yr1Lo) / rng, n: acc.n + 1 } : acc;
+        }, { sum: 0, n: 0 });
+        const avgPosVal = avgPos.n > 0 ? avgPos.sum / avgPos.n : 0.5;
+
+        const compLow  = Math.round(Math.min(25, (nearLowPct / 100) * 50));
+        const compPos  = Math.round(Math.min(25, Math.max(0, (0.7 - avgPosVal) / 0.4 * 25)));
+        const compFwd  = avgFwd90 !== null ? Math.round(Math.min(25, Math.max(0, avgFwd90 / 10 * 25))) : 12;
+        const compSell = 12; // server doesn't have sell data in this query
+        const timingAlpha = Math.min(100, Math.max(0, compLow + compPos + compFwd + compSell));
+
+        let verdict, verdictColor;
+        if (timingAlpha >= 80 && nearLowPct >= 50) {
+          verdict = 'Buys near bottoms'; verdictColor = 'buy';
+        } else if (timingAlpha >= 80) {
+          verdict = 'Elite forward returns'; verdictColor = 'buy';
+        } else if (timingAlpha >= 60) {
+          verdict = 'Above-average timing'; verdictColor = 'accent';
+        } else if (timingAlpha >= 40) {
+          verdict = 'Mixed timing signals'; verdictColor = 'option';
+        } else {
+          verdict = 'Tends to buy high'; verdictColor = 'sell';
+        }
+
+        if (timingAlpha >= 35) {
+          timingResults.push({ name: leader.insider, title: leader.title || '',
+            timingAlpha, nearLowPct, nearHighSellPct: null,
+            avgRet90: avgFwd90, avgRet180: avgFwd180,
+            verdict, verdictColor, tradeCount: completed.length, tickers: tickers3 });
+        }
+      } catch(e) { slog('score err ' + leader.insider + ': ' + e.message); }
+    });
+
+    accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
+    timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
+
+    res.json({ accuracy: accuracyResults, timing: timingResults });
+  } catch(e) {
+    slog('scoreboard error: ' + e.message);
+    res.status(500).json({ error: e.message });
   }
-  if (path.startsWith('/analysis')) {
-    switchView('analysis', null, {fromPopstate});
-    return;
+});
+
+
+
+
+// PRICE — FMP with Yahoo Finance fallback
+app.get('/api/price', async (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'symbol required' });
+
+  const cached = getPC(sym);
+  if (cached) return res.json(cached);
+
+  // Try FMP first
+  try {
+    const { status, body } = await get(
+      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`
+    );
+    if (status === 200) {
+      const data = JSON.parse(body.toString());
+      const raw  = Array.isArray(data) ? data : (data?.historical || []);
+      if (raw.length) {
+        const bars = raw.slice().reverse()
+          .map(d => ({ time: d.date, open: +(+d.open).toFixed(2), high: +(+d.high).toFixed(2), low: +(+d.low).toFixed(2), close: +(+d.close).toFixed(2), volume: d.volume||0 }))
+          .filter(d => d.close > 0 && d.time);
+        if (bars.length) {
+          setPC(sym, bars, 60*60*1000);
+          return res.json(bars);
+        }
+      }
+    }
+  } catch(e) { slog(`FMP price error for ${sym}: ${e.message}`); }
+
+  // Fallback: Yahoo Finance
+  try {
+    const now   = Math.floor(Date.now() / 1000);
+    const from  = now - 5 * 365 * 86400;
+    const yUrl  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d&events=history`;
+    const { status, body } = await get(yUrl, 20000);
+    if (status === 200) {
+      const json   = JSON.parse(body.toString());
+      const result = json?.chart?.result?.[0];
+      const times  = result?.timestamp || [];
+      const q      = result?.indicators?.quote?.[0] || {};
+      if (times.length && q.close?.length) {
+        const bars = times.map((t, i) => ({
+          time:   new Date(t * 1000).toISOString().slice(0, 10),
+          open:   +(+(q.open?.[i]  || 0)).toFixed(2),
+          high:   +(+(q.high?.[i]  || 0)).toFixed(2),
+          low:    +(+(q.low?.[i]   || 0)).toFixed(2),
+          close:  +(+(q.close?.[i] || 0)).toFixed(2),
+          volume: q.volume?.[i] || 0,
+        })).filter(d => d.close > 0 && d.time);
+        if (bars.length) {
+          setPC(sym, bars, 60*60*1000);
+          return res.json(bars);
+        }
+      }
+    }
+  } catch(e) { slog(`Yahoo price error for ${sym}: ${e.message}`); }
+
+  res.status(404).json({ error: `No price data available for ${sym}` });
+});
+
+// STATUS
+app.get('/api/status', (req, res) => {
+  const n      = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+  const latest = db.prepare('SELECT MAX(trade_date) AS d FROM trades').get().d;
+  const synced = db.prepare('SELECT * FROM sync_log ORDER BY synced_at').all();
+  res.json({ running: syncRunning, trades: n, latestTrade: latest, quarters: synced, log: syncLog.slice(-40) });
+});
+
+app.get('/api/daily-status', (req, res) => {
+  try {
+    const logs    = db.prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT 14').all();
+    const recent  = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-7 days')").get().n;
+    const maxFile = db.prepare('SELECT MAX(filing_date) AS d FROM trades').get().d;
+    res.json({ running: dailyRunning, recentDays: logs, tradesLast7d: recent, maxFilingDate: maxFile });
+  } catch(e) { res.json({ running: dailyRunning, error: e.message }); }
+});
+
+app.get('/api/debug-form4', async (req, res) => {
+  const https = require('https');
+  const steps = [];
+
+  function debugGet(url) {
+    return new Promise((resolve) => {
+      steps.push({ step: 'GET', url: url.slice(0,120) });
+      const req = https.get(url, {
+        headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
+        timeout: 15000,
+      }, r => {
+        const chunks = [];
+        r.on('data', c => chunks.push(c));
+        r.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8').slice(0, 300);
+          steps.push({ status: r.statusCode, preview: body });
+          resolve({ status: r.statusCode, body: Buffer.concat(chunks).toString('utf8') });
+        });
+      });
+      req.on('error', e => { steps.push({ error: e.message }); resolve({ status: 0, body: '' }); });
+      req.on('timeout', () => { req.destroy(); steps.push({ error: 'timeout' }); resolve({ status: 0, body: '' }); });
+    });
   }
-  // default → screener
-  switchView('screener', null, {fromPopstate});
+
+  try {
+    const eftsUrl = 'https://efts.sec.gov/LATEST/search-index?forms=4&from=0&size=1';
+    const { status: es, body: eb } = await debugGet(eftsUrl);
+    let accession = '', filerCik = '', filingDate = '';
+    if (es === 200) {
+      const data = JSON.parse(eb);
+      const hit  = data.hits?.hits?.[0];
+      if (hit) {
+        accession  = (hit._id || '').replace(/\//g, '-');
+        filingDate = hit._source?.file_date || '';
+        steps.push({ parsed: { accession, filingDate, raw_id: hit._id, source_keys: Object.keys(hit._source || {}) } });
+      }
+    }
+
+    if (accession) {
+      const acc = accession.replace(/-/g, '');
+      filerCik = parseInt(acc.slice(0,10), 10).toString();
+      steps.push({ derived: { filerCik, acc, accDash: accession } });
+
+      const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${accession}-index.json`;
+      const { status: is, body: ib } = await debugGet(idxUrl);
+      if (is === 200) {
+        const idx = JSON.parse(ib);
+        steps.push({ indexDocs: (idx.documents || []).map(d => ({ type: d.type, document: d.document })) });
+      }
+    }
+  } catch(e) {
+    steps.push({ fatalError: e.message });
+  }
+
+  res.json({ steps });
+});
+
+app.get('/api/run-daily', (req, res) => {
+  const days = parseInt(req.query.days || '10');
+  if (req.query.force === '1') {
+    db.prepare("DELETE FROM daily_log WHERE date >= date('now', ? || ' days')").run(`-${days}`);
+    slog(`Cleared daily_log for last ${days} days`);
+  }
+  res.json({ started: !dailyRunning });
+  if (!dailyRunning) runDaily(days);
+});
+
+let backfillRunning = false;
+app.get('/api/backfill', (req, res) => {
+  const days = Math.min(parseInt(req.query.days || '60'), 365);
+  if (backfillRunning) return res.json({ started: false, reason: 'backfill already running' });
+  backfillRunning = true;
+  slog(`=== spawning one-shot backfill (${days} days) ===`);
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=400', path.join(__dirname, 'daily-worker.js'), String(days), 'backfill'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(`[backfill] ${l}`)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog(`[backfill] ERR: ${l}`)));
+  worker.on('exit', code => {
+    backfillRunning = false;
+    slog(`=== backfill worker exited (code ${code}) ===`);
+  });
+  res.json({ started: true, days });
+});
+
+app.get('/api/sync', (req, res) => {
+  const numQ = parseInt(req.query.quarters || '4');
+  res.json({ started: !syncRunning });
+  if (!syncRunning) runSync(numQ);
+});
+
+app.get('/api/diag', async (req, res) => {
+  const n      = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+  const latest = db.prepare('SELECT MAX(trade_date) AS d FROM trades').get().d;
+  const oldest = db.prepare('SELECT MIN(trade_date) AS d FROM trades').get().d;
+  const synced = db.prepare('SELECT * FROM sync_log').all();
+  const byFiling = db.prepare(`SELECT filing_date AS d, COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-14 days') GROUP BY filing_date ORDER BY filing_date DESC`).all();
+  const byTrade  = db.prepare(`SELECT trade_date  AS d, COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-14 days') GROUP BY trade_date  ORDER BY trade_date  DESC LIMIT 20`).all();
+  let price = {};
+  try {
+    const { status, body } = await get(`https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=AAPL&apikey=${FMP}`);
+    const data = JSON.parse(body.toString());
+    const raw  = Array.isArray(data) ? data : (data?.historical || []);
+    price = { ok: status===200 && raw.length>0, bars: raw.length, latest: raw[0]?.date };
+  } catch(e) { price = { ok: false, error: e.message }; }
+  res.json({ db: { trades: n, latest, oldest, synced }, byFiling, byTrade, price, sync: { running: syncRunning, log: syncLog.slice(-10) } });
+});
+
+app.get('/api/health', (req, res) =>
+  res.json({ ok: true, trades: db.prepare('SELECT COUNT(*) AS n FROM trades').get().n }));
+
+app.get('/api/cleanup-dates', (req, res) => {
+  const r = db.prepare(`
+    DELETE FROM trades WHERE trade_date < '2000-01-01' OR trade_date > date('now') OR filing_date < '2000-01-01' OR filing_date > date('now')
+  `).run();
+  slog(`Date cleanup: removed ${r.changes} bad rows`);
+  const { n } = db.prepare('SELECT COUNT(*) AS n FROM trades').get();
+  res.json({ removed: r.changes, remaining: n });
+});
+
+// ─── SPA CATCH-ALL ────────────────────────────────────────────
+// Must be last — serves index.html for all non-API, non-static routes
+// so that /stock/AAPL, /insider, /insider/Name etc. work on direct load/refresh
+app.get('*', (req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+// ─── STARTUP ──────────────────────────────────────────────────
+const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
+console.log(`DB: ${existing} trades, ${syncedQ} quarters synced`);
+
+const TARGET_QUARTERS = 12;
+if (syncedQ < TARGET_QUARTERS) {
+  const needed = TARGET_QUARTERS - syncedQ;
+  console.log(`Only ${syncedQ} quarters in DB — syncing ${needed} more to reach ${TARGET_QUARTERS}...`);
+  runSync(TARGET_QUARTERS);
+} else {
+  const now = new Date();
+  const yr  = now.getFullYear();
+  const q   = Math.ceil((now.getMonth() + 1) / 3);
+  let tq = q - 1; let ty = yr;
+  if (tq < 1) { tq = 4; ty--; }
+  const key = `${ty}Q${tq}`;
+  db.prepare('DELETE FROM sync_log WHERE quarter=?').run(key);
+  slog(`Re-syncing ${key} for latest filings...`);
+  runSync(1);
 }
 
-// Init: route based on current URL, then load screener data
-(function init() {
-  // Set initial history state so popstate works on first back
-  const path = location.pathname;
-  history.replaceState({view: _viewFromPath(path), ticker: _tickerFromPath(path), name: _nameFromPath(path)}, '', path);
-  routeFromPath(path, true);
-  if (!path.startsWith('/stock') && !path.startsWith('/insider')) {
-    loadScreener();
-  } else {
-    // Still pre-load screener data silently so the tab works when user navigates to it
-    apiFetch('/api/screener?days=7').then(resp => {
-      let trades = Array.isArray(resp) ? resp : (resp.trades || []);
-      if (!trades.length) return;
-      if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-      if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
-      state.screenerData = trades;
-    }).catch(()=>{});
-    loadScreener();
-  }
-})();
+setInterval(() => {
+  const now = new Date();
+  const yr  = now.getFullYear();
+  const q   = Math.ceil((now.getMonth() + 1) / 3);
+  let tq = q - 1; let ty = yr;
+  if (tq < 1) { tq = 4; ty--; }
+  db.prepare('DELETE FROM sync_log WHERE quarter=?').run(`${ty}Q${tq}`);
+  runSync(1);
+}, 24 * 60 * 60 * 1000);
 
-function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; return'screener'; }
-function _tickerFromPath(p) { const m=p.match(/^\/stock\/([^/]+)/i); return m?decodeURIComponent(m[1]).toUpperCase():null; }
-function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decodeURIComponent(m[1]):null; }
+setTimeout(() => runDaily(3), 5000);
 
-function measureHeader() { const h=document.querySelector('header'),m=document.querySelector('main'); if(h&&m)m.style.paddingTop=h.offsetHeight+'px'; }
-measureHeader(); window.addEventListener('resize',measureHeader);
-</script>
-</body>
-</html>
+app.listen(PORT, () => console.log(`Server on port ${PORT}`));
