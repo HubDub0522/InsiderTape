@@ -891,8 +891,8 @@ async function loadStockView(ticker, opts={}) {
           <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
           <button class="tf-btn" onclick="setRange(30,this)">1M</button>
           <button class="tf-btn" onclick="setRange(90,this)">3M</button>
-          <button class="tf-btn active" onclick="setRange(180,this)">6M</button>
-          <button class="tf-btn" onclick="setRange(365,this)">1Y</button>
+          <button class="tf-btn" onclick="setRange(180,this)">6M</button>
+          <button class="tf-btn active" onclick="setRange(365,this)">1Y</button>
           <button class="tf-btn" onclick="setRange(730,this)">2Y</button>
           <button class="tf-btn" onclick="setRange(9999,this)">ALL</button>
           <div style="margin-left:auto" class="chart-legend">
@@ -974,7 +974,7 @@ function buildChart(priceData, trades) {
   const volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',scaleMargins:{top:0.82,bottom:0}});
   volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
   state.chart=chart; state.candleSeries=candles;
-  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-180);
+  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
   const cutStr=cutoff.toISOString().split('T')[0];
   const visible=priceData.filter(d=>d.time>=cutStr);
   if (visible.length>0) chart.timeScale().setVisibleRange({from:visible[0].time,to:priceData[priceData.length-1].time});
@@ -1746,7 +1746,7 @@ async function computeAndRenderScore(insiderName, buyTrades) {
     :{label:'IGNORE',color:'var(--sell)',bg:'rgba(255,68,102,.08)',border:'rgba(255,68,102,.25)'};
 
   // ── TIMING QUALITY: analyse where in the price range each buy landed ──
-  const timing = computeTimingQuality(scored, priceCache);
+  const timing = computeTimingQuality(scored, priceCache, buyTrades);
 
   const statsForAI={name:insiderName,tradeCount:completed.length,pendingCount:pending.length,accuracyScore,tier,winRate,
     avgRet30:avgRet30!==null?+avgRet30.toFixed(1):null,avgRet60:avgRet60!==null?+avgRet60.toFixed(1):null,
@@ -1781,7 +1781,10 @@ WIN RATE: ${statsForAI.winRate}%
 AVG 30D RETURN: ${statsForAI.avgRet30!==null?statsForAI.avgRet30+'%':'N/A'}
 AVG 60D RETURN: ${statsForAI.avgRet60!==null?statsForAI.avgRet60+'%':'N/A'}
 AVG 90D RETURN: ${statsForAI.avgRet90}%
-TIMING QUALITY: ${timing ? `buys near lows ${timing.nearLowPct}%, near highs ${timing.nearHighPct}%, in trend ${timing.inTrendPct}%, in consolidation ${timing.inConsolidationPct}%` : 'N/A'}
+TIMING ALPHA SCORE: ${timing ? timing.timingAlpha + '/100 — ' + timing.verdict : 'N/A'}
+BUYS NEAR 12M LOW: ${timing ? timing.nearLowPct + '%' : 'N/A'}
+SELLS NEAR 12M HIGH: ${timing ? (timing.nearHighSellPct !== null ? timing.nearHighSellPct + '%' : 'no sells') : 'N/A'}
+FWD RETURNS: ${timing ? `+30d avg ${timing.avgRet30 !== null ? timing.avgRet30+'%' : '—'} · +90d avg ${timing.avgRet90 !== null ? timing.avgRet90+'%' : '—'} · +180d avg ${timing.avgRet180 !== null ? timing.avgRet180+'%' : '—'}` : 'N/A'}
 TIMING EDGE VS MARKET: ${statsForAI.timingEdge>0?'+':''}${statsForAI.timingEdge}%
 BEST TRADE: +${statsForAI.bestTrade}%   WORST: ${statsForAI.worstTrade}%
 CONSISTENCY: ${statsForAI.consistency}/100
@@ -1804,93 +1807,181 @@ Respond ONLY with valid JSON (no markdown, no backticks):
 }
 
 // ── TIMING QUALITY ENGINE ─────────────────────────────────────────
-function computeTimingQuality(scored, priceCache) {
-  // For each buy, look at the 60-day price window around the trade and classify
-  // where in that range the buy price sits
-  const results = [];
+function computeTimingQuality(scored, priceCache, allTrades) {
+  // ── Per-buy analysis using 12-month window ────────────────────────
+  const buyResults = [];
   scored.forEach(s => {
     const bars = priceCache[s.ticker] || [];
-    if (!bars.length) return;
-    const buyDate = s.tradeDate;
+    if (!bars.length || !s.buyPrice) return;
+
+    const buyDate  = s.tradeDate;
     const buyPrice = s.buyPrice;
-    if (!buyPrice) return;
 
-    // Get prices ±30 days around the buy
-    const winStart = new Date(buyDate+'T12:00:00Z'); winStart.setUTCDate(winStart.getUTCDate()-30);
-    const winEnd   = new Date(buyDate+'T12:00:00Z'); winEnd.setUTCDate(winEnd.getUTCDate()+30);
-    const winBars  = bars.filter(b => {
-      const t = new Date(b.time+'T12:00:00Z');
-      return t >= winStart && t <= winEnd;
-    });
-    if (winBars.length < 5) return;
+    // 12-month window ending on trade date
+    const yr1Start = new Date(buyDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
+    const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0,10) && b.time <= buyDate);
+    if (yr1Bars.length < 20) return; // need enough history
 
-    const hi  = Math.max(...winBars.map(b => b.high));
-    const lo  = Math.min(...winBars.map(b => b.low));
-    const rng = hi - lo;
-    if (rng < 0.01) return;
+    const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
+    const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
+    const yr1Rng = yr1Hi - yr1Lo;
+    if (yr1Rng < 0.01) return;
 
-    const posInRange = (buyPrice - lo) / rng; // 0 = at low, 1 = at high
+    // Is buy within 20% of 12-month low?
+    const pctAboveLow  = (buyPrice - yr1Lo) / yr1Lo * 100;
+    const nearYrLow    = pctAboveLow <= 20;
+    // Position in full 12-month range (0=low, 1=high)
+    const posInYrRange = (buyPrice - yr1Lo) / yr1Rng;
 
-    // Classify
-    const nearLow          = posInRange <= 0.25;
-    const nearHigh         = posInRange >= 0.75;
+    // Forward returns at 30 / 90 / 180 days
+    const fwdReturn = days => {
+      const fwdDate = new Date(buyDate+'T12:00:00Z'); fwdDate.setUTCDate(fwdDate.getUTCDate()+days);
+      const fwdStr  = fwdDate.toISOString().slice(0,10);
+      const fwdBar  = bars.find(b => b.time >= fwdStr);
+      return fwdBar ? +((fwdBar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+    };
+    const ret30  = fwdReturn(30);
+    const ret90  = fwdReturn(90);
+    const ret180 = fwdReturn(180);
 
-    // Trend: look at slope of 20-bar SMA before buy
-    const barsBeforeBuy = bars.filter(b => b.time <= buyDate).slice(-25);
-    let inTrend = false, inConsolidation = false;
-    if (barsBeforeBuy.length >= 10) {
-      const closes = barsBeforeBuy.map(b => b.close);
-      const smaEarly = closes.slice(0, 5).reduce((a,b)=>a+b,0) / 5;
-      const smaLate  = closes.slice(-5).reduce((a,b)=>a+b,0) / 5;
-      const slopeStr = Math.abs(smaLate - smaEarly) / smaEarly;
-      inTrend         = slopeStr > 0.04;
-      inConsolidation = slopeStr < 0.015;
+    // Trend context: slope of 20-bar SMA prior to buy
+    const preBars  = yr1Bars.slice(-25);
+    let inUptrend = false, inDowntrend = false;
+    if (preBars.length >= 10) {
+      const closes = preBars.map(b => b.close);
+      const early  = closes.slice(0,5).reduce((a,b)=>a+b,0)/5;
+      const late   = closes.slice(-5).reduce((a,b)=>a+b,0)/5;
+      const slope  = (late - early) / early;
+      inUptrend    = slope >  0.04;
+      inDowntrend  = slope < -0.04;
     }
 
-    results.push({ nearLow, nearHigh, inTrend, inConsolidation, posInRange, ret90: s.ret90 });
+    buyResults.push({ ticker: s.ticker, buyDate, buyPrice,
+      nearYrLow, posInYrRange, pctAboveLow,
+      inUptrend, inDowntrend,
+      ret30, ret90, ret180 });
   });
 
-  if (!results.length) return null;
-  const n = results.length;
-  const pct = x => Math.round((results.filter(r => r[x]).length / n) * 100);
-  const avgRet = subset => {
-    const s = results.filter(r => r[subset] && r.ret90 !== null);
-    return s.length ? +(s.reduce((a,b)=>a+b.ret90,0)/s.length).toFixed(1) : null;
-  };
+  // ── Per-sell analysis using 12-month window ───────────────────────
+  // allTrades is the raw trade list — look for sells matching this insider
+  const sellResults = [];
+  if (allTrades) {
+    const sells = allTrades.filter(t => t.type === 'S' || t.type === 'S-');
+    sells.forEach(t => {
+      if (!t.price || !t.ticker) return;
+      const bars = priceCache[t.ticker] || [];
+      if (!bars.length) return;
+      const sellDate  = (t.trade || t.filing || '').slice(0,10); if (!sellDate) return;
+      const sellPrice = t.price;
 
-  const nearLowPct          = pct('nearLow');
-  const nearHighPct         = pct('nearHigh');
-  const inTrendPct          = pct('inTrend');
-  const inConsolidationPct  = pct('inConsolidation');
-  const nearLowRet          = avgRet('nearLow');
-  const nearHighRet         = avgRet('nearHigh');
-  const avgPosInRange       = +(results.reduce((a,b)=>a+b.posInRange,0)/n*100).toFixed(0);
+      const yr1Start = new Date(sellDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
+      const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0,10) && b.time <= sellDate);
+      if (yr1Bars.length < 20) return;
 
-  // Overall timing verdict
-  let verdict, verdictColor, verdictDetail;
-  if (nearLowPct >= 55 && (nearLowRet === null || nearLowRet > 0)) {
-    verdict = `Buys near lows (${nearLowPct}% of trades)`;
-    verdictColor = 'var(--buy)';
-    verdictDetail = nearLowRet !== null ? `Avg +${nearLowRet}% 90d return on low-range buys — significant edge` : 'Consistently accumulates at cycle lows';
-  } else if (nearHighPct >= 55) {
-    verdict = `Tends to buy near highs (${nearHighPct}% of trades)`;
-    verdictColor = 'var(--sell)';
-    verdictDetail = nearHighRet !== null ? `Avg ${nearHighRet>0?'+':''}${nearHighRet}% 90d return buying near highs` : 'Buys into strength — momentum-driven';
-  } else if (inTrendPct >= 60) {
-    verdict = `Buys during uptrends (${inTrendPct}% of trades)`;
-    verdictColor = 'var(--accent)';
-    verdictDetail = 'Trend-following style — enters after momentum confirms';
-  } else if (inConsolidationPct >= 50) {
-    verdict = `Buys during consolidation (${inConsolidationPct}% of trades)`;
-    verdictColor = 'var(--option)';
-    verdictDetail = 'Accumulates during quiet periods, ahead of moves';
-  } else {
-    verdict = `Mixed timing pattern`;
-    verdictColor = 'var(--muted)';
-    verdictDetail = `Avg position in 60-day range: ${avgPosInRange}th percentile`;
+      const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
+      const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
+      const yr1Rng = yr1Hi - yr1Lo;
+      if (yr1Rng < 0.01) return;
+
+      // Is sell within 20% of 12-month high?
+      const pctBelowHigh = (yr1Hi - sellPrice) / yr1Hi * 100;
+      const nearYrHigh   = pctBelowHigh <= 20;
+      const posInYrRange = (sellPrice - yr1Lo) / yr1Rng;
+
+      sellResults.push({ ticker: t.ticker, sellDate, sellPrice, nearYrHigh, posInYrRange, pctBelowHigh });
+    });
   }
 
-  return { nearLowPct, nearHighPct, inTrendPct, inConsolidationPct, verdict, verdictColor, verdictDetail, avgPosInRange, n };
+  if (!buyResults.length) return null;
+
+  // ── Aggregate metrics ─────────────────────────────────────────────
+  const n = buyResults.length;
+  const nSell = sellResults.length;
+
+  const nearLowPct  = Math.round(buyResults.filter(r => r.nearYrLow).length / n * 100);
+  const nearHighSellPct = nSell > 0 ? Math.round(sellResults.filter(r => r.nearYrHigh).length / nSell * 100) : null;
+
+  // Forward return distributions
+  const validRet = (arr, key) => arr.filter(r => r[key] !== null).map(r => r[key]);
+  const mean = arr => arr.length ? +(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1) : null;
+  const win  = arr => arr.length ? Math.round(arr.filter(v=>v>0).length/arr.length*100) : null;
+
+  const rets30  = validRet(buyResults, 'ret30');
+  const rets90  = validRet(buyResults, 'ret90');
+  const rets180 = validRet(buyResults, 'ret180');
+
+  const avgRet30  = mean(rets30);
+  const avgRet90  = mean(rets90);
+  const avgRet180 = mean(rets180);
+  const win30  = win(rets30);
+  const win90  = win(rets90);
+  const win180 = win(rets180);
+
+  // Avg position in 12-month range (0=low, 1=high) — lower = better bottom-picker
+  const avgPos = +(buyResults.reduce((a,b)=>a+b.posInYrRange,0)/n).toFixed(2);
+
+  // ── Timing Alpha Score (0–100) ────────────────────────────────────
+  // Four components, each 0–25:
+  // 1. Buy-near-low rate: 50% base → 25pts, scales linearly, 0% → 0pts
+  const compLow   = Math.round(Math.min(25, (nearLowPct / 100) * 50));
+  // 2. Avg position in range: lower = better. 0.3 or below → 25pts, 0.7+ → 0pts
+  const compPos   = Math.round(Math.min(25, Math.max(0, (0.7 - avgPos) / 0.4 * 25)));
+  // 3. Forward return quality: avg90 at +10% → 25pts, 0% → 12pts, negative → 0
+  const compFwd   = avgRet90 !== null
+    ? Math.round(Math.min(25, Math.max(0, (avgRet90 / 10) * 25)))
+    : 12; // no data: neutral
+  // 4. Sell discipline (only if sells available): nearHighSellPct
+  const compSell  = nearHighSellPct !== null
+    ? Math.round(Math.min(25, (nearHighSellPct / 100) * 40))
+    : 12; // no sells: neutral
+
+  const timingAlpha = Math.min(100, Math.max(0, compLow + compPos + compFwd + compSell));
+
+  // ── Verdict ───────────────────────────────────────────────────────
+  let verdict, verdictColor, verdictDetail;
+  if (timingAlpha >= 80) {
+    if (nearLowPct >= 50) {
+      verdict = 'This insider buys near bottoms';
+      verdictColor = 'var(--buy)';
+      verdictDetail = `${nearLowPct}% of buys fall within 20% of the 12-month low — elite accumulation timing`;
+    } else {
+      verdict = 'Elite timing — strong forward returns';
+      verdictColor = 'var(--buy)';
+      verdictDetail = avgRet90 !== null ? `Avg +${avgRet90}% at 90 days — highly predictive buying` : 'Consistent early entry before major moves';
+    }
+  } else if (timingAlpha >= 60) {
+    verdict = 'Above-average timing discipline';
+    verdictColor = 'var(--accent)';
+    verdictDetail = nearLowPct >= 35 ? `${nearLowPct}% of buys near 12-month lows — discernible bottom-picking tendency` : 'Buys generally in the lower half of annual range';
+  } else if (timingAlpha >= 40) {
+    verdict = 'Moderate timing — mixed signals';
+    verdictColor = 'var(--option)';
+    verdictDetail = `Avg entry at ${Math.round(avgPos*100)}th percentile of 12-month range`;
+  } else {
+    verdict = 'Poor timing — tends to buy high';
+    verdictColor = 'var(--sell)';
+    verdictDetail = `${100-nearLowPct}% of buys are in the upper portion of the annual range`;
+  }
+
+  // Legacy fields kept for AI prompt compatibility
+  const nearHighPct       = Math.round(buyResults.filter(r => r.posInYrRange >= 0.75).length / n * 100);
+  const inTrendPct        = Math.round(buyResults.filter(r => r.inUptrend).length / n * 100);
+  const inConsolidationPct = Math.round(buyResults.filter(r => !r.inUptrend && !r.inDowntrend).length / n * 100);
+
+  return {
+    // New fields
+    timingAlpha,
+    nearLowPct, nearHighSellPct,
+    avgRet30, avgRet90, avgRet180,
+    win30, win90, win180,
+    avgPos,
+    compLow, compPos, compFwd, compSell,
+    // Legacy
+    nearHighPct, inTrendPct, inConsolidationPct,
+    verdict, verdictColor, verdictDetail,
+    avgPosInRange: Math.round(avgPos*100),
+    n, nSell,
+  };
 }
 
 function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, timing, ai) {
@@ -1907,40 +1998,113 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
 
   // Timing Quality Tracker block
   const timingBlock = timing ? (() => {
-    const rows = [
-      { label: 'Near Lows',      pct: timing.nearLowPct,         icon: '📉', color: timing.nearLowPct >= 55 ? 'var(--buy)' : 'var(--muted)',   desc: 'buys in bottom 25% of 60d range' },
-      { label: 'Near Highs',     pct: timing.nearHighPct,        icon: '📈', color: timing.nearHighPct >= 55 ? 'var(--sell)' : 'var(--muted)',  desc: 'buys in top 25% of 60d range' },
-      { label: 'In Uptrend',     pct: timing.inTrendPct,         icon: '🚀', color: timing.inTrendPct >= 60 ? 'var(--accent)' : 'var(--muted)', desc: 'price trending up at buy date' },
-      { label: 'Consolidation',  pct: timing.inConsolidationPct, icon: '⏸',  color: timing.inConsolidationPct >= 50 ? 'var(--option)' : 'var(--muted)', desc: 'low-volatility range at buy date' },
+    const ta = timing.timingAlpha;
+    const taColor  = ta >= 80 ? 'var(--buy)' : ta >= 60 ? 'var(--accent)' : ta >= 40 ? 'var(--option)' : 'var(--sell)';
+    const taBg     = ta >= 80 ? 'rgba(0,255,136,0.08)'  : ta >= 60 ? 'rgba(0,212,255,0.07)'  : ta >= 40 ? 'rgba(255,170,0,0.06)'  : 'rgba(255,68,102,0.06)';
+    const taBorder = ta >= 80 ? 'rgba(0,255,136,0.3)'   : ta >= 60 ? 'rgba(0,212,255,0.25)'  : ta >= 40 ? 'rgba(255,170,0,0.2)'   : 'rgba(255,68,102,0.2)';
+
+    const rs = v => v === null ? '—' : (v >= 0 ? '+' : '') + v + '%';
+    const rc = v => v === null ? 'var(--muted)' : v >= 0 ? 'var(--buy)' : 'var(--sell)';
+
+    // Metric rows
+    const metrics = [
+      {
+        label: 'Buys Near 12M Low',
+        value: timing.nearLowPct + '%',
+        desc: '% of buys within 20% of 12-month low',
+        color: timing.nearLowPct >= 50 ? 'var(--buy)' : timing.nearLowPct >= 30 ? 'var(--option)' : 'var(--muted)',
+        pct: timing.nearLowPct,
+        sub: timing.nearLowPct >= 50 ? 'Buys at bottoms' : timing.nearLowPct >= 30 ? 'Some low-range timing' : 'No clear bottom-picking',
+      },
+      {
+        label: 'Sells Near 12M High',
+        value: timing.nearHighSellPct !== null ? timing.nearHighSellPct + '%' : 'No sells',
+        desc: '% of sells within 20% of 12-month high',
+        color: timing.nearHighSellPct >= 50 ? 'var(--buy)' : timing.nearHighSellPct >= 30 ? 'var(--option)' : 'var(--muted)',
+        pct: timing.nearHighSellPct ?? 0,
+        sub: timing.nearHighSellPct === null ? 'No sell data' : timing.nearHighSellPct >= 50 ? 'Sells at tops' : 'Mixed sell timing',
+      },
     ];
-    // The "huge edge" verdict badge
-    const isHugeEdge = timing.nearLowPct >= 65 || (timing.nearLowPct >= 50 && timingEdge > 5);
-    const verdictBadge = isHugeEdge
-      ? `<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(0,255,136,0.12);border:1px solid rgba(0,255,136,0.35);border-radius:20px;padding:5px 14px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:var(--buy);letter-spacing:1px;margin-top:10px">⚡ HUGE EDGE — ${timing.verdict}</div>`
-      : `<div style="margin-top:10px;font-size:11px;color:${timing.verdictColor};font-style:italic">${timing.verdict}</div>`;
+
+    // Return distribution table
+    const distRows = [
+      { label: '+30D', avg: timing.avgRet30, win: timing.win30 },
+      { label: '+90D', avg: timing.avgRet90, win: timing.win90 },
+      { label: '+180D', avg: timing.avgRet180, win: timing.win180 },
+    ];
+
+    // Score components breakdown
+    const compRows = [
+      { label: 'Buy-low rate',    score: timing.compLow,  max: 25 },
+      { label: 'Entry quality',   score: timing.compPos,  max: 25 },
+      { label: 'Fwd returns',     score: timing.compFwd,  max: 25 },
+      { label: 'Sell discipline', score: timing.compSell, max: 25 },
+    ];
+
     return `
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:var(--text)">🎯 TIMING QUALITY TRACKER</div>
-        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">${timing.n} trades analysed</div>
+
+      <!-- Header row: Score badge + verdict -->
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="background:${taBg};border:1px solid ${taBorder};border-radius:8px;padding:10px 16px;text-align:center;flex-shrink:0">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;line-height:1;color:${taColor}">${ta}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.5px;color:${taColor};margin-top:2px">TIMING ALPHA</div>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--text);margin-bottom:4px">🎯 TIMING ALPHA SCORE</div>
+          <div style="font-size:12px;color:${timing.verdictColor};font-weight:600;margin-bottom:3px">${timing.verdict}</div>
+          <div style="font-size:11px;color:var(--muted);line-height:1.5">${timing.verdictDetail}</div>
+        </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
-        ${rows.map(r => {
-          const barW = Math.min(100, r.pct);
-          return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:9px 12px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-              <span style="font-size:11px;color:var(--text)">${r.icon} ${r.label}</span>
-              <span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${r.color}">${r.pct}%</span>
+
+      <!-- Score bar -->
+      <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:14px">
+        <div style="height:100%;width:${ta}%;background:${taColor};border-radius:2px;transition:width .6s ease"></div>
+      </div>
+
+      <!-- Two metrics: near-low buys + near-high sells -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px" class="timing-quality-grid">
+        ${metrics.map(m => `
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:9px 12px">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${m.desc}</div>
+          <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:5px">
+            <span style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:${m.color}">${m.value}</span>
+            <span style="font-size:10px;color:var(--muted)">${m.label}</span>
+          </div>
+          <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:4px">
+            <div style="height:100%;width:${Math.min(100, m.pct)}%;background:${m.color};border-radius:2px;transition:width .5s ease"></div>
+          </div>
+          <div style="font-size:9px;color:${m.color}">${m.sub}</div>
+        </div>`).join('')}
+      </div>
+
+      <!-- Forward return distribution -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:12px">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.2px;color:var(--muted);margin-bottom:8px">FORWARD RETURN DISTRIBUTION · AFTER BUY DATE</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          ${distRows.map(d => `
+          <div style="text-align:center">
+            <div style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:${rc(d.avg)}">${rs(d.avg)}</div>
+            <div style="font-size:9px;color:var(--muted);margin:2px 0">${d.label} avg</div>
+            <div style="font-size:9px;color:${d.win >= 55 ? 'var(--buy)' : d.win >= 45 ? 'var(--option)' : 'var(--muted)'}">
+              ${d.win !== null ? d.win + '% win rate' : '—'}
             </div>
-            <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
-              <div style="height:100%;width:${barW}%;background:${r.color};border-radius:2px;transition:width .4s ease"></div>
-            </div>
-            <div style="font-size:9px;color:var(--muted);margin-top:4px">${r.desc}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Score components -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+        ${compRows.map(c => {
+          const cPct = Math.round(c.score / c.max * 100);
+          const cColor = cPct >= 70 ? 'var(--buy)' : cPct >= 40 ? 'var(--option)' : 'var(--muted)';
+          return `<div style="text-align:center;background:var(--bg2);border:1px solid var(--border);border-radius:5px;padding:6px 4px">
+            <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${cColor}">${c.score}<span style="font-size:8px;color:var(--muted)">/${c.max}</span></div>
+            <div style="font-size:8px;color:var(--muted);margin-top:2px;line-height:1.3">${c.label}</div>
           </div>`;
         }).join('')}
       </div>
-      <div style="font-size:11px;color:${timing.verdictColor};margin-top:6px">${timing.verdictDetail}</div>
-      ${verdictBadge}
+
     </div>`;
   })() : '';
 
