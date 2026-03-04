@@ -1823,6 +1823,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput'
 let _analysisData = null;     // 30-day trades cache
 let _analysisDataLong = null; // 365-day trades cache
 let _firstBuyCache = null;    // firstbuys API results cache
+let _rankerCache = null;      // opportunity ranker results cache
 
 async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
@@ -1838,12 +1839,37 @@ async function loadAnalysisPage(subpage) {
   }
 
   // Kick off long-history fetch in background (needed for First Buy scanner)
-  // 365 days is enough to detect meaningful gaps; the per-insider history already
-  // spans years from the quarterly sync, so the signal detection still works.
   if (!_analysisDataLong) {
     apiFetch('/api/screener?days=365&limit=2000').then(raw => {
       _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
     }).catch(() => { _analysisDataLong = _analysisData; });
+  }
+
+  // Kick off ranker data in background — refreshes tile once ready
+  if (!_rankerCache) {
+    apiFetch('/api/ranker?days=30').then(async rows => {
+      // Enrich with price data (52-week low proximity) for top 40 by buy value
+      const top40 = rows.slice(0, 40);
+      const priceResults = await Promise.allSettled(
+        top40.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)))
+      );
+      top40.forEach((r, i) => {
+        const bars = priceResults[i].status === 'fulfilled' ? priceResults[i].value : [];
+        if (Array.isArray(bars) && bars.length >= 50) {
+          const year = bars.slice(-252);
+          const hi52 = Math.max(...year.map(b => b.high || b.close));
+          const lo52 = Math.min(...year.map(b => b.low  || b.close));
+          const last  = bars[bars.length - 1]?.close || 0;
+          r._hi52 = hi52; r._lo52 = lo52; r._last = last;
+          r._pctFromLow  = lo52 > 0 ? ((last - lo52)  / lo52  * 100) : null;
+          r._pctFromHigh = hi52 > 0 ? ((hi52 - last)  / hi52  * 100) : null;
+        }
+      });
+      _rankerCache = scoreOpportunityRanker(rows);
+      // Refresh dashboard tiles
+      const body = document.getElementById('analysisViewBody');
+      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+    }).catch(() => { _rankerCache = []; });
   }
 
   if (subpage) {
@@ -1873,7 +1899,26 @@ function renderAnalysisDashboard() {
     }).catch(() => { _firstBuyCache = []; });
   }
 
+  const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
+
   const tools = [
+    {
+      id: 'ranker',
+      icon: '🏆',
+      name: 'Insider Opportunity Ranker',
+      desc: 'Combines every signal into one score per ticker: cluster buying, conviction, insider accuracy, 52-week low proximity, and no selling. The single most actionable view.',
+      count: _rankerCache ? _rankerCache.length : '…',
+      countLabel: 'tickers ranked',
+      top3: rankerTop3.map(r => ({
+        ticker: r.ticker,
+        label: `Score ${r.score}`,
+        sub: r.topFactors[0] || '',
+        color: r.score >= 80 ? 'var(--buy)' : r.score >= 60 ? 'var(--accent)' : 'var(--option)',
+      })),
+      accentColor: '#ffd700',
+      accentBg: 'rgba(255,215,0,0.06)',
+      accentBorder: 'rgba(255,215,0,0.25)',
+    },
     {
       id: 'conviction',
       icon: '⚡',
@@ -2001,7 +2046,11 @@ function renderAnalysisSubpage(id) {
 
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
-  if (id === 'conviction') {
+  if (id === 'ranker') {
+    renderRankerSubpage();
+  }
+
+  else if (id === 'conviction') {
     const convHtml = renderConvictionCards(trades);
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
       ${backBtn}
@@ -2035,6 +2084,224 @@ function renderAnalysisSubpage(id) {
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
   }
+}
+
+// ── INSIDER OPPORTUNITY RANKER ────────────────────────────────────
+
+async function renderRankerSubpage() {
+  const body = document.getElementById('analysisViewBody');
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🏆 INSIDER OPPORTUNITY RANKER</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Every buy signal combined into one score · Last 30D</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:700px">
+      Combines <span style="color:var(--text)">cluster buying</span>, <span style="color:var(--text)">conviction score</span>,
+      <span style="color:var(--text)">52-week low proximity</span>, <span style="color:var(--text)">no insider selling</span>,
+      <span style="color:var(--text)">executive involvement</span>, and <span style="color:var(--text)">stake size</span>
+      into a single 0–100 Opportunity Score. Higher = more insiders are putting real money to work, with less noise.
+    </div>
+    <div id="rankerResults"><div class="loading-state"><div class="spinner"></div><span>Scoring all tickers…</span></div></div>
+  </div>`;
+
+  // Use cache if already computed
+  if (_rankerCache) {
+    renderRankerResults(_rankerCache);
+    return;
+  }
+
+  try {
+    const rows = await apiFetch('/api/ranker?days=30');
+    // Enrich top 50 with price data
+    const top50 = rows.slice(0, 50);
+    const priceResults = await Promise.allSettled(
+      top50.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)))
+    );
+    top50.forEach((r, i) => {
+      const bars = priceResults[i].status === 'fulfilled' ? priceResults[i].value : [];
+      if (Array.isArray(bars) && bars.length >= 50) {
+        const year = bars.slice(-252);
+        const hi52 = Math.max(...year.map(b => b.high || b.close));
+        const lo52 = Math.min(...year.map(b => b.low  || b.close));
+        const last  = bars[bars.length - 1]?.close || 0;
+        r._hi52 = hi52; r._lo52 = lo52; r._last = last;
+        r._pctFromLow  = lo52 > 0 ? ((last - lo52)  / lo52  * 100) : null;
+        r._pctFromHigh = hi52 > 0 ? ((hi52 - last)  / hi52  * 100) : null;
+      }
+    });
+    _rankerCache = scoreOpportunityRanker(rows);
+    renderRankerResults(_rankerCache);
+  } catch(e) {
+    const el = document.getElementById('rankerResults');
+    if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px">${e.message}</div>`;
+  }
+}
+
+function scoreOpportunityRanker(rows) {
+  return rows.map(r => {
+    let score = 0;
+    const factors = [];
+
+    // ── 1. Cluster / buyer count (0–25 pts) ──────────────────────
+    if (r.buyer_count >= 5)      { score += 25; factors.push(`${r.buyer_count} insiders buying`); }
+    else if (r.buyer_count >= 3) { score += 18; factors.push(`${r.buyer_count} insiders buying`); }
+    else if (r.buyer_count >= 2) { score += 10; factors.push(`2 insiders buying`); }
+    else                         { score += 3; }
+
+    // ── 2. Executive involvement (0–15 pts) ──────────────────────
+    if (r.has_exec_buyer) { score += 15; factors.push(`C-suite / executive buyer`); }
+
+    // ── 3. Stake size increase (0–15 pts) ────────────────────────
+    if (r.max_stake_pct >= 50)     { score += 15; factors.push(`Stake increased ${r.max_stake_pct}%`); }
+    else if (r.max_stake_pct >= 20){ score += 10; factors.push(`Stake increased ${r.max_stake_pct}%`); }
+    else if (r.max_stake_pct >= 5) { score += 5;  factors.push(`Position added to`); }
+
+    // ── 4. Capital committed (0–15 pts) ──────────────────────────
+    if (r.total_buy_val >= 10000000)     { score += 15; factors.push(`${fmt(r.total_buy_val)} total invested`); }
+    else if (r.total_buy_val >= 2000000) { score += 10; factors.push(`${fmt(r.total_buy_val)} total invested`); }
+    else if (r.total_buy_val >= 500000)  { score += 5;  factors.push(`${fmt(r.total_buy_val)} invested`); }
+
+    // ── 5. No recent selling (0–15 pts) / penalty if selling ─────
+    if (r.sell_count === 0) {
+      score += 15; factors.push(`No insider selling — clean signal`);
+    } else {
+      const sellRatio = r.total_sell_val / Math.max(r.total_buy_val, 1);
+      if (sellRatio >= 2)      { score -= 15; factors.push(`⚠ Selling outweighs buying ${sellRatio.toFixed(1)}x`); }
+      else if (sellRatio >= 1) { score -= 8;  factors.push(`⚠ Concurrent insider selling`); }
+      else                     { score -= 3; }
+    }
+
+    // ── 6. 52-week low proximity (0–15 pts) — requires price data ─
+    if (r._pctFromLow != null) {
+      if (r._pctFromLow <= 5)       { score += 15; factors.push(`Near 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
+      else if (r._pctFromLow <= 15) { score += 10; factors.push(`Close to 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
+      else if (r._pctFromLow <= 30) { score += 5;  factors.push(`Moderate pullback from low`); }
+      else if (r._pctFromLow >= 80) { score -= 5;  factors.push(`Near 52-week high — buying into strength`); }
+    }
+
+    // ── 7. Recency bonus (0–5 pts) ───────────────────────────────
+    if (r.days_since_buy <= 3)      { score += 5; factors.push(`Bought within last 3 days`); }
+    else if (r.days_since_buy <= 7) { score += 3; factors.push(`Bought within last week`); }
+
+    score = Math.min(100, Math.max(1, Math.round(score)));
+
+    const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
+                  score >= 55 ? 'B'  : score >= 45 ? 'C+': score >= 35 ? 'C' : 'D';
+    const scoreColor  = score >= 75 ? 'var(--buy)'    : score >= 55 ? 'var(--accent)' : score >= 40 ? 'var(--option)' : 'var(--muted)';
+    const scoreBg     = score >= 75 ? 'rgba(0,255,136,0.08)'  : score >= 55 ? 'rgba(0,212,255,0.07)'  : 'rgba(255,170,0,0.06)';
+    const scoreBorder = score >= 75 ? 'rgba(0,255,136,0.3)'   : score >= 55 ? 'rgba(0,212,255,0.25)'  : 'rgba(255,170,0,0.2)';
+
+    return { ...r, score, factors, grade, scoreColor, scoreBg, scoreBorder,
+      topFactors: factors.filter(f => !f.startsWith('⚠')).slice(0, 3) };
+  })
+  .filter(r => r.score >= 30)
+  .sort((a, b) => b.score - a.score);
+}
+
+function renderRankerResults(ranked) {
+  const el = document.getElementById('rankerResults');
+  if (!el) return;
+
+  if (!ranked.length) {
+    el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No tickers scored above threshold in current window.</div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:14px">${ranked.length} TICKERS RANKED · SORTED BY OPPORTUNITY SCORE</div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${ranked.map((r, idx) => renderRankerCard(r, idx)).join('')}
+    </div>`;
+}
+
+function renderRankerCard(r, idx) {
+  const rank = idx + 1;
+  const rankColor = rank === 1 ? '#ffd700' : rank === 2 ? '#c0c0c0' : rank === 3 ? '#cd7f32' : 'var(--muted)';
+  const barW = r.score;
+
+  const priceBlock = r._last ? `
+    <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
+      <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">PRICE</div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--text)">$${r._last.toFixed(2)}</div>
+    </div>
+    <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
+      <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">FROM 52W LOW</div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${r._pctFromLow <= 15 ? 'var(--buy)' : 'var(--text)'}">+${r._pctFromLow?.toFixed(1) ?? '—'}%</div>
+    </div>` : '';
+
+  return `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+       onmouseover="this.style.borderColor='${r.scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'"
+       onclick="openTickerFromScreener('${r.ticker}')">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);gap:12px">
+      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
+        <!-- Rank -->
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:${rankColor};min-width:28px;text-align:center;line-height:1">#${rank}</div>
+        <!-- Ticker + company -->
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent)">${r.ticker}</span>
+            <span style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${r.company}</span>
+          </div>
+          <!-- Factor pills -->
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">
+            ${r.buyer_count >= 2 ? `<span style="background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--buy)">${r.buyer_count} BUYERS</span>` : ''}
+            ${r.has_exec_buyer ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--option)">EXEC</span>` : ''}
+            ${r.sell_count === 0 ? `<span style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.15);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--buy)">NO SELLS</span>` : `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--sell)">${r.seller_count} SELLING</span>`}
+            ${r._pctFromLow != null && r._pctFromLow <= 15 ? `<span style="background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--accent)">NEAR LOW</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <!-- Score badge -->
+      <div style="background:${r.scoreBg};border:1px solid ${r.scoreBorder};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:30px;line-height:1;color:${r.scoreColor}">${r.score}</div>
+        <div style="font-size:9px;letter-spacing:1px;font-family:'Space Mono',monospace;color:${r.scoreColor};margin-top:1px">OPP SCORE</div>
+        <div style="font-size:11px;font-family:'Space Mono',monospace;color:${r.scoreColor};font-weight:700">${r.grade}</div>
+      </div>
+    </div>
+
+    <!-- Score bar -->
+    <div style="height:3px;background:var(--border)">
+      <div style="height:100%;width:${barW}%;background:${r.scoreColor};transition:width .6s ease"></div>
+    </div>
+
+    <!-- Stats + factors -->
+    <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto">
+      <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">TOTAL BOUGHT</div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--buy)">${fmt(r.total_buy_val)}</div>
+      </div>
+      <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">BUYERS</div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--text)">${r.buyer_count}</div>
+      </div>
+      <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">MAX STAKE Δ</div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${r.max_stake_pct >= 20 ? 'var(--buy)' : 'var(--text)'}">${r.max_stake_pct > 0 ? '+' + r.max_stake_pct + '%' : '—'}</div>
+      </div>
+      ${priceBlock}
+      <div style="padding:10px 14px;flex:1;min-width:80px">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">LAST BUY</div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:var(--text)">${r.latest_buy_date ? fmtDate(r.latest_buy_date) : '—'}</div>
+      </div>
+    </div>
+
+    <!-- Factors list -->
+    <div style="padding:12px 18px;display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start">
+      ${r.factors.map(f => {
+        const isWarn = f.startsWith('⚠');
+        return `<div style="display:flex;align-items:center;gap:5px;background:${isWarn ? 'rgba(255,68,102,0.06)' : 'rgba(255,255,255,0.03)'};border:1px solid ${isWarn ? 'rgba(255,68,102,0.2)' : 'var(--border)'};border-radius:4px;padding:4px 9px">
+          <span style="font-size:10px;color:${isWarn ? 'var(--sell)' : 'var(--buy)'}">${isWarn ? '⚠' : '✓'}</span>
+          <span style="font-size:11px;color:${isWarn ? 'var(--sell)' : 'var(--text)'}">${f.replace(/^⚠\s*/,'')}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
 }
 
 // ── INSIDER EXIT WARNING SYSTEM ───────────────────────────────────
