@@ -3622,5 +3622,165 @@ function renderCongressView() {
 function measureHeader() { const h=document.querySelector('header'),m=document.querySelector('main'); if(h&&m)m.style.paddingTop=h.offsetHeight+'px'; }
 measureHeader(); window.addEventListener('resize',measureHeader);
 </script>
+
+<!-- ── LEGAL MODALS ──────────────────────────────────────────── -->
+<div id="legalModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);overflow-y:auto" onclick="if(event.target===this)closeLegalModal()">
+  <div style="max-width:760px;margin:40px auto;background:#0d1421;border:1px solid #1e2d3d;border-radius:12px;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e2d3d;background:#080b0f">
+      <div id="legalModalTitle" style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:#e0e8f0"></div>
+      <button onclick="closeLegalModal()" style="background:none;border:none;color:#4a6580;cursor:pointer;font-size:20px;line-height:1;padding:0 4px">✕</button>
+    </div>
+    <div id="legalModalBody" style="padding:28px 28px 36px;font-size:13px;color:#8ba4bc;line-height:1.75;max-height:72vh;overflow-y:auto"></div>
+  </div>
+</div>
+
+<footer style="background:#080b0f;border-top:1px solid #1e2d3d;padding:24px 20px;text-align:center;margin-top:0">
+  <div style="max-width:1200px;margin:0 auto">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
+    <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
+      InsiderTape aggregates publicly available SEC Form 4 and STOCK Act filings for informational purposes only.
+      Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
+      <button onclick="showTerms()" style="background:none;border:none;color:#3a5570;font-size:11px;cursor:pointer;font-family:'Space Mono',monospace;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Terms &amp; Conditions</button>
+      <span style="color:#1e2d3d">·</span>
+      <button onclick="showPrivacy()" style="background:none;border:none;color:#3a5570;font-size:11px;cursor:pointer;font-family:'Space Mono',monospace;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Privacy Policy</button>
+      <span style="color:#1e2d3d">·</span>
+      <span style="font-size:11px;color:#2e4055;font-family:'Space Mono',monospace">DATA: SEC EDGAR · STOCK ACT</span>
+    </div>
+    <div style="font-size:10px;color:#1e3040;font-family:'Space Mono',monospace">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
+  </div>
+</footer>
+
+<script>
+document.getElementById('footerYear').textContent = new Date().getFullYear();
+
+function closeLegalModal() {
+  document.getElementById('legalModal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function openLegalModal(title, html) {
+  document.getElementById('legalModalTitle').textContent = title;
+  document.getElementById('legalModalBody').innerHTML = html;
+  document.getElementById('legalModal').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  document.getElementById('legalModalBody').scrollTop = 0;
+}
+
+function h2(t) { return `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1.5px;color:#c0d4e8;margin:22px 0 8px">${t}</div>`; }
+function p(t)  { return `<p style="margin:0 0 10px">${t}</p>`; }
+function li(t) { return `<li style="margin-bottom:5px">${t}</li>`; }
+
+function showTerms() {
+  openLegalModal('TERMS & CONDITIONS', `
+    <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:16px">LAST UPDATED: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div>
+
+    ${p('Please read these Terms and Conditions ("Terms") carefully before using InsiderTape ("the Platform," "we," "us," or "our"). By accessing or using InsiderTape, you agree to be bound by these Terms. If you do not agree, do not use this Platform.')}
+
+    ${h2('1. NOT FINANCIAL ADVICE')}
+    ${p('<strong style="color:#e0e8f0">InsiderTape is a data aggregation and informational tool only.</strong> Nothing on this Platform constitutes financial advice, investment advice, trading advice, or any other form of advice. No content, data, score, indicator, signal, or analysis displayed on InsiderTape should be construed as a recommendation to buy, sell, or hold any security, cryptocurrency, commodity, or other financial instrument.')}
+    ${p('You acknowledge that all investment decisions you make are solely your own responsibility. InsiderTape and its operators shall not be liable for any losses, damages, or adverse outcomes resulting from decisions made in reliance on information displayed on this Platform.')}
+
+    ${h2('2. NO INVESTMENT SOLICITATION')}
+    ${p('InsiderTape does not solicit investments, broker securities transactions, or act as a registered investment advisor. We are not registered with the U.S. Securities and Exchange Commission (SEC), the Financial Industry Regulatory Authority (FINRA), or any other financial regulatory body in any jurisdiction. Nothing on this Platform constitutes an offer to sell or a solicitation of an offer to buy any securities.')}
+
+    ${h2('3. DATA SOURCES AND ACCURACY')}
+    ${p('Data displayed on InsiderTape is sourced from publicly available government filings including SEC Form 4 filings and STOCK Act disclosures. While we make reasonable efforts to display data accurately, we make <strong style="color:#e0e8f0">no representations or warranties</strong> — express or implied — regarding the completeness, accuracy, reliability, suitability, or timeliness of any data.')}
+    ${p('SEC filings may contain errors, omissions, or delays. Insider transactions may be reported late, amended, or restated. Price data is obtained from third-party providers and may not reflect real-time market conditions. You should independently verify all data before relying on it.')}
+
+    ${h2('4. PAST PERFORMANCE')}
+    ${p('Historical data, scores, return calculations, and pattern analysis shown on InsiderTape are based on past performance. <strong style="color:#e0e8f0">Past performance is not indicative of future results.</strong> Insider buying or selling activity does not guarantee any particular outcome for a security\'s price. All investing involves risk, including the possible loss of principal.')}
+
+    ${h2('5. CONGRESSIONAL TRADING DATA')}
+    ${p('Congressional and government official trading data is sourced from public STOCK Act disclosures. This data reflects required periodic transaction reports (PTRs) filed by covered officials and may be subject to reporting delays of up to 45 days or more as permitted by law. InsiderTape makes no representations as to the completeness or real-time accuracy of such filings.')}
+
+    ${h2('6. LIMITATION OF LIABILITY')}
+    ${p('To the fullest extent permitted by applicable law, InsiderTape, its owners, operators, employees, and affiliates shall not be liable for any direct, indirect, incidental, special, consequential, punitive, or exemplary damages arising from or related to your use of the Platform, including but not limited to: investment losses, lost profits, loss of data, or any other pecuniary or non-pecuniary loss, even if advised of the possibility of such damages.')}
+    ${p('Your sole remedy for dissatisfaction with the Platform is to stop using it.')}
+
+    ${h2('7. INDEMNIFICATION')}
+    ${p('You agree to indemnify, defend, and hold harmless InsiderTape and its operators from any claims, liabilities, damages, losses, costs, or expenses (including reasonable attorneys\' fees) arising out of or related to your use of the Platform, your violation of these Terms, or your violation of any applicable law or the rights of any third party.')}
+
+    ${h2('8. INTELLECTUAL PROPERTY')}
+    ${p('All original content, design elements, scoring methodologies, and software comprising InsiderTape are the property of InsiderTape and are protected by applicable intellectual property laws. Underlying government data (SEC filings, STOCK Act disclosures) is in the public domain. You may not reproduce, distribute, modify, or create derivative works of any proprietary Platform content without express written permission.')}
+
+    ${h2('9. THIRD-PARTY DATA AND LINKS')}
+    ${p('This Platform may display data from or link to third-party sources. InsiderTape is not responsible for the content, accuracy, or practices of any third-party provider. Inclusion of third-party data does not imply endorsement.')}
+
+    ${h2('10. PROHIBITED USES')}
+    ${p('You agree not to use the Platform to: (a) engage in any unlawful activity; (b) scrape, harvest, or systematically collect data at scale; (c) manipulate securities prices or engage in market manipulation; (d) violate any applicable securities laws or regulations; or (e) impersonate any person or entity.')}
+
+    ${h2('11. MODIFICATIONS')}
+    ${p('We reserve the right to modify these Terms at any time. Continued use of the Platform after any modification constitutes your acceptance of the revised Terms. We encourage you to review these Terms periodically.')}
+
+    ${h2('12. GOVERNING LAW')}
+    ${p('These Terms shall be governed by and construed in accordance with the laws of the United States. Any dispute arising under these Terms shall be subject to the exclusive jurisdiction of the competent courts of the United States.')}
+
+    ${h2('13. ENTIRE AGREEMENT')}
+    ${p('These Terms, together with our Privacy Policy, constitute the entire agreement between you and InsiderTape with respect to your use of the Platform and supersede all prior agreements, understandings, and representations.')}
+
+    <div style="margin-top:24px;padding:14px 16px;background:rgba(255,68,102,0.06);border:1px solid rgba(255,68,102,0.2);border-radius:6px;font-size:11px;color:#ff8899">
+      ⚠ <strong>Important Reminder:</strong> InsiderTape displays public filing data for research purposes only. It is not a financial advisor. Always do your own due diligence and consult a licensed financial professional before making investment decisions.
+    </div>
+  `);
+}
+
+function showPrivacy() {
+  openLegalModal('PRIVACY POLICY', `
+    <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:16px">LAST UPDATED: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div>
+
+    ${p('InsiderTape ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains what information we collect, how we use it, and your rights with respect to that information.')}
+
+    ${h2('1. INFORMATION WE COLLECT')}
+    <ul style="margin:0 0 12px;padding-left:20px">
+      ${li('<strong style="color:#e0e8f0">Usage Data:</strong> We may automatically collect non-personally identifiable information about how you interact with the Platform, including pages visited, features used, browser type, operating system, and general geographic region (country/region level). This data is used solely for improving the Platform.')}
+      ${li('<strong style="color:#e0e8f0">Technical Data:</strong> IP addresses, access timestamps, and referrer URLs may be recorded in standard server logs for security and operational purposes.')}
+      ${li('<strong style="color:#e0e8f0">No Account Data:</strong> InsiderTape does not currently require account registration. We do not collect your name, email address, or payment information in connection with basic Platform use unless explicitly provided through a contact form or subscription service.')}
+    </ul>
+
+    ${h2('2. INFORMATION WE DO NOT COLLECT')}
+    ${p('We do not collect, store, or process: Social Security numbers, government ID numbers, biometric data, health or financial account information, or any sensitive personal data categories as defined under applicable privacy law.')}
+
+    ${h2('3. HOW WE USE INFORMATION')}
+    ${p('Any usage data we collect is used to: (a) operate and improve the Platform; (b) diagnose technical issues; (c) understand aggregate usage patterns; and (d) comply with legal obligations. We do not sell, rent, or share your personal information with third parties for their marketing purposes.')}
+
+    ${h2('4. COOKIES AND TRACKING')}
+    ${p('InsiderTape may use minimal functional cookies or browser local storage to preserve your in-session preferences (e.g., selected filters or view state). We do not use third-party advertising cookies, behavioral tracking pixels, or cross-site tracking technologies. You may disable cookies in your browser settings; this may affect Platform functionality.')}
+
+    ${h2('5. PUBLIC DATA DISPLAYED')}
+    ${p('The data displayed on InsiderTape — insider names, trade amounts, congressional disclosures — is sourced from public government filings (SEC EDGAR and STOCK Act databases) and is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
+
+    ${h2('6. DATA SECURITY')}
+    ${p('We implement reasonable technical and organizational measures to protect the Platform and any data it processes. However, no system is completely secure. We cannot guarantee the absolute security of any information.')}
+
+    ${h2('7. THIRD-PARTY SERVICES')}
+    ${p('The Platform may use third-party services for price data, hosting, or analytics. These providers may collect certain technical data subject to their own privacy policies. We select providers that maintain reasonable privacy practices, but we are not responsible for their independent data collection.')}
+
+    ${h2('8. DATA RETENTION')}
+    ${p('Server log data is retained for a limited period for security and operational purposes, after which it is deleted. Public filing data aggregated from government sources is retained as long as the Platform operates.')}
+
+    ${h2('9. YOUR RIGHTS')}
+    ${p('Depending on your jurisdiction, you may have rights to access, correct, or request deletion of personal data we hold about you. To exercise any such rights, contact us through the Platform. Note that we have limited personal data about users since we do not require account registration.')}
+    ${p('If you are in the European Economic Area (EEA), you have additional rights under the General Data Protection Regulation (GDPR). If you are a California resident, you have rights under the California Consumer Privacy Act (CCPA). Please contact us to exercise these rights.')}
+
+    ${h2('10. CHILDREN\'S PRIVACY')}
+    ${p('InsiderTape is not directed at children under the age of 13 (or 16 in the EEA). We do not knowingly collect personal information from children. If you believe a child has provided us with personal information, please contact us and we will delete it.')}
+
+    ${h2('11. CHANGES TO THIS POLICY')}
+    ${p('We may update this Privacy Policy from time to time. We will indicate the date of the most recent update at the top of this page. Continued use of the Platform after any changes constitutes your acceptance of the revised Policy.')}
+
+    ${h2('12. CONTACT')}
+    ${p('If you have questions about this Privacy Policy or our privacy practices, you may contact us through the Platform interface. We will make reasonable efforts to respond in a timely manner.')}
+
+    <div style="margin-top:24px;padding:14px 16px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);border-radius:6px;font-size:11px;color:#4ab8d0">
+      InsiderTape collects minimal data, does not sell your information, and does not use advertising tracking. Our core product is public government filing data — not your personal information.
+    </div>
+  `);
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLegalModal(); });
+</script>
 </body>
 </html>
