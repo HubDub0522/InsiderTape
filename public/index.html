@@ -1276,52 +1276,76 @@ function buildAccumulationMap(mainChart, trades, priceData) {
   // ── Step 6: Accumulation zones canvas panel ───────────────────────
   if (!zoneEl) return;
 
-  // Detect accumulation zones: windows where net buy > threshold, no sells in same window
-  // We work in price-bar coordinates for canvas drawing
-  const zones = [];
-  const minZoneNet = 100000; // $100k minimum net to count as a zone
+  // Build a snap map: any date → nearest price date (within 5 days)
+  const snapMap = {};
+  const priceTimeArr = priceData.map(d => d.time);
+  trades.forEach(t => {
+    const raw = (t.trade || t.filing || '').slice(0, 10);
+    if (!raw || snapMap[raw]) return;
+    if (priceSet.has(raw)) { snapMap[raw] = raw; return; }
+    for (let i = 1; i <= 5; i++) {
+      const fwd = new Date(raw + 'T12:00:00Z'); fwd.setUTCDate(fwd.getUTCDate() + i);
+      const fs = fwd.toISOString().slice(0, 10);
+      if (priceSet.has(fs)) { snapMap[raw] = fs; return; }
+      const bwd = new Date(raw + 'T12:00:00Z'); bwd.setUTCDate(bwd.getUTCDate() - i);
+      const bs = bwd.toISOString().slice(0, 10);
+      if (priceSet.has(bs)) { snapMap[raw] = bs; return; }
+    }
+  });
 
-  // Sliding 10-trading-day window
+  // Build a per-price-date trade index using snapped dates
+  const tradesByPriceDate = {};
+  trades.forEach(t => {
+    const raw = (t.trade || t.filing || '').slice(0, 10);
+    const snapped = snapMap[raw] || raw;
+    if (!tradesByPriceDate[snapped]) tradesByPriceDate[snapped] = [];
+    tradesByPriceDate[snapped].push(t);
+  });
+
+  // Sliding 10-bar window — accumulation = net buy > $50k, sells < 20% of buys
+  const zones = [];
   const WINDOW = 10;
+  const MIN_NET = 50000;
+
   for (let i = 0; i <= priceData.length - WINDOW; i++) {
     const slice = priceData.slice(i, i + WINDOW);
-    const sliceDates = new Set(slice.map(d => d.time));
-    let zoneNet = 0, zoneBuy = 0, zoneSell = 0, zoneInsiders = new Set();
-    trades.forEach(t => {
-      const raw = (t.trade || t.filing || '').slice(0, 10);
-      if (!sliceDates.has(raw)) return;
-      const v = t.value || 0;
-      const tc = tradeClass(t.type);
-      if (tc === 'buy')  { zoneNet += v; zoneBuy += v; zoneInsiders.add(t.insider); }
-      if (tc === 'sell') { zoneNet -= v; zoneSell += v; }
+    let buyVal = 0, sellVal = 0;
+    const zoneInsiders = new Set();
+    slice.forEach(bar => {
+      (tradesByPriceDate[bar.time] || []).forEach(t => {
+        const v = t.value || 0;
+        const tc = tradeClass(t.type);
+        if (tc === 'buy')  { buyVal += v; zoneInsiders.add(t.insider); }
+        if (tc === 'sell') { sellVal += v; }
+      });
     });
-    if (zoneNet >= minZoneNet && zoneSell === 0) {
-      // Pure accumulation with no selling
+    const net = buyVal - sellVal;
+    // Zone: meaningful net buying, sells don't exceed 25% of buys
+    if (net >= MIN_NET && buyVal > 0 && sellVal < buyVal * 0.25) {
       const lo = Math.min(...slice.map(d => d.low  || d.close));
       const hi = Math.max(...slice.map(d => d.high || d.close));
       zones.push({
         startDate: slice[0].time,
         endDate:   slice[slice.length - 1].time,
-        startIdx: i,
-        endIdx: i + WINDOW - 1,
-        lo, hi,
-        net: zoneNet,
+        startIdx: i, endIdx: i + WINDOW - 1,
+        lo, hi, net, buyVal, sellVal,
         buyers: zoneInsiders.size,
       });
     }
   }
 
-  // Merge overlapping zones
+  // Merge overlapping/adjacent zones
   const merged = [];
   zones.sort((a,b) => a.startIdx - b.startIdx).forEach(z => {
-    if (merged.length && z.startIdx <= merged[merged.length-1].endIdx + 2) {
+    if (merged.length && z.startIdx <= merged[merged.length-1].endIdx + 1) {
       const last = merged[merged.length-1];
-      last.endIdx   = Math.max(last.endIdx, z.endIdx);
-      last.endDate  = priceData[last.endIdx]?.time || last.endDate;
-      last.lo  = Math.min(last.lo, z.lo);
-      last.hi  = Math.max(last.hi, z.hi);
-      last.net += z.net;
-      last.buyers = Math.max(last.buyers, z.buyers);
+      last.endIdx  = Math.max(last.endIdx, z.endIdx);
+      last.endDate = priceData[Math.min(last.endIdx, priceData.length-1)]?.time || last.endDate;
+      last.lo      = Math.min(last.lo, z.lo);
+      last.hi      = Math.max(last.hi, z.hi);
+      last.net     += z.net;
+      last.buyVal  += z.buyVal;
+      last.buyers  = Math.max(last.buyers, z.buyers);
     } else {
       merged.push({ ...z });
     }
@@ -1331,75 +1355,60 @@ function buildAccumulationMap(mainChart, trades, priceData) {
     if (!zoneEl || !state.chart) return;
     zoneEl.innerHTML = '';
 
-    const zCanvas = document.createElement('canvas');
     const W = zoneEl.clientWidth || flowEl.clientWidth || 800;
     const H = 52;
+    const zCanvas = document.createElement('canvas');
     zCanvas.width = W; zCanvas.height = H;
     zCanvas.style.cssText = 'position:absolute;top:0;left:0;display:block;';
     zoneEl.style.position = 'relative';
     zoneEl.appendChild(zCanvas);
     const ctx = zCanvas.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
 
-    // Background
     ctx.fillStyle = '#080b0f';
     ctx.fillRect(0, 0, W, H);
 
-    // Label
-    ctx.font = '9px "Space Mono", monospace';
+    ctx.font = '9px monospace';
     ctx.fillStyle = '#4a6580';
-    ctx.letterSpacing = '1.5px';
-    ctx.fillText('ACCUMULATION ZONES', 10, 14);
+    ctx.fillText('ACCUMULATION ZONES', 10, 13);
 
     if (!merged.length) {
       ctx.fillStyle = '#2a3a4a';
-      ctx.font = '10px "Space Mono", monospace';
-      ctx.fillText('No clean accumulation zones detected', 10, 34);
+      ctx.fillText('No accumulation zones in loaded history', 10, 36);
       return;
     }
 
-    // Map dates to x-coordinates using the main chart time scale
     const ts = state.chart.timeScale();
-    const BAR_H = 20;
-    const Y_BASE = H - 8;
+    const BAR_Y = 20;
+    const BAR_H = 26;
 
     merged.forEach(z => {
       try {
-        // Get x pixel positions for start and end dates
         const x1 = ts.timeToCoordinate(z.startDate);
         const x2 = ts.timeToCoordinate(z.endDate);
         if (x1 === null || x2 === null) return;
         const left  = Math.min(x1, x2);
-        const right = Math.max(x1, x2);
-        const width = Math.max(right - left, 4);
+        const right = Math.max(x1, x2) + 6; // +6 so single-bar zones are visible
+        const width = Math.max(right - left, 5);
 
-        // Zone intensity by net buying
-        const intensity = Math.min(1, z.net / 3e6); // saturates at $3M
-        const alpha = 0.25 + intensity * 0.55;
+        const intensity = Math.min(1, z.net / 2000000); // saturates at $2M
+        const alpha = 0.3 + intensity * 0.55;
 
-        // Draw zone bar
         ctx.fillStyle = `rgba(0,255,136,${alpha})`;
-        ctx.fillRect(left, Y_BASE - BAR_H, width, BAR_H);
+        ctx.fillRect(left, BAR_Y, width, BAR_H);
 
-        // Zone border
-        ctx.strokeStyle = `rgba(0,255,136,${alpha + 0.2})`;
+        ctx.strokeStyle = `rgba(0,255,136,${Math.min(1, alpha + 0.25)})`;
         ctx.lineWidth = 1;
-        ctx.strokeRect(left, Y_BASE - BAR_H, width, BAR_H);
+        ctx.strokeRect(left + 0.5, BAR_Y + 0.5, width - 1, BAR_H - 1);
 
-        // Label if wide enough
-        if (width > 40) {
-          ctx.fillStyle = '#00ff88';
-          ctx.font = 'bold 9px "Space Mono", monospace';
-          ctx.fillText(fmt(z.net).replace('$',''), left + 4, Y_BASE - 6);
-        } else if (width > 16) {
-          ctx.fillStyle = '#00ff88';
-          ctx.fillRect(left + width/2 - 2, Y_BASE - BAR_H/2 - 2, 4, 4);
+        if (width > 48) {
+          ctx.fillStyle = '#001a0a';
+          ctx.font = 'bold 9px monospace';
+          ctx.fillText(fmt(z.net), left + 4, BAR_Y + BAR_H - 7);
         }
       } catch(e) {}
     });
 
-    // Zone tooltip
-    zCanvas.onmousemove = (e) => {
+    zCanvas.onmousemove = e => {
       const rect = zCanvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const hit = merged.find(z => {
@@ -1407,7 +1416,7 @@ function buildAccumulationMap(mainChart, trades, priceData) {
           const x1 = ts.timeToCoordinate(z.startDate);
           const x2 = ts.timeToCoordinate(z.endDate);
           if (x1 === null || x2 === null) return false;
-          return mx >= Math.min(x1,x2) - 2 && mx <= Math.max(x1,x2) + 2;
+          return mx >= Math.min(x1,x2) - 4 && mx <= Math.max(x1,x2) + 10;
         } catch(e) { return false; }
       });
       if (!hit) { tooltip.style.display = 'none'; return; }
@@ -1415,25 +1424,24 @@ function buildAccumulationMap(mainChart, trades, priceData) {
         <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:4px">ACCUMULATION ZONE</div>
         <div style="font-size:11px;color:var(--buy)">Net buying: ${fmt(hit.net)}</div>
         <div style="font-size:10px;color:var(--text);margin-top:4px">${hit.startDate} → ${hit.endDate}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">${hit.buyers} insider${hit.buyers!==1?'s':''} · No offsetting sells</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Price range $${hit.lo.toFixed(2)} – $${hit.hi.toFixed(2)}</div>`;
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${hit.buyers} insider${hit.buyers!==1?'s':''} · ${hit.sellVal ? fmt(hit.sellVal)+' in sells' : 'no offsetting sells'}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Price $${hit.lo.toFixed(2)} – $${hit.hi.toFixed(2)}</div>`;
       tooltip.style.display = 'block';
       tooltip.style.left = (e.clientX + 16) + 'px';
-      tooltip.style.top  = (e.clientY - 10)  + 'px';
+      tooltip.style.top  = (e.clientY - 10) + 'px';
     };
     zCanvas.onmouseleave = () => { tooltip.style.display = 'none'; };
   };
 
   state.drawZones = drawZones;
-  drawZones();
 
-  // Redraw zones when main chart scrolls/zooms
+  // Zones need the chart to be fully rendered before timeToCoordinate works
+  // Use a short delay on first draw, then sync on scroll/zoom
+  setTimeout(drawZones, 150);
+
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-    setTimeout(() => { if (state.drawZones) state.drawZones(); }, 30);
+    setTimeout(() => { if (state.drawZones) state.drawZones(); }, 20);
   });
-
-  // Zone label
-  addLabel('▬ ACCUMULATION ZONES  (green = net buying, no sells)', 'top:193px;left:10px;');
 }
 
 
@@ -1448,7 +1456,7 @@ function setRange(days,btn) {
     const visible=all.filter(d=>d.time>=cutStr);
     if(visible.length>0)state.chart.timeScale().setVisibleRange({from:visible[0].time,to:all[all.length-1].time});
   }
-  setTimeout(()=>{if(state.drawCircles)state.drawCircles();},50);
+  setTimeout(()=>{if(state.drawCircles)state.drawCircles(); if(state.drawZones)state.drawZones();},80);
 }
 
 const chartActiveFilters=new Set(['P','S','O','X']);
