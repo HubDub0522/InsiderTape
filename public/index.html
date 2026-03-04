@@ -2303,230 +2303,141 @@ function renderAnalysisSubpage(id) {
 // ── INSIDER LEADERBOARDS ──────────────────────────────────────────
 
 async function computeLeaderboardScores() {
-  // Fetch top insiders from DB
-  let leaders;
-  try { leaders = await apiFetch('/api/leaderboard?limit=40'); }
-  catch(e) { _insiderScoreCache = []; _timingAlphaCache = []; return; }
-  if (!leaders.length) { _insiderScoreCache = []; _timingAlphaCache = []; return; }
+  try {
+    const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
+    _insiderScoreCache = data.accuracy || [];
+    _timingAlphaCache  = data.timing   || [];
+  } catch(e) {
+    _insiderScoreCache = [];
+    _timingAlphaCache  = [];
+  }
 
-  const accuracyResults = [];
-  const timingResults   = [];
-
-  // Score each insider: fetch their full trade history + price data per ticker
-  await Promise.allSettled(leaders.map(async leader => {
-    try {
-      const trades = await apiFetch(`/api/insider?name=${encodeURIComponent(leader.insider)}&exact=1`);
-      if (!trades || trades.length < 3) return;
-
-      const buys = trades.filter(t => t.type === 'P' && t.price > 0 && (t.trade || t.filing));
-      if (buys.length < 3) return;
-
-      const tickers = [...new Set(buys.map(t => t.ticker))];
-      const priceCache = {};
-      await Promise.allSettled(tickers.slice(0,6).map(async sym => {
-        try {
-          const bars = await apiFetch('/api/price?symbol=' + encodeURIComponent(sym));
-          if (Array.isArray(bars) && bars.length) priceCache[sym] = bars;
-        } catch(e) {}
-      }));
-
-      // Compute accuracy score (same logic as computeAndRenderScore)
-      const scored = [];
-      buys.forEach(t => {
-        const bars = priceCache[t.ticker] || [];
-        if (!bars.length || !t.price) return;
-        const buyDate = (t.trade || t.filing || '').slice(0,10);
-        const fwd = days => {
-          const fd = new Date(buyDate+'T12:00:00Z'); fd.setUTCDate(fd.getUTCDate()+days);
-          const fs = fd.toISOString().slice(0,10);
-          const bar = bars.find(b => b.time >= fs);
-          return bar ? +((bar.close - t.price)/t.price*100).toFixed(2) : null;
-        };
-        const ret30=fwd(30), ret60=fwd(60), ret90=fwd(90);
-        const isPending = ret90 === null;
-        scored.push({ ticker:t.ticker, tradeDate:buyDate, buyPrice:t.price,
-          ret30, ret60, ret90, isPending });
-      });
-
-      const completed = scored.filter(s => s.ret90 !== null);
-      if (completed.length < 2) return;
-
-      const rets90 = completed.map(s => s.ret90);
-      const avgRet90 = +(rets90.reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
-      const rets30  = completed.filter(s=>s.ret30!==null).map(s=>s.ret30);
-      const avgRet30 = rets30.length ? +(rets30.reduce((a,b)=>a+b,0)/rets30.length).toFixed(1) : null;
-      const winRate  = Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
-      const avgMag   = +(rets90.map(Math.abs).reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
-      const sortedR  = [...rets90].sort((a,b)=>a-b);
-      const median   = sortedR[Math.floor(sortedR.length/2)];
-      const consistency = Math.round(Math.min(100, Math.max(0, (median/Math.max(avgMag,1)+1)*50)));
-      const winScore = winRate, retScore = Math.min(35, Math.max(0, avgRet90/20*35));
-      const consScore = consistency*0.15, sampleBonus = Math.min(10, completed.length*1.2);
-      const accuracyScore = Math.round(Math.min(100, Math.max(0, winScore*0.40+retScore+consScore+sampleBonus)));
-      const tier = accuracyScore>=75?'ELITE':accuracyScore>=55?'STRONG':accuracyScore>=35?'AVERAGE':'WEAK';
-
-      accuracyResults.push({
-        name: leader.insider, title: leader.title || '',
-        accuracyScore, tier, winRate, avgRet90, avgRet30, tradeCount: completed.length,
-        tickers: tickers.slice(0,3).join(', '),
-      });
-
-      // Compute timing alpha
-      const timing = computeTimingQuality(scored, priceCache, trades);
-      if (timing && timing.timingAlpha > 0 && completed.length >= 2) {
-        timingResults.push({
-          name: leader.insider, title: leader.title || '',
-          timingAlpha: timing.timingAlpha,
-          nearLowPct: timing.nearLowPct,
-          nearHighSellPct: timing.nearHighSellPct,
-          avgRet90: timing.avgRet90,
-          avgRet180: timing.avgRet180,
-          verdict: timing.verdict,
-          tradeCount: completed.length,
-          tickers: tickers.slice(0,3).join(', '),
-        });
-      }
-    } catch(e) {}
-  }));
-
-  _insiderScoreCache = accuracyResults.sort((a,b) => b.accuracyScore - a.accuracyScore);
-  _timingAlphaCache  = timingResults.sort((a,b) => b.timingAlpha - a.timingAlpha);
-
-  // Refresh dashboard tiles if still on Analysis page
   const body = document.getElementById('analysisViewBody');
-  if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+  if (!body) return;
+  if (body.querySelector('.analysis-tool-grid')) {
+    renderAnalysisDashboard();
+  } else {
+    const tsc = document.getElementById('topScoresContent');
+    const tlc = document.getElementById('timingLeadersContent');
+    if (tsc) tsc.innerHTML = renderTopScoresList(_insiderScoreCache);
+    if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache);
+  }
+}
+
+function renderTopScoresList(ranked) {
+  if (!ranked || !ranked.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No scored insiders yet.</div>';
+  return ranked.map((r, i) => {
+    const sc = r.accuracyScore;
+    const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
+    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
+    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
+    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
+                 onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
+                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}')">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers}</div>
+        <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+          <span style="font-size:10px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}% win rate</span>
+          <span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>
+          <span style="font-size:10px;color:var(--muted)">${r.tradeCount} trades scored</span>
+        </div>
+      </div>
+      <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:${scColor}">${sc}</div>
+        <div style="font-size:8px;font-family:'Space Mono',monospace;color:${scColor};margin-top:1px">${r.tier}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimingLeadersList(ranked) {
+  if (!ranked || !ranked.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No timing data yet.</div>';
+  return ranked.map((r, i) => {
+    const ta = r.timingAlpha;
+    const taColor  = ta>=80?'var(--buy)':ta>=60?'var(--accent)':ta>=40?'var(--option)':'var(--muted)';
+    const taBg     = ta>=80?'rgba(0,255,136,0.08)':ta>=60?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
+    const taBorder = ta>=80?'rgba(0,255,136,0.28)':ta>=60?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
+    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
+    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
+                 onmouseover="this.style.borderColor='${taBorder}'" onmouseout="this.style.borderColor='var(--border)'"
+                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}')">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers}</div>
+        <div style="font-size:11px;color:${taColor};margin-top:4px;font-style:italic">${r.verdict}</div>
+        <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+          <span style="font-size:10px;color:var(--buy)">${r.nearLowPct}% buys near 12M low</span>
+          ${r.avgRet90!==null?`<span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>`:''}
+        </div>
+      </div>
+      <div style="background:${taBg};border:1px solid ${taBorder};border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:${taColor}">${ta}</div>
+        <div style="font-size:8px;font-family:'Space Mono',monospace;color:${taColor};margin-top:1px">TIMING α</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function renderTopScoresSubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  const renderList = ranked => {
-    if (!ranked.length) return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No scored insiders yet — scoring in progress.</div>`;
-    return ranked.map((r, i) => {
-      const sc = r.accuracyScore;
-      const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
-      const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
-      const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
-      const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-      return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
-                   onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                   onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}')">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title || '—'} · ${r.tickers}</div>
-          <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
-            <span style="font-size:10px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}% win rate</span>
-            <span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>
-            <span style="font-size:10px;color:var(--muted)">${r.tradeCount} trades scored</span>
-          </div>
-        </div>
-        <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:${scColor}">${sc}</div>
-          <div style="font-size:8px;font-family:'Space Mono',monospace;color:${scColor};margin-top:1px">${r.tier}</div>
-        </div>
-      </div>`;
-    }).join('');
-  };
-
+  const loading = _insiderScoreCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
     ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🥇 TOP INSIDER ACCURACY SCORES</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Ranked by historical win rate, avg forward return & consistency · Click to open scorecard</div>
-    </div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">🥇 TOP INSIDER ACCURACY SCORES</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by win rate, avg forward return & consistency · Click to open scorecard</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:660px">
-      Each insider's open-market buys are scored against actual price data at <span style="color:var(--text)">+30 / +60 / +90 days</span>.
-      Only insiders with <span style="color:var(--text)">3+ completed trades</span> are ranked.
-      ${_insiderScoreCache === null ? '<span style="color:var(--option)">⏳ Scoring in progress — may take 30–60 seconds</span>' : ''}
+      Open-market buys scored against actual price data at <span style="color:var(--text)">+30 / +90 days</span>.
+      Only insiders with <span style="color:var(--text)">4+ completed trades</span> are ranked.
+      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_insiderScoreCache.length} insiders ranked</span>`}
     </div>
     <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
-      ${_insiderScoreCache === null
-        ? '<div class="loading-state"><div class="spinner"></div><span>Fetching and scoring insiders…</span></div>'
-        : renderList(_insiderScoreCache)
-      }
+      ${loading ? '<div class="loading-state"><div class="spinner"></div><span>Scoring insiders server-side…</span></div>' : renderTopScoresList(_insiderScoreCache)}
     </div>
   </div>`;
-
-  // Poll until done if still computing
-  if (_insiderScoreCache === null) {
+  if (loading) {
     const poll = setInterval(() => {
       if (_insiderScoreCache !== null) {
         clearInterval(poll);
         const el = document.getElementById('topScoresContent');
-        if (el) el.innerHTML = renderList(_insiderScoreCache);
+        if (el) el.innerHTML = renderTopScoresList(_insiderScoreCache);
       }
-    }, 1500);
+    }, 800);
   }
 }
 
 function renderTimingLeadersSubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  const renderList = ranked => {
-    if (!ranked.length) return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No timing data yet — scoring in progress.</div>`;
-    return ranked.map((r, i) => {
-      const ta = r.timingAlpha;
-      const taColor  = ta>=80?'var(--buy)':ta>=60?'var(--accent)':ta>=40?'var(--option)':'var(--muted)';
-      const taBg     = ta>=80?'rgba(0,255,136,0.08)':ta>=60?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
-      const taBorder = ta>=80?'rgba(0,255,136,0.28)':ta>=60?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
-      const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-      return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
-                   onmouseover="this.style.borderColor='${taBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                   onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}')">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title || '—'} · ${r.tickers}</div>
-          <div style="font-size:11px;color:${taColor};margin-top:4px;font-style:italic">${r.verdict}</div>
-          <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
-            <span style="font-size:10px;color:var(--buy)">${r.nearLowPct}% buys near 12M low</span>
-            ${r.nearHighSellPct !== null ? `<span style="font-size:10px;color:var(--option)">${r.nearHighSellPct}% sells near 12M high</span>` : ''}
-            ${r.avgRet90 !== null ? `<span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>` : ''}
-          </div>
-        </div>
-        <div style="background:${taBg};border:1px solid ${taBorder};border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;color:${taColor}">${ta}</div>
-          <div style="font-size:8px;font-family:'Space Mono',monospace;color:${taColor};margin-top:1px">TIMING α</div>
-        </div>
-      </div>`;
-    }).join('');
-  };
-
+  const loading = _timingAlphaCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
     ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⏱ BEST TIMING INSIDERS</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Ranked by Timing Alpha Score — who buys near 12-month lows and sells near highs · Click to open scorecard</div>
-    </div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">⏱ BEST TIMING INSIDERS</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by Timing Alpha Score — who buys near 12-month lows and achieves the best forward returns</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:660px">
-      The <span style="color:var(--text)">Timing Alpha Score</span> measures how well each insider times inflection points:
-      <span style="color:var(--text)">% of buys within 20% of 12-month low</span>,
-      <span style="color:var(--text)">% of sells within 20% of 12-month high</span>,
-      and <span style="color:var(--text)">forward 30/90/180-day return quality</span>.
-      These are the people worth watching when they make their next move.
-      ${_timingAlphaCache === null ? '<span style="color:var(--option)"> ⏳ Scoring in progress…</span>' : ''}
+      <span style="color:var(--text)">Timing Alpha</span> measures: % of buys within 20% of 12-month low,
+      entry position in annual range, and forward return quality.
+      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_timingAlphaCache.length} insiders ranked</span>`}
     </div>
     <div id="timingLeadersContent" style="display:flex;flex-direction:column;gap:8px">
-      ${_timingAlphaCache === null
-        ? '<div class="loading-state"><div class="spinner"></div><span>Computing timing alpha for all insiders…</span></div>'
-        : renderList(_timingAlphaCache)
-      }
+      ${loading ? '<div class="loading-state"><div class="spinner"></div><span>Computing timing alpha…</span></div>' : renderTimingLeadersList(_timingAlphaCache)}
     </div>
   </div>`;
-
-  if (_timingAlphaCache === null) {
+  if (loading) {
     const poll = setInterval(() => {
       if (_timingAlphaCache !== null) {
         clearInterval(poll);
         const el = document.getElementById('timingLeadersContent');
-        if (el) el.innerHTML = renderList(_timingAlphaCache);
+        if (el) el.innerHTML = renderTimingLeadersList(_timingAlphaCache);
       }
-    }, 1500);
+    }, 800);
   }
 }
+
 
 // ── INSIDER OPPORTUNITY RANKER ────────────────────────────────────
 
