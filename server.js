@@ -341,7 +341,15 @@ app.get('/api/leaderboard', (req, res) => {
 // Frontend only needs to fetch price data (deduplicated across insiders), not individual trade histories
 // SCOREBOARD — fully server-side: fetches prices, scores every insider, returns results
 // Browser makes ONE request and receives ranked leaderboards ready to render
+let _scoreboardCache = null;
+let _scoreboardCacheTime = 0;
+const SCOREBOARD_TTL = 10 * 60 * 1000; // 10 minutes
+
 app.get('/api/scoreboard', async (req, res) => {
+  // Return cached result if fresh
+  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
+    return res.json(_scoreboardCache);
+  }
   try {
     const minBuys = parseInt(req.query.minbuys || '4');
     const limit   = Math.min(parseInt(req.query.limit || '30'), 60);
@@ -374,58 +382,8 @@ app.get('/api/scoreboard', async (req, res) => {
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
     )];
 
-    // ── Fetch all price data server-side in parallel (uses existing in-memory cache) ──
-    async function fetchBars(sym) {
-      const cached = getPC(sym);
-      if (cached) return cached;
-
-      // Try FMP
-      try {
-        const { status, body } = await get(
-          `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`
-        );
-        if (status === 200) {
-          const data = JSON.parse(body.toString());
-          const raw  = Array.isArray(data) ? data : (data?.historical || []);
-          if (raw.length) {
-            const bars = raw.slice().reverse()
-              .map(d => ({ time: d.date, close: +(+d.close).toFixed(2), high: +(+d.high).toFixed(2), low: +(+d.low).toFixed(2) }))
-              .filter(d => d.close > 0 && d.time);
-            if (bars.length) { setPC(sym, bars, 60*60*1000); return bars; }
-          }
-        }
-      } catch(e) {}
-
-      // Fallback: Yahoo
-      try {
-        const now  = Math.floor(Date.now() / 1000);
-        const from = now - 5 * 365 * 86400;
-        const { status, body } = await get(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d`,
-          20000
-        );
-        if (status === 200) {
-          const json   = JSON.parse(body.toString());
-          const result = json?.chart?.result?.[0];
-          const times  = result?.timestamp || [];
-          const q      = result?.indicators?.quote?.[0] || {};
-          if (times.length && q.close?.length) {
-            const bars = times.map((t, i) => ({
-              time:  new Date(t * 1000).toISOString().slice(0, 10),
-              close: +(+(q.close?.[i] || 0)).toFixed(2),
-              high:  +(+(q.high?.[i]  || 0)).toFixed(2),
-              low:   +(+(q.low?.[i]   || 0)).toFixed(2),
-            })).filter(d => d.close > 0 && d.time);
-            if (bars.length) { setPC(sym, bars, 60*60*1000); return bars; }
-          }
-        }
-      } catch(e) {}
-
-      return null;
-    }
-
-    // Fetch all tickers in parallel (server handles concurrency fine, they all hit cache after first)
-    const priceEntries = await Promise.all(allTickers.map(async sym => [sym, await fetchBars(sym)]));
+    // ── Fetch all price data using shared fetchPriceBars helper (all sources + cache) ──
+    const priceEntries = await Promise.all(allTickers.map(async sym => [sym, await fetchPriceBars(sym)]));
     const priceCache   = Object.fromEntries(priceEntries.filter(([, v]) => v));
 
     // ── Score every insider ──
@@ -548,7 +506,10 @@ app.get('/api/scoreboard', async (req, res) => {
     accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
     timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
 
-    res.json({ accuracy: accuracyResults, timing: timingResults });
+    const result = { accuracy: accuracyResults, timing: timingResults };
+    _scoreboardCache = result;
+    _scoreboardCacheTime = Date.now();
+    res.json(result);
   } catch(e) {
     slog('scoreboard error: ' + e.message);
     res.status(500).json({ error: e.message });
@@ -559,63 +520,136 @@ app.get('/api/scoreboard', async (req, res) => {
 
 
 // PRICE — FMP with Yahoo Finance fallback
+// ─── PRICE FETCH HELPER — shared by /api/price and /api/scoreboard ───────────
+// ─── PRICE FETCH — races all sources simultaneously, returns first winner ─────
+const FAILED_SYM = new Map();  // cooldown cache for symbols with no data anywhere
+const PRICE_INFLIGHT = new Map(); // dedup concurrent requests for same symbol
+
+async function fetchPriceBars(sym) {
+  // Immediate cache hit
+  const cached = getPC(sym);
+  if (cached) return cached;
+
+  // 5-min cooldown after confirmed no-data-anywhere failure
+  const lastFail = FAILED_SYM.get(sym);
+  if (lastFail && Date.now() - lastFail < 5 * 60 * 1000) return null;
+
+  // Dedup: if another request is already fetching this symbol, wait for it
+  if (PRICE_INFLIGHT.has(sym)) return PRICE_INFLIGHT.get(sym);
+
+  const promise = _fetchPriceBarsImpl(sym).finally(() => PRICE_INFLIGHT.delete(sym));
+  PRICE_INFLIGHT.set(sym, promise);
+  return promise;
+}
+
+async function _fetchPriceBarsImpl(sym) {
+  function parseBars(raw) {
+    return raw.filter(d => d.close > 0 && d.time && /^\d{4}-\d{2}-\d{2}$/.test(d.time));
+  }
+
+  // Helper: wrap a fetch attempt, returns bars array or null (never throws)
+  async function tryFMP() {
+    try {
+      const { status, body } = await get(
+        `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`, 10000
+      );
+      if (status !== 200) return null;
+      const data = JSON.parse(body.toString());
+      const raw = Array.isArray(data) ? data : (data?.historical || []);
+      if (raw.length < 5) return null;
+      return parseBars(raw.slice().reverse().map(d => ({
+        time: d.date, open: +(+d.open).toFixed(2), high: +(+d.high).toFixed(2),
+        low: +(+d.low).toFixed(2), close: +(+d.close).toFixed(2), volume: d.volume||0
+      })));
+    } catch(e) { slog(`FMP ${sym}: ${e.message}`); return null; }
+  }
+
+  async function tryYahoo(host) {
+    try {
+      const now = Math.floor(Date.now()/1000), from = now - 6*365*86400;
+      const { status, body } = await get(
+        `https://${host}/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d&events=history`, 10000
+      );
+      if (status !== 200) return null;
+      const json = JSON.parse(body.toString()), result = json?.chart?.result?.[0];
+      const times = result?.timestamp || [], q = result?.indicators?.quote?.[0] || {};
+      if (times.length < 5 || !q.close?.length) return null;
+      return parseBars(times.map((t,i) => ({
+        time:   new Date(t*1000).toISOString().slice(0,10),
+        open:   +(+(q.open?.[i]  ||0)).toFixed(2), high: +(+(q.high?.[i] ||0)).toFixed(2),
+        low:    +(+(q.low?.[i]   ||0)).toFixed(2), close:+(+(q.close?.[i]||0)).toFixed(2),
+        volume: q.volume?.[i] || 0
+      })));
+    } catch(e) { slog(`Yahoo ${host} ${sym}: ${e.message}`); return null; }
+  }
+
+  async function tryStooq() {
+    try {
+      const stooqSym = sym.toLowerCase().replace(/[^a-z0-9]/g,'') + '.us';
+      const { status, body } = await get(`https://stooq.com/q/d/l/?s=${stooqSym}&i=d`, 10000);
+      if (status !== 200) return null;
+      const lines = body.toString().trim().split('\n').slice(1);
+      if (lines.length < 5) return null;
+      return parseBars(lines.map(line => {
+        const [date,open,high,low,close,volume] = line.split(',');
+        return { time:(date||'').trim(), open:+(+open).toFixed(2), high:+(+high).toFixed(2),
+          low:+(+low).toFixed(2), close:+(+close).toFixed(2), volume:parseInt(volume)||0 };
+      }).filter(d => d.time));
+    } catch(e) { slog(`Stooq ${sym}: ${e.message}`); return null; }
+  }
+
+  async function tryAlphaVantage() {
+    try {
+      const AV = process.env.AV_KEY || '';
+      if (!AV) return null;
+      const { status, body } = await get(
+        `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${sym}&outputsize=full&apikey=${AV}`, 10000
+      );
+      if (status !== 200) return null;
+      const json = JSON.parse(body.toString());
+      const series = json['Time Series (Daily)'] || {};
+      const entries = Object.entries(series);
+      if (entries.length < 5) return null;
+      return parseBars(entries.reverse().map(([date, d]) => ({
+        time: date, open: +(+d['1. open']).toFixed(2), high: +(+d['2. high']).toFixed(2),
+        low: +(+d['3. low']).toFixed(2), close: +(+d['5. adjusted close']).toFixed(2),
+        volume: parseInt(d['6. volume'])||0
+      })));
+    } catch(e) { return null; }
+  }
+
+  // Race all sources simultaneously — return first non-null result
+  // Each source uses a short 10s timeout so failures are fast
+  const result = await Promise.any([
+    tryFMP(),
+    tryYahoo('query1.finance.yahoo.com'),
+    tryYahoo('query2.finance.yahoo.com'),
+    tryStooq(),
+    tryAlphaVantage(),
+  ].map(p => p.then(bars => {
+    if (!bars || bars.length < 5) throw new Error('no data');
+    return bars;
+  }))).catch(() => null);
+
+  if (result && result.length >= 5) {
+    setPC(sym, result, 60*60*1000);
+    return result;
+  }
+
+  FAILED_SYM.set(sym, Date.now());
+  slog(`No price data anywhere for ${sym}`);
+  return null;
+}
+
 app.get('/api/price', async (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
-
-  const cached = getPC(sym);
-  if (cached) return res.json(cached);
-
-  // Try FMP first
-  try {
-    const { status, body } = await get(
-      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`
-    );
-    if (status === 200) {
-      const data = JSON.parse(body.toString());
-      const raw  = Array.isArray(data) ? data : (data?.historical || []);
-      if (raw.length) {
-        const bars = raw.slice().reverse()
-          .map(d => ({ time: d.date, open: +(+d.open).toFixed(2), high: +(+d.high).toFixed(2), low: +(+d.low).toFixed(2), close: +(+d.close).toFixed(2), volume: d.volume||0 }))
-          .filter(d => d.close > 0 && d.time);
-        if (bars.length) {
-          setPC(sym, bars, 60*60*1000);
-          return res.json(bars);
-        }
-      }
-    }
-  } catch(e) { slog(`FMP price error for ${sym}: ${e.message}`); }
-
-  // Fallback: Yahoo Finance
-  try {
-    const now   = Math.floor(Date.now() / 1000);
-    const from  = now - 5 * 365 * 86400;
-    const yUrl  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d&events=history`;
-    const { status, body } = await get(yUrl, 20000);
-    if (status === 200) {
-      const json   = JSON.parse(body.toString());
-      const result = json?.chart?.result?.[0];
-      const times  = result?.timestamp || [];
-      const q      = result?.indicators?.quote?.[0] || {};
-      if (times.length && q.close?.length) {
-        const bars = times.map((t, i) => ({
-          time:   new Date(t * 1000).toISOString().slice(0, 10),
-          open:   +(+(q.open?.[i]  || 0)).toFixed(2),
-          high:   +(+(q.high?.[i]  || 0)).toFixed(2),
-          low:    +(+(q.low?.[i]   || 0)).toFixed(2),
-          close:  +(+(q.close?.[i] || 0)).toFixed(2),
-          volume: q.volume?.[i] || 0,
-        })).filter(d => d.close > 0 && d.time);
-        if (bars.length) {
-          setPC(sym, bars, 60*60*1000);
-          return res.json(bars);
-        }
-      }
-    }
-  } catch(e) { slog(`Yahoo price error for ${sym}: ${e.message}`); }
-
-  res.status(404).json({ error: `No price data available for ${sym}` });
+  const bars = await fetchPriceBars(sym);
+  if (bars) return res.json(bars);
+  res.status(404).json({ error: `No price data for ${sym}` });
 });
+
+
 
 // STATUS
 app.get('/api/status', (req, res) => {
@@ -763,6 +797,13 @@ app.get('*', (req, res) =>
   res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ─── STARTUP ──────────────────────────────────────────────────
+
+// Add source column if not present (migration for existing DBs)
+try {
+  db.exec(`ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'sec'`);
+  db.exec(`UPDATE trades SET source='sec' WHERE source IS NULL`);
+} catch(e) {} // column already exists — fine
+
 const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
 const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
 console.log(`DB: ${existing} trades, ${syncedQ} quarters synced`);
@@ -795,5 +836,194 @@ setInterval(() => {
 }, 24 * 60 * 60 * 1000);
 
 setTimeout(() => runDaily(3), 5000);
+
+// ─── PRICE CACHE WARMER ───────────────────────────────────────
+// Pre-fetch prices for all active tickers so scoreboard/stock views are instant
+async function warmPriceCache() {
+  try {
+    const tickers = db.prepare(`
+      SELECT DISTINCT ticker FROM trades
+      WHERE type='P' AND price>0 AND ticker IS NOT NULL
+        AND trade_date >= date('now','-3 years')
+      ORDER BY trade_date DESC
+    `).all().map(r => r.ticker).slice(0, 120); // top 120 most recently active
+
+    slog(`Warming price cache for ${tickers.length} tickers...`);
+    // Batch of 15 at a time — fast without hammering sources
+    for (let i = 0; i < tickers.length; i += 15) {
+      const batch = tickers.slice(i, i + 15);
+      await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
+      await new Promise(r => setTimeout(r, 200)); // small gap between batches
+    }
+    slog('Price cache warm-up complete');
+  } catch(e) { slog('Price cache warmer error: ' + e.message); }
+}
+
+// Start warming 30s after boot (let the DB sync get going first)
+setTimeout(async () => {
+  await warmPriceCache();
+  // Pre-compute scoreboard while cache is hot
+  try {
+    slog('Pre-computing scoreboard...');
+    const r = await fetch(`http://localhost:${PORT}/api/scoreboard?minbuys=4&limit=30`);
+    if (r.ok) slog('Scoreboard pre-computed and cached');
+  } catch(e) {}
+}, 30000);
+// Re-warm every 2 hours to keep cache fresh
+setInterval(() => warmPriceCache(), 2 * 60 * 60 * 1000);
+
+
+// Sources: Capitol Trades public API + House/Senate STOCK Act disclosures via Quiver
+let congressSyncRunning = false;
+
+async function syncCongressTrades() {
+  if (congressSyncRunning) return;
+  congressSyncRunning = true;
+  slog('=== Starting congressional trade sync ===');
+
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO trades
+      (ticker, company, insider, title, trade_date, filing_date, type, qty, price, value, owned, accession, source)
+    VALUES
+      (@ticker, @company, @insider, @title, @trade_date, @filing_date, @type, @qty, @price, @value, @owned, @accession, @source)
+  `);
+
+  let total = 0;
+
+  // ── Source A: Capitol Trades API (free, covers both House & Senate) ────────
+  try {
+    // Fetch up to 5 pages of recent trades
+    for (let page = 1; page <= 5; page++) {
+      const { status, body } = await get(
+        `https://www.capitoltrades.com/api/trades?page=${page}&pageSize=100&sortOrder=desc&sortBy=publishedAt`,
+        20000
+      );
+      if (status !== 200) break;
+      const json = JSON.parse(body.toString());
+      const trades = json?.data || json?.trades || (Array.isArray(json) ? json : []);
+      if (!trades.length) break;
+
+      const inserts = db.transaction(items => {
+        items.forEach(t => {
+          try {
+            const ticker  = (t.instrument?.symbol || t.ticker || t.asset || '').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+            if (!ticker || ticker.length > 10) return;
+            const tradeDate   = (t.publishedAt || t.tradeDate || t.transactionDate || '').slice(0,10);
+            const filingDate  = (t.filedAt || t.filingDate || tradeDate || '').slice(0,10);
+            if (!tradeDate || tradeDate < '2010-01-01') return;
+            const politician = t.politician || t.representative || t.senator || {};
+            const insiderName = (politician.firstName || politician.name || '') + (politician.lastName ? ' ' + politician.lastName : '');
+            const title   = politician.chamber === 'senate' ? 'Senator' :
+                            politician.chamber === 'house'  ? 'Representative' :
+                            politician.party ? `${politician.party} Member` : 'Congress Member';
+            const txType  = (t.type || t.transactionType || '').toLowerCase();
+            const normType = txType.includes('sale') || txType.includes('sell') ? 'S' :
+                             txType.includes('purchase') || txType.includes('buy') ? 'P' : 'X';
+            const value   = Math.abs(+(t.value || t.amount || t.size || 0));
+            const accession = `congress-${insiderName.replace(/\s+/g,'-')}-${ticker}-${tradeDate}`.toLowerCase();
+            insert.run({
+              ticker, company: t.instrument?.name || t.company || ticker,
+              insider: insiderName.trim() || 'Unknown Member',
+              title, trade_date: tradeDate, filing_date: filingDate,
+              type: normType, qty: t.qty || t.shares || 0,
+              price: t.price || (value > 0 && t.qty ? value / Math.abs(t.qty) : 0),
+              value, owned: 0,
+              accession, source: 'congress'
+            });
+            total++;
+          } catch(e) {}
+        });
+      });
+      inserts(trades);
+    }
+    slog(`Congressional sync (Capitol Trades): ${total} rows inserted`);
+  } catch(e) {
+    slog('Capitol Trades sync error: ' + e.message);
+  }
+
+  // ── Source B: Quiver Quantitative congress endpoint (backup) ──────────────
+  try {
+    const { status, body } = await get(
+      'https://api.quiverquant.com/beta/bulk/congresstrading',
+      25000
+    );
+    if (status === 200) {
+      const trades = JSON.parse(body.toString());
+      if (Array.isArray(trades) && trades.length) {
+        let qTotal = 0;
+        const inserts = db.transaction(items => {
+          items.forEach(t => {
+            try {
+              const ticker = (t.Ticker || '').toUpperCase().trim();
+              if (!ticker || ticker.length > 10) return;
+              const tradeDate  = (t.TransactionDate || t.ReportDate || '').slice(0,10);
+              const filingDate = (t.ReportDate || tradeDate || '').slice(0,10);
+              if (!tradeDate || tradeDate < '2010-01-01') return;
+              const insiderName = (t.Representative || t.Senator || t.Name || '').trim();
+              if (!insiderName) return;
+              const txType = (t.Transaction || '').toLowerCase();
+              const normType = txType.includes('sale') ? 'S' : txType.includes('purchase') ? 'P' : 'X';
+              // Quiver gives a range like "$1,001 - $15,000" — take midpoint
+              const rangeStr = (t.Range || t.Amount || '').replace(/[$,]/g,'');
+              let value = 0;
+              const parts = rangeStr.split(' - ');
+              if (parts.length === 2) value = (parseFloat(parts[0]) + parseFloat(parts[1])) / 2;
+              else value = parseFloat(rangeStr) || 0;
+              const accession = `quiver-${insiderName.replace(/\s+/g,'-')}-${ticker}-${tradeDate}`.toLowerCase();
+              const chamber = (t.Chamber || '').toLowerCase();
+              const title = chamber === 'senate' ? 'Senator' : 'Representative';
+              insert.run({
+                ticker, company: t.Company || ticker,
+                insider: insiderName, title, trade_date: tradeDate,
+                filing_date: filingDate, type: normType, qty: 0,
+                price: 0, value, owned: 0, accession, source: 'congress'
+              });
+              qTotal++;
+            } catch(e) {}
+          });
+        });
+        inserts(trades);
+        total += qTotal;
+        slog(`Congressional sync (Quiver): ${qTotal} rows inserted`);
+      }
+    }
+  } catch(e) {
+    slog('Quiver congress sync error: ' + e.message);
+  }
+
+  slog(`=== Congressional sync complete: ${total} total rows ===`);
+  congressSyncRunning = false;
+}
+
+// Manual trigger endpoint
+app.post('/api/sync-congress', async (req, res) => {
+  if (congressSyncRunning) return res.json({ message: 'Already running' });
+  syncCongressTrades();
+  res.json({ message: 'Congressional trade sync started' });
+});
+
+// Expose congress trade filter to screener
+app.get('/api/congress', (req, res) => {
+  try {
+    const days  = Math.min(parseInt(req.query.days || '90'), 730);
+    const limit = Math.min(parseInt(req.query.limit || '500'), 2000);
+    const rows  = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned, source
+      FROM trades
+      WHERE source = 'congress'
+        AND filing_date >= date('now', '-' || ? || ' days')
+      ORDER BY trade_date DESC, filing_date DESC
+      LIMIT ?
+    `).all(days, limit);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Auto-sync congressional trades every 6 hours
+setTimeout(() => syncCongressTrades(), 15000);
+setInterval(() => syncCongressTrades(), 6 * 60 * 60 * 1000);
+
 
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
