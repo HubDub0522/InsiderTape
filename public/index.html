@@ -294,6 +294,9 @@
 
   /* ── HIGH CONVICTION ── */
   .conviction-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-bottom: 8px; }
+  .analysis-tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .insider-dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .cluster-card-body { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 14px 18px; }
   .conviction-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
   .conviction-card:hover { border-color: var(--accent); transform: translateY(-2px); }
   .conviction-card-header { padding: 14px 16px 10px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
@@ -322,22 +325,29 @@
     .insider-sidebar { border-left: none; border-top: 1px solid var(--border); height: 360px; }
     .stock-trades-section { grid-column: 1; }
     .stat-grid { margin-left: 0; gap: 14px; }
+    .profile-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 640px) {
-    :root { --header-h: 56px; }
-    header { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px; align-items: center; }
+    :root { --header-h: auto; }
+    html, body { overflow-x: hidden; width: 100%; max-width: 100vw; }
+    header {
+      flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px;
+      align-items: center; position: fixed; top: 0; left: 0; right: 0;
+    }
     .logo { font-size: 19px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
-    .nav-tabs { order: 1; margin-left: auto; gap: 2px; flex-shrink: 0; }
-    .nav-tab { padding: 5px 10px; font-size: 11px; }
+    .nav-tabs { order: 1; margin-left: auto; gap: 2px; flex-shrink: 0; overflow-x: auto; max-width: calc(100vw - 120px); -webkit-overflow-scrolling: touch; }
+    .nav-tab { padding: 5px 9px; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
-    main { margin-top: 0; padding-top: 0; }
+    main { padding-top: 100px; }
+    /* Screener */
     .filter-panel { padding: 10px 12px; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 12px; align-items: flex-start; -webkit-overflow-scrolling: touch; }
     .filter-section { margin-bottom: 0; flex-shrink: 0; min-width: 140px; }
     .apply-btn { width: auto; white-space: nowrap; flex-shrink: 0; align-self: flex-end; }
     .screener-content { padding: 10px; }
-    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    table { min-width: 700px; }
-    td, th { padding: 9px 10px; font-size: 12px; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+    table { min-width: 480px; }
+    td, th { padding: 9px 8px; font-size: 11px; }
+    /* Stock view */
     .stock-header-bar { flex-direction: column; gap: 12px; padding: 12px; }
     .stock-ticker-big { font-size: 32px; }
     .stock-price { font-size: 22px; }
@@ -346,13 +356,31 @@
     .chart-controls { flex-wrap: wrap; gap: 4px; }
     .tf-btn { padding: 4px 8px; font-size: 10px; }
     .chart-area { padding: 10px; }
-    #chartContainer { height: 340px !important; }
-    .insider-sidebar { height: 280px; }
+    #chartContainer { height: 300px !important; }
+    .insider-sidebar { height: 260px; }
     .stock-trades-section { padding: 0 10px 16px; overflow-x: auto; }
+    /* Insider profile */
     .insider-profile-layout { padding: 12px; }
     .summary-bar { gap: 8px; }
-    .summary-card { min-width: 100px; padding: 10px 12px; }
-    .summary-card-val { font-size: 15px; }
+    .summary-card { min-width: 90px; padding: 10px 10px; }
+    .summary-card-val { font-size: 14px; }
+    /* Scorecard trade rows */
+    .scorer-trade-row-header,
+    .scorer-trade-row { grid-template-columns: 60px 44px 1fr 60px 60px; }
+    .scorer-trade-row-header > *:nth-child(6),
+    .scorer-trade-row > *:nth-child(6),
+    .scorer-trade-row-header > *:nth-child(7),
+    .scorer-trade-row > *:nth-child(7) { display: none; }
+    /* Timing quality grid 2-col → 1-col */
+    .timing-quality-grid { grid-template-columns: 1fr !important; }
+    /* Conviction + analysis grids */
+    .conviction-grid { grid-template-columns: 1fr; }
+    .analysis-tool-grid { grid-template-columns: 1fr !important; }
+    /* Insider dashboard 2-col → 1-col */
+    .insider-dash-grid { grid-template-columns: 1fr !important; }
+    /* Cluster card body */
+    .cluster-card-body { grid-template-columns: 1fr !important; }
+    /* Hide less critical table cols */
     .hide-mobile { display: none !important; }
     #screenerBody tr td:nth-child(5),
     #screenerBody tr td:nth-child(6),
@@ -361,18 +389,11 @@
     #stockTradesBody tr td:nth-child(6),
     #stockTradesBody tr td:nth-child(8),
     #stockTradesBody tr td:nth-child(9) { display: none; }
-    .scorer-trade-row-header,
-    .scorer-trade-row { grid-template-columns: 70px 50px 1fr 70px 70px; }
-    .scorer-trade-row-header > *:nth-child(6),
-    .scorer-trade-row > *:nth-child(6),
-    .scorer-trade-row-header > *:nth-child(7),
-    .scorer-trade-row > *:nth-child(7) { display: none; }
-    .conviction-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 380px) {
     .logo { font-size: 17px; }
-    .nav-tab { padding: 4px 8px; font-size: 10px; }
-    #chartContainer { height: 280px !important; }
+    .nav-tab { padding: 4px 7px; font-size: 10px; }
+    #chartContainer { height: 260px !important; }
   }
 </style>
 </head>
@@ -574,7 +595,13 @@ function switchView(view, btn, opts={}) {
   }
   if (view === 'analysis') {
     const body = document.getElementById('analysisViewBody');
-    if (body && !body.hasChildNodes()) loadAnalysisPage();
+    if (!body) return;
+    if (!_analysisData) {
+      loadAnalysisPage();
+    } else if (!body.hasChildNodes() || body.querySelector('.loading-state')) {
+      renderAnalysisDashboard();
+    }
+    // If already showing content, leave it (user may be on a subpage)
   }
   // Push URL unless we're being called from popstate
   if (!opts.fromPopstate) {
@@ -1719,7 +1746,7 @@ async function loadInsiderDashboard() {
     });
     const clusters=Object.entries(clusterMap).sort((a,b)=>b[1].insiders.size-a[1].insiders.size).slice(0,8);
     dash.innerHTML=`
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div class="insider-dash-grid">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--buy);font-size:14px">▲</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span></div>
           <div>${topBuyers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(val)}</span></div>`).join('')}</div>
@@ -1793,51 +1820,154 @@ document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput'
 
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
-async function loadAnalysisPage() {
+let _analysisData = null; // cache trades so sub-pages don't re-fetch
+
+async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
 
-  let trades = [];
-  try {
-    const raw = await apiFetch('/api/screener?days=30');
-    trades = Array.isArray(raw) ? raw : (raw.trades || []);
-  } catch(e) {}
+  // Fetch data once and cache
+  if (!_analysisData) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
+    try {
+      const raw = await apiFetch('/api/screener?days=30');
+      _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
+    } catch(e) { _analysisData = []; }
+  }
 
-  const convHtml  = renderConvictionCards(trades);
-  const clusterHtml = renderClusterEngine(trades);
+  if (subpage) {
+    renderAnalysisSubpage(subpage);
+  } else {
+    renderAnalysisDashboard();
+  }
+}
+
+function renderAnalysisDashboard() {
+  const body = document.getElementById('analysisViewBody');
+  const trades = _analysisData || [];
+
+  // Pre-compute top 3 for each tool
+  const convTop3   = buildConvictionData(trades).slice(0, 3);
+  const clusterTop3 = detectAdvancedClusters(trades).slice(0, 3);
+
+  const tools = [
+    {
+      id: 'conviction',
+      icon: '⚡',
+      name: 'High Conviction Trades',
+      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size. Surfaces insiders making their biggest, most deliberate bets.',
+      count: buildConvictionData(trades).length,
+      countLabel: 'signals detected',
+      top3: convTop3.map(c => ({
+        ticker: c.ticker,
+        label: `Score ${c.score}`,
+        sub: c.reasons[0] || '',
+        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
+      })),
+      accentColor: 'var(--buy)',
+      accentBg: 'rgba(0,255,136,0.06)',
+      accentBorder: 'rgba(0,255,136,0.2)',
+    },
+    {
+      id: 'clusters',
+      icon: '🔬',
+      name: 'Cluster Buy Detection',
+      desc: 'Advanced multi-factor engine detecting true cluster buys: multiple insiders, tight price range, short timeframe, after a decline, with no offsetting sells.',
+      count: detectAdvancedClusters(trades).length,
+      countLabel: 'clusters scored',
+      top3: clusterTop3.map(c => ({
+        ticker: c.ticker,
+        label: `Score ${c.score}`,
+        sub: `${c.insiderCount} insiders · ${c.daySpan <= 1 ? 'same day' : c.daySpan + 'd window'}`,
+        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
+      })),
+      accentColor: 'var(--accent)',
+      accentBg: 'rgba(0,212,255,0.06)',
+      accentBorder: 'rgba(0,212,255,0.2)',
+    },
+  ];
 
   body.innerHTML = `
   <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-
-    <!-- Section header -->
-    <div style="margin-bottom:32px">
+    <div style="margin-bottom:28px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">ANALYSIS</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
+    <div class="analysis-tool-grid">
+      ${tools.map(t => renderAnalysisTile(t)).join('')}
+    </div>
+  </div>`;
+}
 
-    <!-- High Conviction -->
-    <div style="margin-bottom:40px">
-      <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text)">⚡ HIGH CONVICTION TRADES</div>
-        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">Scored by cluster buying, stake increase, repeat behavior &amp; position size · Last 30D</div>
+function renderAnalysisTile(tool) {
+  const top3Html = tool.top3.length ? `
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">TOP SIGNALS</div>
+      ${tool.top3.map((item, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;${i < tool.top3.length-1 ? 'border-bottom:1px solid rgba(30,45,61,0.6)' : ''}">
+          <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${item.color};min-width:52px">${item.ticker}</span>
+          <span style="flex:1;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.sub}</span>
+          <span style="font-family:'Space Mono',monospace;font-size:11px;color:${item.color};flex-shrink:0">${item.label}</span>
+        </div>`).join('')}
+    </div>` : `<div style="margin-top:14px;font-size:11px;color:var(--muted)">No signals in current window.</div>`;
+
+  return `
+  <div onclick="renderAnalysisSubpage('${tool.id}')"
+       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;cursor:pointer;transition:border-color .15s,background .15s;position:relative;overflow:hidden"
+       onmouseover="this.style.borderColor='${tool.accentBorder}';this.style.background='${tool.accentBg}'"
+       onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg2)'">
+    <!-- Accent bar top -->
+    <div style="position:absolute;top:0;left:0;right:0;height:2px;background:${tool.accentColor};opacity:0.6"></div>
+    <!-- Header -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px;line-height:1">${tool.icon}</span>
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px;color:var(--text)">${tool.name}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:10px;color:${tool.accentColor};margin-top:1px">${tool.count} ${tool.countLabel}</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);white-space:nowrap;margin-top:2px">VIEW ALL →</div>
+    </div>
+    <!-- Description -->
+    <div style="font-size:12px;color:var(--muted);line-height:1.6">${tool.desc}</div>
+    <!-- Top 3 -->
+    ${top3Html}
+  </div>`;
+}
+
+function renderAnalysisSubpage(id) {
+  const body = document.getElementById('analysisViewBody');
+  const trades = _analysisData || [];
+
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  if (id === 'conviction') {
+    const convHtml = renderConvictionCards(trades);
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div style="margin-bottom:20px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ HIGH CONVICTION TRADES</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Scored by stake increase, cluster buying, repeat behavior &amp; position size · Last 30D</div>
       </div>
       <div class="conviction-grid">${convHtml}</div>
-    </div>
+    </div>`;
+  }
 
-    <!-- Cluster Engine -->
-    <div style="margin-bottom:40px">
-      <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:6px;padding-bottom:10px;border-bottom:1px solid var(--border)">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text)">🔬 CLUSTER BUY DETECTION ENGINE</div>
-        <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">Advanced multi-factor cluster scoring · Last 30D</div>
+  else if (id === 'clusters') {
+    const clusterHtml = renderClusterEngine(trades);
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div style="margin-bottom:12px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔬 CLUSTER BUY DETECTION ENGINE</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced multi-factor cluster scoring · Last 30D</div>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:16px;line-height:1.7">
-        Most tools call anything "a cluster buy." This engine is stricter: it requires <span style="color:var(--text)">multiple distinct insiders</span>, buying within a <span style="color:var(--text)">tight price range</span>, in a <span style="color:var(--text)">short timeframe</span>, <span style="color:var(--text)">after a price decline</span>, with <span style="color:var(--text)">no offsetting sells</span>. Each cluster is scored 1–100 on strength.
+      <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7">
+        Requires <span style="color:var(--text)">multiple distinct insiders</span>, buying within a <span style="color:var(--text)">tight price range</span>, in a <span style="color:var(--text)">short timeframe</span>, <span style="color:var(--text)">after a price decline</span>, with <span style="color:var(--text)">no offsetting sells</span>. Each cluster scored 1–100.
       </div>
       ${clusterHtml}
-    </div>
-
-  </div>`;
+    </div>`;
+  }
 }
 
 // ── CLUSTER BUY DETECTION ENGINE ─────────────────────────────────
@@ -2049,7 +2179,7 @@ function renderClusterCard(c) {
     </div>
 
     <!-- Body -->
-    <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="cluster-card-body">
       <!-- Signals -->
       <div>
         <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--buy);margin-bottom:7px">✓ BULLISH SIGNALS</div>
