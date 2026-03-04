@@ -19,6 +19,19 @@ const DB_PATH = path.join(DATA_DIR, 'trades.db');
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Global safety net — log crashes but keep the process alive
+process.on('uncaughtException',  err => console.error('UNCAUGHT:', err.message));
+process.on('unhandledRejection', err => console.error('UNHANDLED:', err?.message || err));
+
+// Per-request timeout: kill any request that takes > 25s so it returns a proper error
+// rather than hanging until the platform kills the whole dyno
+app.use((req, res, next) => {
+  res.setTimeout(25000, () => {
+    if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
+  });
+  next();
+});
+
 // ─── DB ───────────────────────────────────────────────────────
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
@@ -124,7 +137,10 @@ app.get('/api/screener', (req, res) => {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     if (n === 0 && syncRunning)
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
-    const days = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 3650);
+
+    const days    = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095); // cap at 3 years
+    const limit   = Math.min(parseInt(req.query.limit || '1000'), 2000);           // cap rows returned
+
     let rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
@@ -132,8 +148,8 @@ app.get('/api/screener', (req, res) => {
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
       ORDER BY trade_date DESC, filing_date DESC
-      LIMIT 1000
-    `).all(days);
+      LIMIT ?
+    `).all(days, limit);
 
     if (!rows.length && n > 0) {
       rows = db.prepare(`
@@ -160,7 +176,7 @@ app.get('/api/ticker', (req, res) => {
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned
       FROM trades WHERE ticker = ?
-      ORDER BY trade_date DESC LIMIT 1000
+      ORDER BY trade_date DESC LIMIT 5000
     `).all(sym);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -171,15 +187,19 @@ app.get('/api/insider', (req, res) => {
   const name  = (req.query.name  || '').trim();
   const exact = req.query.exact === '1';
   if (!name) return res.status(400).json({ error: 'name required' });
+  if (name.length < 2) return res.status(400).json({ error: 'name too short' });
   try {
     const pattern = exact ? name : `%${name}%`;
+    // Exact match: full history up to 2000 rows
+    // Fuzzy match: cap at 500 rows to avoid massive payloads on broad queries
+    const limit = exact ? 2000 : 500;
     const rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned
       FROM trades WHERE UPPER(insider) LIKE UPPER(?)
-      ORDER BY trade_date DESC LIMIT 2000
-    `).all(pattern);
+      ORDER BY trade_date DESC LIMIT ?
+    `).all(pattern, limit);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
