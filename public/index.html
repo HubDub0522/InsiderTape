@@ -410,6 +410,7 @@
     <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
     <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
     <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
+    <button class="nav-tab" onclick="switchView('congress', this)">CONGRESS</button>
     <button class="nav-tab" id="analysisTab" onclick="switchView('analysis', this)">ANALYSIS</button>
   </nav>
 </header>
@@ -522,6 +523,10 @@
   <div id="analysisViewBody"></div>
 </div>
 
+<div id="view-congress" class="view">
+  <div id="congressViewBody" style="max-width:1200px;margin:0 auto;padding:24px 20px"></div>
+</div>
+
 </main>
 <div class="toast" id="toast"></div>
 
@@ -583,7 +588,7 @@ function switchView(view, btn, opts={}) {
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
-    const idx = {screener:0, stock:1, insider:2, analysis:3}[view];
+    const idx = {screener:0, stock:1, insider:2, congress:3, analysis:4}[view];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
   }
   if (view === 'insider') {
@@ -601,9 +606,11 @@ function switchView(view, btn, opts={}) {
     } else if (!body.hasChildNodes() || body.querySelector('.loading-state')) {
       renderAnalysisDashboard();
     }
-    // If already showing content, leave it (user may be on a subpage)
   }
-  // Push URL unless we're being called from popstate
+  if (view === 'congress') {
+    const body = document.getElementById('congressViewBody');
+    if (body && !body.hasChildNodes()) loadCongressView();
+  }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
     history.pushState({view, subview: null}, '', url);
@@ -612,7 +619,7 @@ function switchView(view, btn, opts={}) {
 }
 
 function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis'};
+  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', congress:'INSIDERTAPE — Congress', analysis:'INSIDERTAPE — Analysis'};
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function searchTicker() {
@@ -810,7 +817,7 @@ function renderScreener() {
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span></td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${t.source==='congress'?'<span style="display:inline-block;margin-top:3px;padding:1px 5px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px">🏛 CONGRESS</span>':''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
@@ -3473,6 +3480,144 @@ function routeFromPath(path, fromPopstate) {
 function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; return'screener'; }
 function _tickerFromPath(p) { const m=p.match(/^\/stock\/([^/]+)/i); return m?decodeURIComponent(m[1]).toUpperCase():null; }
 function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decodeURIComponent(m[1]):null; }
+
+
+// ── CONGRESS VIEW ─────────────────────────────────────────────
+let _congressData = null;
+let _congressDays = 90;
+let _congressFilter = 'all';
+
+async function loadCongressView() {
+  const body = document.getElementById('congressViewBody');
+  if (!body) return;
+  body.innerHTML = `<div class="loading-state" style="height:300px"><div class="spinner"></div><span>Loading congressional trades…</span></div>`;
+
+  try {
+    const data = await apiFetch(`/api/congress?days=${_congressDays}&limit=500`);
+    _congressData = data;
+    renderCongressView();
+  } catch(e) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-icon">🏛️</div>
+      <div>Congressional trade data is syncing from STOCK Act disclosures.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">Check back in a few minutes, or try the screener for corporate insider trades.</div>
+    </div>`;
+  }
+}
+
+function renderCongressView() {
+  const body = document.getElementById('congressViewBody');
+  if (!body) return;
+  let trades = _congressData || [];
+
+  // Filter
+  if (_congressFilter === 'buys')  trades = trades.filter(t => t.type === 'P');
+  if (_congressFilter === 'sells') trades = trades.filter(t => t.type === 'S');
+
+  // Summary stats
+  const buys  = trades.filter(t => t.type === 'P');
+  const sells = trades.filter(t => t.type === 'S');
+  const totalBuy  = buys.reduce((s,t)=>s+(t.value||0),0);
+  const totalSell = sells.reduce((s,t)=>s+(t.value||0),0);
+  const members   = [...new Set(trades.map(t=>t.insider))].length;
+  const tickers   = [...new Set(trades.map(t=>t.ticker))].length;
+
+  // Top tickers by activity
+  const tickerCount = {};
+  trades.forEach(t => { tickerCount[t.ticker] = (tickerCount[t.ticker]||0) + 1; });
+  const topTickers  = Object.entries(tickerCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  // Top members by value
+  const memberVal = {};
+  trades.forEach(t => { memberVal[t.insider] = (memberVal[t.insider]||0)+(t.value||0); });
+  const topMembers = Object.entries(memberVal).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  body.innerHTML = `
+    <div>
+      <!-- Header -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">🏛️ CONGRESSIONAL TRADING</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">STOCK Act disclosures — House & Senate members</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">RANGE:</span>
+          ${[30,90,180,365].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};loadCongressView()">${d===365?'1Y':d+'D'}</button>`).join('')}
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
+        ${[
+          {label:'TRADES', val:trades.length, color:'var(--text)'},
+          {label:'MEMBERS', val:members, color:'var(--accent)'},
+          {label:'TOTAL BOUGHT', val:fmt(totalBuy), color:'var(--buy)'},
+          {label:'TOTAL SOLD', val:fmt(totalSell), color:'var(--sell)'},
+        ].map(s=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:4px">${s.label}</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${s.color}">${s.val}</div>
+        </div>`).join('')}
+      </div>
+
+      <!-- Two-col layout: top tickers + top members -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST TRADED STOCKS</div>
+          ${topTickers.length ? topTickers.map(([t,n])=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer"
+                 onclick="loadStockView('${t}')">
+              <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent)">${t}</span>
+              <span style="font-size:10px;color:var(--muted)">${n} trade${n!==1?'s':''}</span>
+            </div>`).join('') : '<div style="color:var(--muted);font-size:11px">No data yet</div>'}
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST ACTIVE MEMBERS</div>
+          ${topMembers.length ? topMembers.map(([name,val])=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer"
+                 onclick="openInsiderProfile('${escName(name)}','Congress Member')">
+              <span style="font-size:11px;color:var(--text)">${name}</span>
+              <span style="font-size:10px;color:var(--buy)">${fmt(val)}</span>
+            </div>`).join('') : '<div style="color:var(--muted);font-size:11px">No data yet</div>'}
+        </div>
+      </div>
+
+      <!-- Filter + trade table -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">FILTER:</span>
+        ${[['all','ALL'],['buys','BUYS'],['sells','SELLS']].map(([f,l])=>`
+          <button class="tf-btn${_congressFilter===f?' active':''}" onclick="_congressFilter='${f}';renderCongressView()">${l}</button>
+        `).join('')}
+        <span style="margin-left:auto;font-size:10px;color:var(--muted)">${trades.length} transactions</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>DATE</th><th>MEMBER</th><th>TITLE</th><th>TICKER</th>
+            <th>TYPE</th><th>VALUE</th><th>FILED</th>
+          </tr></thead>
+          <tbody>
+            ${trades.length ? trades.slice(0,200).map(t => {
+              const tc = tradeClass(t.type);
+              const color = tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--muted)';
+              const label = tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'OTHER';
+              return `<tr>
+                <td style="font-family:'Space Mono',monospace;font-size:10px">${fmtDate(t.trade)}</td>
+                <td style="cursor:pointer;color:var(--text)" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider||'—'}</td>
+                <td style="font-size:10px;color:var(--muted)">${t.title||'—'}</td>
+                <td style="cursor:pointer;color:var(--accent);font-family:'Space Mono',monospace;font-weight:700" onclick="loadStockView('${t.ticker}')">${t.ticker}</td>
+                <td style="color:${color};font-size:10px;font-weight:700">${label}</td>
+                <td style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</td>
+                <td style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.filing)}</td>
+              </tr>`;
+            }).join('') : `<tr><td colspan="7"><div class="empty-state">
+              <div class="empty-icon">🏛️</div>
+              <div>Congressional data syncing — check back shortly</div>
+            </div></td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
 
 function measureHeader() { const h=document.querySelector('header'),m=document.querySelector('main'); if(h&&m)m.style.paddingTop=h.offsetHeight+'px'; }
 measureHeader(); window.addEventListener('resize',measureHeader);
