@@ -2009,137 +2009,131 @@ async function renderFirstBuySubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
-  const headerHtml = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+  // Controls
+  const [minGap, lookback] = [
+    parseInt(document.getElementById('fbMinGap')?.value   || '180'),
+    parseInt(document.getElementById('fbLookback')?.value || '90'),
+  ];
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🚨 FIRST BUY IN YEARS</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying their own stock after a long period of inactivity · Scans full trade history</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying their own stock after a long gap · Full database history</div>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:680px">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7;max-width:680px">
       When an insider who hasn't bought in <span style="color:var(--text)">years</span> suddenly opens their wallet, it's one of the rarest signals in Form 4 data.
-      Unlike routine buying, a <span style="color:var(--text)">first purchase after a long gap</span> represents a deliberate, high-conviction decision —
+      Unlike routine buying, a <span style="color:var(--text)">first purchase after a long gap</span> is deliberate —
       they've watched the stock for years and decided <em>now</em> is the time.
     </div>
-    <div id="firstBuyResults"><div class="loading-state"><div class="spinner"></div><span>Scanning trade history for inactivity gaps...</span></div></div>
+
+    <!-- Filters -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:24px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);white-space:nowrap">MIN GAP</span>
+        <select id="fbMinGap" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
+          <option value="90"  ${minGap===90?'selected':''}>3 months</option>
+          <option value="180" ${minGap===180?'selected':''}>6 months</option>
+          <option value="365" ${minGap===365?'selected':''}>1 year</option>
+          <option value="730" ${minGap===730?'selected':''}>2 years</option>
+          <option value="1095" ${minGap===1095?'selected':''}>3 years</option>
+          <option value="1825" ${minGap===1825?'selected':''}>5 years</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);white-space:nowrap">NEW BUY WITHIN</span>
+        <select id="fbLookback" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
+          <option value="14"  ${lookback===14?'selected':''}>14 days</option>
+          <option value="30"  ${lookback===30?'selected':''}>30 days</option>
+          <option value="60"  ${lookback===60?'selected':''}>60 days</option>
+          <option value="90"  ${lookback===90?'selected':''}>90 days</option>
+        </select>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">Scanning full DB history — no date cap</div>
+    </div>
+
+    <div id="firstBuyResults"><div class="loading-state"><div class="spinner"></div><span>Scanning full trade history...</span></div></div>
   </div>`;
 
-  body.innerHTML = headerHtml;
+  try {
+    const rows = await apiFetch(`/api/firstbuys?mingap=${minGap}&lookback=${lookback}&limit=100`);
+    const el = document.getElementById('firstBuyResults');
+    if (!el) return;
 
-  // Need long history — wait if still loading
-  if (!_analysisDataLong) {
-    try {
-      const raw = await apiFetch('/api/screener?days=365&limit=2000');
-      _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
-    } catch(e) { _analysisDataLong = _analysisData || []; }
+    if (!rows.length) {
+      el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
+        No signals found with current filters.<br>
+        <span style="font-size:11px">Try reducing the minimum gap or extending the lookback window.</span>
+      </div>`;
+      return;
+    }
+
+    const signals = rows.map(r => buildFirstBuySignal(r));
+    el.innerHTML = `
+      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:12px">${signals.length} SIGNAL${signals.length!==1?'S':''} FOUND · SORTED BY GAP LENGTH</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        ${signals.map(s => renderFirstBuyCard(s)).join('')}
+      </div>`;
+  } catch(e) {
+    const el = document.getElementById('firstBuyResults');
+    if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px">${e.message}</div>`;
   }
+}
 
-  const signals = detectFirstBuys(_analysisDataLong);
-  const el = document.getElementById('firstBuyResults');
-  if (!el) return;
+function buildFirstBuySignal(r) {
+  const gapDays   = r.gap_days || 0;
+  const gapMonths = Math.round(gapDays / 30.4);
+  const gapYears  = +(gapDays / 365).toFixed(1);
 
-  if (!signals.length) {
-    el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No first-buy-after-gap signals found in the available trade history.<br><span style="font-size:11px">Expand your DB history window to surface more signals.</span></div>`;
-    return;
-  }
+  const prevOwned   = r.prev_owned   || 0;
+  const latestOwned = r.latest_owned || 0;
+  const posChangePct = prevOwned > 0 ? ((latestOwned - prevOwned) / prevOwned * 100) : null;
 
-  el.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:14px">
-      ${signals.map(s => renderFirstBuyCard(s)).join('')}
-    </div>`;
+  let tier, tierColor, tierBg, tierBorder;
+  if (gapYears >= 5)       { tier='EXTREME';   tierColor='var(--buy)';    tierBg='rgba(0,255,136,0.08)';  tierBorder='rgba(0,255,136,0.3)'; }
+  else if (gapYears >= 3)  { tier='VERY HIGH'; tierColor='var(--accent)'; tierBg='rgba(0,212,255,0.07)';  tierBorder='rgba(0,212,255,0.25)'; }
+  else if (gapYears >= 1)  { tier='HIGH';      tierColor='var(--option)'; tierBg='rgba(255,170,0,0.07)';  tierBorder='rgba(255,170,0,0.25)'; }
+  else                     { tier='NOTABLE';   tierColor='var(--text)';   tierBg='rgba(201,216,232,0.04)';tierBorder='rgba(201,216,232,0.15)'; }
+
+  return {
+    insider: r.insider, title: r.title || '', ticker: r.ticker, company: r.company || r.ticker,
+    latestDate: r.latest_trade || r.latest_filing || '',
+    prevDate:   r.prev_trade   || '',
+    gapDays, gapMonths, gapYears,
+    posChangePct,
+    totalBuyVal:  r.latest_value || 0,
+    latestPrice:  r.latest_price || 0,
+    latestOwned, prevOwned,
+    tier, tierColor, tierBg, tierBorder,
+  };
 }
 
 function detectFirstBuys(trades) {
+  // Legacy JS fallback — used for dashboard tile top-3 preview only
   if (!trades || !trades.length) return [];
-
-  // Group all trades by insider+ticker pair
   const byPair = {};
   trades.forEach(t => {
-    if (!t.insider || !t.ticker) return;
+    if (!t.insider || !t.ticker || t.type !== 'P') return;
     const key = `${t.insider}::${t.ticker}`;
-    if (!byPair[key]) byPair[key] = { insider: t.insider, title: t.title || '', ticker: t.ticker, company: t.company || t.ticker, trades: [] };
-    byPair[key].trades.push(t);
+    if (!byPair[key]) byPair[key] = [];
+    byPair[key].push(t);
   });
-
-  // Also build full per-insider history across ALL tickers to find any prior buy activity
-  const insiderAllBuys = {};
-  trades.forEach(t => {
-    if (!t.insider || t.type !== 'P') return;
-    if (!insiderAllBuys[t.insider]) insiderAllBuys[t.insider] = [];
-    insiderAllBuys[t.insider].push(t);
-  });
-
-  const signals = [];
   const now = new Date();
-  // Look at buys that happened in the last 60 days
-  const recentCutoff = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - 60);
-
-  Object.values(byPair).forEach(({ insider, title, ticker, company, trades: pairTrades }) => {
-    const buys = pairTrades.filter(t => t.type === 'P').sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
-    if (buys.length < 2) return; // need at least one old + one new
-
-    // Find the most recent buy
-    const latestBuy = buys[buys.length - 1];
-    const latestDate = new Date(latestBuy.trade || latestBuy.filing);
-    if (latestDate < recentCutoff) return; // not a recent buy
-
-    // Find the previous buy on this ticker
-    const prevBuys = buys.slice(0, -1);
-    const mostRecentPrev = prevBuys[prevBuys.length - 1];
-    const prevDate = new Date(mostRecentPrev.trade || mostRecentPrev.filing);
-
-    const gapDays   = (latestDate - prevDate) / 86400000;
-    const gapMonths = Math.round(gapDays / 30.4);
-    const gapYears  = +(gapDays / 365).toFixed(1);
-
-    // Only surface meaningful gaps (6+ months)
+  const recentCutoff = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - 90);
+  const signals = [];
+  Object.entries(byPair).forEach(([key, buys]) => {
+    const sorted = buys.sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
+    if (sorted.length < 2) return;
+    const latest = sorted[sorted.length - 1];
+    const prev   = sorted[sorted.length - 2];
+    const latestDate = new Date(latest.trade || latest.filing);
+    if (latestDate < recentCutoff) return;
+    const gapDays  = (latestDate - new Date(prev.trade || prev.filing)) / 86400000;
+    const gapYears = +(gapDays / 365).toFixed(1);
     if (gapDays < 180) return;
-
-    // Position change: compare owned shares
-    const prevOwned   = mostRecentPrev.owned || 0;
-    const latestOwned = latestBuy.owned || 0;
-    const posChangePct = prevOwned > 0 ? ((latestOwned - prevOwned) / prevOwned * 100) : null;
-
-    // Also check across ALL tickers — was this insider buying anything else in the gap?
-    const allInsiderBuys = (insiderAllBuys[insider] || []).filter(t => t.ticker !== ticker);
-    const buysInGap = allInsiderBuys.filter(t => {
-      const d = new Date(t.trade || t.filing);
-      return d > prevDate && d < latestDate;
-    });
-    const wasActiveElsewhere = buysInGap.length > 0;
-
-    // Significance tier
-    let tier, tierColor, tierBg, tierBorder;
-    if (gapYears >= 5 && !wasActiveElsewhere) {
-      tier = 'EXTREME'; tierColor = 'var(--buy)'; tierBg = 'rgba(0,255,136,0.08)'; tierBorder = 'rgba(0,255,136,0.3)';
-    } else if (gapYears >= 3) {
-      tier = 'VERY HIGH'; tierColor = 'var(--accent)'; tierBg = 'rgba(0,212,255,0.07)'; tierBorder = 'rgba(0,212,255,0.25)';
-    } else if (gapYears >= 1.5) {
-      tier = 'HIGH'; tierColor = 'var(--option)'; tierBg = 'rgba(255,170,0,0.07)'; tierBorder = 'rgba(255,170,0,0.25)';
-    } else {
-      tier = 'NOTABLE'; tierColor = 'var(--text)'; tierBg = 'rgba(201,216,232,0.04)'; tierBorder = 'rgba(201,216,232,0.15)';
-    }
-
-    signals.push({
-      insider, title, ticker, company,
-      latestBuy, latestDate: latestDate.toISOString().slice(0,10),
-      prevDate: prevDate.toISOString().slice(0,10),
-      gapDays, gapMonths, gapYears,
-      posChangePct, wasActiveElsewhere,
-      buysInGapCount: buysInGap.length,
-      totalBuyVal: latestBuy.value || 0,
-      latestPrice: latestBuy.price || 0,
-      latestOwned, prevOwned,
-      allPrevBuys: prevBuys.length,
-      tier, tierColor, tierBg, tierBorder,
-    });
+    signals.push({ ticker: latest.ticker, insider: latest.insider, title: latest.title, gapYears, gapMonths: Math.round(gapDays/30.4) });
   });
-
-  // Sort by gap length descending, then tier
-  return signals.sort((a,b) => {
-    const tierOrder = { EXTREME:0, 'VERY HIGH':1, HIGH:2, NOTABLE:3 };
-    const td = (tierOrder[a.tier]||3) - (tierOrder[b.tier]||3);
-    return td !== 0 ? td : b.gapDays - a.gapDays;
-  });
+  return signals.sort((a,b) => b.gapYears - a.gapYears);
 }
 
 function renderFirstBuyCard(s) {
