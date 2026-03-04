@@ -448,19 +448,6 @@
     </aside>
     <div class="screener-content">
 
-      <!-- High Conviction -->
-      <div style="margin-bottom:28px">
-        <div class="screener-header" style="margin-bottom:12px">
-          <div>
-            <div class="screener-title">⚡ HIGH CONVICTION TRADES</div>
-            <div class="screener-meta">Scored by stake increase, cluster buying, repeat behavior &amp; position size</div>
-          </div>
-        </div>
-        <div class="conviction-grid" id="convictionGrid">
-          <div style="grid-column:1/-1"><div class="loading-state" style="padding:30px"><div class="spinner"></div><span>Computing conviction scores...</span></div></div>
-        </div>
-      </div>
-
       <div class="screener-header">
         <div>
           <div class="screener-title">RECENT INSIDER TRADES</div>
@@ -632,12 +619,10 @@ async function loadScreener() {
   const days = state.days || 7;
   document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
   document.getElementById('summaryBar').innerHTML = '';
-  document.getElementById('convictionGrid').innerHTML = '<div style="grid-column:1/-1"><div class="loading-state" style="padding:30px"><div class="spinner"></div><span>Computing conviction scores...</span></div></div>';
   try {
     const resp = await apiFetch('/api/screener?days=' + days);
     if (resp && resp.building) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span></div></td></tr>`;
-      document.getElementById('convictionGrid').innerHTML = '';
       setTimeout(loadScreener, 8000); return;
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
@@ -647,7 +632,6 @@ async function loadScreener() {
       const all = Array.isArray(fallback) ? fallback : (fallback.trades || []);
       if (!all.length) {
         document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found.</div></div></td></tr>`;
-        document.getElementById('convictionGrid').innerHTML = '';
         return;
       }
       trades = all;
@@ -657,7 +641,6 @@ async function loadScreener() {
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
     if (!trades.length) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings match your filters</div></div></td></tr>`;
-      document.getElementById('convictionGrid').innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px">No trades match current filters.</div>';
       return;
     }
     state.screenerData = trades;
@@ -666,51 +649,34 @@ async function loadScreener() {
     computeConvictionScores(trades);
   } catch(e) {
     document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load data: ${e.message}</div></div></td></tr>`;
-    document.getElementById('convictionGrid').innerHTML = '';
   }
 }
 
 // ── HIGH CONVICTION SCORING ───────────────────────────────────────
-function computeConvictionScores(trades) {
-  const grid = document.getElementById('convictionGrid');
+function buildConvictionData(trades) {
   const buys = trades.filter(t => t.type === 'P' && t.value > 0);
-  if (!buys.length) {
-    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px">No open-market buy data available.</div>';
-    return;
-  }
-
+  if (!buys.length) return [];
   const allByTicker = {};
   trades.forEach(t => { if (!allByTicker[t.ticker]) allByTicker[t.ticker] = []; allByTicker[t.ticker].push(t); });
   const buysByTicker = {};
   buys.forEach(t => { if (!buysByTicker[t.ticker]) buysByTicker[t.ticker] = []; buysByTicker[t.ticker].push(t); });
-
   const scored = [];
   Object.entries(buysByTicker).forEach(([ticker, tickerBuys]) => {
     const allTrades = allByTicker[ticker] || [];
-    let score = 0;
-    const reasons = [];
-
-    // Factor 1: Cluster buying
+    let score = 0; const reasons = [];
     const uniqueInsiders = new Set(tickerBuys.map(t => t.insider)).size;
     if (uniqueInsiders >= 3) { score += 25; reasons.push(`${uniqueInsiders} insiders buying simultaneously`); }
     else if (uniqueInsiders === 2) { score += 15; reasons.push(`2 insiders buying in the same window`); }
-
-    // Factor 2: Stake increase
     let bestStakeIncrease = 0, bestStakeInsider = '';
     tickerBuys.forEach(t => {
       if (t.owned > 0 && t.qty > 0) {
         const prior = t.owned - t.qty;
-        if (prior > 0) {
-          const pct = (t.qty / prior) * 100;
-          if (pct > bestStakeIncrease) { bestStakeIncrease = pct; bestStakeInsider = t.title || t.insider || ''; }
-        }
+        if (prior > 0) { const pct = (t.qty / prior) * 100; if (pct > bestStakeIncrease) { bestStakeIncrease = pct; bestStakeInsider = t.title || t.insider || ''; } }
       }
     });
     if (bestStakeIncrease >= 50) { score += 22; reasons.push(`${bestStakeInsider} increased stake by ${bestStakeIncrease.toFixed(0)}%`); }
     else if (bestStakeIncrease >= 20) { score += 14; reasons.push(`${bestStakeInsider} increased stake by ${bestStakeIncrease.toFixed(0)}%`); }
     else if (bestStakeIncrease >= 5)  { score += 7;  reasons.push(`${bestStakeInsider} added to position (${bestStakeIncrease.toFixed(0)}% increase)`); }
-
-    // Factor 3: Transaction value relative to holdings
     const totalBuyVal = tickerBuys.reduce((s, t) => s + (t.value || 0), 0);
     const maxOwned = Math.max(...tickerBuys.map(t => t.owned || 0));
     const maxPrice = (tickerBuys.find(t => t.owned === maxOwned) || {}).price || 0;
@@ -721,19 +687,13 @@ function computeConvictionScores(trades) {
       else if (pct >= 5) { score += 10; reasons.push(`Significant outlay — ${pct.toFixed(0)}% of known position`); }
     } else if (totalBuyVal >= 5000000) { score += 15; reasons.push(`Large outright purchase of ${fmt(totalBuyVal)}`); }
     else if (totalBuyVal >= 1000000)   { score += 8;  reasons.push(`${fmt(totalBuyVal)} total committed`); }
-
-    // Factor 4: Repeat buying
     const sortedBuys = [...tickerBuys].sort((a, b) => new Date(a.trade || a.filing) - new Date(b.trade || b.filing));
     if (sortedBuys.length >= 3) { score += 15; reasons.push(`${sortedBuys.length} separate buy transactions — consistent accumulation`); }
     else if (sortedBuys.length === 2) { score += 8; reasons.push(`Repeated buying across multiple dates`); }
-
-    // Factor 5: No selling since earliest buy
     const earliestBuy = (sortedBuys[0] || {}).trade || (sortedBuys[0] || {}).filing || '';
     const sellsAfter = allTrades.filter(t => (t.type === 'S' || t.type === 'S-') && (t.trade || t.filing) >= earliestBuy);
     if (sellsAfter.length === 0 && sortedBuys.length > 0) { score += 10; reasons.push(`No selling since buying began`); }
     else if (sellsAfter.length > 0) { score -= 8; reasons.push(`Note: ${sellsAfter.length} sell transaction${sellsAfter.length > 1 ? 's' : ''} also on record`); }
-
-    // Factor 6: High-signal roles
     const highRoles = ['CEO', 'CFO', 'PRESIDENT', 'CHAIRMAN', 'DIRECTOR'];
     const hasHighRole = tickerBuys.some(t => highRoles.some(r => ((t.title || '').toUpperCase()).includes(r)));
     if (hasHighRole) {
@@ -743,27 +703,20 @@ function computeConvictionScores(trades) {
         reasons.push(`${roleList} — high-signal executive`);
       }
     }
-
     score = Math.min(100, Math.max(0, Math.round(score)));
-    if (score >= 40) {
-      scored.push({
-        ticker, score, reasons: reasons.slice(0, 4),
-        totalVal: totalBuyVal,
-        company: tickerBuys[0] ? tickerBuys[0].company || ticker : ticker,
-        latestDate: sortedBuys[sortedBuys.length - 1] ? (sortedBuys[sortedBuys.length - 1].trade || sortedBuys[sortedBuys.length - 1].filing || '') : '',
-      });
-    }
+    if (score >= 40) scored.push({
+      ticker, score, reasons: reasons.slice(0, 4), totalVal: totalBuyVal,
+      company: tickerBuys[0] ? tickerBuys[0].company || ticker : ticker,
+      latestDate: sortedBuys[sortedBuys.length - 1] ? (sortedBuys[sortedBuys.length - 1].trade || sortedBuys[sortedBuys.length - 1].filing || '') : '',
+    });
   });
+  return scored.sort((a, b) => b.score - a.score).slice(0, 9);
+}
 
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, 9);
-
-  if (!top.length) {
-    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px">No high-conviction trades found in this window. Try expanding the time period.</div>';
-    return;
-  }
-
-  grid.innerHTML = top.map(c => {
+function renderConvictionCards(trades) {
+  const top = buildConvictionData(trades);
+  if (!top.length) return '<div style="color:var(--muted);font-size:12px;padding:16px">No high-conviction trades found. Try expanding the time period.</div>';
+  return top.map(c => {
     const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)';
     const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.08)' : c.score >= 60 ? 'rgba(0,212,255,0.08)' : 'rgba(255,170,0,0.08)';
     const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.25)' : c.score >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(255,170,0,0.2)';
@@ -784,6 +737,10 @@ function computeConvictionScores(trades) {
       </div>
     </div>`;
   }).join('');
+}
+
+function computeConvictionScores(trades) {
+  // No-op — conviction now lives on the Insider page dashboard
 }
 
 function renderScreener() {
@@ -1411,36 +1368,209 @@ async function computeAndRenderScore(insiderName, buyTrades) {
     :accuracyScore>=55?{label:'MONITOR',color:'var(--accent)',bg:'rgba(0,212,255,.08)',border:'rgba(0,212,255,.25)'}
     :accuracyScore>=35?{label:'LOW PRIORITY',color:'var(--option)',bg:'rgba(255,170,0,.08)',border:'rgba(255,170,0,.25)'}
     :{label:'IGNORE',color:'var(--sell)',bg:'rgba(255,68,102,.08)',border:'rgba(255,68,102,.25)'};
+
+  // ── TIMING QUALITY: analyse where in the price range each buy landed ──
+  const timing = computeTimingQuality(scored, priceCache);
+
   const statsForAI={name:insiderName,tradeCount:completed.length,pendingCount:pending.length,accuracyScore,tier,winRate,
     avgRet30:avgRet30!==null?+avgRet30.toFixed(1):null,avgRet60:avgRet60!==null?+avgRet60.toFixed(1):null,
     avgRet90:+avgRet90.toFixed(1),avgMagnitude:+avgMag.toFixed(1),timingEdge,bestTrade:+bestTrade.toFixed(1),
     worstTrade:+worstTrade.toFixed(1),consistency:+consistency.toFixed(0),
     tickers:[...new Set(completed.map(s=>s.ticker))].join(', ')};
-  scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, null);
+
+  // Render immediately with timing data, no AI yet
+  scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, null);
+
+  // AI summary + insights
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST', headers:{'Content-Type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:600,messages:[{role:'user',content:
-        `You are a financial analyst specializing in SEC Form 4 insider trading data.\nAnalyze this insider's ACTUAL computed trade performance and return a JSON object.\n\nINSIDER: ${statsForAI.name}\nTRADES ANALYZED: ${statsForAI.tradeCount} completed buys (${statsForAI.pendingCount} too recent)\nTICKERS: ${statsForAI.tickers}\nACCURACY SCORE: ${statsForAI.accuracyScore}/100 (${statsForAI.tier})\nWIN RATE: ${statsForAI.winRate}%\nAVG 30D RETURN: ${statsForAI.avgRet30!==null?statsForAI.avgRet30+'%':'N/A'}\nAVG 60D RETURN: ${statsForAI.avgRet60!==null?statsForAI.avgRet60+'%':'N/A'}\nAVG 90D RETURN: ${statsForAI.avgRet90}%\nAVG MAGNITUDE: ±${statsForAI.avgMagnitude}%\nTIMING EDGE VS MARKET: ${statsForAI.timingEdge>0?'+':''}${statsForAI.timingEdge}%\nBEST TRADE: +${statsForAI.bestTrade}%\nWORST TRADE: ${statsForAI.worstTrade}%\nCONSISTENCY: ${statsForAI.consistency}/100\n\nRespond ONLY with valid JSON, no markdown:\n{"summary":"<2 sentences assessing this insider's track record>","insights":[{"type":"good|bad|info","icon":"<emoji>","text":"<specific insight>"},{"type":"...","icon":"...","text":"..."},{"type":"...","icon":"...","text":"..."}]}`
-      }]})
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': '',   // handled by proxy
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514', max_tokens:600,
+        messages:[{role:'user', content:
+          `You are a financial analyst specializing in SEC Form 4 insider trading data.
+Analyze this insider's ACTUAL computed trade performance and return a JSON object.
+
+INSIDER: ${statsForAI.name}
+TRADES ANALYZED: ${statsForAI.tradeCount} completed buys (${statsForAI.pendingCount} too recent)
+TICKERS: ${statsForAI.tickers}
+ACCURACY SCORE: ${statsForAI.accuracyScore}/100 (${statsForAI.tier})
+WIN RATE: ${statsForAI.winRate}%
+AVG 30D RETURN: ${statsForAI.avgRet30!==null?statsForAI.avgRet30+'%':'N/A'}
+AVG 60D RETURN: ${statsForAI.avgRet60!==null?statsForAI.avgRet60+'%':'N/A'}
+AVG 90D RETURN: ${statsForAI.avgRet90}%
+TIMING QUALITY: ${timing ? `buys near lows ${timing.nearLowPct}%, near highs ${timing.nearHighPct}%, in trend ${timing.inTrendPct}%, in consolidation ${timing.inConsolidationPct}%` : 'N/A'}
+TIMING EDGE VS MARKET: ${statsForAI.timingEdge>0?'+':''}${statsForAI.timingEdge}%
+BEST TRADE: +${statsForAI.bestTrade}%   WORST: ${statsForAI.worstTrade}%
+CONSISTENCY: ${statsForAI.consistency}/100
+
+Respond ONLY with valid JSON (no markdown, no backticks):
+{"summary":"<2 sentences assessing this insider's track record and timing quality>","insights":[{"type":"good|bad|info","icon":"<emoji>","text":"<specific insight about their pattern>"},{"type":"...","icon":"...","text":"..."},{"type":"...","icon":"...","text":"..."}]}`
+        }]
+      })
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const raw = (data.content||[]).map(b=>b.text||'').join('');
-    const ai = JSON.parse(raw.replace(/```json|```/g,'').trim());
-    scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, ai);
-  } catch(e) {}
+    const clean = raw.replace(/```json|```/g,'').trim();
+    const ai = JSON.parse(clean);
+    scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, ai);
+  } catch(e) {
+    // Score + timing already rendered — silently keep what we have
+    console.warn('Scorecard AI error:', e.message);
+  }
 }
 
-function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, ai) {
+// ── TIMING QUALITY ENGINE ─────────────────────────────────────────
+function computeTimingQuality(scored, priceCache) {
+  // For each buy, look at the 60-day price window around the trade and classify
+  // where in that range the buy price sits
+  const results = [];
+  scored.forEach(s => {
+    const bars = priceCache[s.ticker] || [];
+    if (!bars.length) return;
+    const buyDate = s.tradeDate;
+    const buyPrice = s.buyPrice;
+    if (!buyPrice) return;
+
+    // Get prices ±30 days around the buy
+    const winStart = new Date(buyDate+'T12:00:00Z'); winStart.setUTCDate(winStart.getUTCDate()-30);
+    const winEnd   = new Date(buyDate+'T12:00:00Z'); winEnd.setUTCDate(winEnd.getUTCDate()+30);
+    const winBars  = bars.filter(b => {
+      const t = new Date(b.time+'T12:00:00Z');
+      return t >= winStart && t <= winEnd;
+    });
+    if (winBars.length < 5) return;
+
+    const hi  = Math.max(...winBars.map(b => b.high));
+    const lo  = Math.min(...winBars.map(b => b.low));
+    const rng = hi - lo;
+    if (rng < 0.01) return;
+
+    const posInRange = (buyPrice - lo) / rng; // 0 = at low, 1 = at high
+
+    // Classify
+    const nearLow          = posInRange <= 0.25;
+    const nearHigh         = posInRange >= 0.75;
+
+    // Trend: look at slope of 20-bar SMA before buy
+    const barsBeforeBuy = bars.filter(b => b.time <= buyDate).slice(-25);
+    let inTrend = false, inConsolidation = false;
+    if (barsBeforeBuy.length >= 10) {
+      const closes = barsBeforeBuy.map(b => b.close);
+      const smaEarly = closes.slice(0, 5).reduce((a,b)=>a+b,0) / 5;
+      const smaLate  = closes.slice(-5).reduce((a,b)=>a+b,0) / 5;
+      const slopeStr = Math.abs(smaLate - smaEarly) / smaEarly;
+      inTrend         = slopeStr > 0.04;
+      inConsolidation = slopeStr < 0.015;
+    }
+
+    results.push({ nearLow, nearHigh, inTrend, inConsolidation, posInRange, ret90: s.ret90 });
+  });
+
+  if (!results.length) return null;
+  const n = results.length;
+  const pct = x => Math.round((results.filter(r => r[x]).length / n) * 100);
+  const avgRet = subset => {
+    const s = results.filter(r => r[subset] && r.ret90 !== null);
+    return s.length ? +(s.reduce((a,b)=>a+b.ret90,0)/s.length).toFixed(1) : null;
+  };
+
+  const nearLowPct          = pct('nearLow');
+  const nearHighPct         = pct('nearHigh');
+  const inTrendPct          = pct('inTrend');
+  const inConsolidationPct  = pct('inConsolidation');
+  const nearLowRet          = avgRet('nearLow');
+  const nearHighRet         = avgRet('nearHigh');
+  const avgPosInRange       = +(results.reduce((a,b)=>a+b.posInRange,0)/n*100).toFixed(0);
+
+  // Overall timing verdict
+  let verdict, verdictColor, verdictDetail;
+  if (nearLowPct >= 55 && (nearLowRet === null || nearLowRet > 0)) {
+    verdict = `Buys near lows (${nearLowPct}% of trades)`;
+    verdictColor = 'var(--buy)';
+    verdictDetail = nearLowRet !== null ? `Avg +${nearLowRet}% 90d return on low-range buys — significant edge` : 'Consistently accumulates at cycle lows';
+  } else if (nearHighPct >= 55) {
+    verdict = `Tends to buy near highs (${nearHighPct}% of trades)`;
+    verdictColor = 'var(--sell)';
+    verdictDetail = nearHighRet !== null ? `Avg ${nearHighRet>0?'+':''}${nearHighRet}% 90d return buying near highs` : 'Buys into strength — momentum-driven';
+  } else if (inTrendPct >= 60) {
+    verdict = `Buys during uptrends (${inTrendPct}% of trades)`;
+    verdictColor = 'var(--accent)';
+    verdictDetail = 'Trend-following style — enters after momentum confirms';
+  } else if (inConsolidationPct >= 50) {
+    verdict = `Buys during consolidation (${inConsolidationPct}% of trades)`;
+    verdictColor = 'var(--option)';
+    verdictDetail = 'Accumulates during quiet periods, ahead of moves';
+  } else {
+    verdict = `Mixed timing pattern`;
+    verdictColor = 'var(--muted)';
+    verdictDetail = `Avg position in 60-day range: ${avgPosInRange}th percentile`;
+  }
+
+  return { nearLowPct, nearHighPct, inTrendPct, inConsolidationPct, verdict, verdictColor, verdictDetail, avgPosInRange, n };
+}
+
+function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, timing, ai) {
   const rs = v => v===null?'—':(v>=0?'+':'')+v.toFixed(1)+'%';
   const rc = v => v===null?'var(--muted)':v>=0?'var(--buy)':'var(--sell)';
   const edgeSign=timingEdge>0?'+':'', edgeColor=timingEdge>2?'var(--buy)':timingEdge<0?'var(--sell)':'var(--option)';
   const timingBarW=Math.min(100,Math.max(0,((timingEdge+20)/60)*100)).toFixed(1);
   const timingBarColor=timingEdge>2?'var(--buy)':timingEdge<0?'var(--sell)':'var(--option)';
-  const insightHtml=ai?.insights?.map(i=>`<div class="insight-row ${i.type}"><span class="iicon">${i.icon}</span><span class="itext">${i.text}</span></div>`).join('')
-    ||`<div class="insight-row info"><span class="iicon">⏳</span><span class="itext">AI analysis loading…</span></div>`;
+
+  // AI insights or placeholder
+  const insightHtml = ai?.insights?.map(i =>
+    `<div class="insight-row ${i.type}"><span class="iicon">${i.icon}</span><span class="itext">${i.text}</span></div>`
+  ).join('') || '';
+
+  // Timing Quality Tracker block
+  const timingBlock = timing ? (() => {
+    const rows = [
+      { label: 'Near Lows',      pct: timing.nearLowPct,         icon: '📉', color: timing.nearLowPct >= 55 ? 'var(--buy)' : 'var(--muted)',   desc: 'buys in bottom 25% of 60d range' },
+      { label: 'Near Highs',     pct: timing.nearHighPct,        icon: '📈', color: timing.nearHighPct >= 55 ? 'var(--sell)' : 'var(--muted)',  desc: 'buys in top 25% of 60d range' },
+      { label: 'In Uptrend',     pct: timing.inTrendPct,         icon: '🚀', color: timing.inTrendPct >= 60 ? 'var(--accent)' : 'var(--muted)', desc: 'price trending up at buy date' },
+      { label: 'Consolidation',  pct: timing.inConsolidationPct, icon: '⏸',  color: timing.inConsolidationPct >= 50 ? 'var(--option)' : 'var(--muted)', desc: 'low-volatility range at buy date' },
+    ];
+    // The "huge edge" verdict badge
+    const isHugeEdge = timing.nearLowPct >= 65 || (timing.nearLowPct >= 50 && timingEdge > 5);
+    const verdictBadge = isHugeEdge
+      ? `<div style="display:inline-flex;align-items:center;gap:6px;background:rgba(0,255,136,0.12);border:1px solid rgba(0,255,136,0.35);border-radius:20px;padding:5px 14px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;color:var(--buy);letter-spacing:1px;margin-top:10px">⚡ HUGE EDGE — ${timing.verdict}</div>`
+      : `<div style="margin-top:10px;font-size:11px;color:${timing.verdictColor};font-style:italic">${timing.verdict}</div>`;
+    return `
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;color:var(--text)">🎯 TIMING QUALITY TRACKER</div>
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">${timing.n} trades analysed</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+        ${rows.map(r => {
+          const barW = Math.min(100, r.pct);
+          return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:9px 12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+              <span style="font-size:11px;color:var(--text)">${r.icon} ${r.label}</span>
+              <span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${r.color}">${r.pct}%</span>
+            </div>
+            <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
+              <div style="height:100%;width:${barW}%;background:${r.color};border-radius:2px;transition:width .4s ease"></div>
+            </div>
+            <div style="font-size:9px;color:var(--muted);margin-top:4px">${r.desc}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="font-size:11px;color:${timing.verdictColor};margin-top:6px">${timing.verdictDetail}</div>
+      ${verdictBadge}
+    </div>`;
+  })() : '';
+
   const completedSorted=scored.filter(s=>s.ret90!==null).sort((a,b)=>new Date(b.tradeDate)-new Date(a.tradeDate));
   const pendingRows=scored.filter(s=>s.isPending).sort((a,b)=>new Date(b.tradeDate)-new Date(a.tradeDate));
+
   return `
     <div class="score-ring-wrap">
       <div class="score-ring-big" style="border-color:${tierColor};box-shadow:0 0 20px ${tierColor}33">
@@ -1448,7 +1578,7 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
       </div>
       <div class="score-summary">
         <div class="score-tier-label" style="color:${tierColor}">${tier} INSIDER</div>
-        <div class="score-summary-text">${ai?.summary||'Analyzing trade history…'}</div>
+        <div class="score-summary-text">${ai?.summary || `${stats.tradeCount} completed trades scored · ${stats.winRate}% win rate · avg ${stats.avgRet90>=0?'+':''}${stats.avgRet90}% at 90 days`}</div>
         <div class="score-follow-badge" style="color:${followRec.color};background:${followRec.bg};border-color:${followRec.border}">${followRec.label}</div>
       </div>
     </div>
@@ -1464,7 +1594,8 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
       <div class="timing-bar-label"><span>Poor timing</span><span style="color:${edgeColor}">${edgeSign}${stats.timingEdge}% edge vs market</span><span>Elite timing</span></div>
       <div class="timing-bar-track"><div class="timing-bar-fill" style="width:${timingBarW}%;background:${timingBarColor}"></div></div>
     </div>
-    <div class="scorer-insights" style="margin-bottom:18px">${insightHtml}</div>
+    ${timingBlock}
+    ${insightHtml ? `<div class="scorer-insights" style="margin-bottom:18px">${insightHtml}</div>` : ''}
     <div class="scorer-trade-rows">
       <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;margin-bottom:8px">FORWARD RETURNS BY TRADE (actual price data)${stats.pendingCount>0?`<span style="margin-left:12px;color:var(--option)">⏳ ${stats.pendingCount} open</span>`:''}</div>
       <div class="scorer-trade-row-header"><span>DATE</span><span>TICKER</span><span>BUY PRICE</span><span>+30D</span><span>+60D</span><span>+90D</span><span>RESULT</span></div>
@@ -1579,6 +1710,13 @@ async function loadInsiderDashboard() {
     });
     const clusters=Object.entries(clusterMap).sort((a,b)=>b[1].insiders.size-a[1].insiders.size).slice(0,8);
     dash.innerHTML=`
+      <div style="margin-bottom:24px">
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:12px">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text)">⚡ HIGH CONVICTION TRADES</div>
+          <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">Scored by cluster buying, stake increase, repeat behavior & position size · Last 30D</div>
+        </div>
+        <div class="conviction-grid" id="convictionGrid">${renderConvictionCards(recent)}</div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--buy);font-size:14px">▲</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span></div>
