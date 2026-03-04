@@ -630,8 +630,8 @@ function searchTicker() {
 document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.key==='Enter') searchTicker(); });
 
 const API_BASE = '';
-async function apiFetch(path, opts={}) {
-  const resp = await fetch(API_BASE + path, opts);
+async function apiFetch(path) {
+  const resp = await fetch(API_BASE + path);
   if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
   return resp.json();
 }
@@ -3516,7 +3516,6 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
 
 // ── CONGRESS VIEW ─────────────────────────────────────────────
 let _congressData = null;
-let _congressStatus = null;
 let _congressDays = 90;
 let _congressFilter = 'all';
 
@@ -3526,57 +3525,14 @@ async function loadCongressView() {
   body.innerHTML = `<div class="loading-state" style="height:300px"><div class="spinner"></div><span>Loading congressional trades…</span></div>`;
 
   try {
-    // Check status first so we know what we're dealing with
-    const [data, status] = await Promise.all([
-      apiFetch(`/api/congress?days=${_congressDays}&limit=500`).catch(() => []),
-      apiFetch('/api/congress-status').catch(() => null),
-    ]);
-
-    _congressData = Array.isArray(data) ? data : [];
-    _congressStatus = status;
-
-    if (!_congressData.length) {
-      // No data yet — show sync UI
-      const syncing = status?.syncing;
-      body.innerHTML = `
-        <div style="max-width:700px;margin:60px auto;text-align:center;padding:0 20px">
-          <div style="font-size:48px;margin-bottom:16px">🏛️</div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--text);margin-bottom:8px">CONGRESSIONAL TRADE DATA</div>
-          ${syncing
-            ? `<div style="color:var(--option);font-size:13px;margin-bottom:20px">⏳ Sync in progress — downloading House &amp; Senate STOCK Act disclosures…<br>
-               <span style="font-size:11px;color:var(--muted)">This may take 30–60 seconds on first run. Page will auto-refresh.</span></div>`
-            : `<div style="color:var(--muted);font-size:13px;margin-bottom:20px">
-               House &amp; Senate STOCK Act disclosures haven't synced yet.<br>
-               <span style="font-size:11px">Data comes from the official House and Senate stock watcher filings.</span>
-               </div>`
-          }
-          <button onclick="triggerCongressSync()" style="background:rgba(0,212,255,0.1);border:1px solid var(--accent);color:var(--accent);padding:10px 24px;border-radius:6px;font-family:'Space Mono',monospace;font-size:12px;cursor:pointer;letter-spacing:1px">
-            ${syncing ? '⏳ SYNCING…' : '⬇ SYNC NOW'}
-          </button>
-          <div id="congressSyncMsg" style="margin-top:12px;font-size:11px;color:var(--muted)"></div>
-        </div>`;
-      // Auto-poll while syncing
-      if (syncing) {
-        setTimeout(() => loadCongressView(), 5000);
-      }
-      return;
-    }
-
+    const data = await apiFetch(`/api/congress?days=${_congressDays}&limit=500`);
+    _congressData = data;
     renderCongressView();
   } catch(e) {
-    body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
-  }
-}
-
-async function triggerCongressSync() {
-  const msg = document.getElementById('congressSyncMsg');
-  if (msg) msg.textContent = 'Starting sync…';
-  try {
-    const r = await apiFetch('/api/sync-congress', { method: 'POST' });
-    if (msg) msg.textContent = r.message || 'Sync started — refreshing in 10 seconds…';
-    setTimeout(() => loadCongressView(), 10000);
-  } catch(e) {
-    if (msg) msg.textContent = 'Error: ' + e.message;
+    body.innerHTML = `<div class="empty-state"><div class="empty-icon">🏛️</div>
+      <div>Congressional trade data is syncing from STOCK Act disclosures.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">Check back in a few minutes, or try the screener for corporate insider trades.</div>
+    </div>`;
   }
 }
 
@@ -3617,7 +3573,7 @@ function renderCongressView() {
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">RANGE:</span>
-          ${[30,90,180,365].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};_congressData=null;loadCongressView()">${d===365?'1Y':d+'D'}</button>`).join('')}
+          ${[30,90,180,365].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};loadCongressView()">${d===365?'1Y':d+'D'}</button>`).join('')}
         </div>
       </div>
 
