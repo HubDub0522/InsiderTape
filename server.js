@@ -268,6 +268,8 @@ app.get('/api/firstbuys', (req, res) => {
 });
 
 
+// PRICE — FMP with Yahoo Finance fallback
+app.get('/api/price', async (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
 
