@@ -267,6 +267,46 @@ app.get('/api/firstbuys', (req, res) => {
   }
 });
 
+// OPPORTUNITY RANKER — per-ticker aggregates for frontend scoring
+app.get('/api/ranker', (req, res) => {
+  try {
+    const days = Math.min(parseInt(req.query.days || '30'), 90);
+    const rows = db.prepare(`
+      SELECT
+        ticker,
+        MAX(company) AS company,
+        COUNT(CASE WHEN type='P' THEN 1 END)                            AS buy_count,
+        COUNT(DISTINCT CASE WHEN type='P' THEN insider END)             AS buyer_count,
+        SUM(CASE WHEN type='P' THEN COALESCE(value,0) ELSE 0 END)       AS total_buy_val,
+        MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)           AS latest_buy_date,
+        COUNT(CASE WHEN type IN ('S','S-') THEN 1 END)                  AS sell_count,
+        COUNT(DISTINCT CASE WHEN type IN ('S','S-') THEN insider END)   AS seller_count,
+        SUM(CASE WHEN type IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
+        MAX(CASE WHEN type IN ('S','S-') THEN trade_date ELSE NULL END) AS latest_sell_date,
+        MAX(CASE WHEN type='P' AND (
+          UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR
+          UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%' OR
+          UPPER(title) LIKE '%FOUNDER%' OR UPPER(title) LIKE '%COO%'
+        ) THEN 1 ELSE 0 END)                                            AS has_exec_buyer,
+        CAST(julianday('now') - julianday(
+          MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)
+        ) AS INTEGER)                                                    AS days_since_buy,
+        MAX(CASE WHEN type='P' AND owned>qty AND qty>0
+          THEN CAST(qty*100.0/(owned-qty) AS INTEGER) ELSE 0 END)       AS max_stake_pct
+      FROM trades
+      WHERE filing_date >= date('now', '-' || ? || ' days')
+      GROUP BY ticker
+      HAVING buy_count > 0
+      ORDER BY total_buy_val DESC
+      LIMIT 200
+    `).all(days);
+    res.json(rows);
+  } catch(e) {
+    slog('ranker error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // PRICE — FMP with Yahoo Finance fallback
 app.get('/api/price', async (req, res) => {
