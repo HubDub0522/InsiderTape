@@ -1865,7 +1865,7 @@ function renderAnalysisDashboard() {
 
   // Kick off API fetch for first-buy tile data if not cached yet
   if (!_firstBuyCache) {
-    apiFetch('/api/firstbuys?mingap=180&lookback=90&limit=50').then(rows => {
+    apiFetch('/api/firstbuys?mingap=1825&lookback=90&limit=50').then(rows => {
       _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
       // Refresh dashboard tiles once data arrives
       const body = document.getElementById('analysisViewBody');
@@ -1908,24 +1908,26 @@ function renderAnalysisDashboard() {
       accentBg: 'rgba(0,212,255,0.06)',
       accentBorder: 'rgba(0,212,255,0.2)',
     },
-    {
-      id: 'firstbuy',
-      icon: '🚨',
-      name: 'First Buy in Years',
-      desc: 'Detects insiders who haven\'t bought their own stock in years — then suddenly do. A CEO\'s first open-market buy in 6 years is a rare, powerful signal.',
-      count: _firstBuyCache ? _firstBuyCache.length : '…',
-      countLabel: 'signals found',
-      top3: firstBuyTop3.map(s => ({
-        ticker: s.ticker,
-        label: s.gapYears >= 1 ? `${s.gapYears.toFixed(1)}yr gap` : `${s.gapMonths}mo gap`,
-        sub: `${s.insider} · ${s.title || 'Insider'}`,
-        color: s.gapYears >= 3 ? 'var(--buy)' : s.gapYears >= 1 ? 'var(--accent)' : 'var(--option)',
-      })),
-      accentColor: 'var(--sell)',
-      accentBg: 'rgba(255,68,102,0.05)',
-      accentBorder: 'rgba(255,68,102,0.2)',
-    },
   ];
+
+  // First Buy always rendered last regardless of array order
+  const firstBuyTool = {
+    id: 'firstbuy',
+    icon: '🚨',
+    name: 'First Buy in Years',
+    desc: 'Detects insiders making their first open-market purchase after 5+ years of inactivity on a stock. One of the rarest and most deliberate signals in Form 4 data.',
+    count: _firstBuyCache ? _firstBuyCache.length : '…',
+    countLabel: 'signals found',
+    top3: firstBuyTop3.map(s => ({
+      ticker: s.ticker,
+      label: `${s.gapYears.toFixed(1)}yr gap`,
+      sub: `${s.insider} · ${s.title || 'Insider'}`,
+      color: 'var(--buy)',
+    })),
+    accentColor: 'var(--sell)',
+    accentBg: 'rgba(255,68,102,0.05)',
+    accentBorder: 'rgba(255,68,102,0.2)',
+  };
 
   body.innerHTML = `
   <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
@@ -1934,7 +1936,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${tools.map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
 }
@@ -2022,7 +2024,7 @@ async function renderFirstBuySubpage() {
 
   // Controls
   const [minGap, lookback] = [
-    parseInt(document.getElementById('fbMinGap')?.value   || '180'),
+    parseInt(document.getElementById('fbMinGap')?.value   || '1825'),
     parseInt(document.getElementById('fbLookback')?.value || '90'),
   ];
 
