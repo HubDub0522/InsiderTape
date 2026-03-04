@@ -1821,7 +1821,8 @@ document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput'
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
 let _analysisData = null;     // 30-day trades cache
-let _analysisDataLong = null; // 3-year trades cache for First Buy scanner
+let _analysisDataLong = null; // 365-day trades cache
+let _firstBuyCache = null;    // firstbuys API results cache
 
 async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
@@ -1860,7 +1861,17 @@ function renderAnalysisDashboard() {
   // Pre-compute top 3 for each tool
   const convTop3    = buildConvictionData(trades).slice(0, 3);
   const clusterTop3 = detectAdvancedClusters(trades).slice(0, 3);
-  const firstBuyTop3 = detectFirstBuys(longTrades).slice(0, 3);
+  const firstBuyTop3 = _firstBuyCache ? _firstBuyCache.slice(0, 3) : [];
+
+  // Kick off API fetch for first-buy tile data if not cached yet
+  if (!_firstBuyCache) {
+    apiFetch('/api/firstbuys?mingap=180&lookback=90&limit=50').then(rows => {
+      _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
+      // Refresh dashboard tiles once data arrives
+      const body = document.getElementById('analysisViewBody');
+      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+    }).catch(() => { _firstBuyCache = []; });
+  }
 
   const tools = [
     {
@@ -1902,8 +1913,8 @@ function renderAnalysisDashboard() {
       icon: '🚨',
       name: 'First Buy in Years',
       desc: 'Detects insiders who haven\'t bought their own stock in years — then suddenly do. A CEO\'s first open-market buy in 6 years is a rare, powerful signal.',
-      count: firstBuyTop3.length ? detectFirstBuys(longTrades).length : 0,
-      countLabel: firstBuyTop3.length ? 'signals found' : 'loading…',
+      count: _firstBuyCache ? _firstBuyCache.length : '…',
+      countLabel: 'signals found',
       top3: firstBuyTop3.map(s => ({
         ticker: s.ticker,
         label: s.gapYears >= 1 ? `${s.gapYears.toFixed(1)}yr gap` : `${s.gapMonths}mo gap`,
