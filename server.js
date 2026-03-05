@@ -116,6 +116,25 @@ let dailyRunning = false;
 
 function runDaily(daysBack = 3) {
   if (dailyRunning) return;
+
+  // Smart scheduling: only poll during market hours (Mon–Fri, 7am–8pm ET)
+  // Outside those hours, sleep until the next morning open
+  const now = new Date();
+  // Convert to US Eastern time
+  const etOffset = -5; // EST (UTC-5); DST handled approximately
+  const etHour = (now.getUTCHours() + 24 + etOffset) % 24;
+  const etDay  = new Date(now.getTime() + etOffset * 3600000).getUTCDay(); // 0=Sun,6=Sat
+  const isWeekday = etDay >= 1 && etDay <= 5;
+  const isMarketHours = etHour >= 7 && etHour < 20; // 7am–8pm ET covers pre/post market
+
+  if (!isWeekday || !isMarketHours) {
+    // Sleep until 7:05am ET next weekday
+    const msUntilOpen = msUntilNextOpen(now, etOffset);
+    slog(`=== daily-worker sleeping ${Math.round(msUntilOpen/60000)}min until market hours ===`);
+    setTimeout(() => runDaily(2), msUntilOpen);
+    return;
+  }
+
   dailyRunning = true;
   slog(`=== spawning daily-worker (RSS poll mode, ${daysBack} days backfill) ===`);
 
@@ -129,9 +148,23 @@ function runDaily(daysBack = 3) {
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ERR: ' + l)));
   worker.on('exit', code => {
     dailyRunning = false;
-    slog(`=== daily-worker exited (code ${code}) — restarting in 30s ===`);
-    setTimeout(() => runDaily(2), 30 * 1000);
+    slog(`=== daily-worker exited (code ${code}) — restarting in 2min ===`);
+    setTimeout(() => runDaily(2), 2 * 60 * 1000); // 2 min between runs during market hours
   });
+}
+
+function msUntilNextOpen(now, etOffset) {
+  // Find next weekday 7:05am ET
+  const target = new Date(now);
+  target.setUTCHours(7 - etOffset, 5, 0, 0); // 7:05am ET in UTC
+  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+  // Skip weekends
+  while (true) {
+    const day = new Date(target.getTime() + etOffset * 3600000).getUTCDay();
+    if (day >= 1 && day <= 5) break;
+    target.setUTCDate(target.getUTCDate() + 1);
+  }
+  return Math.max(target - now, 60000); // at least 1 min
 }
 
 // ─── PRICE CACHE ──────────────────────────────────────────────
@@ -790,11 +823,11 @@ app.get('/api/congress-status', (req, res) => {
 
 
 
-// Congress endpoint — same data as screener but filtered to source='congress'
+// Congress endpoint — all available data (Senate data goes back to 2020)
 app.get('/api/congress', (req, res) => {
   try {
-    const days  = Math.min(parseInt(req.query.days || '365'), 1095);
-    const limit = Math.min(parseInt(req.query.limit || '1000'), 5000);
+    const days  = Math.min(parseInt(req.query.days || '1825'), 3650); // default 5 years
+    const limit = Math.min(parseInt(req.query.limit || '2000'), 10000);
     const rows  = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
