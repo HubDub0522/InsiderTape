@@ -3521,7 +3521,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
 // The congress tab is a dedicated filtered view
 
 let _congressFilter = 'all';
-let _congressDays   = 365;
+let _congressDays   = 1825;
 let _congressRaw    = null;
 
 async function loadCongressView() {
@@ -3531,7 +3531,7 @@ async function loadCongressView() {
   try {
     // Always fetch fresh — congress data is wide (365d default) and separate from screener
     const [data, status] = await Promise.all([
-      apiFetch(`/api/congress?days=${_congressDays}&limit=2000`),
+      apiFetch(`/api/congress?days=${_congressDays}&limit=5000`),
       apiFetch('/api/congress-status').catch(()=>null),
     ]);
     _congressRaw = Array.isArray(data) ? data : [];
@@ -3599,7 +3599,7 @@ function renderCongressView() {
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">RANGE:</span>
-        ${[90,180,365,730].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};_congressRaw=null;loadCongressView()">${d>=365?Math.round(d/365)+'Y':d+'D'}</button>`).join('')}
+        ${[365,730,1095,1825].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};_congressRaw=null;loadCongressView()">${Math.round(d/365)}Y</button>`).join('')}
       </div>
     </div>
 
