@@ -148,24 +148,33 @@ app.get('/api/screener', (req, res) => {
     if (n === 0 && syncRunning)
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
 
-    const days    = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095); // cap at 3 years
-    const limit   = Math.min(parseInt(req.query.limit || '1000'), 2000);           // cap rows returned
+    const days    = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
+    const limit   = Math.min(parseInt(req.query.limit || '1000'), 2000);
+    const srcFilter = req.query.source || 'all'; // 'all' | 'sec' | 'congress'
+
+    let whereClause = `filing_date >= date('now', '-' || ? || ' days')`;
+    const params = [days, limit];
+
+    if (srcFilter === 'congress') whereClause += ` AND source = 'congress'`;
+    else if (srcFilter === 'sec')  whereClause += ` AND (source = 'sec' OR source IS NULL)`;
 
     let rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned
+             type, qty, price, value, owned,
+             COALESCE(source, 'sec') AS source
       FROM trades
-      WHERE filing_date >= date('now', '-' || ? || ' days')
+      WHERE ${whereClause}
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
-    `).all(days, limit);
+    `).all(...params);
 
     if (!rows.length && n > 0) {
       rows = db.prepare(`
         SELECT ticker, company, insider, title,
                trade_date AS trade, filing_date AS filing,
-               type, qty, price, value, owned
+               type, qty, price, value, owned,
+               COALESCE(source, 'sec') AS source
         FROM trades
         ORDER BY trade_date DESC, filing_date DESC
         LIMIT 500
@@ -856,124 +865,86 @@ let congressSyncRunning = false;
 async function syncCongressTrades() {
   if (congressSyncRunning) return;
   congressSyncRunning = true;
-  slog('=== Starting congressional trade sync ===');
+  slog('=== Congressional sync START ===');
 
-  const insert = db.prepare(`
+  const upsert = db.prepare(`
     INSERT OR IGNORE INTO trades
-      (ticker, company, insider, title, trade_date, filing_date, type, qty, price, value, owned, accession, source)
-    VALUES
-      (@ticker, @company, @insider, @title, @trade_date, @filing_date, @type, @qty, @price, @value, @owned, @accession, @source)
+      (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,source)
+    VALUES (@ticker,@company,@insider,@title,@trade_date,@filing_date,@type,@qty,@price,@value,@owned,@accession,@source)
   `);
+  const nt = s => { s=(s||'').toLowerCase(); return s.includes('sale')||s.includes('sell')?'S':s.includes('purchase')||s.includes('buy')?'P':'X'; };
+  const midVal = s => { const n=(s||'').replace(/[^0-9\-]/g,'').split('-').map(Number).filter(x=>x>0); return n.length>=2?Math.round((n[0]+n[1])/2):n[0]||0; };
+  const flush = rows => { if(!rows.length) return 0; let n=0; db.transaction(items=>{for(const r of items){try{upsert.run(r);n++;}catch(e){}}})(rows); return n; };
+  let total=0;
 
-  let total = 0;
-
-  function nt(str) {
-    const s = (str||'').toLowerCase();
-    if (s.includes('sale')||s.includes('sell')||s==='s') return 'S';
-    if (s.includes('purchase')||s.includes('buy')||s==='p') return 'P';
-    return 'X';
-  }
-
-  function mid(rangeStr) {
-    // Handles "$1,001 - $15,000" or "$50,000" or "over $1,000,000"
-    const n = (rangeStr||'').replace(/[^0-9\-]/g,'');
-    const parts = n.split('-').map(Number).filter(x=>x>0);
-    if (parts.length>=2) return Math.round((parts[0]+parts[1])/2);
-    if (parts.length===1) return parts[0];
-    return 0;
-  }
-
-  function batchInsert(rows) {
-    if (!rows.length) return 0;
-    let n = 0;
-    const tx = db.transaction(items => {
-      for (const row of items) {
-        try { insert.run(row); n++; } catch(e) {}
-      }
-    });
-    tx(rows);
-    return n;
-  }
-
-  // ── Source A: House Stock Watcher (S3, covers all House PTR filings) ────────
-  // File is ~8-12MB — stream and parse in chunks
-  try {
-    slog('Fetching House Stock Watcher data...');
-    const { status, body } = await get(
-      'https://house-stock-watcher-data.s3-us-east-2.amazonaws.com/data/all_transactions.json',
-      45000  // larger file needs more time
-    );
-    slog(`House S3 status: ${status}, body size: ${body.length}`);
-    if (status === 200 && body.length > 100) {
-      const trades = JSON.parse(body.toString('utf8'));
-      if (Array.isArray(trades)) {
-        const rows = [];
-        for (const t of trades) {
-          const ticker = (t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'').trim();
-          if (!ticker || ticker==='--' || ticker.length>10) continue;
-          const td = (t.transaction_date||t.disclosure_date||'').slice(0,10);
-          const fd = (t.disclosure_date||td).slice(0,10);
-          if (!td||td<'2012-01-01') continue;
-          const name = (t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?|Mrs\.?)\s*/i,'').trim();
-          if (!name) continue;
-          rows.push({
-            ticker, company: (t.asset_description||ticker).slice(0,200),
-            insider: name, title: 'Representative',
-            trade_date: td, filing_date: fd,
-            type: nt(t.type), qty:0, price:0, value: mid(t.amount),
-            owned:0, accession: `hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
-            source:'congress'
-          });
+  async function tryFetch(label, urls, parse) {
+    for (const url of urls) {
+      try {
+        slog(`${label}: GET ${url}`);
+        const {status,body} = await get(url, 50000);
+        slog(`${label}: status=${status} size=${body.length}`);
+        if (status===200 && body.length>5000) {
+          const rows = parse(body);
+          const n = flush(rows);
+          total+=n;
+          slog(`${label}: ${rows.length} valid rows → ${n} inserted`);
+          return true;
         }
-        const n = batchInsert(rows);
-        total += n;
-        slog(`House Stock Watcher: processed ${rows.length} records, inserted ${n}`);
-      }
-    }
-  } catch(e) { slog(`House Stock Watcher ERROR: ${e.message}`); }
-
-  // ── Source B: Senate Stock Watcher (S3, covers all Senate PTR filings) ──────
-  try {
-    slog('Fetching Senate Stock Watcher data...');
-    const { status, body } = await get(
-      'https://senate-stock-watcher-data.s3-us-east-2.amazonaws.com/aggregate/all_transactions.json',
-      45000
-    );
-    slog(`Senate S3 status: ${status}, body size: ${body.length}`);
-    if (status === 200 && body.length > 100) {
-      const trades = JSON.parse(body.toString('utf8'));
-      if (Array.isArray(trades)) {
-        const rows = [];
-        for (const t of trades) {
-          const ticker = (t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'').trim();
-          if (!ticker || ticker==='--' || ticker.length>10) continue;
-          const td = (t.transaction_date||t.disclosure_date||'').slice(0,10);
-          const fd = (t.disclosure_date||td).slice(0,10);
-          if (!td||td<'2012-01-01') continue;
-          // Senate watcher uses first_name/last_name or senator field
-          const rawName = t.senator || ((t.first_name||'')+' '+(t.last_name||'')).trim();
-          const name = rawName.replace(/^(Hon\.?|Sen\.?|Dr\.?)\s*/i,'').trim();
-          if (!name) continue;
-          rows.push({
-            ticker, company: (t.asset_description||ticker).slice(0,200),
-            insider: name, title: 'Senator',
-            trade_date: td, filing_date: fd,
-            type: nt(t.type), qty:0, price:0, value: mid(t.amount),
-            owned:0, accession: `ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
-            source:'congress'
-          });
+        if (status===301||status===302) {
+          // Extract location from body (S3 returns XML with <Endpoint> tag)
+          const loc = body.toString().match(/<Endpoint>([^<]+)<\/Endpoint>/)?.[1] ||
+                      body.toString().match(/Location: ([^\r\n]+)/)?.[1];
+          slog(`${label}: redirect → ${loc||'unknown location'}`);
         }
-        const n = batchInsert(rows);
-        total += n;
-        slog(`Senate Stock Watcher: processed ${rows.length} records, inserted ${n}`);
-      }
+      } catch(e) { slog(`${label} ${url.split('/')[2]}: ${e.message}`); }
     }
-  } catch(e) { slog(`Senate Stock Watcher ERROR: ${e.message}`); }
+    return false;
+  }
 
-  slog(`=== Congressional sync complete: ${total} total rows inserted ===`);
-  congressSyncRunning = false;
+  // ── House Stock Watcher ───────────────────────────────────────────────────
+  await tryFetch('House', [
+    'https://s3.us-east-2.amazonaws.com/house-stock-watcher-data/data/all_transactions.json',
+    'https://house-stock-watcher-data.s3.amazonaws.com/data/all_transactions.json',
+    'https://house-stock-watcher-data.s3-us-east-2.amazonaws.com/data/all_transactions.json',
+  ], body => {
+    const arr = JSON.parse(body.toString('utf8'));
+    if (!Array.isArray(arr)) return [];
+    return arr.map(t => {
+      const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+      const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
+      const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
+      if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
+      return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Representative',
+        trade_date:td,filing_date:(t.disclosure_date||td).slice(0,10),type:nt(t.type),
+        qty:0,price:0,value:midVal(t.amount),owned:0,
+        accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
+    }).filter(Boolean);
+  });
+
+  // ── Senate Stock Watcher ──────────────────────────────────────────────────
+  await tryFetch('Senate', [
+    'https://s3.us-east-2.amazonaws.com/senate-stock-watcher-data/aggregate/all_transactions.json',
+    'https://senate-stock-watcher-data.s3.amazonaws.com/aggregate/all_transactions.json',
+    'https://senate-stock-watcher-data.s3-us-east-2.amazonaws.com/aggregate/all_transactions.json',
+  ], body => {
+    let arr = JSON.parse(body.toString('utf8'));
+    if (!Array.isArray(arr)) { if(arr?.transactions) arr=arr.transactions; else return []; }
+    return arr.map(t => {
+      const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+      const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
+      const raw=t.senator||((t.first_name||'')+' '+(t.last_name||'')).trim();
+      const name=raw.replace(/^(Hon\.?|Sen\.?|Dr\.?)\s*/i,'').trim();
+      if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
+      return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Senator',
+        trade_date:td,filing_date:(t.disclosure_date||td).slice(0,10),type:nt(t.type),
+        qty:0,price:0,value:midVal(t.amount),owned:0,
+        accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
+    }).filter(Boolean);
+  });
+
+  slog(`=== Congressional sync END: ${total} rows inserted ===`);
+  congressSyncRunning=false;
 }
-// Manual trigger endpoint
 app.post('/api/sync-congress', async (req, res) => {
   if (congressSyncRunning) return res.json({ status: 'running', message: 'Sync already in progress' });
   syncCongressTrades();
@@ -991,18 +962,19 @@ app.get('/api/congress-status', (req, res) => {
 
 
 
-// Expose congress trade filter to screener
+// Congress endpoint — same data as screener but filtered to source='congress'
 app.get('/api/congress', (req, res) => {
   try {
-    const days  = Math.min(parseInt(req.query.days || '90'), 730);
-    const limit = Math.min(parseInt(req.query.limit || '500'), 2000);
+    const days  = Math.min(parseInt(req.query.days || '365'), 1095);
+    const limit = Math.min(parseInt(req.query.limit || '1000'), 5000);
     const rows  = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned, source
+             type, qty, price, value, owned,
+             COALESCE(source,'sec') AS source
       FROM trades
       WHERE source = 'congress'
-        AND filing_date >= date('now', '-' || ? || ' days')
+        AND trade_date >= date('now', '-' || ? || ' days')
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
     `).all(days, limit);
