@@ -869,6 +869,18 @@ async function syncCongressTrades() {
       (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,source)
     VALUES (@ticker,@company,@insider,@title,@trade_date,@filing_date,@type,@qty,@price,@value,@owned,@accession,@source)
   `);
+
+  // Dates come as MM/DD/YYYY — convert to YYYY-MM-DD
+  const parseDate = s => {
+    if (!s || s === '--') return null;
+    s = s.trim();
+    // Already ISO format
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+    // MM/DD/YYYY
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+    return null;
+  };
   const nt = s => { s=(s||'').toLowerCase(); return s.includes('sale')||s.includes('sell')?'S':s.includes('purchase')||s.includes('buy')?'P':'X'; };
   const midVal = s => {
     const clean=(s||'').replace(/[\$, ]/g,'');
@@ -883,93 +895,72 @@ async function syncCongressTrades() {
   };
   let total=0;
 
-  const sources = [
-    // ── Official web APIs (housestockwatcher.com / senatestockwatcher.com) ──
-    {
-      label:'House API',
-      url:'https://housestockwatcher.com/api',
-      parse: body => {
-        const arr=JSON.parse(body.toString('utf8'));
-        if(!Array.isArray(arr)) return [];
-        return arr.map(t=>{
-          const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-          const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
-          const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
-          if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
-          return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Representative',
-            trade_date:td,filing_date:(t.disclosure_date||td).slice(0,10),type:nt(t.type),
-            qty:0,price:0,value:midVal(t.amount),owned:0,
-            accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
-        }).filter(Boolean);
+  // ── Senate: timothycarambat/senate-stock-watcher-data (GitHub) ────────────
+  // aggregate/all_transactions.json is a flat array with senator name inline
+  // Dates are MM/DD/YYYY format
+  try {
+    const url='https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json';
+    slog(`Senate GitHub: GET ${url}`);
+    const {status,body}=await get(url,60000);
+    slog(`Senate GitHub: status=${status} size=${body.length}`);
+    if(status===200&&body.length>1000) {
+      const arr=JSON.parse(body.toString('utf8'));
+      slog(`Senate GitHub: ${arr.length} raw records, sample: ${JSON.stringify(arr[0]).slice(0,120)}`);
+      const rows=[];
+      for(const t of arr) {
+        const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+        if(!ticker||ticker==='--'||ticker.length>10) continue;
+        const td=parseDate(t.transaction_date||t.disclosure_date);
+        if(!td||td<'2012-01-01') continue;
+        const fd=parseDate(t.disclosure_date||t.transaction_date)||td;
+        const name=(t.senator||'').replace(/^(Sen\.?|Dr\.?)\s*/i,'').trim();
+        if(!name) continue;
+        rows.push({ticker,company:(t.asset_description||ticker).slice(0,200),
+          insider:name,title:'Senator',trade_date:td,filing_date:fd,
+          type:nt(t.type),qty:0,price:0,value:midVal(t.amount),owned:0,
+          accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
+          source:'congress'});
       }
-    },
-    {
-      label:'Senate API',
-      url:'https://senatestockwatcher.com/api',
-      parse: body => {
-        let arr=JSON.parse(body.toString('utf8'));
-        if(!Array.isArray(arr)) arr=arr?.transactions||[];
-        return arr.map(t=>{
-          const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-          const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
-          const name=(t.senator||((t.first_name||'')+' '+(t.last_name||'')).trim()).replace(/^(Sen\.?|Dr\.?)\s*/i,'').trim();
-          if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
-          return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Senator',
-            trade_date:td,filing_date:(t.disclosure_date||td).slice(0,10),type:nt(t.type),
-            qty:0,price:0,value:midVal(t.amount),owned:0,
-            accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
-        }).filter(Boolean);
-      }
-    },
-    // ── GitHub raw JSON (timothycarambat repos) ───────────────────────────
-    {
-      label:'Senate GitHub',
-      url:'https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json',
-      parse: body => {
-        let arr=JSON.parse(body.toString('utf8'));
-        if(!Array.isArray(arr)) arr=arr?.transactions||[];
-        return arr.map(t=>{
-          const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-          const td=(t.transaction_date||'').slice(0,10);
-          const name=(t.senator||((t.first_name||'')+' '+(t.last_name||'')).trim()).trim();
-          if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
-          return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Senator',
-            trade_date:td,filing_date:td,type:nt(t.type),qty:0,price:0,value:midVal(t.amount),owned:0,
-            accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
-        }).filter(Boolean);
-      }
-    },
-    {
-      label:'House GitHub',
-      url:'https://raw.githubusercontent.com/timothycarambat/house-stock-watcher-data/master/data/all_transactions.json',
-      parse: body => {
-        const arr=JSON.parse(body.toString('utf8'));
-        if(!Array.isArray(arr)) return [];
-        return arr.map(t=>{
-          const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-          const td=(t.transaction_date||'').slice(0,10);
-          const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
-          if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
-          return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Representative',
-            trade_date:td,filing_date:td,type:nt(t.type),qty:0,price:0,value:midVal(t.amount),owned:0,
-            accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
-        }).filter(Boolean);
-      }
-    },
-  ];
-
-  for (const src of sources) {
-    try {
-      slog(`${src.label}: GET ${src.url}`);
-      const {status,body}=await get(src.url,60000);
-      slog(`${src.label}: status=${status} size=${body.length}`);
-      if(status!==200||body.length<500) continue;
-      let rows;
-      try { rows=src.parse(body); } catch(e){slog(`${src.label} parse error: ${e.message}`);continue;}
       const n=flush(rows);
       total+=n;
-      slog(`${src.label}: ${rows.length} valid → ${n} inserted`);
-    } catch(e){slog(`${src.label}: ${e.message}`);}
+      slog(`Senate GitHub: ${rows.length} valid → ${n} inserted`);
+    }
+  } catch(e){slog(`Senate GitHub: ${e.message}`);}
+
+  // ── House: S3 bucket (us-west-2) — was returning 403, try again ──────────
+  // The bucket is configured for requester-pays or private; try with a browser UA
+  for(const url of [
+    'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
+    'https://house-stock-watcher-data.s3.us-west-2.amazonaws.com/data/all_transactions.json',
+  ]) {
+    try {
+      slog(`House S3: GET ${url}`);
+      const {status,body}=await get(url,60000);
+      slog(`House S3: status=${status} size=${body.length}`);
+      if(status===200&&body.length>1000) {
+        const arr=JSON.parse(body.toString('utf8'));
+        slog(`House S3: ${arr.length} raw records, sample: ${JSON.stringify(arr[0]).slice(0,120)}`);
+        const rows=[];
+        for(const t of arr) {
+          const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+          if(!ticker||ticker==='--'||ticker.length>10) continue;
+          const td=parseDate(t.transaction_date||t.disclosure_date);
+          if(!td||td<'2012-01-01') continue;
+          const fd=parseDate(t.disclosure_date||t.transaction_date)||td;
+          const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
+          if(!name) continue;
+          rows.push({ticker,company:(t.asset_description||ticker).slice(0,200),
+            insider:name,title:'Representative',trade_date:td,filing_date:fd,
+            type:nt(t.type),qty:0,price:0,value:midVal(t.amount),owned:0,
+            accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
+            source:'congress'});
+        }
+        const n=flush(rows);
+        total+=n;
+        slog(`House S3: ${rows.length} valid → ${n} inserted`);
+        break;
+      }
+    } catch(e){slog(`House S3 ${url.split('/')[2]}: ${e.message}`);}
   }
 
   slog(`=== Congressional sync END: ${total} rows inserted ===`);
