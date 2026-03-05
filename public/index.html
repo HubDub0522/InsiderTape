@@ -1411,7 +1411,8 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades) {
     return { trade:t, tradeDate, ticker:t.ticker, buyPrice:base,
       ret30:p30?(p30-base)/base*100:null, ret60:p60?(p60-base)/base*100:null, ret90:p90?(p90-base)/base*100:null,
       isPending: today < addDays(tradeDate,90),
-      sellDate, sellPrice, isClosed };\n  });
+      sellDate, sellPrice, isClosed };
+  });
   const completed = scored.filter(s => s.ret90!==null);
   const pending   = scored.filter(s => s.isPending);
   if (completed.length === 0) {
