@@ -773,6 +773,49 @@ app.get('/api/cleanup-dates', (req, res) => {
   res.json({ removed: r.changes, remaining: n });
 });
 
+app.post('/api/sync-congress', async (req, res) => {
+  if (congressSyncRunning) return res.json({ status: 'running', message: 'Sync already in progress' });
+  syncCongressTrades();
+  res.json({ status: 'started', message: 'Congressional trade sync started' });
+});
+
+app.get('/api/congress-status', (req, res) => {
+  try {
+    const total   = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE source='congress'").get().n;
+    const latest  = db.prepare("SELECT MAX(trade_date) AS d FROM trades WHERE source='congress'").get().d;
+    const members = db.prepare("SELECT COUNT(DISTINCT insider) AS n FROM trades WHERE source='congress'").get().n;
+    res.json({ total, latest, members, syncing: congressSyncRunning });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
+
+// Congress endpoint — same data as screener but filtered to source='congress'
+app.get('/api/congress', (req, res) => {
+  try {
+    const days  = Math.min(parseInt(req.query.days || '365'), 1095);
+    const limit = Math.min(parseInt(req.query.limit || '1000'), 5000);
+    const rows  = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned,
+             COALESCE(source,'sec') AS source
+      FROM trades
+      WHERE source = 'congress'
+        AND trade_date >= date('now', '-' || ? || ' days')
+      ORDER BY trade_date DESC, filing_date DESC
+      LIMIT ?
+    `).all(days, limit);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Auto-sync congressional trades every 6 hours
+// Congress fires at 10s — before price warmer (60s) to avoid DB contention
+setTimeout(() => syncCongressTrades(), 10000);
+setInterval(() => syncCongressTrades(), 6 * 60 * 60 * 1000);
+
+
 // ─── SPA CATCH-ALL ────────────────────────────────────────────
 // Must be last — serves index.html for all non-API, non-static routes
 // so that /stock/AAPL, /insider, /insider/Name etc. work on direct load/refresh
@@ -966,47 +1009,4 @@ async function syncCongressTrades() {
   slog(`=== Congressional sync END: ${total} rows inserted ===`);
   congressSyncRunning=false;
 }
-app.post('/api/sync-congress', async (req, res) => {
-  if (congressSyncRunning) return res.json({ status: 'running', message: 'Sync already in progress' });
-  syncCongressTrades();
-  res.json({ status: 'started', message: 'Congressional trade sync started' });
-});
-
-app.get('/api/congress-status', (req, res) => {
-  try {
-    const total   = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE source='congress'").get().n;
-    const latest  = db.prepare("SELECT MAX(trade_date) AS d FROM trades WHERE source='congress'").get().d;
-    const members = db.prepare("SELECT COUNT(DISTINCT insider) AS n FROM trades WHERE source='congress'").get().n;
-    res.json({ total, latest, members, syncing: congressSyncRunning });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-
-
-// Congress endpoint — same data as screener but filtered to source='congress'
-app.get('/api/congress', (req, res) => {
-  try {
-    const days  = Math.min(parseInt(req.query.days || '365'), 1095);
-    const limit = Math.min(parseInt(req.query.limit || '1000'), 5000);
-    const rows  = db.prepare(`
-      SELECT ticker, company, insider, title,
-             trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned,
-             COALESCE(source,'sec') AS source
-      FROM trades
-      WHERE source = 'congress'
-        AND trade_date >= date('now', '-' || ? || ' days')
-      ORDER BY trade_date DESC, filing_date DESC
-      LIMIT ?
-    `).all(days, limit);
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// Auto-sync congressional trades every 6 hours
-// Congress fires at 10s — before price warmer (60s) to avoid DB contention
-setTimeout(() => syncCongressTrades(), 10000);
-setInterval(() => syncCongressTrades(), 6 * 60 * 60 * 1000);
-
-
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
