@@ -3537,7 +3537,7 @@ async function loadCongressView() {
   body.innerHTML = `<div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading congressional trades…</span></div>`;
   try {
     const [data, status] = await Promise.all([
-      apiFetch(`/api/congress?days=${_congressDays}&limit=5000`),
+      apiFetch(`/api/congress?days=${_congressDays}&limit=500`),
       apiFetch('/api/congress-status').catch(()=>null),
     ]);
     _congressRaw = Array.isArray(data) ? data : [];
