@@ -663,7 +663,11 @@ async function loadScreener() {
   document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
   document.getElementById('summaryBar').innerHTML = '';
   try {
-    const resp = await apiFetch('/api/screener?days=' + days);
+    // Fetch SEC trades + congress trades in parallel (congress uses wider date range)
+    const [resp, cResp] = await Promise.all([
+      apiFetch('/api/screener?days=' + days),
+      apiFetch('/api/congress?days=365&limit=1000').catch(()=>[]),
+    ]);
     if (resp && resp.building) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span></div></td></tr>`;
       setTimeout(loadScreener, 8000); return;
@@ -679,6 +683,12 @@ async function loadScreener() {
       }
       trades = all;
       document.getElementById('summaryBar').innerHTML = `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">⚠ Recent daily data still loading. Showing most recent available filings.</div>`;
+    }
+    // Merge congress trades (deduplicate by accession isn't available, so just append those not already present)
+    if (Array.isArray(cResp) && cResp.length) {
+      const existing = new Set(trades.map(t=>t.insider+'|'+t.ticker+'|'+t.trade));
+      const fresh = cResp.filter(t=>!existing.has(t.insider+'|'+t.ticker+'|'+t.trade));
+      if (fresh.length) trades = [...trades, ...fresh].sort((a,b)=>b.trade?.localeCompare(a.trade||''));
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
@@ -3516,186 +3526,162 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
 
 
 // ── CONGRESS VIEW ─────────────────────────────────────────────
-let _congressData = null;
-let _congressStatus = null;
-let _congressDays = 90;
+// Congress trades are stored in the same trades table with source='congress'
+// They appear in the screener automatically with a 🏛 badge
+// The congress tab is a dedicated filtered view
+
 let _congressFilter = 'all';
+let _congressDays   = 365;
+let _congressRaw    = null;
 
 async function loadCongressView() {
   const body = document.getElementById('congressViewBody');
   if (!body) return;
-  body.innerHTML = `<div class="loading-state" style="height:300px"><div class="spinner"></div><span>Loading congressional trades…</span></div>`;
-
+  body.innerHTML = `<div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading congressional trades…</span></div>`;
   try {
-    // Check status first so we know what we're dealing with
+    // Always fetch fresh — congress data is wide (365d default) and separate from screener
     const [data, status] = await Promise.all([
-      apiFetch(`/api/congress?days=${_congressDays}&limit=500`).catch(() => []),
-      apiFetch('/api/congress-status').catch(() => null),
+      apiFetch(`/api/congress?days=${_congressDays}&limit=2000`),
+      apiFetch('/api/congress-status').catch(()=>null),
     ]);
-
-    _congressData = Array.isArray(data) ? data : [];
-    _congressStatus = status;
-
-    if (!_congressData.length) {
-      // No data yet — show sync UI
+    _congressRaw = Array.isArray(data) ? data : [];
+    if (!_congressRaw.length) {
       const syncing = status?.syncing;
       body.innerHTML = `
-        <div style="max-width:700px;margin:60px auto;text-align:center;padding:0 20px">
-          <div style="font-size:48px;margin-bottom:16px">🏛️</div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--text);margin-bottom:8px">CONGRESSIONAL TRADE DATA</div>
-          ${syncing
-            ? `<div style="color:var(--option);font-size:13px;margin-bottom:20px">⏳ Sync in progress — downloading House &amp; Senate STOCK Act disclosures…<br>
-               <span style="font-size:11px;color:var(--muted)">This may take 30–60 seconds on first run. Page will auto-refresh.</span></div>`
-            : `<div style="color:var(--muted);font-size:13px;margin-bottom:20px">
-               House &amp; Senate STOCK Act disclosures haven't synced yet.<br>
-               <span style="font-size:11px">Data comes from the official House and Senate stock watcher filings.</span>
-               </div>`
-          }
-          <button onclick="triggerCongressSync()" style="background:rgba(0,212,255,0.1);border:1px solid var(--accent);color:var(--accent);padding:10px 24px;border-radius:6px;font-family:'Space Mono',monospace;font-size:12px;cursor:pointer;letter-spacing:1px">
-            ${syncing ? '⏳ SYNCING…' : '⬇ SYNC NOW'}
-          </button>
-          <div id="congressSyncMsg" style="margin-top:12px;font-size:11px;color:var(--muted)"></div>
+        <div style="max-width:640px;margin:80px auto;text-align:center;padding:0 20px">
+          <div style="font-size:44px;margin-bottom:14px">🏛️</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;margin-bottom:12px">CONGRESSIONAL TRADING</div>
+          <div style="color:var(--muted);font-size:13px;line-height:1.7;margin-bottom:16px">
+            ${syncing ? '⏳ Syncing House &amp; Senate STOCK Act data… auto-refreshing.' : 'No congressional trade data in DB yet.'}
+          </div>
+          <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:20px">
+            DB total: ${status?.total||0} · members: ${status?.members||0} · syncing: ${status?.syncing?'YES':'NO'}
+          </div>
+          <div style="font-size:11px;color:var(--muted);max-width:440px;margin:0 auto;line-height:1.7;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:12px">
+            Congress members file STOCK Act periodic transaction reports (PTRs).<br>
+            Data syncs from House &amp; Senate Stock Watcher at startup and every 6 hours.
+          </div>
         </div>`;
-      // Auto-poll while syncing
-      if (syncing) {
-        setTimeout(() => loadCongressView(), 5000);
-      }
+      if (syncing) setTimeout(() => loadCongressView(), 5000);
       return;
     }
-
-    renderCongressView();
+    renderCongressView(status);
   } catch(e) {
     body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
   }
 }
 
-async function triggerCongressSync() {
-  const msg = document.getElementById('congressSyncMsg');
-  if (msg) msg.textContent = 'Starting sync…';
-  try {
-    const r = await apiFetch('/api/sync-congress', { method: 'POST' });
-    if (msg) msg.textContent = r.message || 'Sync started — refreshing in 10 seconds…';
-    setTimeout(() => loadCongressView(), 10000);
-  } catch(e) {
-    if (msg) msg.textContent = 'Error: ' + e.message;
-  }
-}
-
-function renderCongressView() {
+function renderCongressView(status) {
   const body = document.getElementById('congressViewBody');
   if (!body) return;
-  let trades = _congressData || [];
+  let trades = _congressRaw || [];
 
-  // Filter
+  // Apply filter
   if (_congressFilter === 'buys')  trades = trades.filter(t => t.type === 'P');
   if (_congressFilter === 'sells') trades = trades.filter(t => t.type === 'S');
 
-  // Summary stats
-  const buys  = trades.filter(t => t.type === 'P');
-  const sells = trades.filter(t => t.type === 'S');
+  const allTrades = _congressRaw || [];
+  const buys  = allTrades.filter(t=>t.type==='P');
+  const sells = allTrades.filter(t=>t.type==='S');
+  const members = [...new Set(allTrades.map(t=>t.insider))].length;
+
+  // Top tickers
+  const tkCount = {};
+  allTrades.forEach(t => { tkCount[t.ticker]=(tkCount[t.ticker]||0)+1; });
+  const topTickers = Object.entries(tkCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  // Top members by activity
+  const memCount = {};
+  allTrades.forEach(t => { memCount[t.insider]=(memCount[t.insider]||0)+1; });
+  const topMembers = Object.entries(memCount).sort((a,b)=>b[1]-a[1]).slice(0,6);
+
   const totalBuy  = buys.reduce((s,t)=>s+(t.value||0),0);
   const totalSell = sells.reduce((s,t)=>s+(t.value||0),0);
-  const members   = [...new Set(trades.map(t=>t.insider))].length;
-  const tickers   = [...new Set(trades.map(t=>t.ticker))].length;
 
-  // Top tickers by activity
-  const tickerCount = {};
-  trades.forEach(t => { tickerCount[t.ticker] = (tickerCount[t.ticker]||0) + 1; });
-  const topTickers  = Object.entries(tickerCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
-
-  // Top members by value
-  const memberVal = {};
-  trades.forEach(t => { memberVal[t.insider] = (memberVal[t.insider]||0)+(t.value||0); });
-  const topMembers = Object.entries(memberVal).sort((a,b)=>b[1]-a[1]).slice(0,5);
-
-  body.innerHTML = `
-    <div>
-      <!-- Header -->
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
-        <div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">🏛️ CONGRESSIONAL TRADING</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px">STOCK Act disclosures — House & Senate members</div>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">RANGE:</span>
-          ${[30,90,180,365].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};_congressData=null;loadCongressView()">${d===365?'1Y':d+'D'}</button>`).join('')}
-        </div>
+  body.innerHTML = `<div>
+    <!-- Header -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+      <div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px">🏛️ CONGRESSIONAL TRADING</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">STOCK Act disclosures · House &amp; Senate · ${status?.members||members} members tracked</div>
       </div>
-
-      <!-- Stats row -->
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
-        ${[
-          {label:'TRADES', val:trades.length, color:'var(--text)'},
-          {label:'MEMBERS', val:members, color:'var(--accent)'},
-          {label:'TOTAL BOUGHT', val:fmt(totalBuy), color:'var(--buy)'},
-          {label:'TOTAL SOLD', val:fmt(totalSell), color:'var(--sell)'},
-        ].map(s=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:4px">${s.label}</div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${s.color}">${s.val}</div>
-        </div>`).join('')}
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">RANGE:</span>
+        ${[90,180,365,730].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};_congressRaw=null;loadCongressView()">${d>=365?Math.round(d/365)+'Y':d+'D'}</button>`).join('')}
       </div>
+    </div>
 
-      <!-- Two-col layout: top tickers + top members -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST TRADED STOCKS</div>
-          ${topTickers.length ? topTickers.map(([t,n])=>`
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer"
-                 onclick="loadStockView('${t}')">
-              <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent)">${t}</span>
-              <span style="font-size:10px;color:var(--muted)">${n} trade${n!==1?'s':''}</span>
-            </div>`).join('') : '<div style="color:var(--muted);font-size:11px">No data yet</div>'}
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
-          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST ACTIVE MEMBERS</div>
-          ${topMembers.length ? topMembers.map(([name,val])=>`
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer"
-                 onclick="openInsiderProfile('${escName(name)}','Congress Member')">
-              <span style="font-size:11px;color:var(--text)">${name}</span>
-              <span style="font-size:10px;color:var(--buy)">${fmt(val)}</span>
-            </div>`).join('') : '<div style="color:var(--muted);font-size:11px">No data yet</div>'}
-        </div>
-      </div>
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
+      ${[
+        {l:'TOTAL TRADES', v:allTrades.length, c:'var(--text)'},
+        {l:'MEMBERS ACTIVE', v:members, c:'var(--accent)'},
+        {l:'NET BOUGHT', v:fmt(totalBuy), c:'var(--buy)'},
+        {l:'NET SOLD', v:fmt(totalSell), c:'var(--sell)'},
+      ].map(s=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:4px">${s.l}</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${s.c}">${s.v}</div>
+      </div>`).join('')}
+    </div>
 
-      <!-- Filter + trade table -->
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">FILTER:</span>
-        ${[['all','ALL'],['buys','BUYS'],['sells','SELLS']].map(([f,l])=>`
-          <button class="tf-btn${_congressFilter===f?' active':''}" onclick="_congressFilter='${f}';renderCongressView()">${l}</button>
-        `).join('')}
-        <span style="margin-left:auto;font-size:10px;color:var(--muted)">${trades.length} transactions</span>
+    <!-- Top tickers + members -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST TRADED STOCKS</div>
+        ${topTickers.map(([t,n])=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer" onclick="loadStockView('${t}')">
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent)">${t}</span>
+            <span style="font-size:10px;color:var(--muted)">${n} trades</span>
+          </div>`).join('')}
       </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST ACTIVE MEMBERS</div>
+        ${topMembers.map(([name,n])=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer" onclick="openInsiderProfile('${escName(name)}','Congress Member')">
+            <span style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${name}</span>
+            <span style="font-size:10px;color:var(--muted);white-space:nowrap">${n} trades</span>
+          </div>`).join('')}
+      </div>
+    </div>
 
-      <div class="table-wrap">
-        <table>
-          <thead><tr>
-            <th>DATE</th><th>MEMBER</th><th>TITLE</th><th>TICKER</th>
-            <th>TYPE</th><th>VALUE</th><th>FILED</th>
-          </tr></thead>
-          <tbody>
-            ${trades.length ? trades.slice(0,200).map(t => {
-              const tc = tradeClass(t.type);
-              const color = tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--muted)';
-              const label = tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'OTHER';
-              return `<tr>
-                <td style="font-family:'Space Mono',monospace;font-size:10px">${fmtDate(t.trade)}</td>
-                <td style="cursor:pointer;color:var(--text)" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider||'—'}</td>
-                <td style="font-size:10px;color:var(--muted)">${t.title||'—'}</td>
-                <td style="cursor:pointer;color:var(--accent);font-family:'Space Mono',monospace;font-weight:700" onclick="loadStockView('${t.ticker}')">${t.ticker}</td>
-                <td style="color:${color};font-size:10px;font-weight:700">${label}</td>
-                <td style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${fmt(t.value)}</td>
-                <td style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.filing)}</td>
-              </tr>`;
-            }).join('') : `<tr><td colspan="7"><div class="empty-state">
-              <div class="empty-icon">🏛️</div>
-              <div>Congressional data syncing — check back shortly</div>
-            </div></td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
+    <!-- Filter row -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">FILTER:</span>
+      ${[['all','ALL'],['buys','BUYS ONLY'],['sells','SELLS ONLY']].map(([f,l])=>`
+        <button class="tf-btn${_congressFilter===f?' active':''}" onclick="_congressFilter='${f}';renderCongressView(${status?JSON.stringify(status):'null'})">${l}</button>
+      `).join('')}
+      <span style="margin-left:auto;font-size:10px;color:var(--muted)">${trades.length} of ${allTrades.length} transactions shown</span>
+    </div>
+
+    <!-- Trade table -->
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>TRADE DATE</th><th>MEMBER</th><th>CHAMBER</th><th>TICKER</th>
+          <th>TYPE</th><th>VALUE</th><th>FILED</th>
+        </tr></thead>
+        <tbody>
+          ${trades.length ? trades.slice(0,500).map(t=>{
+            const tc=tradeClass(t.type);
+            const color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--muted)';
+            const label=tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'OTHER';
+            const chamber = (t.title||'').toLowerCase().includes('senator') ? 'Senate' :
+                            (t.title||'').toLowerCase().includes('representative') ? 'House' : t.title||'—';
+            return `<tr>
+              <td style="font-family:'Space Mono',monospace;font-size:10px">${fmtDate(t.trade)}</td>
+              <td style="cursor:pointer" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider||'—'}</td>
+              <td style="font-size:10px;color:var(--muted)">${chamber}</td>
+              <td style="cursor:pointer;color:var(--accent);font-family:'Space Mono',monospace;font-weight:700" onclick="loadStockView('${t.ticker}')">${t.ticker}</td>
+              <td style="color:${color};font-size:10px;font-weight:700">${label}</td>
+              <td style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${t.value?fmt(t.value):'—'}</td>
+              <td style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.filing)}</td>
+            </tr>`;
+          }).join('') : `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏛️</div><div>No trades in this time range</div></div></td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
 }
-
 function measureHeader() { const h=document.querySelector('header'),m=document.querySelector('main'); if(h&&m)m.style.paddingTop=h.offsetHeight+'px'; }
 measureHeader(); window.addEventListener('resize',measureHeader);
 </script>
