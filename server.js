@@ -627,6 +627,7 @@ app.get('/api/price', async (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
   const bars = await fetchPriceBars(sym);
+  if (res.headersSent) return;
   if (bars) return res.json(bars);
   res.status(404).json({ error: `No price data for ${sym}` });
 });
@@ -868,93 +869,100 @@ async function syncCongressTrades() {
       (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,source)
     VALUES (@ticker,@company,@insider,@title,@trade_date,@filing_date,@type,@qty,@price,@value,@owned,@accession,@source)
   `);
-  const nt = s => { s=(s||'').toLowerCase(); return s.includes('sale')||s.includes('sell')?'S':s.includes('purchase')||s.includes('buy')?'P':'X'; };
+  const nt = s => {
+    s = (s||'').toLowerCase();
+    return s.includes('sale')||s.includes('sell') ? 'S'
+         : s.includes('purchase')||s.includes('buy') ? 'P' : 'X';
+  };
   const midVal = s => {
-    const clean = (s||'').replace(/\$|,|\s/g,'');
+    const clean = (s||'').replace(/[\$, ]/g,'');
     const parts = clean.split(/[-–]/).map(parseFloat).filter(n=>n>0&&isFinite(n));
-    return parts.length>=2 ? Math.round((parts[0]+parts[1])/2) : parts[0]||0;
+    return parts.length>=2 ? Math.round((parts[0]+parts[1])/2) : (parts[0]||0);
   };
   const flush = rows => {
     if (!rows.length) return 0;
-    let n=0;
-    db.transaction(items=>{for(const r of items){try{upsert.run(r);n++;}catch(e){}}})(rows);
+    let n = 0;
+    db.transaction(items => { for (const r of items) { try { upsert.run(r); n++; } catch(e){} } })(rows);
     return n;
   };
-  let total=0;
+  let total = 0;
 
-  // ── Source 1: Quiver Quantitative (free bulk endpoint, no auth) ───────────
-  // This is the most reliable source — simple paginated JSON
-  try {
-    slog('Trying Quiver Quantitative...');
-    const {status, body} = await get('https://api.quiverquant.com/beta/bulk/congresstrading', 30000);
-    slog(`Quiver: status=${status} size=${body.length}`);
-    if (status===200 && body.length>1000) {
-      const data = JSON.parse(body.toString('utf8'));
-      if (Array.isArray(data) && data.length) {
-        const rows = [];
-        for (const t of data) {
-          const ticker = (t.Ticker||t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-          if (!ticker||ticker.length>10) continue;
-          const td = (t.TransactionDate||t.Date||'').slice(0,10);
-          if (!td||td<'2012-01-01') continue;
-          const fd = (t.ReportDate||t.FilingDate||td).slice(0,10);
-          const name = (t.Representative||t.Senator||t.Name||'').trim();
-          if (!name) continue;
-          const chamber = (t.Chamber||'').toLowerCase();
-          const title = chamber==='senate'?'Senator':'Representative';
-          rows.push({
-            ticker, company: t.Company||ticker,
-            insider: name, title,
-            trade_date: td, filing_date: fd,
-            type: nt(t.Transaction||t.Type||''),
-            qty:0, price:0,
-            value: midVal(t.Range||String(t.Amount||0)),
-            owned:0,
-            accession: `qvr-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
-            source: 'congress'
-          });
-        }
-        const n = flush(rows);
-        total += n;
-        slog(`Quiver: ${data.length} records → ${rows.length} valid → ${n} inserted`);
-      }
-    }
-  } catch(e) { slog(`Quiver error: ${e.message}`); }
+  // ── Source: GitHub raw JSON (house-stock-watcher + senate-stock-watcher) ──
+  // The community maintainers push parsed PTR data to GitHub — accessible via
+  // raw.githubusercontent.com with no auth, no S3 redirect issues.
+  const sources = [
+    {
+      label: 'House (GitHub)',
+      url: 'https://raw.githubusercontent.com/house-stock-watcher/house-stock-watcher-data/master/data/all_transactions.json',
+      parse: arr => arr.map(t => {
+        const ticker = (t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+        const td = (t.transaction_date||t.disclosure_date||'').slice(0,10);
+        const name = (t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
+        if (!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
+        return { ticker, company:(t.asset_description||ticker).slice(0,200),
+          insider:name, title:'Representative',
+          trade_date:td, filing_date:(t.disclosure_date||td).slice(0,10),
+          type:nt(t.type), qty:0, price:0, value:midVal(t.amount), owned:0,
+          accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
+          source:'congress' };
+      }).filter(Boolean),
+    },
+    {
+      label: 'Senate (GitHub)',
+      url: 'https://raw.githubusercontent.com/elemental-unicorn/senate-stock-watcher/master/data/all_transactions.json',
+      parse: arr => {
+        if (!Array.isArray(arr)) arr = arr?.transactions || [];
+        return arr.map(t => {
+          const ticker = (t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+          const td = (t.transaction_date||t.disclosure_date||'').slice(0,10);
+          const raw = t.senator||((t.first_name||'')+' '+(t.last_name||'')).trim();
+          const name = raw.replace(/^(Hon\.?|Sen\.?|Dr\.?)\s*/i,'').trim();
+          if (!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
+          return { ticker, company:(t.asset_description||ticker).slice(0,200),
+            insider:name, title:'Senator',
+            trade_date:td, filing_date:(t.disclosure_date||td).slice(0,10),
+            type:nt(t.type), qty:0, price:0, value:midVal(t.amount), owned:0,
+            accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
+            source:'congress' };
+        }).filter(Boolean);
+      },
+    },
+    {
+      label: 'Senate alt (GitHub)',
+      url: 'https://raw.githubusercontent.com/senate-stock-watcher/senate-stock-watcher-data/master/aggregate/all_transactions.json',
+      parse: arr => {
+        if (!Array.isArray(arr)) arr = arr?.transactions || [];
+        return arr.map(t => {
+          const ticker = (t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+          const td = (t.transaction_date||t.disclosure_date||'').slice(0,10);
+          const raw = t.senator||((t.first_name||'')+' '+(t.last_name||'')).trim();
+          const name = raw.replace(/^(Hon\.?|Sen\.?|Dr\.?)\s*/i,'').trim();
+          if (!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
+          return { ticker, company:(t.asset_description||ticker).slice(0,200),
+            insider:name, title:'Senator',
+            trade_date:td, filing_date:(t.disclosure_date||td).slice(0,10),
+            type:nt(t.type), qty:0, price:0, value:midVal(t.amount), owned:0,
+            accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
+            source:'congress' };
+        }).filter(Boolean);
+      },
+    },
+  ];
 
-  // ── Source 2: House Stock Watcher S3 (if Quiver got nothing) ─────────────
-  if (total === 0) {
-    slog('Quiver yielded 0 — trying House Stock Watcher S3...');
-    const urls = [
-      'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
-      'https://house-stock-watcher-data.s3.us-west-2.amazonaws.com/data/all_transactions.json',
-    ];
-    for (const url of urls) {
-      try {
-        slog(`House S3: GET ${url}`);
-        const {status, body} = await get(url, 60000);
-        slog(`House S3: status=${status} size=${body.length}`);
-        if (status===200 && body.length>10000) {
-          const arr = JSON.parse(body.toString('utf8'));
-          if (Array.isArray(arr)) {
-            const rows = arr.map(t=>{
-              const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-              const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
-              const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
-              if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
-              return {ticker, company:(t.asset_description||ticker).slice(0,200),
-                insider:name, title:'Representative',
-                trade_date:td, filing_date:(t.disclosure_date||td).slice(0,10),
-                type:nt(t.type), qty:0, price:0, value:midVal(t.amount), owned:0,
-                accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
-                source:'congress'};
-            }).filter(Boolean);
-            const n=flush(rows); total+=n;
-            slog(`House S3: ${arr.length} records → ${n} inserted`);
-            break;
-          }
-        }
-      } catch(e) { slog(`House S3 error: ${e.message}`); }
-    }
+  for (const src of sources) {
+    try {
+      slog(`${src.label}: GET ${src.url}`);
+      const { status, body } = await get(src.url, 60000);
+      slog(`${src.label}: status=${status} size=${body.length}`);
+      if (status !== 200 || body.length < 1000) continue;
+      let data;
+      try { data = JSON.parse(body.toString('utf8')); } catch(e) { slog(`${src.label}: JSON parse error: ${e.message}`); continue; }
+      if (!Array.isArray(data) && !data?.transactions) { slog(`${src.label}: unexpected shape`); continue; }
+      const rows = src.parse(Array.isArray(data) ? data : data);
+      const n = flush(rows);
+      total += n;
+      slog(`${src.label}: ${rows.length} valid rows → ${n} inserted`);
+    } catch(e) { slog(`${src.label}: ${e.message}`); }
   }
 
   slog(`=== Congressional sync END: ${total} rows inserted ===`);
