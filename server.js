@@ -186,24 +186,28 @@ app.get('/api/screener', (req, res) => {
     const limit = Math.min(parseInt(req.query.limit || '1000'), 2000);
 
         let rows = db.prepare(`
-      SELECT ticker, company, insider, title,
-             trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned,
-             COALESCE(source, 'sec') AS source
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date AS trade, MAX(filing_date) AS filing,
+             type, MAX(qty) AS qty, MAX(price) AS price,
+             MAX(value) AS value, MAX(owned) AS owned,
+             COALESCE(MAX(source), 'sec') AS source
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
+      GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
     `).all(days, limit);
 
     if (!rows.length && n > 0) {
       rows = db.prepare(`
-        SELECT ticker, company, insider, title,
-               trade_date AS trade, filing_date AS filing,
-               type, qty, price, value, owned,
-               COALESCE(source, 'sec') AS source
+        SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+               trade_date AS trade, MAX(filing_date) AS filing,
+               type, MAX(qty) AS qty, MAX(price) AS price,
+               MAX(value) AS value, MAX(owned) AS owned,
+               COALESCE(MAX(source), 'sec') AS source
         FROM trades
         WHERE source IS NULL OR source = 'sec'
+        GROUP BY ticker, insider, trade_date, type
         ORDER BY trade_date DESC, filing_date DESC
         LIMIT 500
       `).all();
@@ -219,10 +223,12 @@ app.get('/api/ticker', (req, res) => {
   if (!sym) return res.status(400).json({ error: 'symbol required' });
   try {
     const rows = db.prepare(`
-      SELECT ticker, company, insider, title,
-             trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date AS trade, MAX(filing_date) AS filing,
+             type, MAX(qty) AS qty, MAX(price) AS price,
+             MAX(value) AS value, MAX(owned) AS owned
       FROM trades WHERE ticker = ?
+      GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC LIMIT 5000
     `).all(sym);
     res.json(rows);
@@ -241,10 +247,12 @@ app.get('/api/insider', (req, res) => {
     // Fuzzy match: cap at 500 rows to avoid massive payloads on broad queries
     const limit = exact ? 2000 : 500;
     const rows = db.prepare(`
-      SELECT ticker, company, insider, title,
-             trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date AS trade, MAX(filing_date) AS filing,
+             type, MAX(qty) AS qty, MAX(price) AS price,
+             MAX(value) AS value, MAX(owned) AS owned
       FROM trades WHERE UPPER(insider) LIKE UPPER(?)
+      GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC LIMIT ?
     `).all(pattern, limit);
     res.json(rows);
@@ -813,66 +821,66 @@ app.get('/api/cleanup-dates', (req, res) => {
 // Returns multiple ranked lists in one call: most active, recent buys, recent sells, cluster buys
 app.get('/api/stock-lists', (req, res) => {
   try {
-    // Most insider buying activity (last 30 days)
+    // All queries use a dedup subquery to prevent double-counting trades that appear
+    // in both the quarterly bulk sync and the daily worker (different accession formats)
+    const DEDUP = (filter, days, dateField='filing_date') => `
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date, type, MAX(COALESCE(value,0)) AS value, MAX(COALESCE(qty,0)) AS qty
+      FROM trades
+      WHERE ${filter} AND ${dateField} >= date('now','-${days} days')
+        AND (source IS NULL OR source='sec')
+      GROUP BY ticker, insider, trade_date, type
+    `;
+
     const hotBuys = db.prepare(`
       SELECT ticker, MAX(company) AS company,
         COUNT(CASE WHEN type='P' THEN 1 END) AS buys,
         COUNT(DISTINCT CASE WHEN type='P' THEN insider END) AS buyers,
-        SUM(CASE WHEN type='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+        SUM(CASE WHEN type='P' THEN value ELSE 0 END) AS buy_val,
         MAX(CASE WHEN type='P' THEN trade_date END) AS latest,
         MAX(CASE WHEN type='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%'
           OR UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%') THEN 1 ELSE 0 END) AS exec_buy
-      FROM trades
-      WHERE filing_date >= date('now','-30 days') AND (source IS NULL OR source='sec')
+      FROM (${DEDUP("type='P'", 30)})
       GROUP BY ticker HAVING buys > 0
       ORDER BY buy_val DESC LIMIT 20
     `).all();
 
-    // Cluster buys — multiple insiders buying same stock recently
     const clusterBuys = db.prepare(`
       SELECT ticker, MAX(company) AS company,
         COUNT(DISTINCT insider) AS buyer_count,
         COUNT(*) AS trade_count,
-        SUM(COALESCE(value,0)) AS total_val,
+        SUM(value) AS total_val,
         MAX(trade_date) AS latest
-      FROM trades
-      WHERE type='P' AND filing_date >= date('now','-14 days') AND (source IS NULL OR source='sec')
+      FROM (${DEDUP("type='P'", 14)})
       GROUP BY ticker HAVING buyer_count >= 2
       ORDER BY buyer_count DESC, total_val DESC LIMIT 15
     `).all();
 
-    // Fresh first buys — insiders buying a ticker they haven't touched in 2+ years
     const freshBuys = db.prepare(`
-      SELECT t.ticker, MAX(t.company) AS company,
-        t.insider, MAX(t.title) AS title,
-        MAX(t.trade_date) AS latest, MAX(t.value) AS val
-      FROM trades t
-      WHERE t.type='P' AND t.filing_date >= date('now','-14 days')
-        AND (t.source IS NULL OR t.source='sec')
-        AND NOT EXISTS (
-          SELECT 1 FROM trades t2
-          WHERE t2.ticker=t.ticker AND t2.insider=t.insider AND t2.type='P'
-            AND t2.trade_date < t.trade_date
-            AND t2.trade_date >= date(t.trade_date,'-730 days')
-        )
-      GROUP BY t.ticker, t.insider
+      SELECT d.ticker, MAX(d.company) AS company,
+        d.insider, MAX(d.title) AS title,
+        MAX(d.trade_date) AS latest, MAX(d.value) AS val
+      FROM (${DEDUP("type='P'", 14)}) d
+      WHERE NOT EXISTS (
+        SELECT 1 FROM trades t2
+        WHERE t2.ticker=d.ticker AND t2.insider=d.insider AND t2.type='P'
+          AND t2.trade_date < d.trade_date
+          AND t2.trade_date >= date(d.trade_date,'-730 days')
+      )
+      GROUP BY d.ticker, d.insider
       ORDER BY val DESC LIMIT 15
     `).all();
 
-    // Heavy selling — potential red flag
     const heavySells = db.prepare(`
       SELECT ticker, MAX(company) AS company,
         COUNT(DISTINCT insider) AS seller_count,
-        SUM(COALESCE(value,0)) AS sell_val,
+        SUM(value) AS sell_val,
         MAX(trade_date) AS latest
-      FROM trades
-      WHERE type IN ('S','S-') AND filing_date >= date('now','-14 days')
-        AND (source IS NULL OR source='sec')
+      FROM (${DEDUP("type IN ('S','S-')", 14)})
       GROUP BY ticker
       ORDER BY sell_val DESC LIMIT 15
     `).all();
 
-    // Most active overall (buys + sells combined, last 7 days)
     const mostActive = db.prepare(`
       SELECT ticker, MAX(company) AS company,
         COUNT(*) AS total_trades,
@@ -880,8 +888,7 @@ app.get('/api/stock-lists', (req, res) => {
         SUM(CASE WHEN type='P' THEN 1 ELSE 0 END) AS buys,
         SUM(CASE WHEN type IN ('S','S-') THEN 1 ELSE 0 END) AS sells,
         MAX(trade_date) AS latest
-      FROM trades
-      WHERE filing_date >= date('now','-7 days') AND (source IS NULL OR source='sec')
+      FROM (${DEDUP("1=1", 7)})
       GROUP BY ticker
       ORDER BY total_trades DESC, insiders DESC LIMIT 20
     `).all();
