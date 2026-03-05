@@ -861,6 +861,717 @@ function openTickerFromScreener(ticker) {
   loadStockView(ticker);
 }
 
+
+// ── CAPITAL AT RISK SCORE ──────────────────────────────────────────
+// Scores conviction by PERSONAL risk taken, not raw dollar amount.
+// A $500k buy means very different things for a billionaire vs a small-cap CFO.
+//
+// Estimation model:
+//   Net worth  → inferred from total known SEC holdings (owned shares × price)
+//               plus title-based salary assumptions
+//   Salary     → title lookup table (CEO/CFO/etc.) adjusted for market cap tier
+//   Position   → existing owned shares × current price (from trade record)
+//   Risk score → weighted combination of:
+//                (1) trade$ as % of est. net worth     — max 40pts
+//                (2) trade$ as % of est. annual salary — max 30pts  
+//                (3) trade$ as % of est. existing pos  — max 20pts
+//                (4) role seniority bonus               — max 10pts
+
+const CAR_SALARY_TABLE = {
+  // [small-cap < $500M, mid-cap $500M–$5B, large-cap > $5B] annual cash comp
+  CEO:       [450000,  900000,  3000000],
+  CFO:       [350000,  700000,  2000000],
+  PRESIDENT: [400000,  800000,  2500000],
+  COO:       [350000,  700000,  2000000],
+  CTO:       [320000,  650000,  1800000],
+  CHAIRMAN:  [250000,  500000,  1500000],
+  DIRECTOR:  [150000,  250000,   450000],
+  VP:        [200000,  380000,   700000],
+  SVP:       [250000,  450000,   900000],
+  EVP:       [300000,  600000,  1400000],
+  GENERAL_COUNSEL: [280000, 550000, 1200000],
+  DEFAULT:   [180000,  350000,   650000],
+};
+
+function estimateSalary(title, marketCapTier) {
+  // marketCapTier: 0=small, 1=mid, 2=large
+  const t = (title || '').toUpperCase();
+  let row = CAR_SALARY_TABLE.DEFAULT;
+  if (t.includes('CEO') || t.includes('CHIEF EXECUTIVE'))        row = CAR_SALARY_TABLE.CEO;
+  else if (t.includes('CFO') || t.includes('CHIEF FINANCIAL'))   row = CAR_SALARY_TABLE.CFO;
+  else if (t.includes('PRESIDENT'))                               row = CAR_SALARY_TABLE.PRESIDENT;
+  else if (t.includes('COO') || t.includes('CHIEF OPERATING'))   row = CAR_SALARY_TABLE.COO;
+  else if (t.includes('CTO') || t.includes('CHIEF TECH'))        row = CAR_SALARY_TABLE.CTO;
+  else if (t.includes('CHAIRMAN'))                                row = CAR_SALARY_TABLE.CHAIRMAN;
+  else if (t.includes('EVP') || t.includes('EXECUTIVE VICE'))    row = CAR_SALARY_TABLE.EVP;
+  else if (t.includes('SVP') || t.includes('SENIOR VICE'))       row = CAR_SALARY_TABLE.SVP;
+  else if (t.includes('VP') || t.includes('VICE PRESIDENT'))     row = CAR_SALARY_TABLE.VP;
+  else if (t.includes('GENERAL COUNSEL') || t.includes('LEGAL')) row = CAR_SALARY_TABLE.GENERAL_COUNSEL;
+  else if (t.includes('DIRECTOR'))                                row = CAR_SALARY_TABLE.DIRECTOR;
+  return row[Math.min(2, Math.max(0, marketCapTier))];
+}
+
+function getMarketCapTier(ownedShares, price) {
+  // Rough market cap proxy: if insider owns ~0.5–5% of float, back-calculate
+  // More practically: use the share price + known insider holding as a proxy
+  const holdingValue = ownedShares * price;
+  if (holdingValue > 50000000)  return 2; // large
+  if (holdingValue > 5000000)   return 1; // mid
+  return 0; // small
+}
+
+function buildCapitalAtRiskData(trades) {
+  const buys = trades.filter(t => t.type === 'P' && t.value > 0 && t.qty > 0);
+  if (!buys.length) return [];
+
+  // Group by insider+ticker — one entry per insider/stock combo
+  const byKey = {};
+  buys.forEach(t => {
+    const key = `${t.insider}::${t.ticker}`;
+    if (!byKey[key]) byKey[key] = [];
+    byKey[key].push(t);
+  });
+
+  const results = [];
+
+  Object.entries(byKey).forEach(([key, keyBuys]) => {
+    const [insiderName, ticker] = key.split('::');
+    
+    // Use the most recent buy for reference values
+    const sorted     = [...keyBuys].sort((a,b) => (b.trade||b.filing||'').localeCompare(a.trade||a.filing||''));
+    const latest     = sorted[0];
+    const title      = latest.title || '';
+    const price      = latest.price || 0;
+    const ownedAfter = latest.owned || 0;
+    const tradeQty   = latest.qty   || 0;
+    const tradeVal   = latest.value || 0;
+
+    // Est. pre-trade position
+    const ownedBefore = Math.max(0, ownedAfter - tradeQty);
+
+    // Est. net worth: known holding value (post-trade) × 3 diversification factor
+    // (insiders rarely have >33% of net worth in one stock — conservative assumption)
+    const holdingValue = ownedAfter * price;
+    const estNetWorth  = holdingValue > 0 ? holdingValue * 3 : 0;
+
+    // Market cap tier from holding size
+    const mcTier   = getMarketCapTier(ownedAfter, price);
+    const estSalary = estimateSalary(title, mcTier);
+
+    // Existing position value before this trade
+    const existingPosValue = ownedBefore * price;
+
+    // ── Scoring ──────────────────────────────────────────────────
+    let score = 0;
+    const factors = [];
+
+    // (1) Trade as % of estimated net worth — most powerful signal
+    let nwPct = 0;
+    if (estNetWorth > 0) {
+      nwPct = (tradeVal / estNetWorth) * 100;
+      if      (nwPct >= 20) { score += 40; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'EXTREME',  color: 'var(--buy)' }); }
+      else if (nwPct >= 10) { score += 32; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'VERY HIGH', color: 'var(--buy)' }); }
+      else if (nwPct >= 5)  { score += 24; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'HIGH',     color: 'var(--accent)' }); }
+      else if (nwPct >= 2)  { score += 14; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'MODERATE', color: 'var(--option)' }); }
+      else if (nwPct >= 0.5){ score += 6;  factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'MINOR',    color: 'var(--muted)' }); }
+    }
+
+    // (2) Trade as multiple of annual salary
+    let salaryMult = 0;
+    if (estSalary > 0) {
+      salaryMult = tradeVal / estSalary;
+      if      (salaryMult >= 5)  { score += 30; factors.push({ label: `${salaryMult.toFixed(1)}× annual salary`, strength: 'EXTREME',  color: 'var(--buy)' }); }
+      else if (salaryMult >= 2)  { score += 22; factors.push({ label: `${salaryMult.toFixed(1)}× annual salary`, strength: 'VERY HIGH', color: 'var(--buy)' }); }
+      else if (salaryMult >= 1)  { score += 15; factors.push({ label: `${salaryMult.toFixed(1)}× annual salary`, strength: 'HIGH',     color: 'var(--accent)' }); }
+      else if (salaryMult >= 0.5){ score += 8;  factors.push({ label: `${(salaryMult*100).toFixed(0)}% of annual salary`, strength: 'MODERATE', color: 'var(--option)' }); }
+      else if (salaryMult >= 0.1){ score += 3;  factors.push({ label: `${(salaryMult*100).toFixed(0)}% of annual salary`, strength: 'MINOR',    color: 'var(--muted)' }); }
+    }
+
+    // (3) Trade relative to existing position size
+    let posPct = 0;
+    if (existingPosValue > 0) {
+      posPct = (tradeVal / existingPosValue) * 100;
+      if      (posPct >= 100) { score += 20; factors.push({ label: `Doubled existing position (+${posPct.toFixed(0)}%)`, strength: 'EXTREME',  color: 'var(--buy)' }); }
+      else if (posPct >= 50)  { score += 16; factors.push({ label: `+${posPct.toFixed(0)}% added to position`,            strength: 'VERY HIGH', color: 'var(--buy)' }); }
+      else if (posPct >= 20)  { score += 11; factors.push({ label: `+${posPct.toFixed(0)}% added to position`,            strength: 'HIGH',     color: 'var(--accent)' }); }
+      else if (posPct >= 5)   { score += 5;  factors.push({ label: `+${posPct.toFixed(0)}% added to position`,            strength: 'MODERATE', color: 'var(--option)' }); }
+    } else if (ownedBefore === 0 && tradeVal > 0) {
+      // Brand new position — always high conviction
+      score += 15;
+      factors.push({ label: 'New position established', strength: 'HIGH', color: 'var(--accent)' });
+    }
+
+    // (4) Seniority bonus — C-suite put MORE on the line
+    const tUpper = title.toUpperCase();
+    const isCLevel = tUpper.includes('CEO') || tUpper.includes('CFO') || tUpper.includes('PRESIDENT') || tUpper.includes('CHAIRMAN') || tUpper.includes('COO');
+    if (isCLevel && score > 20) {
+      score += 10;
+      factors.push({ label: `${title} — full information advantage`, strength: 'BONUS', color: 'var(--accent)' });
+    }
+
+    score = Math.min(100, Math.max(0, Math.round(score)));
+    if (score < 25) return; // filter noise
+
+    // Risk tier label
+    let tier, tierColor;
+    if      (score >= 80) { tier = 'EXTREME RISK';    tierColor = 'var(--buy)'; }
+    else if (score >= 65) { tier = 'VERY HIGH RISK';  tierColor = 'var(--buy)'; }
+    else if (score >= 50) { tier = 'HIGH RISK';       tierColor = 'var(--accent)'; }
+    else if (score >= 35) { tier = 'MODERATE RISK';   tierColor = 'var(--option)'; }
+    else                  { tier = 'LOW RISK';         tierColor = 'var(--muted)'; }
+
+    results.push({
+      insider: insiderName,
+      title, ticker,
+      company:       latest.company || ticker,
+      tradeDate:     latest.trade   || latest.filing || '',
+      tradeVal,
+      estNetWorth,
+      estSalary,
+      existingPosValue,
+      nwPct, salaryMult, posPct,
+      holdingValue,
+      mcTier,
+      score, tier, tierColor,
+      factors: factors.slice(0, 4),
+    });
+  });
+
+  return results.sort((a, b) => b.score - a.score);
+}
+
+let _carCache = null;
+
+function renderCapitalAtRiskSubpage() {
+  const body    = document.getElementById('analysisViewBody');
+  const trades  = _analysisData || [];
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  _carCache = buildCapitalAtRiskData(trades);
+
+  if (!_carCache.length) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">No qualifying trades in the current window.</div>
+    </div>`;
+    return;
+  }
+
+  const mcLabels = ['Small-Cap', 'Mid-Cap', 'Large-Cap'];
+  const salaryLabel = (s) => s >= 1000000 ? `$${(s/1000000).toFixed(1)}M` : `$${(s/1000).toFixed(0)}K`;
+
+  const cards = _carCache.map(r => {
+    const scoreColor  = r.score >= 80 ? 'var(--buy)' : r.score >= 65 ? 'var(--buy)' : r.score >= 50 ? 'var(--accent)' : r.score >= 35 ? 'var(--option)' : 'var(--muted)';
+    const scoreBg     = r.score >= 65 ? 'rgba(0,255,136,0.08)' : r.score >= 50 ? 'rgba(0,212,255,0.07)' : 'rgba(255,170,0,0.06)';
+    const scoreBorder = r.score >= 65 ? 'rgba(0,255,136,0.28)' : r.score >= 50 ? 'rgba(0,212,255,0.22)' : 'rgba(255,170,0,0.2)';
+    const barWidth    = Math.round(r.score);
+
+    const statsRow = [
+      r.estNetWorth > 0 ? `<div style="flex:1;min-width:0">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">EST. NET WORTH</div>
+        <div style="font-size:13px;color:var(--text);font-family:'Space Mono',monospace">${fmt(r.estNetWorth)}</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:1px">${r.nwPct > 0 ? r.nwPct.toFixed(1) + '% used' : '—'}</div>
+      </div>` : '',
+
+      `<div style="flex:1;min-width:0">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">EST. SALARY</div>
+        <div style="font-size:13px;color:var(--text);font-family:'Space Mono',monospace">${salaryLabel(r.estSalary)}<span style="font-size:9px;color:var(--muted)">/yr</span></div>
+        <div style="font-size:9px;color:var(--muted);margin-top:1px">${r.salaryMult >= 0.1 ? r.salaryMult.toFixed(2) + '× salary' : '< 0.1×'}</div>
+      </div>`,
+
+      r.existingPosValue > 0 ? `<div style="flex:1;min-width:0">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">PRIOR POSITION</div>
+        <div style="font-size:13px;color:var(--text);font-family:'Space Mono',monospace">${fmt(r.existingPosValue)}</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:1px">${r.posPct > 0 ? '+' + r.posPct.toFixed(0) + '% added' : 'new position'}</div>
+      </div>` : `<div style="flex:1;min-width:0">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">PRIOR POSITION</div>
+        <div style="font-size:13px;color:var(--buy);font-family:'Space Mono',monospace">NEW</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:1px">first purchase</div>
+      </div>`,
+
+      `<div style="flex:1;min-width:0">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">TRADE SIZE</div>
+        <div style="font-size:13px;color:${scoreColor};font-family:'Space Mono',monospace">${fmt(r.tradeVal)}</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:1px">${mcLabels[r.mcTier]}</div>
+      </div>`,
+    ].filter(Boolean).join('');
+
+    const factorsHtml = r.factors.map(f => `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
+        <span style="font-size:11px;color:var(--text)">${f.label}</span>
+        <span style="font-family:'Space Mono',monospace;font-size:9px;color:${f.color};flex-shrink:0;background:rgba(255,255,255,0.04);padding:2px 6px;border-radius:3px;border:1px solid ${f.color}33">${f.strength}</span>
+      </div>`).join('');
+
+    return `
+    <div onclick="openTickerFromScreener('${r.ticker}')"
+         style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+         onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
+
+      <!-- Score bar top -->
+      <div style="height:3px;background:rgba(255,255,255,0.05)">
+        <div style="height:100%;width:${barWidth}%;background:${scoreColor};transition:width .4s;opacity:0.8"></div>
+      </div>
+
+      <!-- Header -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 16px 12px;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
+          <div>
+            <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${r.ticker}</div>
+            <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${r.company}</div>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.insider}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.title}</div>
+          </div>
+        </div>
+        <!-- Score badge -->
+        <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
+          <div style="background:${scoreBg};border:1px solid ${scoreBorder};border-radius:8px;padding:6px 12px;text-align:center">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;color:${scoreColor};line-height:1">${r.score}</div>
+            <div style="font-family:'Space Mono',monospace;font-size:8px;color:${scoreColor};letter-spacing:1px;margin-top:1px">RISK SCORE</div>
+          </div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:${scoreColor};letter-spacing:1px;margin-top:5px;text-align:right">${r.tier}</div>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div style="display:flex;gap:0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+        ${['EST. NET WORTH', 'EST. SALARY', 'PRIOR POSITION', 'TRADE SIZE'].map((label, i) => {
+          const vals = [
+            r.estNetWorth > 0 ? { val: fmt(r.estNetWorth), sub: r.nwPct > 0 ? r.nwPct.toFixed(1) + '% at risk' : '—', color: 'var(--text)' } : null,
+            { val: salaryLabel(r.estSalary) + '/yr', sub: r.salaryMult >= 0.1 ? r.salaryMult.toFixed(2) + '× salary' : '< 0.1×', color: 'var(--text)' },
+            r.existingPosValue > 0
+              ? { val: fmt(r.existingPosValue), sub: r.posPct > 0 ? '+' + r.posPct.toFixed(0) + '% added' : '—', color: 'var(--text)' }
+              : { val: 'NEW', sub: 'first purchase', color: 'var(--buy)' },
+            { val: fmt(r.tradeVal), sub: mcLabels[r.mcTier], color: scoreColor },
+          ];
+          const v = vals[i];
+          if (!v) return '';
+          return `<div style="flex:1;padding:10px 12px;${i > 0 ? 'border-left:1px solid var(--border)' : ''}">
+            <div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:4px">${label}</div>
+            <div style="font-size:12px;color:${v.color};font-family:'Space Mono',monospace;font-weight:700">${v.val}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:2px">${v.sub}</div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Factors -->
+      <div style="padding:12px 16px">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.5px;color:var(--muted);margin-bottom:6px">RISK FACTORS</div>
+        ${factorsHtml || '<div style="font-size:11px;color:var(--muted)">Insufficient data for full scoring</div>'}
+        <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:right">${r.tradeDate}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">💎 CAPITAL AT RISK SCORE</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Conviction scored by personal financial risk — not raw dollar value · Last 30D</div>
+    </div>
+    <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.15);border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:11px;color:var(--muted);line-height:1.7">
+      A <span style="color:var(--text)">$500K buy</span> by a billionaire CEO is noise.
+      The same <span style="color:var(--text)">$500K buy</span> by a small-cap CFO earning $350K/yr, doubling their existing position, represents <span style="color:var(--buy)">~1.4× their annual salary and ~7% of estimated net worth</span> — an entirely different level of conviction.
+      <span style="color:var(--accent)">This tool measures that difference.</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px">
+      ${cards}
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:20px;line-height:1.6;opacity:0.7">
+      ⚠ Net worth and salary estimates are inferred from SEC filing data, known holding values, and title-based compensation benchmarks.
+      They are approximations only and should not be taken as precise figures.
+    </div>
+  </div>`;
+}
+
+
+// ── INSIDER BEHAVIOR REGIME SHIFT DETECTOR ─────────────────────────
+// Detects when an insider's behavior changes materially vs their own baseline.
+// Four signal types:
+//   SELLER_FLIPS_BUY   — chronic seller makes open-market purchase
+//   DORMANT_ACTIVATES  — insider silent 6m+ suddenly trades
+//   SELL_SPIKE         — selling intensity far exceeds personal baseline
+//   BUY_ACCELERATION   — buying pace significantly above personal norm
+//
+// Each signal is scored 0–100 and classified by regime type.
+// Uses _analysisDataLong (365d) for baseline, _analysisData (30d) for recent.
+
+function buildRegimeShiftData(longTrades, recentTrades) {
+  if (!longTrades || longTrades.length < 10) return [];
+
+  const now = new Date();
+  const RECENT_DAYS  = 30;
+  const BASELINE_DAYS = 180;  // 6-month baseline window (excludes most recent 30d)
+  const recentCutoff   = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - RECENT_DAYS);
+  const baselineEnd    = new Date(recentCutoff);
+  const baselineStart  = new Date(now); baselineStart.setDate(baselineStart.getDate() - BASELINE_DAYS);
+
+  // Partition all trades into baseline vs recent per insider
+  const byInsider = {};
+  longTrades.forEach(t => {
+    if (!t.insider || !t.ticker) return;
+    const key = t.insider;
+    if (!byInsider[key]) byInsider[key] = { baseline: [], recent: [], tickers: new Set() };
+    const d = new Date(t.trade || t.filing || '');
+    if (isNaN(d)) return;
+    if (d >= recentCutoff)   byInsider[key].recent.push(t);
+    else if (d >= baselineStart && d < baselineEnd) byInsider[key].baseline.push(t);
+    byInsider[key].tickers.add(t.ticker);
+  });
+
+  const signals = [];
+
+  Object.entries(byInsider).forEach(([insider, data]) => {
+    const { baseline, recent } = data;
+    if (!recent.length) return;  // must have recent activity to flag
+
+    const recentBuys  = recent.filter(t => t.type === 'P');
+    const recentSells = recent.filter(t => t.type === 'S' || t.type === 'S-');
+    const baseBuys    = baseline.filter(t => t.type === 'P');
+    const baseSells   = baseline.filter(t => t.type === 'S' || t.type === 'S-');
+
+    const recentTickers = [...new Set(recent.map(t => t.ticker))];
+    // Use the ticker with highest recent activity value for the card
+    const primaryTicker = recentTickers.reduce((best, tk) => {
+      const val = recent.filter(t => t.ticker === tk).reduce((s, t) => s + (t.value || 0), 0);
+      return val > (best.val || 0) ? { tk, val } : best;
+    }, {}).tk || recentTickers[0];
+
+    const primaryTrade = recent.filter(t => t.ticker === primaryTicker).sort((a,b) =>
+      (b.trade||b.filing||'').localeCompare(a.trade||a.filing||'')
+    )[0] || recent[0];
+
+    const title   = primaryTrade.title   || '';
+    const company = primaryTrade.company || primaryTicker;
+
+    // ── Signal 1: SELLER FLIPS BUYER ───────────────────────────────
+    // Had ≥2 sells in baseline, zero buys in baseline, now buying
+    if (baseSells.length >= 2 && baseBuys.length === 0 && recentBuys.length >= 1) {
+      const sellVal  = baseSells.reduce((s, t) => s + (t.value || 0), 0);
+      const buyVal   = recentBuys.reduce((s, t) => s + (t.value || 0), 0);
+      const sellSpan = baseSells.length;
+
+      let score = 50;
+      if (sellSpan >= 5)       score += 20;
+      else if (sellSpan >= 3)  score += 12;
+      if (buyVal >= sellVal * 0.5) score += 15;
+      if (buyVal >= 500000)    score += 10;
+      if (buyVal >= 1000000)   score += 5;
+      if (recentBuys.length >= 2) score += 8;
+      const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
+      if (isCLevel) score += 7;
+      score = Math.min(100, score);
+
+      const totalRecentBuyVal = recentBuys.reduce((s,t) => s+(t.value||0), 0);
+      signals.push({
+        insider, title, ticker: primaryTicker, company,
+        regimeType: 'SELLER_FLIPS_BUY',
+        regimeLabel: 'Chronic Seller → Buyer',
+        icon: '🔄',
+        accentColor: 'var(--buy)',
+        accentBg: 'rgba(0,255,136,0.07)',
+        accentBorder: 'rgba(0,255,136,0.28)',
+        score,
+        tradeDate: primaryTrade.trade || primaryTrade.filing || '',
+        metrics: [
+          { label: 'Sells in baseline',  value: `${sellSpan} trades · ${fmt(sellVal)}` },
+          { label: 'Recent buy',         value: fmt(totalRecentBuyVal), highlight: true },
+          { label: 'Buy count (30d)',     value: `${recentBuys.length} transaction${recentBuys.length > 1 ? 's' : ''}` },
+        ],
+        narrative: `${insider} had ${sellSpan} sell transaction${sellSpan>1?'s':''} and zero buys over the prior 6 months — now making open-market purchases.`,
+      });
+    }
+
+    // ── Signal 2: DORMANT INSIDER ACTIVATES ────────────────────────
+    // No trades in baseline period at all, now active
+    if (baseline.length === 0 && recent.length >= 1) {
+      const recentVal = recent.reduce((s, t) => s + (t.value || 0), 0);
+      const isBuying  = recentBuys.length > recentSells.length;
+
+      let score = 40;
+      if (recent.length >= 3)    score += 15;
+      if (recentVal >= 500000)   score += 15;
+      if (recentVal >= 1000000)  score += 10;
+      if (isBuying)              score += 12;
+      if (recentBuys.length >= 2) score += 8;
+      const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
+      if (isCLevel) score += 10;
+      score = Math.min(100, score);
+
+      signals.push({
+        insider, title, ticker: primaryTicker, company,
+        regimeType: 'DORMANT_ACTIVATES',
+        regimeLabel: 'Dormant → Active',
+        icon: '⚡',
+        accentColor: 'var(--accent)',
+        accentBg: 'rgba(0,212,255,0.06)',
+        accentBorder: 'rgba(0,212,255,0.25)',
+        score,
+        tradeDate: primaryTrade.trade || primaryTrade.filing || '',
+        metrics: [
+          { label: 'Inactive for',       value: '6+ months' },
+          { label: 'Recent activity',    value: `${recent.length} trade${recent.length>1?'s':''} · ${fmt(recentVal)}`, highlight: true },
+          { label: 'Direction',          value: isBuying ? '↑ Net Buyer' : '↓ Net Seller' },
+        ],
+        narrative: `${insider} had no SEC filings in the prior 6 months — now filing ${recent.length} transaction${recent.length>1?'s':''} totaling ${fmt(recentVal)}.`,
+      });
+    }
+
+    // ── Signal 3: SELL SPIKE vs BASELINE ───────────────────────────
+    // Recent sell intensity significantly above personal baseline rate
+    if (baseSells.length >= 1 && recentSells.length >= 1) {
+      const baseRate   = baseSells.length / 6;   // avg sells per month over baseline
+      const recentRate = recentSells.length;       // sells in last month
+      const ratio      = recentRate / Math.max(baseRate, 0.1);
+
+      const baseVal    = baseSells.reduce((s,t)=>s+(t.value||0),0) / 6;
+      const recentVal  = recentSells.reduce((s,t)=>s+(t.value||0),0);
+
+      if (ratio >= 2.5) {
+        let score = 35;
+        if (ratio >= 5)      score += 25;
+        else if (ratio >= 3) score += 15;
+        if (recentVal >= baseVal * 3)  score += 15;
+        if (recentVal >= 1000000)      score += 10;
+        if (recentSells.length >= 3)   score += 8;
+        const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
+        if (isCLevel) score += 7;
+        score = Math.min(100, score);
+
+        signals.push({
+          insider, title, ticker: primaryTicker, company,
+          regimeType: 'SELL_SPIKE',
+          regimeLabel: 'Sell Spike vs Baseline',
+          icon: '🔴',
+          accentColor: 'var(--sell)',
+          accentBg: 'rgba(255,68,102,0.06)',
+          accentBorder: 'rgba(255,68,102,0.28)',
+          score,
+          tradeDate: primaryTrade.trade || primaryTrade.filing || '',
+          metrics: [
+            { label: 'Baseline rate',    value: `${baseRate.toFixed(1)} sells/mo` },
+            { label: 'Recent rate',      value: `${recentSells.length} sells this month`, highlight: true },
+            { label: 'Intensity ratio',  value: `${ratio.toFixed(1)}× above normal`, highlight: true },
+          ],
+          narrative: `${insider}'s sell rate is ${ratio.toFixed(1)}× their 6-month baseline — ${recentSells.length} sell${recentSells.length>1?'s':''} in 30 days vs avg ${baseRate.toFixed(1)}/mo.`,
+        });
+      }
+    }
+
+    // ── Signal 4: BUY ACCELERATION ─────────────────────────────────
+    // Recent buy pace materially above personal baseline
+    if (baseBuys.length >= 1 && recentBuys.length >= 1) {
+      const baseRate   = baseBuys.length / 6;
+      const recentRate = recentBuys.length;
+      const ratio      = recentRate / Math.max(baseRate, 0.1);
+
+      const baseVal   = baseBuys.reduce((s,t)=>s+(t.value||0),0) / 6;
+      const recentVal = recentBuys.reduce((s,t)=>s+(t.value||0),0);
+      const valRatio  = recentVal / Math.max(baseVal, 1);
+
+      if (ratio >= 2.5 || valRatio >= 3) {
+        let score = 35;
+        if (ratio >= 5)       score += 20;
+        else if (ratio >= 3)  score += 12;
+        if (valRatio >= 5)    score += 18;
+        else if (valRatio >= 3) score += 10;
+        if (recentVal >= 500000)  score += 8;
+        if (recentVal >= 1000000) score += 7;
+        const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
+        if (isCLevel) score += 10;
+        score = Math.min(100, score);
+
+        signals.push({
+          insider, title, ticker: primaryTicker, company,
+          regimeType: 'BUY_ACCELERATION',
+          regimeLabel: 'Buy Acceleration',
+          icon: '🚀',
+          accentColor: '#ffd700',
+          accentBg: 'rgba(255,215,0,0.06)',
+          accentBorder: 'rgba(255,215,0,0.28)',
+          score,
+          tradeDate: primaryTrade.trade || primaryTrade.filing || '',
+          metrics: [
+            { label: 'Baseline rate',   value: `${baseRate.toFixed(1)} buys/mo` },
+            { label: 'Recent rate',     value: `${recentBuys.length} buys this month`, highlight: true },
+            { label: 'Value vs norm',   value: `${valRatio.toFixed(1)}× normal buy value`, highlight: true },
+          ],
+          narrative: `${insider}'s buying pace is ${Math.max(ratio,valRatio).toFixed(1)}× their 6-month norm — ${recentBuys.length} buy${recentBuys.length>1?'s':''} in 30 days totaling ${fmt(recentVal)}.`,
+        });
+      }
+    }
+  });
+
+  // Deduplicate: if same insider appears with multiple signal types, keep highest score per type
+  // but allow at most 2 signals per insider
+  const byInsiderCount = {};
+  const deduped = signals
+    .sort((a, b) => b.score - a.score)
+    .filter(s => {
+      const n = (byInsiderCount[s.insider] || 0);
+      if (n >= 2) return false;
+      byInsiderCount[s.insider] = n + 1;
+      return true;
+    });
+
+  return deduped.sort((a, b) => b.score - a.score);
+}
+
+let _regimeCache = null;
+
+function renderRegimeShiftSubpage() {
+  const body      = document.getElementById('analysisViewBody');
+  const longT     = _analysisDataLong || _analysisData || [];
+  const recentT   = _analysisData || [];
+  const backBtn   = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  // Show loading state if long history not ready yet
+  if (!_analysisDataLong) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading 12-month history for baseline comparison…</span></div>
+    </div>`;
+    // Retry when data arrives
+    const poll = setInterval(() => {
+      if (_analysisDataLong) { clearInterval(poll); renderRegimeShiftSubpage(); }
+    }, 800);
+    return;
+  }
+
+  _regimeCache = buildRegimeShiftData(longT, recentT);
+
+  const TYPE_ORDER = ['SELLER_FLIPS_BUY', 'DORMANT_ACTIVATES', 'BUY_ACCELERATION', 'SELL_SPIKE'];
+
+  const regimeLabels = {
+    SELLER_FLIPS_BUY:  { label: 'Seller → Buyer',    color: 'var(--buy)',    bg: 'rgba(0,255,136,0.08)',   border: 'rgba(0,255,136,0.2)' },
+    DORMANT_ACTIVATES: { label: 'Dormant → Active',  color: 'var(--accent)', bg: 'rgba(0,212,255,0.08)',  border: 'rgba(0,212,255,0.2)' },
+    BUY_ACCELERATION:  { label: 'Buy Acceleration',  color: '#ffd700',       bg: 'rgba(255,215,0,0.08)',  border: 'rgba(255,215,0,0.2)' },
+    SELL_SPIKE:        { label: 'Sell Spike',         color: 'var(--sell)',   bg: 'rgba(255,68,102,0.08)', border: 'rgba(255,68,102,0.2)' },
+  };
+
+  if (!_regimeCache.length) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;margin-bottom:20px">📡 REGIME SHIFT DETECTOR</div>
+      <div style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">No regime shifts detected in the current window.<br><span style="font-size:11px">Requires sufficient baseline history. Try again after more data loads.</span></div>
+    </div>`;
+    return;
+  }
+
+  // Group by regime type
+  const byType = {};
+  TYPE_ORDER.forEach(t => { byType[t] = _regimeCache.filter(s => s.regimeType === t); });
+
+  const sectionHtml = TYPE_ORDER.map(type => {
+    const group = byType[type];
+    if (!group.length) return '';
+    const meta = regimeLabels[type];
+    const icon = group[0].icon;
+
+    const cards = group.map(s => {
+      const scoreColor  = s.score >= 75 ? s.accentColor : s.score >= 55 ? s.accentColor : 'var(--muted)';
+      const barWidth    = s.score;
+
+      const metricsHtml = s.metrics.map(m => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
+          <span style="font-size:10px;color:var(--muted)">${m.label}</span>
+          <span style="font-family:'Space Mono',monospace;font-size:10px;color:${m.highlight ? s.accentColor : 'var(--text)'};font-weight:${m.highlight?'700':'400'}">${m.value}</span>
+        </div>`).join('');
+
+      return `
+      <div onclick="openTickerFromScreener('${s.ticker}')"
+           style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+           onmouseover="this.style.borderColor='${s.accentBorder}'" onmouseout="this.style.borderColor='var(--border)'">
+
+        <!-- Score bar -->
+        <div style="height:3px;background:rgba(255,255,255,0.05)">
+          <div style="height:100%;width:${barWidth}%;background:${s.accentColor};opacity:0.75"></div>
+        </div>
+
+        <!-- Header -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:13px 16px 10px;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <span style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--accent)">${s.ticker}</span>
+              <span style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${s.company}</span>
+            </div>
+            <div style="font-size:12px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.insider}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px">${s.title}</div>
+          </div>
+          <!-- Score -->
+          <div style="flex-shrink:0;text-align:right">
+            <div style="background:${s.accentBg};border:1px solid ${s.accentBorder};border-radius:7px;padding:5px 10px;display:inline-block">
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${s.accentColor};line-height:1">${s.score}</div>
+              <div style="font-family:'Space Mono',monospace;font-size:7px;color:${s.accentColor};letter-spacing:1px">SHIFT SCORE</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Narrative -->
+        <div style="padding:0 16px 10px">
+          <div style="font-size:11px;color:var(--muted);line-height:1.6;font-style:italic">${s.narrative}</div>
+        </div>
+
+        <!-- Metrics -->
+        <div style="padding:0 16px 12px">
+          ${metricsHtml}
+          <div style="font-size:9px;color:var(--muted);text-align:right;margin-top:6px">${s.tradeDate}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `
+    <div style="margin-bottom:32px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="font-size:18px">${icon}</span>
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:${meta.color}">${meta.label.toUpperCase()}</div>
+          <div style="font-size:10px;color:var(--muted)">${group.length} insider${group.length>1?'s':''} flagged</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
+        ${cards}
+      </div>
+    </div>`;
+  }).join('');
+
+  const totalBullish = _regimeCache.filter(s => s.regimeType === 'SELLER_FLIPS_BUY' || s.regimeType === 'BUY_ACCELERATION' || s.regimeType === 'DORMANT_ACTIVATES').length;
+  const totalBearish = _regimeCache.filter(s => s.regimeType === 'SELL_SPIKE').length;
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">📡 INSIDER BEHAVIOR REGIME SHIFT DETECTOR</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Detects material changes vs each insider's own 6-month behavioral baseline · Last 30D</div>
+    </div>
+
+    <!-- Summary bar -->
+    <div style="display:flex;gap:10px;margin:16px 0 24px;flex-wrap:wrap">
+      <div style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:120px">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${totalBullish}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Bullish Regime Shifts</div>
+      </div>
+      <div style="background:rgba(255,68,102,0.05);border:1px solid rgba(255,68,102,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:120px">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--sell)">${totalBearish}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Bearish Regime Shifts</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:120px">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--text)">${_regimeCache.length}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Total Signals</div>
+      </div>
+    </div>
+
+    <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:7px;padding:11px 15px;margin-bottom:24px;font-size:11px;color:var(--muted);line-height:1.7">
+      Each insider is scored against <span style="color:var(--text)">their own 6-month behavioral baseline</span> — not the market.
+      A chronic seller making one purchase scores higher than a neutral insider making ten.
+      <span style="color:var(--accent)">Regime changes catch inflection before price.</span>
+    </div>
+
+    ${sectionHtml}
+  </div>`;
+}
+
 // ── STOCK LANDING ─────────────────────────────────────────────────
 let _stockListsCache = null;
 
@@ -2356,6 +3067,46 @@ function renderAnalysisDashboard() {
     },
   ];
 
+  // Regime Shift (uses longTrades for baseline)
+  const regimeTop3 = buildRegimeShiftData(longTrades, trades).slice(0, 3);
+  const regimeTool = {
+    id: 'regimeshift',
+    icon: '📡',
+    name: 'Regime Shift Detector',
+    desc: 'Detects when insider behavior changes materially vs their own 6-month baseline: chronic sellers suddenly buying, dormant insiders activating, selling intensity spiking. Catches inflection before price.',
+    count: buildRegimeShiftData(longTrades, trades).length,
+    countLabel: 'regime shifts detected',
+    top3: regimeTop3.map(r => ({
+      ticker: r.ticker,
+      label: `Score ${r.score}`,
+      sub: r.regimeLabel + ' · ' + r.insider.split(' ').slice(-1)[0],
+      color: r.regimeType === 'SELL_SPIKE' ? 'var(--sell)' : r.regimeType === 'SELLER_FLIPS_BUY' ? 'var(--buy)' : r.regimeType === 'BUY_ACCELERATION' ? '#ffd700' : 'var(--accent)',
+    })),
+    accentColor: '#64b5f6',
+    accentBg: 'rgba(100,181,246,0.06)',
+    accentBorder: 'rgba(100,181,246,0.25)',
+  };
+
+  // Capital at Risk
+  const carTop3 = buildCapitalAtRiskData(trades).slice(0, 3);
+  const carTool = {
+    id: 'capitalrisk',
+    icon: '💎',
+    name: 'Capital at Risk Score',
+    desc: 'Scores conviction by personal financial risk taken — not raw trade value. A $500K buy means very different things for a billionaire vs a small-cap CFO. Measures salary multiples, net worth %, and position doubling.',
+    count: buildCapitalAtRiskData(trades).length,
+    countLabel: 'insiders scored',
+    top3: carTop3.map(r => ({
+      ticker: r.ticker,
+      label: `Score ${r.score}`,
+      sub: r.factors[0] ? r.factors[0].label : r.tier,
+      color: r.score >= 65 ? 'var(--buy)' : r.score >= 50 ? 'var(--accent)' : 'var(--option)',
+    })),
+    accentColor: '#b39ddb',
+    accentBg: 'rgba(179,157,219,0.06)',
+    accentBorder: 'rgba(179,157,219,0.25)',
+  };
+
   // First Buy always rendered last regardless of array order
   const firstBuyTool = {
     id: 'firstbuy',
@@ -2382,7 +3133,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, regimeTool, carTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
 }
@@ -2471,6 +3222,14 @@ function renderAnalysisSubpage(id) {
 
   else if (id === 'timingleaders') {
     renderTimingLeadersSubpage();
+  }
+
+  else if (id === 'regimeshift') {
+    renderRegimeShiftSubpage();
+  }
+
+  else if (id === 'capitalrisk') {
+    renderCapitalAtRiskSubpage();
   }
 
   else if (id === 'firstbuy') {
