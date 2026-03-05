@@ -148,26 +148,21 @@ app.get('/api/screener', (req, res) => {
     if (n === 0 && syncRunning)
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
 
-    const days    = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
-    const limit   = Math.min(parseInt(req.query.limit || '1000'), 2000);
-    const srcFilter = req.query.source || 'all'; // 'all' | 'sec' | 'congress'
+    const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
+    const limit = Math.min(parseInt(req.query.limit || '1000'), 2000);
 
-    let whereClause = `filing_date >= date('now', '-' || ? || ' days')`;
-    const params = [days, limit];
-
-    if (srcFilter === 'congress') whereClause += ` AND source = 'congress'`;
-    else if (srcFilter === 'sec')  whereClause += ` AND (source = 'sec' OR source IS NULL)`;
-
+    // Screener shows SEC trades by default; congress trades have their own tab
     let rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned,
              COALESCE(source, 'sec') AS source
       FROM trades
-      WHERE ${whereClause}
+      WHERE filing_date >= date('now', '-' || ? || ' days')
+        AND (source IS NULL OR source = 'sec' OR source = 'congress')
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
-    `).all(...params);
+    `).all(days, limit);
 
     if (!rows.length && n > 0) {
       rows = db.prepare(`
@@ -176,6 +171,7 @@ app.get('/api/screener', (req, res) => {
                type, qty, price, value, owned,
                COALESCE(source, 'sec') AS source
         FROM trades
+        WHERE source IS NULL OR source = 'sec'
         ORDER BY trade_date DESC, filing_date DESC
         LIMIT 500
       `).all();
@@ -873,77 +869,96 @@ async function syncCongressTrades() {
     VALUES (@ticker,@company,@insider,@title,@trade_date,@filing_date,@type,@qty,@price,@value,@owned,@accession,@source)
   `);
   const nt = s => { s=(s||'').toLowerCase(); return s.includes('sale')||s.includes('sell')?'S':s.includes('purchase')||s.includes('buy')?'P':'X'; };
-  const midVal = s => { const n=(s||'').replace(/[^0-9\-]/g,'').split('-').map(Number).filter(x=>x>0); return n.length>=2?Math.round((n[0]+n[1])/2):n[0]||0; };
-  const flush = rows => { if(!rows.length) return 0; let n=0; db.transaction(items=>{for(const r of items){try{upsert.run(r);n++;}catch(e){}}})(rows); return n; };
+  const midVal = s => {
+    const clean = (s||'').replace(/\$|,|\s/g,'');
+    const parts = clean.split(/[-–]/).map(parseFloat).filter(n=>n>0&&isFinite(n));
+    return parts.length>=2 ? Math.round((parts[0]+parts[1])/2) : parts[0]||0;
+  };
+  const flush = rows => {
+    if (!rows.length) return 0;
+    let n=0;
+    db.transaction(items=>{for(const r of items){try{upsert.run(r);n++;}catch(e){}}})(rows);
+    return n;
+  };
   let total=0;
 
-  async function tryFetch(label, urls, parse) {
+  // ── Source 1: Quiver Quantitative (free bulk endpoint, no auth) ───────────
+  // This is the most reliable source — simple paginated JSON
+  try {
+    slog('Trying Quiver Quantitative...');
+    const {status, body} = await get('https://api.quiverquant.com/beta/bulk/congresstrading', 30000);
+    slog(`Quiver: status=${status} size=${body.length}`);
+    if (status===200 && body.length>1000) {
+      const data = JSON.parse(body.toString('utf8'));
+      if (Array.isArray(data) && data.length) {
+        const rows = [];
+        for (const t of data) {
+          const ticker = (t.Ticker||t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+          if (!ticker||ticker.length>10) continue;
+          const td = (t.TransactionDate||t.Date||'').slice(0,10);
+          if (!td||td<'2012-01-01') continue;
+          const fd = (t.ReportDate||t.FilingDate||td).slice(0,10);
+          const name = (t.Representative||t.Senator||t.Name||'').trim();
+          if (!name) continue;
+          const chamber = (t.Chamber||'').toLowerCase();
+          const title = chamber==='senate'?'Senator':'Representative';
+          rows.push({
+            ticker, company: t.Company||ticker,
+            insider: name, title,
+            trade_date: td, filing_date: fd,
+            type: nt(t.Transaction||t.Type||''),
+            qty:0, price:0,
+            value: midVal(t.Range||String(t.Amount||0)),
+            owned:0,
+            accession: `qvr-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
+            source: 'congress'
+          });
+        }
+        const n = flush(rows);
+        total += n;
+        slog(`Quiver: ${data.length} records → ${rows.length} valid → ${n} inserted`);
+      }
+    }
+  } catch(e) { slog(`Quiver error: ${e.message}`); }
+
+  // ── Source 2: House Stock Watcher S3 (if Quiver got nothing) ─────────────
+  if (total === 0) {
+    slog('Quiver yielded 0 — trying House Stock Watcher S3...');
+    const urls = [
+      'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
+      'https://house-stock-watcher-data.s3.us-west-2.amazonaws.com/data/all_transactions.json',
+    ];
     for (const url of urls) {
       try {
-        slog(`${label}: GET ${url}`);
-        const {status,body} = await get(url, 50000);
-        slog(`${label}: status=${status} size=${body.length}`);
-        if (status===200 && body.length>5000) {
-          const rows = parse(body);
-          const n = flush(rows);
-          total+=n;
-          slog(`${label}: ${rows.length} valid rows → ${n} inserted`);
-          return true;
+        slog(`House S3: GET ${url}`);
+        const {status, body} = await get(url, 60000);
+        slog(`House S3: status=${status} size=${body.length}`);
+        if (status===200 && body.length>10000) {
+          const arr = JSON.parse(body.toString('utf8'));
+          if (Array.isArray(arr)) {
+            const rows = arr.map(t=>{
+              const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+              const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
+              const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
+              if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
+              return {ticker, company:(t.asset_description||ticker).slice(0,200),
+                insider:name, title:'Representative',
+                trade_date:td, filing_date:(t.disclosure_date||td).slice(0,10),
+                type:nt(t.type), qty:0, price:0, value:midVal(t.amount), owned:0,
+                accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
+                source:'congress'};
+            }).filter(Boolean);
+            const n=flush(rows); total+=n;
+            slog(`House S3: ${arr.length} records → ${n} inserted`);
+            break;
+          }
         }
-        if (status===301||status===302) {
-          // Extract location from body (S3 returns XML with <Endpoint> tag)
-          const loc = body.toString().match(/<Endpoint>([^<]+)<\/Endpoint>/)?.[1] ||
-                      body.toString().match(/Location: ([^\r\n]+)/)?.[1];
-          slog(`${label}: redirect → ${loc||'unknown location'}`);
-        }
-      } catch(e) { slog(`${label} ${url.split('/')[2]}: ${e.message}`); }
+      } catch(e) { slog(`House S3 error: ${e.message}`); }
     }
-    return false;
   }
 
-  // ── House Stock Watcher ───────────────────────────────────────────────────
-  await tryFetch('House', [
-    'https://s3.us-west-2.amazonaws.com/house-stock-watcher-data/data/all_transactions.json',
-    'https://house-stock-watcher-data.s3.us-west-2.amazonaws.com/data/all_transactions.json',
-    'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
-  ], body => {
-    const arr = JSON.parse(body.toString('utf8'));
-    if (!Array.isArray(arr)) return [];
-    return arr.map(t => {
-      const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-      const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
-      const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
-      if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
-      return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Representative',
-        trade_date:td,filing_date:(t.disclosure_date||td).slice(0,10),type:nt(t.type),
-        qty:0,price:0,value:midVal(t.amount),owned:0,
-        accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
-    }).filter(Boolean);
-  });
-
-  // ── Senate Stock Watcher ──────────────────────────────────────────────────
-  await tryFetch('Senate', [
-    'https://s3.us-west-2.amazonaws.com/senate-stock-watcher-data/aggregate/all_transactions.json',
-    'https://senate-stock-watcher-data.s3.us-west-2.amazonaws.com/aggregate/all_transactions.json',
-    'https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json',
-  ], body => {
-    let arr = JSON.parse(body.toString('utf8'));
-    if (!Array.isArray(arr)) { if(arr?.transactions) arr=arr.transactions; else return []; }
-    return arr.map(t => {
-      const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-      const td=(t.transaction_date||t.disclosure_date||'').slice(0,10);
-      const raw=t.senator||((t.first_name||'')+' '+(t.last_name||'')).trim();
-      const name=raw.replace(/^(Hon\.?|Sen\.?|Dr\.?)\s*/i,'').trim();
-      if(!ticker||ticker==='--'||ticker.length>10||!td||td<'2012-01-01'||!name) return null;
-      return {ticker,company:(t.asset_description||ticker).slice(0,200),insider:name,title:'Senator',
-        trade_date:td,filing_date:(t.disclosure_date||td).slice(0,10),type:nt(t.type),
-        qty:0,price:0,value:midVal(t.amount),owned:0,
-        accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,source:'congress'};
-    }).filter(Boolean);
-  });
-
   slog(`=== Congressional sync END: ${total} rows inserted ===`);
-  congressSyncRunning=false;
+  congressSyncRunning = false;
 }
 app.post('/api/sync-congress', async (req, res) => {
   if (congressSyncRunning) return res.json({ status: 'running', message: 'Sync already in progress' });
