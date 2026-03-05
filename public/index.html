@@ -663,11 +663,7 @@ async function loadScreener() {
   document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
   document.getElementById('summaryBar').innerHTML = '';
   try {
-    // Fetch SEC trades + congress trades in parallel (congress uses wider date range)
-    const [resp, cResp] = await Promise.all([
-      apiFetch('/api/screener?days=' + days),
-      apiFetch('/api/congress?days=365&limit=1000').catch(()=>[]),
-    ]);
+    const resp = await apiFetch('/api/screener?days=' + days);
     if (resp && resp.building) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span></div></td></tr>`;
       setTimeout(loadScreener, 8000); return;
@@ -683,12 +679,6 @@ async function loadScreener() {
       }
       trades = all;
       document.getElementById('summaryBar').innerHTML = `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">⚠ Recent daily data still loading. Showing most recent available filings.</div>`;
-    }
-    // Merge congress trades (deduplicate by accession isn't available, so just append those not already present)
-    if (Array.isArray(cResp) && cResp.length) {
-      const existing = new Set(trades.map(t=>t.insider+'|'+t.ticker+'|'+t.trade));
-      const fresh = cResp.filter(t=>!existing.has(t.insider+'|'+t.ticker+'|'+t.trade));
-      if (fresh.length) trades = [...trades, ...fresh].sort((a,b)=>b.trade?.localeCompare(a.trade||''));
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
