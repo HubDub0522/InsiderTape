@@ -49,6 +49,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC);
   CREATE INDEX IF NOT EXISTS idx_insider    ON trades(insider);
   CREATE INDEX IF NOT EXISTS idx_source     ON trades(source, trade_date DESC);
+  CREATE TABLE IF NOT EXISTS congress_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT, company TEXT, insider TEXT, title TEXT,
+    trade_date TEXT, filing_date TEXT, type TEXT,
+    qty INTEGER DEFAULT 0, price REAL DEFAULT 0,
+    value INTEGER DEFAULT 0, owned INTEGER DEFAULT 0,
+    accession TEXT UNIQUE, source TEXT DEFAULT 'congress'
+  );
+  CREATE INDEX IF NOT EXISTS idx_ct_trade_date ON congress_trades(trade_date DESC);
   CREATE TABLE IF NOT EXISTS sync_log (
     quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
   );
@@ -815,9 +824,9 @@ app.post('/api/sync-congress', async (req, res) => {
 
 app.get('/api/congress-status', (req, res) => {
   try {
-    const total   = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE source='congress'").get().n;
-    const latest  = db.prepare("SELECT MAX(trade_date) AS d FROM trades WHERE source='congress'").get().d;
-    const members = db.prepare("SELECT COUNT(DISTINCT insider) AS n FROM trades WHERE source='congress'").get().n;
+    const total   = db.prepare('SELECT COUNT(*) AS n FROM congress_trades').get().n;
+    const latest  = db.prepare('SELECT MAX(trade_date) AS d FROM congress_trades').get().d;
+    const members = db.prepare('SELECT COUNT(DISTINCT insider) AS n FROM congress_trades').get().n;
     res.json({ total, latest, members, syncing: congressSyncRunning });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -834,9 +843,8 @@ app.get('/api/congress', (req, res) => {
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned,
              COALESCE(source,'sec') AS source
-      FROM trades
-      WHERE source = 'congress'
-        AND trade_date >= date('now', '-' || ? || ' days')
+      FROM congress_trades
+      WHERE trade_date >= date('now', '-' || ? || ' days')
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
     `).all(days, limit);
@@ -862,8 +870,13 @@ try {
   db.exec(`UPDATE trades SET source='sec' WHERE source IS NULL`);
 } catch(e) {} // column already exists — fine
 
-// Ensure source index exists (needed for fast congress queries on 1M+ row DB)
-db.exec(`CREATE INDEX IF NOT EXISTS idx_source ON trades(source, trade_date DESC)`);
+// Build source index in background so it doesn't block startup on 1M row DB
+setImmediate(() => {
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_source ON trades(source, trade_date DESC)`);
+    slog('idx_source ready');
+  } catch(e) { slog('idx_source: ' + e.message); }
+});
 
 const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
 const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
@@ -942,8 +955,9 @@ async function syncCongressTrades() {
   congressSyncRunning = true;
   slog('=== Congressional sync START ===');
 
+  // Write congress trades to dedicated table (avoids scanning 1M+ row trades table)
   const upsert = db.prepare(`
-    INSERT OR IGNORE INTO trades
+    INSERT OR IGNORE INTO congress_trades
       (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,source)
     VALUES (@ticker,@company,@insider,@title,@trade_date,@filing_date,@type,@qty,@price,@value,@owned,@accession,@source)
   `);
