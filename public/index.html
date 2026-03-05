@@ -867,6 +867,13 @@ let _stockListsCache = null;
 async function loadStockLanding() {
   const content = document.getElementById('stockContent');
   if (!content) return;
+
+  // Push a history state for the landing so back button returns here from a stock view
+  if (history.state?.view !== 'stock' || history.state?.ticker) {
+    history.pushState({view:'stock'}, '', '/stock');
+    updateTitle('stock');
+  }
+
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div></div>`;
 
   try {
@@ -1100,6 +1107,12 @@ function buildChart(priceData, trades) {
   const volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',scaleMargins:{top:0.82,bottom:0}});
   volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
   state.chart=chart; state.candleSeries=candles;
+
+  // Watermark overlay — visible in screenshots
+  const wm = document.createElement('div');
+  wm.style.cssText = 'position:absolute;bottom:48px;right:14px;font-family:"Bebas Neue",sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.13);pointer-events:none;user-select:none;z-index:2';
+  wm.textContent = 'INSIDERTAPE.COM';
+  container.appendChild(wm);
   const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
   const cutStr=cutoff.toISOString().split('T')[0];
   const visible=priceData.filter(d=>d.time>=cutStr);
@@ -3563,6 +3576,14 @@ window.addEventListener('popstate', e => {
   if (!s) { routeFromPath(location.pathname, true); return; }
   if (s.view === 'stock' && s.ticker) {
     loadStockView(s.ticker, {fromPopstate: true});
+  } else if (s.view === 'stock') {
+    // Back to stock landing
+    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-stock').classList.add('active');
+    document.getElementById('tickerInput').value = '';
+    renderStockLanding(_stockListsCache || {});
   } else if (s.view === 'insider' && s.name) {
     document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
     document.getElementById('insiderTab').classList.add('active');
@@ -3589,6 +3610,11 @@ function routeFromPath(path, fromPopstate) {
     const ticker = decodeURIComponent(stockMatch[1]).toUpperCase();
     document.getElementById('tickerInput').value = ticker;
     loadStockView(ticker, {fromPopstate});
+    return;
+  }
+  // /stock (landing)
+  if (path === '/stock') {
+    switchView('stock', null, {fromPopstate});
     return;
   }
   // /insider/Name  or  /insider
