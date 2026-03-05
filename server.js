@@ -125,7 +125,7 @@ function runDaily(daysBack = 3) {
   const etHour = (now.getUTCHours() + 24 + etOffset) % 24;
   const etDay  = new Date(now.getTime() + etOffset * 3600000).getUTCDay(); // 0=Sun,6=Sat
   const isWeekday = etDay >= 1 && etDay <= 5;
-  const isMarketHours = etHour >= 7 && etHour < 20; // 7am–8pm ET covers pre/post market
+  const isMarketHours = etHour >= 7 && etHour < 20; // 7am–8pm ET (4 hrs after 4pm close)
 
   if (!isWeekday || !isMarketHours) {
     // Sleep until 7:05am ET next weekday
@@ -844,8 +844,8 @@ app.get('/api/congress', (req, res) => {
 });
 
 // Auto-sync congressional trades every 6 hours
-// Congress fires at 10s — before price warmer (60s) to avoid DB contention
-setTimeout(() => syncCongressTrades(), 10000);
+// Congress sync fires immediately at startup (data is lost on each Render deploy)
+syncCongressTrades();
 setInterval(() => syncCongressTrades(), 6 * 60 * 60 * 1000);
 
 
