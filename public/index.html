@@ -608,8 +608,8 @@ function switchView(view, btn, opts={}) {
     }
   }
   if (view === 'congress') {
-    const body = document.getElementById('congressViewBody');
-    if (body && !body.hasChildNodes()) loadCongressView();
+    _congressRetries = 0;
+    loadCongressView();
   }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
@@ -631,9 +631,15 @@ document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.
 
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
-  const resp = await fetch(API_BASE + path, opts);
-  if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
-  return resp.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000); // 20s timeout
+  try {
+    const resp = await fetch(API_BASE + path, { ...opts, signal: controller.signal });
+    if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
+    return resp.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 async function fetchInsiderForTicker(ticker) { return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`); }
 async function fetchInsiderByName(name) {
@@ -3523,6 +3529,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
 let _congressFilter = 'all';
 let _congressDays   = 1825;
 let _congressRaw    = null;
+let _congressRetries = 0;
 
 async function loadCongressView() {
   const body = document.getElementById('congressViewBody');
@@ -3536,25 +3543,25 @@ async function loadCongressView() {
     _congressRaw = Array.isArray(data) ? data : [];
     _congressStatus = status;
 
-    // If sync is running OR we got 0 rows but DB has data, keep polling
-    const syncing = status?.syncing;
-    const dbHasData = (status?.total || 0) > 0;
-
+    // If no rows, keep retrying — sync takes a few seconds on fresh deploy
     if (!_congressRaw.length) {
-      body.innerHTML = `
-        <div style="max-width:600px;margin:80px auto;text-align:center;padding:0 20px">
-          <div class="spinner" style="margin:0 auto 20px"></div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;margin-bottom:10px">
-            ${syncing || dbHasData ? 'SYNCING CONGRESSIONAL DATA…' : 'NO DATA YET'}
-          </div>
-          <div style="color:var(--muted);font-size:12px;font-family:'Space Mono',monospace">
-            DB: ${status?.total||0} rows · ${status?.members||0} members · ${syncing?'syncing now':'waiting'}
-          </div>
-        </div>`;
-      // Retry: always retry if syncing, or if DB has data but query returned 0
-      if (syncing || dbHasData) setTimeout(() => loadCongressView(), 3000);
+      _congressRetries++;
+      const dbTotal = status?.total || 0;
+      const syncing = status?.syncing;
+      const giveUp = _congressRetries > 12 && !syncing && dbTotal === 0;
+      body.innerHTML = giveUp
+        ? `<div class="empty-state"><div class="empty-icon">🏛️</div><div>No congressional trade data available.<br><span style="font-size:11px;color:var(--muted)">Senate STOCK Act data could not be fetched.</span></div></div>`
+        : `<div style="max-width:600px;margin:80px auto;text-align:center;padding:0 20px">
+            <div class="spinner" style="margin:0 auto 20px"></div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;margin-bottom:10px">SYNCING CONGRESSIONAL DATA…</div>
+            <div style="color:var(--muted);font-size:12px;font-family:'Space Mono',monospace">
+              DB: ${dbTotal} rows · ${status?.members||0} members · attempt ${_congressRetries}
+            </div>
+          </div>`;
+      if (!giveUp) setTimeout(() => loadCongressView(), 3000);
       return;
     }
+    _congressRetries = 0;
     renderCongressView();
   } catch(e) {
     body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
