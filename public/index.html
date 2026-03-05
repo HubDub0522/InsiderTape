@@ -3529,31 +3529,30 @@ async function loadCongressView() {
   if (!body) return;
   body.innerHTML = `<div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading congressional trades…</span></div>`;
   try {
-    // Always fetch fresh — congress data is wide (365d default) and separate from screener
     const [data, status] = await Promise.all([
       apiFetch(`/api/congress?days=${_congressDays}&limit=5000`),
       apiFetch('/api/congress-status').catch(()=>null),
     ]);
     _congressRaw = Array.isArray(data) ? data : [];
     _congressStatus = status;
+
+    // If sync is running OR we got 0 rows but DB has data, keep polling
+    const syncing = status?.syncing;
+    const dbHasData = (status?.total || 0) > 0;
+
     if (!_congressRaw.length) {
-      const syncing = status?.syncing;
       body.innerHTML = `
-        <div style="max-width:640px;margin:80px auto;text-align:center;padding:0 20px">
-          <div style="font-size:44px;margin-bottom:14px">🏛️</div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;margin-bottom:12px">CONGRESSIONAL TRADING</div>
-          <div style="color:var(--muted);font-size:13px;line-height:1.7;margin-bottom:16px">
-            ${syncing ? '⏳ Syncing House &amp; Senate STOCK Act data… auto-refreshing.' : 'No congressional trade data in DB yet.'}
+        <div style="max-width:600px;margin:80px auto;text-align:center;padding:0 20px">
+          <div class="spinner" style="margin:0 auto 20px"></div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;margin-bottom:10px">
+            ${syncing || dbHasData ? 'SYNCING CONGRESSIONAL DATA…' : 'NO DATA YET'}
           </div>
-          <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:20px">
-            DB total: ${status?.total||0} · members: ${status?.members||0} · syncing: ${status?.syncing?'YES':'NO'}
-          </div>
-          <div style="font-size:11px;color:var(--muted);max-width:440px;margin:0 auto;line-height:1.7;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:12px">
-            Congress members file STOCK Act periodic transaction reports (PTRs).<br>
-            Data syncs from House &amp; Senate Stock Watcher at startup and every 6 hours.
+          <div style="color:var(--muted);font-size:12px;font-family:'Space Mono',monospace">
+            DB: ${status?.total||0} rows · ${status?.members||0} members · ${syncing?'syncing now':'waiting'}
           </div>
         </div>`;
-      if (syncing) setTimeout(() => loadCongressView(), 5000);
+      // Retry: always retry if syncing, or if DB has data but query returned 0
+      if (syncing || dbHasData) setTimeout(() => loadCongressView(), 3000);
       return;
     }
     renderCongressView();
