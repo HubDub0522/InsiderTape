@@ -410,7 +410,6 @@
     <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
     <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
     <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
-    <button class="nav-tab" onclick="switchView('congress', this)">CONGRESS</button>
     <button class="nav-tab" id="analysisTab" onclick="switchView('analysis', this)">ANALYSIS</button>
   </nav>
 </header>
@@ -523,9 +522,6 @@
   <div id="analysisViewBody"></div>
 </div>
 
-<div id="view-congress" class="view">
-  <div id="congressViewBody" style="max-width:1200px;margin:0 auto;padding:24px 20px"></div>
-</div>
 
 </main>
 <div class="toast" id="toast"></div>
@@ -582,13 +578,21 @@ function showToast(msg, isError=false) {
 }
 function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
+// Detect government officials (Senators, Representatives, federal officers)
+const GOV_TITLES = /\b(senator|representative|congressman|congresswoman|secretary|governor|president|vice.?president|attorney.?general|treasurer|comptroller|director.*federal|chairman.*federal)\b/i;
+const GOV_NAMES  = /\b(nancy pelosi|mitch mcconnell|paul pelosi|kevin mccarthy|chuck schumer|elizabeth warren|bernie sanders|mark kelly|tommy tuberville|dan sullivan|sheldon whitehouse|ron wyden|pat roberts|richard burr|kelly loeffler|david perdue|jim inhofe)\b/i;
+function isGovOfficial(titleOrName) {
+  if (!titleOrName) return false;
+  return GOV_TITLES.test(titleOrName) || GOV_NAMES.test(titleOrName);
+}
+
 function switchView(view, btn, opts={}) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
-    const idx = {screener:0, stock:1, insider:2, congress:3, analysis:4}[view];
+    const idx = {screener:0, stock:1, insider:2, analysis:3}[view];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
   }
   if (view === 'insider') {
@@ -607,10 +611,6 @@ function switchView(view, btn, opts={}) {
       renderAnalysisDashboard();
     }
   }
-  if (view === 'congress') {
-    _congressRetries = 0;
-    loadCongressView();
-  }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
     history.pushState({view, subview: null}, '', url);
@@ -619,7 +619,7 @@ function switchView(view, btn, opts={}) {
 }
 
 function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', congress:'INSIDERTAPE — Congress', analysis:'INSIDERTAPE — Analysis'};
+  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis'};
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function searchTicker() {
@@ -823,7 +823,7 @@ function renderScreener() {
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${t.source==='congress'?'<span style="display:inline-block;margin-top:3px;padding:1px 5px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px">🏛 CONGRESS</span>':''}</td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${isGovOfficial(t.title||t.insider)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 5px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛</span>':''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
@@ -1267,7 +1267,7 @@ async function renderInsiderProfile(name, title, trades) {
       <div class="insider-hero">
         <div class="insider-avatar">${initials}</div>
         <div class="insider-hero-info">
-          <div class="insider-hero-name">${name}</div>
+          <div class="insider-hero-name">${name}${isGovOfficial(latestTitle||name)?'<span title="Government Official" style="margin-left:8px;padding:2px 7px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:10px;color:#6ca0ff;font-family:\'Space Mono\',monospace;vertical-align:middle">🏛 GOV</span>':''}</div>
           <div class="insider-hero-title">${latestTitle}</div>
           <div class="insider-hero-companies">
             ${tickerList.map(t=>`<span class="company-tag" onclick="openTickerFromScreener('${t.ticker}')">${t.ticker}</span>`).join('')}
@@ -3521,176 +3521,7 @@ function _tickerFromPath(p) { const m=p.match(/^\/stock\/([^/]+)/i); return m?de
 function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decodeURIComponent(m[1]):null; }
 
 
-// ── CONGRESS VIEW ─────────────────────────────────────────────
-// Congress trades are stored in the same trades table with source='congress'
-// They appear in the screener automatically with a 🏛 badge
-// The congress tab is a dedicated filtered view
 
-let _congressFilter = 'all';
-let _congressDays   = 1825;
-let _congressRaw    = null;
-let _congressRetries = 0;
-
-async function loadCongressView() {
-  const body = document.getElementById('congressViewBody');
-  if (!body) return;
-  body.innerHTML = `<div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading congressional trades…</span></div>`;
-  try {
-    const [data, status] = await Promise.all([
-      apiFetch(`/api/congress?days=${_congressDays}&limit=500`),
-      apiFetch('/api/congress-status').catch(()=>null),
-    ]);
-    _congressRaw = Array.isArray(data) ? data : [];
-    _congressStatus = status;
-
-    // If no rows, keep retrying — sync takes a few seconds on fresh deploy
-    if (!_congressRaw.length) {
-      _congressRetries++;
-      const dbTotal = status?.total || 0;
-      const syncing = status?.syncing;
-      const giveUp = _congressRetries > 12 && !syncing && dbTotal === 0;
-      body.innerHTML = giveUp
-        ? `<div class="empty-state"><div class="empty-icon">🏛️</div><div>No congressional trade data available.<br><span style="font-size:11px;color:var(--muted)">Senate STOCK Act data could not be fetched.</span></div></div>`
-        : `<div style="max-width:600px;margin:80px auto;text-align:center;padding:0 20px">
-            <div class="spinner" style="margin:0 auto 20px"></div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;margin-bottom:10px">SYNCING CONGRESSIONAL DATA…</div>
-            <div style="color:var(--muted);font-size:12px;font-family:'Space Mono',monospace">
-              DB: ${dbTotal} rows · ${status?.members||0} members · attempt ${_congressRetries}
-            </div>
-          </div>`;
-      if (!giveUp) setTimeout(() => loadCongressView(), 3000);
-      return;
-    }
-    _congressRetries = 0;
-    renderCongressView();
-  } catch(e) {
-    _congressRetries++;
-    const isTimeout = e.name === 'AbortError' || e.message?.includes('aborted');
-    if (isTimeout && _congressRetries <= 5) {
-      // Index may still be building — retry
-      const body = document.getElementById('congressViewBody');
-      if (body) body.innerHTML = `<div style="max-width:500px;margin:80px auto;text-align:center"><div class="spinner" style="margin:0 auto 16px"></div><div style="color:var(--muted);font-size:12px;font-family:'Space Mono',monospace">Query slow — retrying (${_congressRetries}/5)…</div></div>`;
-      setTimeout(() => loadCongressView(), 5000);
-    } else {
-      const body = document.getElementById('congressViewBody');
-      if (body) body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div><button class="tf-btn" style="margin-top:12px" onclick="_congressRetries=0;loadCongressView()">Retry</button></div>`;
-    }
-
-  }
-}
-
-function renderCongressView() {
-  const status = _congressStatus;
-  const body = document.getElementById('congressViewBody');
-  if (!body) return;
-  let trades = _congressRaw || [];
-
-  // Apply filter
-  if (_congressFilter === 'buys')  trades = trades.filter(t => t.type === 'P');
-  if (_congressFilter === 'sells') trades = trades.filter(t => t.type === 'S');
-
-  const allTrades = _congressRaw || [];
-  const buys  = allTrades.filter(t=>t.type==='P');
-  const sells = allTrades.filter(t=>t.type==='S');
-  const members = [...new Set(allTrades.map(t=>t.insider))].length;
-
-  // Top tickers
-  const tkCount = {};
-  allTrades.forEach(t => { tkCount[t.ticker]=(tkCount[t.ticker]||0)+1; });
-  const topTickers = Object.entries(tkCount).sort((a,b)=>b[1]-a[1]).slice(0,8);
-
-  // Top members by activity
-  const memCount = {};
-  allTrades.forEach(t => { memCount[t.insider]=(memCount[t.insider]||0)+1; });
-  const topMembers = Object.entries(memCount).sort((a,b)=>b[1]-a[1]).slice(0,6);
-
-  const totalBuy  = buys.reduce((s,t)=>s+(t.value||0),0);
-  const totalSell = sells.reduce((s,t)=>s+(t.value||0),0);
-
-  body.innerHTML = `<div>
-    <!-- Header -->
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
-      <div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px">🏛️ CONGRESSIONAL TRADING</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">STOCK Act disclosures · House &amp; Senate · ${status?.members||members} members tracked</div>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">RANGE:</span>
-        ${[365,730,1095,1825].map(d=>`<button class="tf-btn${_congressDays===d?' active':''}" onclick="_congressDays=${d};_congressRaw=null;loadCongressView()">${Math.round(d/365)}Y</button>`).join('')}
-      </div>
-    </div>
-
-    <!-- Stats -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
-      ${[
-        {l:'TOTAL TRADES', v:allTrades.length, c:'var(--text)'},
-        {l:'MEMBERS ACTIVE', v:members, c:'var(--accent)'},
-        {l:'NET BOUGHT', v:fmt(totalBuy), c:'var(--buy)'},
-        {l:'NET SOLD', v:fmt(totalSell), c:'var(--sell)'},
-      ].map(s=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px">
-        <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);margin-bottom:4px">${s.l}</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${s.c}">${s.v}</div>
-      </div>`).join('')}
-    </div>
-
-    <!-- Top tickers + members -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST TRADED STOCKS</div>
-        ${topTickers.map(([t,n])=>`
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer" onclick="loadStockView('${t}')">
-            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent)">${t}</span>
-            <span style="font-size:10px;color:var(--muted)">${n} trades</span>
-          </div>`).join('')}
-      </div>
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">MOST ACTIVE MEMBERS</div>
-        ${topMembers.map(([name,n])=>`
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bg3);cursor:pointer" onclick="openInsiderProfile('${escName(name)}','Congress Member')">
-            <span style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${name}</span>
-            <span style="font-size:10px;color:var(--muted);white-space:nowrap">${n} trades</span>
-          </div>`).join('')}
-      </div>
-    </div>
-
-    <!-- Filter row -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">FILTER:</span>
-      ${[['all','ALL'],['buys','BUYS ONLY'],['sells','SELLS ONLY']].map(([f,l])=>`
-        <button class="tf-btn${_congressFilter===f?' active':''}" onclick="_congressFilter='${f}';renderCongressView()">${l}</button>
-      `).join('')}
-      <span style="margin-left:auto;font-size:10px;color:var(--muted)">${trades.length} of ${allTrades.length} transactions shown</span>
-    </div>
-
-    <!-- Trade table -->
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>TRADE DATE</th><th>MEMBER</th><th>CHAMBER</th><th>TICKER</th>
-          <th>TYPE</th><th>VALUE</th><th>FILED</th>
-        </tr></thead>
-        <tbody>
-          ${trades.length ? trades.slice(0,500).map(t=>{
-            const tc=tradeClass(t.type);
-            const color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--muted)';
-            const label=tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'OTHER';
-            const chamber = (t.title||'').toLowerCase().includes('senator') ? 'Senate' :
-                            (t.title||'').toLowerCase().includes('representative') ? 'House' : t.title||'—';
-            return `<tr>
-              <td style="font-family:'Space Mono',monospace;font-size:10px">${fmtDate(t.trade)}</td>
-              <td style="cursor:pointer" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider||'—'}</td>
-              <td style="font-size:10px;color:var(--muted)">${chamber}</td>
-              <td style="cursor:pointer;color:var(--accent);font-family:'Space Mono',monospace;font-weight:700" onclick="loadStockView('${t.ticker}')">${t.ticker}</td>
-              <td style="color:${color};font-size:10px;font-weight:700">${label}</td>
-              <td style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${t.value?fmt(t.value):'—'}</td>
-              <td style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted)">${fmtDate(t.filing)}</td>
-            </tr>`;
-          }).join('') : `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🏛️</div><div>No trades in this time range</div></div></td></tr>`}
-        </tbody>
-      </table>
-    </div>
-  </div>`;
-}
 function measureHeader() { const h=document.querySelector('header'),m=document.querySelector('main'); if(h&&m)m.style.paddingTop=h.offsetHeight+'px'; }
 measureHeader(); window.addEventListener('resize',measureHeader);
 </script>
@@ -3764,8 +3595,8 @@ function showTerms() {
     ${h2('4. PAST PERFORMANCE')}
     ${p('Historical data, scores, return calculations, and pattern analysis shown on InsiderTape are based on past performance. <strong style="color:#e0e8f0">Past performance is not indicative of future results.</strong> Insider buying or selling activity does not guarantee any particular outcome for a security\'s price. All investing involves risk, including the possible loss of principal.')}
 
-    ${h2('5. CONGRESSIONAL TRADING DATA')}
-    ${p('Congressional and government official trading data is sourced from public STOCK Act disclosures. This data reflects required periodic transaction reports (PTRs) filed by covered officials and may be subject to reporting delays of up to 45 days or more as permitted by law. InsiderTape makes no representations as to the completeness or real-time accuracy of such filings.')}
+    ${h2('5. GOVERNMENT OFFICIAL TRADES')}
+    ${p('Government official trading data is sourced from public STOCK Act disclosures. This data reflects required periodic transaction reports (PTRs) filed by covered officials and may be subject to reporting delays of up to 45 days or more as permitted by law. InsiderTape makes no representations as to the completeness or real-time accuracy of such filings.')}
 
     ${h2('6. LIMITATION OF LIABILITY')}
     ${p('To the fullest extent permitted by applicable law, InsiderTape, its owners, operators, employees, and affiliates shall not be liable for any direct, indirect, incidental, special, consequential, punitive, or exemplary damages arising from or related to your use of the Platform, including but not limited to: investment losses, lost profits, loss of data, or any other pecuniary or non-pecuniary loss, even if advised of the possibility of such damages.')}
@@ -3821,7 +3652,7 @@ function showPrivacy() {
     ${p('InsiderTape may use minimal functional cookies or browser local storage to preserve your in-session preferences (e.g., selected filters or view state). We do not use third-party advertising cookies, behavioral tracking pixels, or cross-site tracking technologies. You may disable cookies in your browser settings; this may affect Platform functionality.')}
 
     ${h2('5. PUBLIC DATA DISPLAYED')}
-    ${p('The data displayed on InsiderTape — insider names, trade amounts, congressional disclosures — is sourced from public government filings (SEC EDGAR and STOCK Act databases) and is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
+    ${p('The data displayed on InsiderTape — insider names, trade amounts, government official disclosures — is sourced from public government filings (SEC EDGAR and STOCK Act databases) and is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
 
     ${h2('6. DATA SECURITY')}
     ${p('We implement reasonable technical and organizational measures to protect the Platform and any data it processes. However, no system is completely secure. We cannot guarantee the absolute security of any information.')}
