@@ -48,6 +48,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_trade_date ON trades(trade_date DESC);
   CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC);
   CREATE INDEX IF NOT EXISTS idx_insider    ON trades(insider);
+  CREATE INDEX IF NOT EXISTS idx_source     ON trades(source, trade_date DESC);
   CREATE TABLE IF NOT EXISTS sync_log (
     quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
   );
@@ -826,8 +827,8 @@ app.get('/api/congress-status', (req, res) => {
 // Congress endpoint — all available data (Senate data goes back to 2020)
 app.get('/api/congress', (req, res) => {
   try {
-    const days  = Math.min(parseInt(req.query.days || '1825'), 3650); // default 5 years
-    const limit = Math.min(parseInt(req.query.limit || '2000'), 10000);
+    const days  = Math.min(parseInt(req.query.days || '1825'), 3650);
+    const limit = Math.min(parseInt(req.query.limit || '500'), 2000);
     const rows  = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
