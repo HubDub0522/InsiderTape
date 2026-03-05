@@ -903,9 +903,9 @@ async function syncCongressTrades() {
 
   // ── House Stock Watcher ───────────────────────────────────────────────────
   await tryFetch('House', [
-    'https://s3.us-east-2.amazonaws.com/house-stock-watcher-data/data/all_transactions.json',
-    'https://house-stock-watcher-data.s3.amazonaws.com/data/all_transactions.json',
-    'https://house-stock-watcher-data.s3-us-east-2.amazonaws.com/data/all_transactions.json',
+    'https://s3.us-west-2.amazonaws.com/house-stock-watcher-data/data/all_transactions.json',
+    'https://house-stock-watcher-data.s3.us-west-2.amazonaws.com/data/all_transactions.json',
+    'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
   ], body => {
     const arr = JSON.parse(body.toString('utf8'));
     if (!Array.isArray(arr)) return [];
@@ -923,9 +923,9 @@ async function syncCongressTrades() {
 
   // ── Senate Stock Watcher ──────────────────────────────────────────────────
   await tryFetch('Senate', [
-    'https://s3.us-east-2.amazonaws.com/senate-stock-watcher-data/aggregate/all_transactions.json',
-    'https://senate-stock-watcher-data.s3.amazonaws.com/aggregate/all_transactions.json',
-    'https://senate-stock-watcher-data.s3-us-east-2.amazonaws.com/aggregate/all_transactions.json',
+    'https://s3.us-west-2.amazonaws.com/senate-stock-watcher-data/aggregate/all_transactions.json',
+    'https://senate-stock-watcher-data.s3.us-west-2.amazonaws.com/aggregate/all_transactions.json',
+    'https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json',
   ], body => {
     let arr = JSON.parse(body.toString('utf8'));
     if (!Array.isArray(arr)) { if(arr?.transactions) arr=arr.transactions; else return []; }
