@@ -862,6 +862,9 @@ try {
   db.exec(`UPDATE trades SET source='sec' WHERE source IS NULL`);
 } catch(e) {} // column already exists — fine
 
+// Ensure source index exists (needed for fast congress queries on 1M+ row DB)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_source ON trades(source, trade_date DESC)`);
+
 const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
 const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
 console.log(`DB: ${existing} trades, ${syncedQ} quarters synced`);
