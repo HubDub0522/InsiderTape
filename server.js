@@ -49,6 +49,17 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
 
+// ─── Clean up bad/invalid trade records ──────────────────────
+{
+  const r = db.prepare(`
+    DELETE FROM trades
+    WHERE ticker IN ('N/A','NA','NONE','NULL','--','-','.')
+       OR ticker NOT GLOB '[A-Z]*'
+       OR LENGTH(ticker) < 1 OR LENGTH(ticker) > 10
+       OR COALESCE(company,'') IN ('N/A','NA','None','NULL','--','-')
+  `).run();
+  if (r.changes > 0) console.log(`Cleaned up ${r.changes} invalid trade records`);
+}
 
 db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
   quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
@@ -193,6 +204,9 @@ app.get('/api/screener', (req, res) => {
              COALESCE(MAX(source), 'sec') AS source
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
+        AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
@@ -206,7 +220,10 @@ app.get('/api/screener', (req, res) => {
                MAX(value) AS value, MAX(owned) AS owned,
                COALESCE(MAX(source), 'sec') AS source
         FROM trades
-        WHERE source IS NULL OR source = 'sec'
+        WHERE (source IS NULL OR source = 'sec')
+        AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
         GROUP BY ticker, insider, trade_date, type
         ORDER BY trade_date DESC, filing_date DESC
         LIMIT 500
@@ -829,6 +846,10 @@ app.get('/api/stock-lists', (req, res) => {
       FROM trades
       WHERE ${filter} AND ${dateField} >= date('now','-${days} days')
         AND (source IS NULL OR source='sec')
+        AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
+        AND ticker GLOB '[A-Z]*'
+        AND LENGTH(ticker) BETWEEN 1 AND 10
+        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
       GROUP BY ticker, insider, trade_date, type
     `;
 
