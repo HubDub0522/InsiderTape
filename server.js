@@ -65,6 +65,7 @@ db.exec(`
 
 // ─── SYNC via child process ────────────────────────────────────
 let syncRunning = false;
+let _congressCache = [];
 const syncLog   = [];
 
 function slog(msg) {
@@ -824,30 +825,26 @@ app.post('/api/sync-congress', async (req, res) => {
 
 app.get('/api/congress-status', (req, res) => {
   try {
-    const total   = db.prepare('SELECT COUNT(*) AS n FROM congress_trades').get().n;
-    const latest  = db.prepare('SELECT MAX(trade_date) AS d FROM congress_trades').get().d;
-    const members = db.prepare('SELECT COUNT(DISTINCT insider) AS n FROM congress_trades').get().n;
+    // Use in-memory cache for instant response — no DB query
+    const total   = _congressCache.length;
+    const latest  = _congressCache[0]?.trade || null;
+    const members = new Set(_congressCache.map(r=>r.insider)).size;
     res.json({ total, latest, members, syncing: congressSyncRunning });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 
 
-// Congress endpoint — all available data (Senate data goes back to 2020)
+// Congress endpoint — served from in-memory cache (no DB query, instant response)
 app.get('/api/congress', (req, res) => {
   try {
     const days  = Math.min(parseInt(req.query.days || '1825'), 3650);
     const limit = Math.min(parseInt(req.query.limit || '500'), 2000);
-    const rows  = db.prepare(`
-      SELECT ticker, company, insider, title,
-             trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned,
-             COALESCE(source,'sec') AS source
-      FROM congress_trades
-      WHERE trade_date >= date('now', '-' || ? || ' days')
-      ORDER BY trade_date DESC, filing_date DESC
-      LIMIT ?
-    `).all(days, limit);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const cutStr = cutoff.toISOString().slice(0,10);
+    const rows = _congressCache
+      .filter(r => r.trade >= cutStr)
+      .slice(0, limit);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -877,6 +874,17 @@ setImmediate(() => {
     slog('idx_source ready');
   } catch(e) { slog('idx_source: ' + e.message); }
 });
+
+// Load congress cache from DB on startup (if DB persists across restarts)
+try {
+  _congressCache = db.prepare(`
+    SELECT ticker, company, insider, title,
+           trade_date AS trade, filing_date AS filing,
+           type, qty, price, value, owned, 'congress' AS source
+    FROM congress_trades ORDER BY trade_date DESC
+  `).all();
+  if (_congressCache.length) slog(`Congress cache loaded: ${_congressCache.length} rows`);
+} catch(e) {} // congress_trades may not exist yet
 
 const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
 const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
@@ -1054,6 +1062,17 @@ async function syncCongressTrades() {
       }
     } catch(e){slog(`House S3 ${url.split('/')[2]}: ${e.message}`);}
   }
+
+  // Refresh in-memory cache after sync so /api/congress is instant
+  try {
+    _congressCache = db.prepare(`
+      SELECT ticker, company, insider, title,
+             trade_date AS trade, filing_date AS filing,
+             type, qty, price, value, owned, 'congress' AS source
+      FROM congress_trades ORDER BY trade_date DESC
+    `).all();
+    slog(`Congress cache: ${_congressCache.length} rows loaded`);
+  } catch(e) { slog(`Congress cache error: ${e.message}`); }
 
   slog(`=== Congressional sync END: ${total} rows inserted ===`);
   congressSyncRunning=false;
