@@ -809,6 +809,87 @@ app.get('/api/cleanup-dates', (req, res) => {
 
 
 
+// STOCK LISTS — for stock view landing page
+// Returns multiple ranked lists in one call: most active, recent buys, recent sells, cluster buys
+app.get('/api/stock-lists', (req, res) => {
+  try {
+    // Most insider buying activity (last 30 days)
+    const hotBuys = db.prepare(`
+      SELECT ticker, MAX(company) AS company,
+        COUNT(CASE WHEN type='P' THEN 1 END) AS buys,
+        COUNT(DISTINCT CASE WHEN type='P' THEN insider END) AS buyers,
+        SUM(CASE WHEN type='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+        MAX(CASE WHEN type='P' THEN trade_date END) AS latest,
+        MAX(CASE WHEN type='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%'
+          OR UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%') THEN 1 ELSE 0 END) AS exec_buy
+      FROM trades
+      WHERE filing_date >= date('now','-30 days') AND (source IS NULL OR source='sec')
+      GROUP BY ticker HAVING buys > 0
+      ORDER BY buy_val DESC LIMIT 20
+    `).all();
+
+    // Cluster buys — multiple insiders buying same stock recently
+    const clusterBuys = db.prepare(`
+      SELECT ticker, MAX(company) AS company,
+        COUNT(DISTINCT insider) AS buyer_count,
+        COUNT(*) AS trade_count,
+        SUM(COALESCE(value,0)) AS total_val,
+        MAX(trade_date) AS latest
+      FROM trades
+      WHERE type='P' AND filing_date >= date('now','-14 days') AND (source IS NULL OR source='sec')
+      GROUP BY ticker HAVING buyer_count >= 2
+      ORDER BY buyer_count DESC, total_val DESC LIMIT 15
+    `).all();
+
+    // Fresh first buys — insiders buying a ticker they haven't touched in 2+ years
+    const freshBuys = db.prepare(`
+      SELECT t.ticker, MAX(t.company) AS company,
+        t.insider, MAX(t.title) AS title,
+        MAX(t.trade_date) AS latest, MAX(t.value) AS val
+      FROM trades t
+      WHERE t.type='P' AND t.filing_date >= date('now','-14 days')
+        AND (t.source IS NULL OR t.source='sec')
+        AND NOT EXISTS (
+          SELECT 1 FROM trades t2
+          WHERE t2.ticker=t.ticker AND t2.insider=t.insider AND t2.type='P'
+            AND t2.trade_date < t.trade_date
+            AND t2.trade_date >= date(t.trade_date,'-730 days')
+        )
+      GROUP BY t.ticker, t.insider
+      ORDER BY val DESC LIMIT 15
+    `).all();
+
+    // Heavy selling — potential red flag
+    const heavySells = db.prepare(`
+      SELECT ticker, MAX(company) AS company,
+        COUNT(DISTINCT insider) AS seller_count,
+        SUM(COALESCE(value,0)) AS sell_val,
+        MAX(trade_date) AS latest
+      FROM trades
+      WHERE type IN ('S','S-') AND filing_date >= date('now','-14 days')
+        AND (source IS NULL OR source='sec')
+      GROUP BY ticker
+      ORDER BY sell_val DESC LIMIT 15
+    `).all();
+
+    // Most active overall (buys + sells combined, last 7 days)
+    const mostActive = db.prepare(`
+      SELECT ticker, MAX(company) AS company,
+        COUNT(*) AS total_trades,
+        COUNT(DISTINCT insider) AS insiders,
+        SUM(CASE WHEN type='P' THEN 1 ELSE 0 END) AS buys,
+        SUM(CASE WHEN type IN ('S','S-') THEN 1 ELSE 0 END) AS sells,
+        MAX(trade_date) AS latest
+      FROM trades
+      WHERE filing_date >= date('now','-7 days') AND (source IS NULL OR source='sec')
+      GROUP BY ticker
+      ORDER BY total_trades DESC, insiders DESC LIMIT 20
+    `).all();
+
+    res.json({ hotBuys, clusterBuys, freshBuys, heavySells, mostActive });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── SPA CATCH-ALL ────────────────────────────────────────────
 // Must be last — serves index.html for all non-API, non-static routes
 // so that /stock/AAPL, /insider, /insider/Name etc. work on direct load/refresh
