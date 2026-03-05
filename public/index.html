@@ -3535,6 +3535,7 @@ async function loadCongressView() {
       apiFetch('/api/congress-status').catch(()=>null),
     ]);
     _congressRaw = Array.isArray(data) ? data : [];
+    _congressStatus = status;
     if (!_congressRaw.length) {
       const syncing = status?.syncing;
       body.innerHTML = `
@@ -3555,13 +3556,14 @@ async function loadCongressView() {
       if (syncing) setTimeout(() => loadCongressView(), 5000);
       return;
     }
-    renderCongressView(status);
+    renderCongressView();
   } catch(e) {
     body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
   }
 }
 
-function renderCongressView(status) {
+function renderCongressView() {
+  const status = _congressStatus;
   const body = document.getElementById('congressViewBody');
   if (!body) return;
   let trades = _congressRaw || [];
@@ -3638,7 +3640,7 @@ function renderCongressView(status) {
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">FILTER:</span>
       ${[['all','ALL'],['buys','BUYS ONLY'],['sells','SELLS ONLY']].map(([f,l])=>`
-        <button class="tf-btn${_congressFilter===f?' active':''}" onclick="_congressFilter='${f}';renderCongressView(${status?JSON.stringify(status):'null'})">${l}</button>
+        <button class="tf-btn${_congressFilter===f?' active':''}" onclick="_congressFilter='${f}';renderCongressView()">${l}</button>
       `).join('')}
       <span style="margin-left:auto;font-size:10px;color:var(--muted)">${trades.length} of ${allTrades.length} transactions shown</span>
     </div>
