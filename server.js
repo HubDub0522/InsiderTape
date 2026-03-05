@@ -49,15 +49,6 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
 
-db.exec(`CREATE TABLE IF NOT EXISTS congress_trades (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ticker TEXT, company TEXT, insider TEXT, title TEXT,
-  trade_date TEXT, filing_date TEXT, type TEXT,
-  qty INTEGER DEFAULT 0, price REAL DEFAULT 0,
-  value INTEGER DEFAULT 0, owned INTEGER DEFAULT 0,
-  accession TEXT UNIQUE, source TEXT DEFAULT 'congress'
-)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_ct_trade_date ON congress_trades(trade_date DESC)`);
 
 db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
   quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
@@ -65,7 +56,6 @@ db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
 
 // ─── SYNC via child process ────────────────────────────────────
 let syncRunning = false;
-let _congressCache = [];
 const syncLog   = [];
 
 function slog(msg) {
@@ -195,15 +185,13 @@ app.get('/api/screener', (req, res) => {
     const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
     const limit = Math.min(parseInt(req.query.limit || '1000'), 2000);
 
-    // Screener shows SEC trades by default; congress trades have their own tab
-    let rows = db.prepare(`
+        let rows = db.prepare(`
       SELECT ticker, company, insider, title,
              trade_date AS trade, filing_date AS filing,
              type, qty, price, value, owned,
              COALESCE(source, 'sec') AS source
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
-        AND (source IS NULL OR source = 'sec' OR source = 'congress')
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
     `).all(days, limit);
@@ -817,39 +805,7 @@ app.get('/api/cleanup-dates', (req, res) => {
   res.json({ removed: r.changes, remaining: n });
 });
 
-app.post('/api/sync-congress', async (req, res) => {
-  if (congressSyncRunning) return res.json({ status: 'running', message: 'Sync already in progress' });
-  syncCongressTrades();
-  res.json({ status: 'started', message: 'Congressional trade sync started' });
-});
 
-app.get('/api/congress-status', (req, res) => {
-  try {
-    // Use in-memory cache for instant response — no DB query
-    const total   = _congressCache.length;
-    const latest  = _congressCache[0]?.trade || null;
-    const members = new Set(_congressCache.map(r=>r.insider)).size;
-    res.json({ total, latest, members, syncing: congressSyncRunning });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-
-
-// Congress endpoint — served from in-memory cache (no DB query, instant response)
-app.get('/api/congress', (req, res) => {
-  try {
-    const days  = Math.min(parseInt(req.query.days || '1825'), 3650);
-    const limit = Math.min(parseInt(req.query.limit || '500'), 2000);
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
-    const cutStr = cutoff.toISOString().slice(0,10);
-    const rows = _congressCache
-      .filter(r => r.trade >= cutStr)
-      .slice(0, limit);
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// Auto-sync congressional trades every 6 hours
 
 
 
@@ -867,18 +823,7 @@ try {
   db.exec(`UPDATE trades SET source='sec' WHERE source IS NULL`);
 } catch(e) {} // column already exists — fine
 
-// idx_source removed — congress uses dedicated table now
 
-// Load congress cache from DB on startup (if DB persists across restarts)
-try {
-  _congressCache = db.prepare(`
-    SELECT ticker, company, insider, title,
-           trade_date AS trade, filing_date AS filing,
-           type, qty, price, value, owned, 'congress' AS source
-    FROM congress_trades ORDER BY trade_date DESC
-  `).all();
-  if (_congressCache.length) slog(`Congress cache loaded: ${_congressCache.length} rows`);
-} catch(e) {} // congress_trades may not exist yet
 
 const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
 const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
@@ -935,7 +880,7 @@ async function warmPriceCache() {
   } catch(e) { slog('Price cache warmer error: ' + e.message); }
 }
 
-// Start warming 60s after boot — after congress sync has a head start
+// Start warming 60s after boot — 60s after boot
 setTimeout(async () => {
   await warmPriceCache();
   // Pre-compute scoreboard while cache is hot
@@ -950,129 +895,4 @@ setInterval(() => warmPriceCache(), 2 * 60 * 60 * 1000);
 
 
 // Sources: Capitol Trades public API + House/Senate STOCK Act disclosures via Quiver
-let congressSyncRunning = false;
-
-async function syncCongressTrades() {
-  if (congressSyncRunning) return;
-  congressSyncRunning = true;
-  slog('=== Congressional sync START ===');
-
-  // Write congress trades to dedicated table (avoids scanning 1M+ row trades table)
-  const upsert = db.prepare(`
-    INSERT OR IGNORE INTO congress_trades
-      (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,source)
-    VALUES (@ticker,@company,@insider,@title,@trade_date,@filing_date,@type,@qty,@price,@value,@owned,@accession,@source)
-  `);
-
-  // Dates come as MM/DD/YYYY — convert to YYYY-MM-DD
-  const parseDate = s => {
-    if (!s || s === '--') return null;
-    s = s.trim();
-    // Already ISO format
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
-    // MM/DD/YYYY
-    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-    return null;
-  };
-  const nt = s => { s=(s||'').toLowerCase(); return s.includes('sale')||s.includes('sell')?'S':s.includes('purchase')||s.includes('buy')?'P':'X'; };
-  const midVal = s => {
-    const clean=(s||'').replace(/[\$, ]/g,'');
-    const parts=clean.split(/[-–]/).map(parseFloat).filter(n=>n>0&&isFinite(n));
-    return parts.length>=2?Math.round((parts[0]+parts[1])/2):(parts[0]||0);
-  };
-  const flush = rows => {
-    if(!rows.length) return 0;
-    let n=0;
-    db.transaction(items=>{for(const r of items){try{upsert.run(r);n++;}catch(e){}}})(rows);
-    return n;
-  };
-  let total=0;
-
-  // ── Senate: timothycarambat/senate-stock-watcher-data (GitHub) ────────────
-  // aggregate/all_transactions.json is a flat array with senator name inline
-  // Dates are MM/DD/YYYY format
-  try {
-    const url='https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json';
-    slog(`Senate GitHub: GET ${url}`);
-    const {status,body}=await get(url,60000);
-    slog(`Senate GitHub: status=${status} size=${body.length}`);
-    if(status===200&&body.length>1000) {
-      const arr=JSON.parse(body.toString('utf8'));
-      slog(`Senate GitHub: ${arr.length} raw records, sample: ${JSON.stringify(arr[0]).slice(0,120)}`);
-      const rows=[];
-      for(const t of arr) {
-        const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-        if(!ticker||ticker==='--'||ticker.length>10) continue;
-        const td=parseDate(t.transaction_date||t.disclosure_date);
-        if(!td||td<'2012-01-01') continue;
-        const fd=parseDate(t.disclosure_date||t.transaction_date)||td;
-        const name=(t.senator||'').replace(/^(Sen\.?|Dr\.?)\s*/i,'').trim();
-        if(!name) continue;
-        rows.push({ticker,company:(t.asset_description||ticker).slice(0,200),
-          insider:name,title:'Senator',trade_date:td,filing_date:fd,
-          type:nt(t.type),qty:0,price:0,value:midVal(t.amount),owned:0,
-          accession:`ssw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
-          source:'congress'});
-      }
-      const n=flush(rows);
-      total+=n;
-      slog(`Senate GitHub: ${rows.length} valid → ${n} inserted`);
-    }
-  } catch(e){slog(`Senate GitHub: ${e.message}`);}
-
-  // ── House: S3 bucket (us-west-2) — was returning 403, try again ──────────
-  // The bucket is configured for requester-pays or private; try with a browser UA
-  for(const url of [
-    'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
-    'https://house-stock-watcher-data.s3.us-west-2.amazonaws.com/data/all_transactions.json',
-  ]) {
-    try {
-      slog(`House S3: GET ${url}`);
-      const {status,body}=await get(url,60000);
-      slog(`House S3: status=${status} size=${body.length}`);
-      if(status===200&&body.length>1000) {
-        const arr=JSON.parse(body.toString('utf8'));
-        slog(`House S3: ${arr.length} raw records, sample: ${JSON.stringify(arr[0]).slice(0,120)}`);
-        const rows=[];
-        for(const t of arr) {
-          const ticker=(t.ticker||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
-          if(!ticker||ticker==='--'||ticker.length>10) continue;
-          const td=parseDate(t.transaction_date||t.disclosure_date);
-          if(!td||td<'2012-01-01') continue;
-          const fd=parseDate(t.disclosure_date||t.transaction_date)||td;
-          const name=(t.representative||'').replace(/^(Hon\.?|Dr\.?|Mr\.?|Ms\.?)\s*/i,'').trim();
-          if(!name) continue;
-          rows.push({ticker,company:(t.asset_description||ticker).slice(0,200),
-            insider:name,title:'Representative',trade_date:td,filing_date:fd,
-            type:nt(t.type),qty:0,price:0,value:midVal(t.amount),owned:0,
-            accession:`hsw-${name.replace(/\W+/g,'-').toLowerCase()}-${ticker}-${td}`,
-            source:'congress'});
-        }
-        const n=flush(rows);
-        total+=n;
-        slog(`House S3: ${rows.length} valid → ${n} inserted`);
-        break;
-      }
-    } catch(e){slog(`House S3 ${url.split('/')[2]}: ${e.message}`);}
-  }
-
-  // Refresh in-memory cache after sync so /api/congress is instant
-  try {
-    _congressCache = db.prepare(`
-      SELECT ticker, company, insider, title,
-             trade_date AS trade, filing_date AS filing,
-             type, qty, price, value, owned, 'congress' AS source
-      FROM congress_trades ORDER BY trade_date DESC
-    `).all();
-    slog(`Congress cache: ${_congressCache.length} rows loaded`);
-  } catch(e) { slog(`Congress cache error: ${e.message}`); }
-
-  slog(`=== Congressional sync END: ${total} rows inserted ===`);
-  congressSyncRunning=false;
-}
-// Congress sync fires immediately at startup (data is lost on each Render deploy)
-syncCongressTrades();
-setInterval(() => syncCongressTrades(), 6 * 60 * 60 * 1000);
-
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
