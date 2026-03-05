@@ -1572,6 +1572,365 @@ function renderRegimeShiftSubpage() {
   </div>`;
 }
 
+
+// ── POST-BUY DRIFT ANALYZER ────────────────────────────────────────────────
+// Measures actual forward return paths after every insider buy event in history.
+// For each ticker, averages returns at D+1, D+5, D+20, D+60 across all buy events.
+// Drift score uses ALL four periods weighted by signal reliability:
+//   D+1  — immediate reaction      (weight 0.10)
+//   D+5  — short-term follow-thru  (weight 0.20)
+//   D+20 — medium-term drift       (weight 0.30)
+//   D+60 — full thesis play-out    (weight 0.40)
+// Consistency bonus: win rate ≥60% at D+60 adds meaningful lift.
+// Acceleration bonus: drift that builds across all periods scores higher.
+// More buy events = more reliable sample = score multiplier.
+
+let _driftCache       = null;
+let _driftPriceCache  = {};
+let _driftRunning     = false;
+
+// calendar-day offsets for each checkpoint (trading days × ~1.4)
+const DRIFT_OFFSETS = { 1: 2, 5: 8, 20: 29, 60: 87 };
+const DRIFT_WEIGHTS = { 1: 0.10, 5: 0.20, 20: 0.30, 60: 0.40 };
+
+async function buildPostBuyDrift(longTrades, onProgress) {
+  // Group all buy events by ticker
+  const buysByTicker = {};
+  (longTrades || []).forEach(t => {
+    if (t.type !== 'P' || !t.ticker || !t.price || t.price <= 0) return;
+    const d = (t.trade || t.filing || '').slice(0, 10);
+    if (!d || d < '2010-01-01') return;
+    if (!buysByTicker[t.ticker]) buysByTicker[t.ticker] = [];
+    buysByTicker[t.ticker].push({ date: d, price: t.price, value: t.value || 0, insider: t.insider, title: t.title });
+  });
+
+  // Need at least 2 buy events per ticker to compute meaningful averages
+  const tickers = Object.keys(buysByTicker).filter(tk => buysByTicker[tk].length >= 2);
+
+  const results = [];
+  const BATCH   = 5;
+
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const slice = tickers.slice(i, i + BATCH);
+
+    // Fetch prices for this batch (skip already cached)
+    await Promise.all(slice.map(async tk => {
+      if (_driftPriceCache[tk] !== undefined) return;
+      try {
+        const bars = await apiFetch('/api/price?symbol=' + encodeURIComponent(tk));
+        _driftPriceCache[tk] = Array.isArray(bars) ? bars : [];
+      } catch(e) { _driftPriceCache[tk] = []; }
+    }));
+
+    // Compute drift for each ticker in the slice
+    slice.forEach(tk => {
+      const bars = _driftPriceCache[tk] || [];
+      if (bars.length < 30) return;
+
+      const buys = buysByTicker[tk];
+      const returns = { 1: [], 5: [], 20: [], 60: [] };
+      let measured = 0;
+
+      buys.forEach(buy => {
+        // Find the first bar on or after the buy date
+        const entryBar = bars.find(b => b.time >= buy.date);
+        if (!entryBar || !entryBar.close || entryBar.close <= 0) return;
+        const entryPrice = entryBar.close;
+
+        let gotEntry = false;
+        [1, 5, 20, 60].forEach(cp => {
+          const calOff = DRIFT_OFFSETS[cp];
+          const fwdDt  = new Date(buy.date + 'T12:00:00Z');
+          fwdDt.setUTCDate(fwdDt.getUTCDate() + calOff);
+          const fwdStr = fwdDt.toISOString().slice(0, 10);
+          const fwdBar = bars.find(b => b.time >= fwdStr);
+          if (fwdBar && fwdBar.close > 0) {
+            returns[cp].push((fwdBar.close - entryPrice) / entryPrice * 100);
+            gotEntry = true;
+          }
+        });
+        if (gotEntry) measured++;
+      });
+
+      if (measured < 2 || !returns[60].length) return;
+
+      // Average return at each checkpoint
+      const avg = {};
+      [1, 5, 20, 60].forEach(cp => {
+        if (!returns[cp].length) { avg[cp] = null; return; }
+        avg[cp] = returns[cp].reduce((s, v) => s + v, 0) / returns[cp].length;
+      });
+
+      // ── Drift Score — all four periods combined ────────────────────
+      // Core: weighted average of all available checkpoint returns
+      let weightedSum = 0, weightTotal = 0;
+      [1, 5, 20, 60].forEach(cp => {
+        if (avg[cp] === null) return;
+        weightedSum  += avg[cp] * DRIFT_WEIGHTS[cp];
+        weightTotal  += DRIFT_WEIGHTS[cp];
+      });
+      const weightedAvg = weightTotal > 0 ? weightedSum / weightTotal : 0;
+
+      // Scale: map weighted avg return to 0–70 base points
+      // +10% weighted avg = ~70pts, 0% = 35pts, -10% = ~0pts
+      let score = Math.max(0, Math.min(70, 35 + weightedAvg * 3.5));
+
+      // Consistency bonus (up to +15): D+60 win rate
+      const d60wins = returns[60].filter(r => r > 0).length;
+      const winRate = Math.round(d60wins / returns[60].length * 100);
+      if (winRate >= 75) score += 15;
+      else if (winRate >= 60) score += 8;
+      else if (winRate < 40) score -= 8;
+
+      // Acceleration bonus (up to +10): drift builds progressively
+      const cps = [1, 5, 20, 60].filter(cp => avg[cp] !== null);
+      const accelerates = cps.length === 4 &&
+        avg[5] > avg[1] && avg[20] > avg[5] && avg[60] > avg[20];
+      const partialAccel = cps.length >= 3 && avg[60] > avg[20] && avg[20] > 0;
+      if (accelerates)   score += 10;
+      else if (partialAccel) score += 5;
+
+      // Sample size bonus (up to +5): more events = more reliable
+      if (measured >= 8)      score += 5;
+      else if (measured >= 5) score += 3;
+      else if (measured >= 3) score += 1;
+
+      score = Math.min(100, Math.max(0, Math.round(score)));
+
+      // Only include tickers with positive expected drift
+      if (weightedAvg <= 0 && winRate < 50) return;
+
+      const company = longTrades.find(t => t.ticker === tk)?.company || tk;
+      const vals = buys.map(b => b.value).filter(v => v > 0).sort((a,b)=>a-b);
+      const medianVal = vals.length ? vals[Math.floor(vals.length/2)] : 0;
+
+      results.push({
+        ticker: tk,
+        company,
+        buyCount: measured,
+        avg,        // { 1, 5, 20, 60 } — average % return at each checkpoint
+        winRate,
+        accelerates,
+        weightedAvg,
+        score,
+        medianBuyVal: medianVal,
+        lastBuy: buys.sort((a,b) => b.date.localeCompare(a.date))[0].date,
+        d60sample: returns[60].length,
+      });
+    });
+
+    if (onProgress) onProgress(Math.min(i + BATCH, tickers.length), tickers.length);
+    await new Promise(r => setTimeout(r, 0)); // yield to UI
+  }
+
+  // Sort by drift score (all-period weighted)
+  return results.sort((a, b) => b.score - a.score);
+}
+
+function renderDriftSubpage() {
+  const body    = document.getElementById('analysisViewBody');
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  if (!_analysisDataLong) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div class="loading-state" style="height:220px"><div class="spinner"></div><span>Loading trade history…</span></div>
+    </div>`;
+    const poll = setInterval(() => { if (_analysisDataLong) { clearInterval(poll); renderDriftSubpage(); } }, 700);
+    return;
+  }
+
+  // Already computed — show immediately
+  if (_driftCache) { _renderDriftResults(body, backBtn, _driftCache); return; }
+  if (_driftRunning) return;
+  _driftRunning = true;
+
+  // Show progress UI
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:6px">📈 POST-BUY DRIFT ANALYZER</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:32px">Measuring forward return paths after every insider buy event</div>
+    <div style="max-width:460px;margin:0 auto;text-align:center;padding:40px 0">
+      <div style="font-size:13px;color:var(--text);margin-bottom:14px" id="driftLbl">Fetching price data…</div>
+      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
+        <div id="driftBar" style="height:100%;width:0%;background:var(--accent);transition:width .25s;border-radius:4px"></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">Computing D+1 · D+5 · D+20 · D+60 return paths per ticker</div>
+    </div>
+  </div>`;
+
+  const onProgress = (done, total) => {
+    const pct = Math.round(done / total * 100);
+    const bar = document.getElementById('driftBar');
+    const lbl = document.getElementById('driftLbl');
+    if (bar) bar.style.width = pct + '%';
+    if (lbl) lbl.textContent = `Fetching price data… ${done} / ${total} tickers`;
+  };
+
+  buildPostBuyDrift(_analysisDataLong, onProgress).then(results => {
+    _driftRunning = false;
+    _driftCache   = results;
+    _renderDriftResults(body, backBtn, results);
+  }).catch(e => {
+    _driftRunning = false;
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}
+      <div style="color:var(--sell);font-size:13px;padding:30px 0">Error computing drift: ${e.message}</div>
+    </div>`;
+  });
+}
+
+function _renderDriftResults(body, backBtn, results) {
+  if (!results.length) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div style="color:var(--muted);font-size:13px;text-align:center;padding:40px 0">Not enough buy history with matching price data to compute drift.</div>
+    </div>`;
+    return;
+  }
+
+  const top = results.slice(0, 25);
+
+  // Colour an individual return value
+  const retColor = r => r >= 8 ? 'var(--buy)' : r >= 2 ? '#7ecb7e' : r >= 0 ? 'var(--accent)' : r >= -3 ? 'var(--option)' : 'var(--sell)';
+  const fmtR = r => r === null ? '<span style="color:var(--muted);font-size:10px">—</span>'
+    : `<span style="color:${retColor(r)};font-weight:700">${r >= 0 ? '+' : ''}${r.toFixed(1)}%</span>`;
+
+  // Mini SVG sparkline for the four-point drift curve
+  const sparkSvg = (avg) => {
+    const pts = [1, 5, 20, 60].map(cp => avg[cp]);
+    if (pts.some(v => v === null)) return '';
+    const W = 80, H = 28, PAD = 4;
+    const minV = Math.min(0, ...pts) - 1;
+    const maxV = Math.max(0, ...pts) + 1;
+    const range = maxV - minV || 1;
+    const xs = [0, 0.18, 0.52, 1].map(f => PAD + f * (W - PAD * 2));
+    const ys = pts.map(v => H - PAD - ((v - minV) / range) * (H - PAD * 2));
+    // zero line
+    const zy = H - PAD - ((0 - minV) / range) * (H - PAD * 2);
+    const color = pts[3] >= 0 ? '#00ff88' : '#ff4466';
+    const path = xs.map((x, i) => `${i===0?'M':'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
+    const area = `M${xs[0].toFixed(1)},${zy.toFixed(1)} ` + xs.map((x,i) => `L${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ') + ` L${xs[3].toFixed(1)},${zy.toFixed(1)} Z`;
+    return `<svg width="${W}" height="${H}" style="overflow:visible;flex-shrink:0">
+      <line x1="${PAD}" y1="${zy.toFixed(1)}" x2="${W-PAD}" y2="${zy.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <path d="${area}" fill="${color}" fill-opacity="0.12"/>
+      <path d="${path}" stroke="${color}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      ${pts.map((v,i) => `<circle cx="${xs[i].toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.5" fill="${color}"/>`).join('')}
+    </svg>`;
+  };
+
+  // Return path cells
+  const cpLabels = { 1:'D+1', 5:'D+5', 20:'D+20', 60:'D+60' };
+
+  const cards = top.map((r, idx) => {
+    const scoreColor  = r.score >= 75 ? 'var(--buy)' : r.score >= 55 ? 'var(--accent)' : 'var(--option)';
+    const scoreBorder = r.score >= 75 ? 'rgba(0,255,136,0.28)' : r.score >= 55 ? 'rgba(0,212,255,0.25)' : 'rgba(255,170,0,0.2)';
+    const scoreBg     = r.score >= 75 ? 'rgba(0,255,136,0.07)' : r.score >= 55 ? 'rgba(0,212,255,0.07)' : 'rgba(255,170,0,0.06)';
+    const spark       = sparkSvg(r.avg);
+
+    const cpCells = [1, 5, 20, 60].map(cp => `
+      <div style="flex:1;text-align:center;padding:9px 4px;${cp < 60 ? 'border-right:1px solid var(--border)' : ''}">
+        <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:5px">${cpLabels[cp]}</div>
+        <div style="font-size:13px;font-family:'Space Mono',monospace">${fmtR(r.avg[cp])}</div>
+      </div>`).join('');
+
+    const badges = [];
+    if (r.accelerates) badges.push(`<span style="font-size:9px;background:rgba(0,255,136,0.1);color:var(--buy);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:2px 6px">↗ ACCELERATING</span>`);
+    if (r.winRate >= 60) badges.push(`<span style="font-size:9px;background:rgba(0,212,255,0.08);color:var(--accent);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:2px 6px">${r.winRate}% WIN RATE</span>`);
+    if (r.buyCount >= 6) badges.push(`<span style="font-size:9px;background:rgba(255,255,255,0.04);color:var(--muted);border:1px solid var(--border);border-radius:3px;padding:2px 6px">${r.buyCount} EVENTS</span>`);
+
+    return `
+    <div onclick="openTickerFromScreener('${r.ticker}')"
+         style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+         onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
+
+      <!-- Rank bar -->
+      <div style="height:3px;background:rgba(255,255,255,0.05)">
+        <div style="height:100%;width:${r.score}%;background:${scoreColor};opacity:0.75"></div>
+      </div>
+
+      <!-- Header row -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px 10px;gap:10px">
+        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
+          <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);min-width:20px">#${idx+1}</div>
+          <div style="min-width:0">
+            <div style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent)">${r.ticker}</div>
+            <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">${r.company}</div>
+          </div>
+          <div style="flex:1;display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-start">
+            ${badges.join('')}
+          </div>
+        </div>
+        <!-- Score + spark -->
+        <div style="display:flex;align-items:center;gap:14px;flex-shrink:0">
+          ${spark}
+          <div style="background:${scoreBg};border:1px solid ${scoreBorder};border-radius:7px;padding:5px 11px;text-align:center">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${scoreColor};line-height:1">${r.score}</div>
+            <div style="font-family:'Space Mono',monospace;font-size:7px;color:${scoreColor};letter-spacing:1px">DRIFT</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Return path cells -->
+      <div style="display:flex;border-top:1px solid var(--border)">
+        ${cpCells}
+      </div>
+
+      <!-- Footer -->
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
+        <div style="font-size:10px;color:var(--muted)">${r.buyCount} buy event${r.buyCount!==1?'s':''} · last ${r.lastBuy}</div>
+        <div style="font-size:10px;color:var(--muted)">weighted avg: <span style="color:${retColor(r.weightedAvg)};font-weight:700">${r.weightedAvg>=0?'+':''}${r.weightedAvg.toFixed(1)}%</span></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Summary stats
+  const avgD60 = results.filter(r => r.avg[60] !== null).map(r => r.avg[60]);
+  const overallWin = avgD60.length ? Math.round(avgD60.filter(v => v > 0).length / avgD60.length * 100) : 0;
+  const medD60 = avgD60.length ? [...avgD60].sort((a,b)=>a-b)[Math.floor(avgD60.length/2)] : 0;
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">📈 POST-BUY DRIFT ANALYZER</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Average return path after insider buys · Ranked by all-period drift strength · ${results.length} tickers scored</div>
+    </div>
+
+    <!-- Summary bar -->
+    <div style="display:flex;gap:10px;margin:16px 0 20px;flex-wrap:wrap">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--text)">${results.length}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Tickers scored</div>
+      </div>
+      <div style="background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${overallWin}%</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Win rate at D+60</div>
+      </div>
+      <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)">${medD60>=0?'+':''}${medD60.toFixed(1)}%</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Median D+60 return</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${results.filter(r=>r.accelerates).length}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Accelerating drift</div>
+      </div>
+    </div>
+
+    <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:7px;padding:11px 15px;margin-bottom:22px;font-size:11px;color:var(--muted);line-height:1.7">
+      Ranked by <span style="color:var(--text)">composite drift score</span> — a weighted average of average returns at all four checkpoints
+      (D+1 · D+5 · D+20 · D+60, weighted 10/20/30/40) plus bonuses for <span style="color:var(--text)">win rate consistency</span> and <span style="color:var(--text)">progressive acceleration</span>.
+      Click any ticker to view its full trade history.
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px">
+      ${cards}
+    </div>
+
+    <div style="font-size:10px;color:var(--muted);margin-top:18px;opacity:0.65;line-height:1.6">
+      ⚠ Past drift is not a guarantee of future performance. Returns measured from filing date using next available close price.
+      Tickers with fewer than 2 measurable buy events are excluded.
+    </div>
+  </div>`;
+}
 // ── STOCK LANDING ─────────────────────────────────────────────────
 let _stockListsCache = null;
 
@@ -3067,6 +3426,26 @@ function renderAnalysisDashboard() {
     },
   ];
 
+  // Post-Buy Drift (uses cached results if available, otherwise shows loading state)
+  const driftTop3 = (_driftCache || []).slice(0, 3);
+  const driftTool = {
+    id: 'driftanalyzer',
+    icon: '📈',
+    name: 'Post-Buy Drift Analyzer',
+    desc: 'Measures actual forward return paths after every historical insider buy. Ranks tickers by composite drift strength across D+1, D+5, D+20, and D+60 — not just one period.',
+    count: _driftCache ? _driftCache.length : '…',
+    countLabel: 'tickers ranked',
+    top3: driftTop3.map(r => ({
+      ticker: r.ticker,
+      label: `Score ${r.score}`,
+      sub: [1,5,20,60].filter(cp => r.avg[cp]!==null).map(cp => `D+${cp}: ${r.avg[cp]>=0?'+':''}${r.avg[cp].toFixed(1)}%`).join(' · '),
+      color: r.score >= 75 ? 'var(--buy)' : r.score >= 55 ? 'var(--accent)' : 'var(--option)',
+    })),
+    accentColor: '#81c784',
+    accentBg: 'rgba(129,199,132,0.06)',
+    accentBorder: 'rgba(129,199,132,0.25)',
+  };
+
   // Regime Shift (uses longTrades for baseline)
   const regimeTop3 = buildRegimeShiftData(longTrades, trades).slice(0, 3);
   const regimeTool = {
@@ -3133,7 +3512,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, regimeTool, carTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, driftTool, regimeTool, carTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
 }
@@ -3222,6 +3601,10 @@ function renderAnalysisSubpage(id) {
 
   else if (id === 'timingleaders') {
     renderTimingLeadersSubpage();
+  }
+
+  else if (id === 'driftanalyzer') {
+    renderDriftSubpage();
   }
 
   else if (id === 'regimeshift') {
