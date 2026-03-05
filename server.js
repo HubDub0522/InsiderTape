@@ -844,9 +844,7 @@ app.get('/api/congress', (req, res) => {
 });
 
 // Auto-sync congressional trades every 6 hours
-// Congress sync fires immediately at startup (data is lost on each Render deploy)
-syncCongressTrades();
-setInterval(() => syncCongressTrades(), 6 * 60 * 60 * 1000);
+
 
 
 // ─── SPA CATCH-ALL ────────────────────────────────────────────
@@ -1042,4 +1040,8 @@ async function syncCongressTrades() {
   slog(`=== Congressional sync END: ${total} rows inserted ===`);
   congressSyncRunning=false;
 }
+// Congress sync fires immediately at startup (data is lost on each Render deploy)
+syncCongressTrades();
+setInterval(() => syncCongressTrades(), 6 * 60 * 60 * 1000);
+
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
