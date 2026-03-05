@@ -834,6 +834,81 @@ app.get('/api/cleanup-dates', (req, res) => {
 
 
 
+
+// ─── EVENTS: Earnings + catalysts per symbol ─────────────────────────────────
+// Returns earnings dates (historical + upcoming) from FMP.
+// Also returns recent 8-K filing dates from SEC EDGAR EFTS as catalyst proxy.
+// Frontend uses this to detect insider buys in the window before known events.
+const EVENT_CACHE = new Map(); // sym → { expires, data }
+
+app.get('/api/events', async (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'symbol required' });
+
+  const cached = EVENT_CACHE.get(sym);
+  if (cached && Date.now() < cached.expires) return res.json(cached.data);
+
+  const events = [];
+
+  // ── FMP: historical + upcoming earnings ────────────────────────
+  try {
+    const url = `https://financialmodelingprep.com/stable/historical/earning-calendar/${sym}?apikey=${FMP}`;
+    const { status, body } = await get(url, 15000);
+    if (status === 200) {
+      const data = JSON.parse(body.toString());
+      const arr  = Array.isArray(data) ? data : (data?.historical || []);
+      arr.forEach(e => {
+        const d = (e.date || e.reportDate || '').slice(0, 10);
+        if (!d) return;
+        events.push({
+          date: d,
+          type: 'EARNINGS',
+          label: `Earnings${e.eps !== undefined ? ` (EPS: ${e.eps ?? 'est'})` : ''}`,
+          source: 'FMP',
+        });
+      });
+    }
+  } catch(e) { /* silent */ }
+
+  // ── SEC EFTS: recent 8-K filings = material events ─────────────
+  // 8-K items that signal material events: 1.01 (agreements), 2.02 (results),
+  // 5.02 (officer changes), 8.01 (other material events)
+  try {
+    const url = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(sym)}%22&forms=8-K&dateRange=custom&startDate=${new Date(Date.now()-730*86400000).toISOString().slice(0,10)}&endDate=${new Date().toISOString().slice(0,10)}&hits.hits.total.value=1&hits.hits._source.period_of_report=1`;
+    const { status, body } = await get(url, 10000);
+    if (status === 200) {
+      const json = JSON.parse(body.toString());
+      const hits = json?.hits?.hits || [];
+      hits.forEach(h => {
+        const d = (h._source?.period_of_report || h._source?.file_date || '').slice(0, 10);
+        const items = (h._source?.items || '').toString();
+        if (!d) return;
+        // Classify item type
+        let type = 'MATERIAL_EVENT', label = '8-K Filing';
+        if (items.includes('2.02') || items.includes('Results')) { type = 'EARNINGS'; label = '8-K: Earnings Results'; }
+        else if (items.includes('1.01')) { label = '8-K: Material Agreement'; }
+        else if (items.includes('8.01')) { label = '8-K: Other Material Event'; }
+        else if (items.includes('1.05') || items.includes('FDA') || items.includes('regulatory')) { type = 'REGULATORY'; label = '8-K: Regulatory Update'; }
+        events.push({ date: d, type, label, source: 'SEC_8K' });
+      });
+    }
+  } catch(e) { /* silent */ }
+
+  // ── SEC EFTS: SC 13G/13D (activist/large holder — often precede announcements)
+  // Skip — too noisy
+
+  // Deduplicate by date+type, sort descending
+  const seen = new Set();
+  const deduped = events.filter(e => {
+    const k = `${e.date}::${e.type}`;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  EVENT_CACHE.set(sym, { expires: Date.now() + 6 * 60 * 60 * 1000, data: deduped });
+  res.json(deduped);
+});
+
 // STOCK LISTS — for stock view landing page
 // Returns multiple ranked lists in one call: most active, recent buys, recent sells, cluster buys
 app.get('/api/stock-lists', (req, res) => {
