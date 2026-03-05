@@ -632,7 +632,7 @@ document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000); // 20s timeout
+  const timer = setTimeout(() => controller.abort(), 28000); // 28s timeout
   try {
     const resp = await fetch(API_BASE + path, { ...opts, signal: controller.signal });
     if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
@@ -3564,7 +3564,18 @@ async function loadCongressView() {
     _congressRetries = 0;
     renderCongressView();
   } catch(e) {
-    body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`;
+    _congressRetries++;
+    const isTimeout = e.name === 'AbortError' || e.message?.includes('aborted');
+    if (isTimeout && _congressRetries <= 5) {
+      // Index may still be building — retry
+      const body = document.getElementById('congressViewBody');
+      if (body) body.innerHTML = `<div style="max-width:500px;margin:80px auto;text-align:center"><div class="spinner" style="margin:0 auto 16px"></div><div style="color:var(--muted);font-size:12px;font-family:'Space Mono',monospace">Query slow — retrying (${_congressRetries}/5)…</div></div>`;
+      setTimeout(() => loadCongressView(), 5000);
+    } else {
+      const body = document.getElementById('congressViewBody');
+      if (body) body.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div><button class="tf-btn" style="margin-top:12px" onclick="_congressRetries=0;loadCongressView()">Retry</button></div>`;
+    }
+
   }
 }
 
