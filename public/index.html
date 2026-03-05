@@ -602,6 +602,12 @@ function switchView(view, btn, opts={}) {
       insiderLanding();
     }
   }
+  if (view === 'stock') {
+    const content = document.getElementById('stockContent');
+    if (content && (!content.hasChildNodes() || content.querySelector('.empty-state'))) {
+      loadStockLanding();
+    }
+  }
   if (view === 'analysis') {
     const body = document.getElementById('analysisViewBody');
     if (!body) return;
@@ -853,6 +859,119 @@ function sortTable(col) {
 function openTickerFromScreener(ticker) {
   document.getElementById('tickerInput').value = ticker;
   loadStockView(ticker);
+}
+
+// ── STOCK LANDING ─────────────────────────────────────────────────
+let _stockListsCache = null;
+
+async function loadStockLanding() {
+  const content = document.getElementById('stockContent');
+  if (!content) return;
+  content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div></div>`;
+
+  try {
+    if (!_stockListsCache) {
+      _stockListsCache = await apiFetch('/api/stock-lists');
+    }
+    renderStockLanding(_stockListsCache);
+  } catch(e) {
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">📈</div><div>Search a ticker above to get started</div></div>`;
+  }
+}
+
+function renderStockLanding(lists) {
+  const content = document.getElementById('stockContent');
+  if (!content) return;
+  const { hotBuys=[], clusterBuys=[], freshBuys=[], heavySells=[], mostActive=[] } = lists;
+
+  const sectionStyle = `margin-bottom:32px`;
+  const headerStyle  = `display:flex;align-items:baseline;gap:10px;margin-bottom:14px`;
+  const titleStyle   = `font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)`;
+  const subtitleStyle= `font-size:11px;color:var(--muted)`;
+  const gridStyle    = `display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px`;
+
+  function stockCard(ticker, company, badges=[], stats=[], onClick='') {
+    const badgeHtml = badges.map(([label, color, bg]) =>
+      `<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:${bg};color:${color};font-family:'Space Mono',monospace;letter-spacing:0.5px">${label}</span>`
+    ).join('');
+    const statsHtml = stats.map(([val, label]) =>
+      `<div style="text-align:center"><div style="font-size:13px;font-weight:600;color:var(--text)">${val}</div><div style="font-size:9px;color:var(--muted);margin-top:1px">${label}</div></div>`
+    ).join('');
+    return `<div onclick="${onClick}" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px;cursor:pointer;transition:border-color 0.15s,background 0.15s"
+      onmouseenter="this.style.borderColor='var(--border2)';this.style.background='var(--bg3)'"
+      onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--bg2)'">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1px;color:var(--accent)">${ticker}</span>
+        ${badgeHtml}
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company||''}</div>
+      <div style="display:flex;gap:12px">${statsHtml}</div>
+    </div>`;
+  }
+
+  function section(title, subtitle, icon, cards) {
+    if (!cards.length) return '';
+    return `<div style="${sectionStyle}">
+      <div style="${headerStyle}">
+        <span style="font-size:18px">${icon}</span>
+        <span style="${titleStyle}">${title}</span>
+        <span style="${subtitleStyle}">${subtitle}</span>
+      </div>
+      <div style="${gridStyle}">${cards.join('')}</div>
+    </div>`;
+  }
+
+  const hotBuyCards = hotBuys.map(r => stockCard(
+    r.ticker, r.company,
+    [
+      ...(r.exec_buy ? [['EXEC', 'var(--buy)', 'rgba(0,255,136,0.12)']] : []),
+      ...(r.buyers >= 3 ? [['CLUSTER', 'var(--accent)', 'rgba(0,212,255,0.1)']] : []),
+    ],
+    [[`${r.buyers}`, 'insiders'], [fmt(r.buy_val), 'bought'], [`${r.buys}`, 'trades']],
+    `openTickerFromScreener('${r.ticker}')`
+  ));
+
+  const clusterCards = clusterBuys.map(r => stockCard(
+    r.ticker, r.company,
+    [['CLUSTER', 'var(--accent)', 'rgba(0,212,255,0.1)']],
+    [[`${r.buyer_count}`, 'insiders'], [fmt(r.total_val), 'total'], [`${r.trade_count}`, 'trades']],
+    `openTickerFromScreener('${r.ticker}')`
+  ));
+
+  const freshCards = freshBuys.slice(0, 12).map(r => stockCard(
+    r.ticker, r.company,
+    [['FRESH BUY', 'var(--buy)', 'rgba(0,255,136,0.1)']],
+    [[fmt(r.val), 'value'], [r.insider?.split(' ')[0]||'', 'insider']],
+    `openTickerFromScreener('${r.ticker}')`
+  ));
+
+  const sellCards = heavySells.map(r => stockCard(
+    r.ticker, r.company,
+    [['SELLING', 'var(--sell)', 'rgba(255,68,102,0.1)']],
+    [[`${r.seller_count}`, 'insiders'], [fmt(r.sell_val), 'sold']],
+    `openTickerFromScreener('${r.ticker}')`
+  ));
+
+  const activeCards = mostActive.map(r => stockCard(
+    r.ticker, r.company,
+    [
+      ...(r.buys > r.sells ? [['NET BUY', 'var(--buy)', 'rgba(0,255,136,0.1)']] : r.sells > r.buys ? [['NET SELL', 'var(--sell)', 'rgba(255,68,102,0.1)']] : [['MIXED', 'var(--muted)', 'rgba(74,101,128,0.15)']]),
+    ],
+    [[`${r.insiders}`, 'insiders'], [`${r.buys}B/${r.sells}S`, 'trades']],
+    `openTickerFromScreener('${r.ticker}')`
+  ));
+
+  content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    <div style="margin-bottom:28px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
+    </div>
+    ${section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)}
+    ${section('Cluster Buys', 'Multiple insiders · Last 14 days', '🔬', clusterCards)}
+    ${section('Fresh Buys', 'First purchase in 2+ years · Last 14 days', '🚨', freshCards)}
+    ${section('This Week\'s Activity', 'All insider moves · Last 7 days', '⚡', activeCards)}
+    ${section('Heavy Selling', 'Watch list · Last 14 days', '🔴', sellCards)}
+  </div>`;
 }
 
 // ── STOCK VIEW ────────────────────────────────────────────────────
@@ -2062,9 +2181,9 @@ async function loadAnalysisPage(subpage) {
   if (!_rankerCache) {
     apiFetch('/api/ranker?days=30').then(async rows => {
       // Enrich with price data (52-week low proximity) for top 40 by buy value
-      const top40 = rows.slice(0, 40);
+      const top40 = rows.slice(0, 20); // limit price fetches to avoid timeouts
       const priceResults = await Promise.allSettled(
-        top40.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)))
+        top40.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)).catch(()=>null))
       );
       top40.forEach((r, i) => {
         const bars = priceResults[i].status === 'fulfilled' ? priceResults[i].value : [];
