@@ -84,22 +84,32 @@ function runSync(numQ = 4) {
 }
 
 // ─── HTTP helper ──────────────────────────────────────────────
+const http = require('http');
+
 function get(url, ms=30000) {
-  return new Promise((resolve,reject) => {
-    const req = https.get(url, {
-      headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('http://') ? http : https;
+    const req = mod.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InsiderTape/1.0)' },
       timeout: ms,
     }, res => {
-      if ([301,302,303].includes(res.statusCode) && res.headers.location)
-        return get(res.headers.location, ms).then(resolve).catch(reject);
+      if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
+        // Drain the redirect response body before following
+        res.resume();
+        const loc = res.headers.location;
+        const next = loc.startsWith('http') ? loc : new URL(loc, url).href;
+        return get(next, ms).then(resolve).catch(reject);
+      }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      res.on('error', reject);
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
   });
 }
+
 
 // ─── DAILY INGESTION (recent Form 4s from EDGAR daily index) ────
 let dailyRunning = false;
