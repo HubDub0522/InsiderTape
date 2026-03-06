@@ -710,7 +710,7 @@ async function loadScreener() {
 
 // ── HIGH CONVICTION SCORING ───────────────────────────────────────
 function buildConvictionData(trades) {
-  const buys = trades.filter(t => t.type === 'P' && t.value > 0);
+  const buys = trades.filter(t => t.type === 'P');
   if (!buys.length) return [];
   const allByTicker = {};
   trades.forEach(t => { if (!allByTicker[t.ticker]) allByTicker[t.ticker] = []; allByTicker[t.ticker].push(t); });
@@ -922,7 +922,7 @@ function getMarketCapTier(ownedShares, price) {
 }
 
 function buildCapitalAtRiskData(trades) {
-  const buys = trades.filter(t => t.type === 'P' && t.value > 0 && t.qty > 0);
+  const buys = trades.filter(t => t.type === 'P');
   if (!buys.length) return [];
 
   // Group by insider+ticker — one entry per insider/stock combo
@@ -1783,6 +1783,8 @@ function renderDriftSubpage() {
   buildPostBuyDrift(_analysisDataLong, onProgress).then(results => {
     _driftRunning = false;
     _driftCache   = results;
+    // Re-score ranker now that drift data is available
+    if (_rankerCache) { const rows = _rankerCache.map(r => ({...r})); _rankerCache = null; if (rows.length) { apiFetch('/api/ranker?days=30').then(freshRows => { if (freshRows.length) { freshRows.forEach(fr => { const cached = rows.find(r => r.ticker === fr.ticker); if (cached) Object.assign(fr, { _pctFromLow: cached._pctFromLow, _last: cached._last }); }); _rankerCache = scoreOpportunityRanker(freshRows); } }); } }
     _renderDriftResults(body, backBtn, results);
   }).catch(e => {
     _driftRunning = false;
@@ -1972,7 +1974,7 @@ const PROXIMITY_WINDOW = 30;  // days after buy to look for next event
 async function buildEventProximityData(trades, onProgress) {
   // Candidates: all buys in the passed trades (already filtered to 30d by caller)
   const buys = (trades || []).filter(t =>
-    t.type === 'P' && t.value > 0
+    t.type === 'P'
   );
   if (!buys.length) return [];
 
@@ -2441,8 +2443,6 @@ function renderStockLanding(lists) {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
     </div>
     ${section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)}
-    ${section('Cluster Buys', 'Multiple insiders · Last 14 days', '🔬', clusterCards)}
-    ${section('Fresh Buys', 'First purchase in 2+ years · Last 14 days', '🚨', freshCards)}
     ${section('This Week\'s Activity', 'All insider moves · Last 7 days', '⚡', activeCards)}
     ${section('Heavy Selling', 'Watch list · Last 14 days', '🔴', sellCards)}
   </div>`;
@@ -3734,8 +3734,10 @@ function renderAnalysisDashboard() {
 
   // Kick off API fetch for first-buy tile data if not cached yet
   if (!_firstBuyCache) {
-    apiFetch('/api/firstbuys?mingap=1825&lookback=90&limit=50').then(rows => {
+    apiFetch('/api/firstbuys?mingap=1095&lookback=90&limit=50').then(rows => {
       _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
+      // Re-score ranker now that first-buy data is available
+      _rankerCache = null;
       // Refresh dashboard tiles once data arrives
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
@@ -3749,7 +3751,7 @@ function renderAnalysisDashboard() {
       id: 'ranker',
       icon: '🏆',
       name: 'Insider Opportunity Ranker',
-      desc: 'Combines every signal into one score per ticker: cluster buying, conviction, insider accuracy, 52-week low proximity, and no selling. The single most actionable view.',
+      desc: 'The master score. Combines signals from every tool on this page — clusters, CAR scores, regime shifts, post-buy drift, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
       count: _rankerCache ? _rankerCache.length : '…',
       countLabel: 'tickers ranked',
       top3: rankerTop3.map(r => ({
@@ -3934,7 +3936,7 @@ function renderAnalysisDashboard() {
     id: 'firstbuy',
     icon: '🚨',
     name: 'First Buy in Years',
-    desc: 'Detects insiders making their first open-market purchase after 5+ years of inactivity on a stock. One of the rarest and most deliberate signals in Form 4 data.',
+    desc: 'Detects insiders making their first open-market purchase after 3+ years of inactivity on a stock. A rare, deliberate signal — insiders who stayed inactive for years and then suddenly buy.',
     count: _firstBuyCache ? _firstBuyCache.length : '…',
     countLabel: 'signals found',
     top3: firstBuyTop3.map(s => ({
@@ -4262,32 +4264,83 @@ async function renderRankerSubpage() {
 }
 
 function scoreOpportunityRanker(rows) {
+  // ── Build cross-tool signal maps keyed by ticker ──────────────────────────
+  // Each tool that has run contributes bonus points. Tools that haven't loaded
+  // yet simply contribute 0 — ranker re-runs once data arrives.
+
+  // Cluster Detection: tickers currently in a qualified cluster
+  const clusterTickers = new Set(
+    (detectAdvancedClusters(_analysisData || [])).map(c => c.ticker)
+  );
+
+  // Capital-at-Risk: tickers where an insider has a high CAR score (≥50)
+  const carMap = {};  // ticker → best CAR score
+  try {
+    buildCapitalAtRiskData(_analysisData || []).forEach(c => {
+      if (!carMap[c.ticker] || c.score > carMap[c.ticker]) carMap[c.ticker] = c.score;
+    });
+  } catch(e) {}
+
+  // Regime Shift: tickers with a bullish regime signal (buyer flip or buy accel)
+  const regimeBullish = new Set();
+  const regimeBearish = new Set();
+  try {
+    buildRegimeShiftData(_analysisDataLong || _analysisData || [], _analysisData || [])
+      .forEach(s => {
+        if (s.regimeType === 'SELLER_FLIPS_BUY' || s.regimeType === 'BUY_ACCELERATION' || s.regimeType === 'DORMANT_ACTIVATES')
+          regimeBullish.add(s.ticker);
+        if (s.regimeType === 'SELL_SPIKE')
+          regimeBearish.add(s.ticker);
+      });
+  } catch(e) {}
+
+  // Post-Buy Drift: tickers with historically strong drift (score ≥ 60)
+  const driftMap = {};  // ticker → drift score
+  (_driftCache || []).forEach(d => { driftMap[d.ticker] = d.score; });
+
+  // Event Proximity: tickers with an upcoming event signal
+  const proximityMap = {};  // ticker → { score, daysTo, isAbnormal }
+  (_proximityCache || []).forEach(p => {
+    if (!proximityMap[p.ticker] || p.score > proximityMap[p.ticker].score)
+      proximityMap[p.ticker] = p;
+  });
+
+  // First Buy in Years: tickers where a first-buy was flagged
+  const firstBuyTickers = new Set((_firstBuyCache || []).map(f => f.ticker));
+
+  // Exit Warnings: penalize tickers with active exit signals
+  const exitWarningTickers = new Set();
+  try {
+    detectExitWarnings(_analysisData || []).forEach(w => exitWarningTickers.add(w.ticker));
+  } catch(e) {}
+
+  // ── Score each ticker ─────────────────────────────────────────────────────
   return rows.map(r => {
     let score = 0;
     const factors = [];
 
-    // ── 1. Cluster / buyer count (0–25 pts) ──────────────────────
-    if (r.buyer_count >= 5)      { score += 25; factors.push(`${r.buyer_count} insiders buying`); }
-    else if (r.buyer_count >= 3) { score += 18; factors.push(`${r.buyer_count} insiders buying`); }
-    else if (r.buyer_count >= 2) { score += 10; factors.push(`2 insiders buying`); }
-    else                         { score += 3; }
+    // ── 1. Cluster / buyer count (0–20 pts) ──────────────────────
+    if (r.buyer_count >= 5)      { score += 20; factors.push(`${r.buyer_count} insiders buying`); }
+    else if (r.buyer_count >= 3) { score += 14; factors.push(`${r.buyer_count} insiders buying`); }
+    else if (r.buyer_count >= 2) { score += 8;  factors.push(`2 insiders buying`); }
+    else                         { score += 2; }
 
-    // ── 2. Executive involvement (0–15 pts) ──────────────────────
-    if (r.has_exec_buyer) { score += 15; factors.push(`C-suite / executive buyer`); }
+    // ── 2. Executive involvement (0–12 pts) ──────────────────────
+    if (r.has_exec_buyer) { score += 12; factors.push(`C-suite / executive buyer`); }
 
-    // ── 3. Stake size increase (0–15 pts) ────────────────────────
-    if (r.max_stake_pct >= 50)     { score += 15; factors.push(`Stake increased ${r.max_stake_pct}%`); }
-    else if (r.max_stake_pct >= 20){ score += 10; factors.push(`Stake increased ${r.max_stake_pct}%`); }
-    else if (r.max_stake_pct >= 5) { score += 5;  factors.push(`Position added to`); }
+    // ── 3. Stake size increase (0–12 pts) ────────────────────────
+    if (r.max_stake_pct >= 50)     { score += 12; factors.push(`Stake increased ${r.max_stake_pct}%`); }
+    else if (r.max_stake_pct >= 20){ score += 8;  factors.push(`Stake increased ${r.max_stake_pct}%`); }
+    else if (r.max_stake_pct >= 5) { score += 4;  factors.push(`Position added to`); }
 
-    // ── 4. Capital committed (0–15 pts) ──────────────────────────
-    if (r.total_buy_val >= 10000000)     { score += 15; factors.push(`${fmt(r.total_buy_val)} total invested`); }
-    else if (r.total_buy_val >= 2000000) { score += 10; factors.push(`${fmt(r.total_buy_val)} total invested`); }
-    else if (r.total_buy_val >= 500000)  { score += 5;  factors.push(`${fmt(r.total_buy_val)} invested`); }
+    // ── 4. Capital committed (0–12 pts) ──────────────────────────
+    if (r.total_buy_val >= 10000000)     { score += 12; factors.push(`${fmt(r.total_buy_val)} total invested`); }
+    else if (r.total_buy_val >= 2000000) { score += 8;  factors.push(`${fmt(r.total_buy_val)} total invested`); }
+    else if (r.total_buy_val >= 500000)  { score += 4;  factors.push(`${fmt(r.total_buy_val)} invested`); }
 
-    // ── 5. No recent selling (0–15 pts) / penalty if selling ─────
+    // ── 5. No recent selling (0–12 pts) / penalty if selling ─────
     if (r.sell_count === 0) {
-      score += 15; factors.push(`No insider selling — clean signal`);
+      score += 12; factors.push(`No insider selling — clean signal`);
     } else {
       const sellRatio = r.total_sell_val / Math.max(r.total_buy_val, 1);
       if (sellRatio >= 2)      { score -= 15; factors.push(`⚠ Selling outweighs buying ${sellRatio.toFixed(1)}x`); }
@@ -4295,17 +4348,58 @@ function scoreOpportunityRanker(rows) {
       else                     { score -= 3; }
     }
 
-    // ── 6. 52-week low proximity (0–15 pts) — requires price data ─
+    // ── 6. 52-week low proximity (0–12 pts) ──────────────────────
     if (r._pctFromLow != null) {
-      if (r._pctFromLow <= 5)       { score += 15; factors.push(`Near 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
-      else if (r._pctFromLow <= 15) { score += 10; factors.push(`Close to 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
-      else if (r._pctFromLow <= 30) { score += 5;  factors.push(`Moderate pullback from low`); }
-      else if (r._pctFromLow >= 80) { score -= 5;  factors.push(`Near 52-week high — buying into strength`); }
+      if (r._pctFromLow <= 5)       { score += 12; factors.push(`Near 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
+      else if (r._pctFromLow <= 15) { score += 8;  factors.push(`Close to 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
+      else if (r._pctFromLow <= 30) { score += 4;  factors.push(`Moderate pullback from low`); }
+      else if (r._pctFromLow >= 80) { score -= 5;  factors.push(`⚠ Near 52-week high`); }
     }
 
-    // ── 7. Recency bonus (0–5 pts) ───────────────────────────────
-    if (r.days_since_buy <= 3)      { score += 5; factors.push(`Bought within last 3 days`); }
-    else if (r.days_since_buy <= 7) { score += 3; factors.push(`Bought within last week`); }
+    // ── 7. Recency (0–4 pts) ─────────────────────────────────────
+    if (r.days_since_buy <= 3)      { score += 4; factors.push(`Bought within last 3 days`); }
+    else if (r.days_since_buy <= 7) { score += 2; factors.push(`Bought within last week`); }
+
+    // ── 8. Cluster Detection tool signal (+8 pts) ────────────────
+    if (clusterTickers.has(r.ticker)) {
+      score += 8; factors.push(`Active cluster detected`);
+    }
+
+    // ── 9. Capital-at-Risk signal (+4–8 pts) ─────────────────────
+    const carScore = carMap[r.ticker] || 0;
+    if (carScore >= 75)      { score += 8; factors.push(`High personal capital at risk (CAR ${carScore})`); }
+    else if (carScore >= 50) { score += 4; factors.push(`Elevated capital at risk (CAR ${carScore})`); }
+
+    // ── 10. Regime Shift signal (+8 pts bullish / −8 pts bearish) ─
+    if (regimeBullish.has(r.ticker)) {
+      score += 8; factors.push(`Bullish regime shift detected`);
+    }
+    if (regimeBearish.has(r.ticker)) {
+      score -= 8; factors.push(`⚠ Sell spike regime detected`);
+    }
+
+    // ── 11. Post-Buy Drift: historical tailwind (+4–8 pts) ───────
+    const drift = driftMap[r.ticker] || 0;
+    if (drift >= 75)      { score += 8; factors.push(`Strong historical drift (score ${drift})`); }
+    else if (drift >= 55) { score += 4; factors.push(`Moderate historical drift (score ${drift})`); }
+
+    // ── 12. Event Proximity: catalyst coming (+6–10 pts) ─────────
+    const prox = proximityMap[r.ticker];
+    if (prox) {
+      if (prox.isAbnormal)        { score += 10; factors.push(`⚠ Abnormal buy timing — ${prox.daysTo}d before event`); }
+      else if (prox.daysTo <= 14) { score += 7;  factors.push(`Buying ${prox.daysTo}d before upcoming event`); }
+      else                        { score += 4;  factors.push(`Upcoming event in ${prox.daysTo}d`); }
+    }
+
+    // ── 13. First Buy in Years: rare reactivation (+8 pts) ───────
+    if (firstBuyTickers.has(r.ticker)) {
+      score += 8; factors.push(`First buy in 3+ years — rare reactivation`);
+    }
+
+    // ── 14. Exit Warning: active red flag (−12 pts) ───────────────
+    if (exitWarningTickers.has(r.ticker)) {
+      score -= 12; factors.push(`⚠ Active exit warning signal`);
+    }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
 
@@ -4315,8 +4409,20 @@ function scoreOpportunityRanker(rows) {
     const scoreBg     = score >= 75 ? 'rgba(0,255,136,0.08)'  : score >= 55 ? 'rgba(0,212,255,0.07)'  : 'rgba(255,170,0,0.06)';
     const scoreBorder = score >= 75 ? 'rgba(0,255,136,0.3)'   : score >= 55 ? 'rgba(0,212,255,0.25)'  : 'rgba(255,170,0,0.2)';
 
+    // Cross-tool badges for card display
+    const crossToolBadges = [
+      clusterTickers.has(r.ticker)      ? ['CLUSTER',   'var(--accent)',  'rgba(0,212,255,0.1)']   : null,
+      carScore >= 50                     ? ['HIGH CAR',  'var(--option)',  'rgba(255,170,0,0.08)']  : null,
+      regimeBullish.has(r.ticker)        ? ['REGIME↑',  'var(--buy)',     'rgba(0,255,136,0.08)']  : null,
+      regimeBearish.has(r.ticker)        ? ['REGIME↓',  'var(--sell)',    'rgba(255,68,102,0.08)'] : null,
+      drift >= 55                        ? [`DRIFT ${drift}`, 'var(--buy)', 'rgba(0,255,136,0.06)'] : null,
+      prox && prox.daysTo <= 14          ? ['EVENT PROX','var(--sell)',    'rgba(255,68,102,0.08)'] : null,
+      firstBuyTickers.has(r.ticker)      ? ['1ST BUY',   'var(--accent)', 'rgba(0,212,255,0.08)']  : null,
+    ].filter(Boolean);
+
     return { ...r, score, factors, grade, scoreColor, scoreBg, scoreBorder,
-      topFactors: factors.filter(f => !f.startsWith('⚠')).slice(0, 3) };
+      topFactors: factors.filter(f => !f.startsWith('⚠')).slice(0, 3),
+      crossToolBadges };
   })
   .filter(r => r.score >= 30)
   .sort((a, b) => b.score - a.score);
@@ -4375,6 +4481,7 @@ function renderRankerCard(r, idx) {
             ${r.has_exec_buyer ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--option)">EXEC</span>` : ''}
             ${r.sell_count === 0 ? `<span style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.15);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--buy)">NO SELLS</span>` : `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--sell)">${r.seller_count} SELLING</span>`}
             ${r._pctFromLow != null && r._pctFromLow <= 15 ? `<span style="background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:var(--accent)">NEAR LOW</span>` : ''}
+            ${(r.crossToolBadges||[]).map(([lbl,c,bg]) => `<span style="background:${bg};border:1px solid ${c}44;border-radius:3px;padding:1px 7px;font-size:9px;font-family:'Space Mono',monospace;color:${c}">${lbl}</span>`).join('')}
           </div>
         </div>
       </div>
@@ -4457,7 +4564,7 @@ function renderExitWarningSubpage() {
 function detectExitWarnings(trades) {
   if (!trades || !trades.length) return [];
 
-  const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && t.value > 0 && (t.trade || t.filing));
+  const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && (t.trade || t.filing));
   const buys  = trades.filter(t => t.type === 'P');
   if (!sells.length) return [];
 
@@ -4712,7 +4819,7 @@ async function renderFirstBuySubpage() {
 
   // Controls
   const [minGap, lookback] = [
-    parseInt(document.getElementById('fbMinGap')?.value   || '1825'),
+    parseInt(document.getElementById('fbMinGap')?.value   || '1095'),
     parseInt(document.getElementById('fbLookback')?.value || '90'),
   ];
 
@@ -4929,7 +5036,7 @@ function renderClusterEngine(trades) {
 function detectAdvancedClusters(trades) {
   // Only open-market buys, sorted by transaction date
   const buys = trades
-    .filter(t => t.type === 'P' && t.value > 0 && (t.trade || t.filing))
+    .filter(t => t.type === 'P' && (t.trade || t.filing))
     .sort((a,b) => (a.trade||a.filing||'').localeCompare(b.trade||b.filing||''));
 
   // Rolling 30-day window: clusters must use transaction date, and only trades
@@ -5032,7 +5139,7 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   // Better: we check if the cluster buy price appears to be a local low vs the prior 30d
   // Since we don't have price bars here, we use SEC filing lag as proxy and note it as a signal if sells precede
   // We DO have trade dates — compute price trajectory from the cluster's own data
-  const allTickerBuys = allTicker.filter(t => t.type === 'P' && t.price > 0);
+  const allTickerBuys = allTicker.filter(t => t.type === 'P');
   const preBuys = allTickerBuys.filter(t => new Date(t.trade||t.filing) < new Date((clusterBuys[0].trade||clusterBuys[0].filing)));
   const avgClusterPrice = prices.reduce((a,b)=>a+b,0) / prices.length;
   if (preBuys.length > 0) {
