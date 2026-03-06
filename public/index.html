@@ -3683,7 +3683,7 @@ async function loadAnalysisPage(subpage) {
 
   // Kick off long-history fetch in background (needed for First Buy scanner, Drift, Regime)
   if (!_analysisDataLong) {
-    apiFetch('/api/screener?days=1095&limit=5000').then(raw => {
+    apiFetch('/api/history?days=1095&limit=5000').then(raw => {
       _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
     }).catch(() => { _analysisDataLong = _analysisData; });
   }
