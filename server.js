@@ -204,7 +204,7 @@ app.get('/api/screener', (req, res) => {
              COALESCE(MAX(source), 'sec') AS source
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
-        AND type IN ('P','S','S-')
+        AND TRIM(type) IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
         AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
@@ -221,8 +221,7 @@ app.get('/api/screener', (req, res) => {
                MAX(value) AS value, MAX(owned) AS owned,
                COALESCE(MAX(source), 'sec') AS source
         FROM trades
-        WHERE (source IS NULL OR source = 'sec')
-        AND type IN ('P','S','S-')
+        WHERE TRIM(type) IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
         AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
@@ -1087,6 +1086,19 @@ setTimeout(async () => {
 // Re-warm every 2 hours to keep cache fresh
 setInterval(() => warmPriceCache(), 2 * 60 * 60 * 1000);
 
+
+
+// ─── DEBUG ENDPOINT — shows DB stats for diagnosing data issues ───────────
+app.get('/api/debug', (req, res) => {
+  try {
+    const total = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+    const byType = db.prepare("SELECT COALESCE(type,'NULL') AS type, COUNT(*) AS n FROM trades GROUP BY type ORDER BY n DESC LIMIT 20").all();
+    const recentDates = db.prepare("SELECT MAX(trade_date) AS latest, MIN(trade_date) AS earliest FROM trades WHERE trade_date IS NOT NULL").get();
+    const recentP = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE type='P' AND trade_date >= date('now','-30 days')").get().n;
+    const recentS = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE type IN ('S','S-') AND trade_date >= date('now','-30 days')").get().n;
+    res.json({ total, byType, recentDates, recentP_30d: recentP, recentS_30d: recentS });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 
 // Sources: Capitol Trades public API + House/Senate STOCK Act disclosures via Quiver
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
