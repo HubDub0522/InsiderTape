@@ -1705,7 +1705,7 @@ function _renderDriftResults(body, backBtn, results) {
   };
 
   // Return path cells
-  const cpLabels = { 1:'D+1', 5:'D+5', 20:'D+20', 60:'D+60' };
+  const cpLabels = { 1:'D+30', 5:'D+90', 20:'D+180', 60:'D+180' };
 
   const cards = top.map((r, idx) => {
     const scoreColor  = r.score >= 75 ? 'var(--buy)' : r.score >= 55 ? 'var(--accent)' : 'var(--option)';
@@ -1713,8 +1713,8 @@ function _renderDriftResults(body, backBtn, results) {
     const scoreBg     = r.score >= 75 ? 'rgba(0,255,136,0.07)' : r.score >= 55 ? 'rgba(0,212,255,0.07)' : 'rgba(255,170,0,0.06)';
     const spark       = sparkSvg(r.avg);
 
-    const cpCells = [1, 5, 20, 60].map(cp => `
-      <div style="flex:1;text-align:center;padding:9px 4px;${cp < 60 ? 'border-right:1px solid var(--border)' : ''}">
+    const cpCells = [1, 5, 20].map((cp, i) => `
+      <div style="flex:1;text-align:center;padding:9px 4px;${i < 2 ? 'border-right:1px solid var(--border)' : ''}">
         <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:5px">${cpLabels[cp]}</div>
         <div style="font-size:13px;font-family:'Space Mono',monospace">${fmtR(r.avg[cp])}</div>
       </div>`).join('');
@@ -1770,7 +1770,7 @@ function _renderDriftResults(body, backBtn, results) {
   }).join('');
 
   // Summary stats
-  const avgD60 = results.filter(r => r.avg[60] !== null).map(r => r.avg[60]);
+  const avgD60 = results.filter(r => r.avg[5] !== null).map(r => r.avg[5]);
   const overallWin = avgD60.length ? Math.round(avgD60.filter(v => v > 0).length / avgD60.length * 100) : 0;
   const medD60 = avgD60.length ? [...avgD60].sort((a,b)=>a-b)[Math.floor(avgD60.length/2)] : 0;
 
@@ -1789,11 +1789,11 @@ function _renderDriftResults(body, backBtn, results) {
       </div>
       <div style="background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
         <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${overallWin}%</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Win rate at D+60</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Win rate at D+90</div>
       </div>
       <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
         <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)">${medD60>=0?'+':''}${medD60.toFixed(1)}%</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Median D+60 return</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Median D+90 return</div>
       </div>
       <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
         <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${results.filter(r=>r.accelerates).length}</div>
@@ -1802,8 +1802,8 @@ function _renderDriftResults(body, backBtn, results) {
     </div>
 
     <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:7px;padding:11px 15px;margin-bottom:22px;font-size:11px;color:var(--muted);line-height:1.7">
-      Ranked by <span style="color:var(--text)">composite drift score</span> — a weighted average of average returns at all four checkpoints
-      (D+1 · D+5 · D+20 · D+60, weighted 10/20/30/40) plus bonuses for <span style="color:var(--text)">win rate consistency</span> and <span style="color:var(--text)">progressive acceleration</span>.
+      Ranked by <span style="color:var(--text)">composite drift score</span> — a weighted average of returns at D+30, D+90, and D+180 days
+      after each insider buy, using prices already recorded in the DB. Bonuses for <span style="color:var(--text)">win rate consistency</span> and <span style="color:var(--text)">progressive acceleration</span>.
       Click any ticker to view its full trade history.
     </div>
 
