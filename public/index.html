@@ -1758,7 +1758,23 @@ function renderDriftSubpage() {
 
   // Already computed — show immediately
   if (_driftCache) { _renderDriftResults(body, backBtn, _driftCache); return; }
-  if (_driftRunning) return;
+  if (_driftRunning) {
+    // Computation already in progress (user navigated away and back) — show progress UI
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:6px">📈 POST-BUY DRIFT ANALYZER</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:32px">Measuring forward return paths after every insider buy event</div>
+      <div style="max-width:460px;margin:0 auto;text-align:center;padding:40px 0">
+        <div style="font-size:13px;color:var(--text);margin-bottom:14px">Computing drift data… please wait</div>
+        <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
+          <div style="height:100%;width:60%;background:var(--accent);border-radius:4px;animation:pulse 1.5s ease-in-out infinite"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">This was started in the background — results will appear shortly</div>
+      </div>
+    </div>`;
+    const poll = setInterval(() => { if (_driftCache || !_driftRunning) { clearInterval(poll); renderDriftSubpage(); } }, 800);
+    return;
+  }
   _driftRunning = true;
 
   // Show progress UI
@@ -2123,7 +2139,34 @@ function renderProximitySubpage() {
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
   if (_proximityCache) { _renderProximityResults(body, backBtn, _proximityCache); return; }
-  if (_proximityRunning) return;
+  if (_proximityRunning) {
+    // Computation already in progress — show waiting UI with poll
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:6px">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:32px">Fetching event calendars and scoring timing proximity</div>
+      <div style="max-width:460px;margin:0 auto;text-align:center;padding:40px 0">
+        <div style="font-size:13px;color:var(--text);margin-bottom:14px">Scan in progress… please wait</div>
+        <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
+          <div style="height:100%;width:60%;background:var(--sell);border-radius:4px;animation:pulse 1.5s ease-in-out infinite"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">Results will appear shortly</div>
+      </div>
+    </div>`;
+    const poll = setInterval(() => { if (_proximityCache || !_proximityRunning) { clearInterval(poll); renderProximitySubpage(); } }, 800);
+    return;
+  }
+
+  // Wait for _analysisData to be ready before starting the scan
+  if (!_analysisData) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div class="loading-state" style="height:220px"><div class="spinner"></div><span>Loading trade data…</span></div>
+    </div>`;
+    const poll = setInterval(() => { if (_analysisData) { clearInterval(poll); renderProximitySubpage(); } }, 500);
+    return;
+  }
+
   _proximityRunning = true;
 
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
@@ -3691,6 +3734,11 @@ async function loadAnalysisPage(subpage) {
     }).catch(() => { _analysisDataLong = _analysisData; });
   }
 
+  // Kick off leaderboard scores in background so tiles show counts when dashboard renders
+  if (_insiderScoreCache === null && _timingAlphaCache === null) {
+    computeLeaderboardScores();
+  }
+
   // Kick off ranker data in background — refreshes tile once ready
   if (!_rankerCache) {
     apiFetch('/api/ranker?days=30').then(async resp => {
@@ -4161,7 +4209,7 @@ function renderTimingLeadersList(ranked) {
 function renderTopScoresSubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-  if (_insiderScoreCache === null && _timingAlphaCache === null) computeLeaderboardScores();
+  if (_insiderScoreCache === null) computeLeaderboardScores();
   const loading = _insiderScoreCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
     ${backBtn}
@@ -4190,7 +4238,7 @@ function renderTopScoresSubpage() {
 function renderTimingLeadersSubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-  if (_insiderScoreCache === null && _timingAlphaCache === null) computeLeaderboardScores();
+  if (_timingAlphaCache === null) computeLeaderboardScores();
   const loading = _timingAlphaCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
     ${backBtn}
