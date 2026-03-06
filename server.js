@@ -326,17 +326,25 @@ app.get('/api/firstbuys', (req, res) => {
     //   - the newer buy is within lookbackDays
     //   - the gap between the two buys is >= minGapDays
     const rows = db.prepare(`
-      WITH buys AS (
-        SELECT ticker, company, insider, title,
-               trade_date, filing_date, price, qty, value, owned,
-               ROW_NUMBER() OVER (
-                 PARTITION BY insider, ticker
-                 ORDER BY trade_date DESC, filing_date DESC
-               ) AS rn
+      WITH deduped AS (
+        -- Deduplicate: one row per insider+ticker+trade_date (pick latest filing)
+        SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+               trade_date, MAX(filing_date) AS filing_date,
+               MAX(price) AS price, MAX(qty) AS qty,
+               MAX(value) AS value, MAX(owned) AS owned
         FROM trades
         WHERE TRIM(type) = 'P'
           AND insider IS NOT NULL
           AND ticker  IS NOT NULL
+        GROUP BY insider, ticker, trade_date
+      ),
+      buys AS (
+        SELECT *,
+               ROW_NUMBER() OVER (
+                 PARTITION BY insider, ticker
+                 ORDER BY trade_date DESC
+               ) AS rn
+        FROM deduped
       ),
       latest AS (SELECT * FROM buys WHERE rn = 1),
       prev   AS (SELECT * FROM buys WHERE rn = 2)
@@ -892,25 +900,55 @@ app.get('/api/events', async (req, res) => {
 
   const events = [];
 
-  // ── FMP: historical + upcoming earnings ────────────────────────
-  try {
-    const url = `https://financialmodelingprep.com/stable/historical/earning-calendar/${sym}?apikey=${FMP}`;
-    const { status, body } = await get(url, 15000);
-    if (status === 200) {
-      const data = JSON.parse(body.toString());
-      const arr  = Array.isArray(data) ? data : (data?.historical || []);
-      arr.forEach(e => {
-        const d = (e.date || e.reportDate || '').slice(0, 10);
-        if (!d) return;
-        events.push({
-          date: d,
-          type: 'EARNINGS',
-          label: `Earnings${e.eps !== undefined ? ` (EPS: ${e.eps ?? 'est'})` : ''}`,
-          source: 'FMP',
-        });
-      });
-    }
-  } catch(e) { /* silent */ }
+  // ── FMP: historical + upcoming earnings (try multiple URL formats) ──
+  let fmpGotData = false;
+  for (const url of [
+    `https://financialmodelingprep.com/api/v3/historical/earning_calendar/${sym}?apikey=${FMP}`,
+    `https://financialmodelingprep.com/stable/historical-earning-calendar?symbol=${sym}&apikey=${FMP}`,
+    `https://financialmodelingprep.com/api/v3/earning_calendar?symbol=${sym}&apikey=${FMP}`,
+  ]) {
+    if (fmpGotData) break;
+    try {
+      const { status, body } = await get(url, 10000);
+      if (status === 200) {
+        const data = JSON.parse(body.toString());
+        const arr  = Array.isArray(data) ? data : (data?.historical || data?.earningCalendar || []);
+        if (arr.length > 0) {
+          fmpGotData = true;
+          arr.forEach(e => {
+            const d = (e.date || e.reportDate || '').slice(0, 10);
+            if (!d) return;
+            events.push({
+              date: d,
+              type: 'EARNINGS',
+              label: `Earnings${e.eps !== undefined ? ` (EPS: ${e.eps ?? 'est'})` : ''}`,
+              source: 'FMP',
+            });
+          });
+        }
+      }
+    } catch(e) { /* try next URL */ }
+  }
+
+  // ── FMP: upcoming earnings calendar (date range) ─────────────
+  if (!fmpGotData) {
+    try {
+      const today = new Date().toISOString().slice(0,10);
+      const future = new Date(Date.now() + 90*86400000).toISOString().slice(0,10);
+      const url = `https://financialmodelingprep.com/api/v3/earning_calendar?symbol=${sym}&from=${today}&to=${future}&apikey=${FMP}`;
+      const { status, body } = await get(url, 10000);
+      if (status === 200) {
+        const arr = JSON.parse(body.toString());
+        if (Array.isArray(arr)) {
+          arr.forEach(e => {
+            const d = (e.date || '').slice(0, 10);
+            if (!d) return;
+            events.push({ date: d, type: 'EARNINGS', label: 'Upcoming Earnings', source: 'FMP' });
+          });
+        }
+      }
+    } catch(e) { /* silent */ }
+  }
 
   // ── SEC EFTS: recent 8-K filings = material events ─────────────
   // 8-K items that signal material events: 1.01 (agreements), 2.02 (results),
