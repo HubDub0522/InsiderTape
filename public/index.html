@@ -1619,29 +1619,36 @@ async function buildPostBuyDrift(longTrades, onProgress) {
     buysByTicker[t.ticker].push({ date: d, price: t.price, value: t.value || 0, insider: t.insider, title: t.title });
   });
 
-  // Sort tickers by buy count descending, cap at 150 to keep runtime reasonable
+  // Sort tickers by buy count descending, cap at 100
   const tickers = Object.keys(buysByTicker)
     .filter(tk => buysByTicker[tk].length >= 2)
     .sort((a, b) => buysByTicker[b].length - buysByTicker[a].length)
-    .slice(0, 150);
+    .slice(0, 100);
 
-  const results = [];
-  const BATCH   = 5;
-
-  for (let i = 0; i < tickers.length; i += BATCH) {
-    const slice = tickers.slice(i, i + BATCH);
-
-    // Fetch prices for this batch (skip already cached)
-    await Promise.all(slice.map(async tk => {
-      if (_driftPriceCache[tk] !== undefined) return;
+  // ── Use /api/prices-bulk to fetch up to 20 tickers per request ──
+  // This is far faster than 100 individual /api/price calls
+  const BULK = 20;
+  for (let i = 0; i < tickers.length; i += BULK) {
+    const slice = tickers.slice(i, i + BULK);
+    // Skip tickers already in cache
+    const needed = slice.filter(tk => _driftPriceCache[tk] === undefined);
+    if (needed.length) {
       try {
-        const bars = await apiFetch('/api/price?symbol=' + encodeURIComponent(tk));
-        _driftPriceCache[tk] = Array.isArray(bars) ? bars : [];
-      } catch(e) { _driftPriceCache[tk] = []; }
-    }));
+        const data = await apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(needed.join(',')));
+        needed.forEach(tk => {
+          _driftPriceCache[tk] = Array.isArray(data[tk]) ? data[tk] : [];
+        });
+      } catch(e) {
+        needed.forEach(tk => { _driftPriceCache[tk] = []; });
+      }
+    }
+    if (onProgress) onProgress(Math.min(i + BULK, tickers.length), tickers.length);
+    await new Promise(r => setTimeout(r, 0)); // yield to UI
+  }
 
-    // Compute drift for each ticker in the slice
-    slice.forEach(tk => {
+  // ── Now compute drift for all tickers using the populated price cache ──
+  const results = [];
+  tickers.forEach(tk => {
       const bars = _driftPriceCache[tk] || [];
       if (bars.length < 30) return;
 
@@ -1680,7 +1687,6 @@ async function buildPostBuyDrift(longTrades, onProgress) {
       });
 
       // ── Drift Score — all four periods combined ────────────────────
-      // Core: weighted average of all available checkpoint returns
       let weightedSum = 0, weightTotal = 0;
       [1, 5, 20, 60].forEach(cp => {
         if (avg[cp] === null) return;
@@ -1689,18 +1695,14 @@ async function buildPostBuyDrift(longTrades, onProgress) {
       });
       const weightedAvg = weightTotal > 0 ? weightedSum / weightTotal : 0;
 
-      // Scale: map weighted avg return to 0–70 base points
-      // +10% weighted avg = ~70pts, 0% = 35pts, -10% = ~0pts
       let score = Math.max(0, Math.min(70, 35 + weightedAvg * 3.5));
 
-      // Consistency bonus (up to +15): D+60 win rate
       const d60wins = returns[60].filter(r => r > 0).length;
       const winRate = Math.round(d60wins / returns[60].length * 100);
       if (winRate >= 75) score += 15;
       else if (winRate >= 60) score += 8;
       else if (winRate < 40) score -= 8;
 
-      // Acceleration bonus (up to +10): drift builds progressively
       const cps = [1, 5, 20, 60].filter(cp => avg[cp] !== null);
       const accelerates = cps.length === 4 &&
         avg[5] > avg[1] && avg[20] > avg[5] && avg[60] > avg[20];
@@ -1708,14 +1710,11 @@ async function buildPostBuyDrift(longTrades, onProgress) {
       if (accelerates)   score += 10;
       else if (partialAccel) score += 5;
 
-      // Sample size bonus (up to +5): more events = more reliable
       if (measured >= 8)      score += 5;
       else if (measured >= 5) score += 3;
       else if (measured >= 3) score += 1;
 
       score = Math.min(100, Math.max(0, Math.round(score)));
-
-      // Only include tickers with some measurable drift signal
       if (score < 10 || measured < 2) return;
 
       const company = longTrades.find(t => t.ticker === tk)?.company || tk;
@@ -1723,23 +1722,13 @@ async function buildPostBuyDrift(longTrades, onProgress) {
       const medianVal = vals.length ? vals[Math.floor(vals.length/2)] : 0;
 
       results.push({
-        ticker: tk,
-        company,
-        buyCount: measured,
-        avg,        // { 1, 5, 20, 60 } — average % return at each checkpoint
-        winRate,
-        accelerates,
-        weightedAvg,
-        score,
+        ticker: tk, company, buyCount: measured,
+        avg, winRate, accelerates, weightedAvg, score,
         medianBuyVal: medianVal,
         lastBuy: buys.sort((a,b) => b.date.localeCompare(a.date))[0].date,
         d60sample: returns[60].length,
       });
-    });
-
-    if (onProgress) onProgress(Math.min(i + BATCH, tickers.length), tickers.length);
-    await new Promise(r => setTimeout(r, 0)); // yield to UI
-  }
+  });
 
   // Sort by drift score (all-period weighted)
   return results.sort((a, b) => b.score - a.score);
