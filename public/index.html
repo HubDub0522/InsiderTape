@@ -587,6 +587,7 @@ function isGovOfficial(titleOrName) {
 }
 
 function switchView(view, btn, opts={}) {
+  window.scrollTo(0, 0);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
@@ -949,10 +950,18 @@ function buildCapitalAtRiskData(trades) {
     // Est. pre-trade position
     const ownedBefore = Math.max(0, ownedAfter - tradeQty);
 
-    // Est. net worth: known holding value (post-trade) × 3 diversification factor
-    // (insiders rarely have >33% of net worth in one stock — conservative assumption)
+    // Est. net worth: aggregate ALL known holdings for this insider across all tickers
+    // Then apply a diversification multiplier (insiders typically have 20-40% in employer stock)
     const holdingValue = ownedAfter * price;
-    const estNetWorth  = holdingValue > 0 ? holdingValue * 3 : 0;
+    // Sum all known holdings for this insider across all tickers from the full trade history
+    const insiderAllTrades = (trades || []).filter(x => x.insider === insiderName && (x.owned||0) > 0 && (x.price||0) > 0);
+    const knownHoldingsVal = insiderAllTrades.reduce((s, x) => {
+      // Use most recent owned × price per ticker
+      return s + (x.owned * x.price);
+    }, 0);
+    const totalKnownHoldings = Math.max(holdingValue, knownHoldingsVal);
+    // Insiders typically hold 20-50% of net worth in company stock → multiply by 2.5
+    const estNetWorth = totalKnownHoldings > 0 ? totalKnownHoldings * 2.5 : 0;
 
     // Market cap tier from holding size
     const mcTier   = getMarketCapTier(ownedAfter, price);
@@ -1044,7 +1053,7 @@ let _carCache = null;
 
 function renderCapitalAtRiskSubpage() {
   const body    = document.getElementById('analysisViewBody');
-  const trades  = _analysisData || [];
+  const trades  = _analysisDataLong || _analysisData || [];
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
   _carCache = buildCapitalAtRiskData(trades);
@@ -1202,7 +1211,7 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 
   const now = new Date();
   const RECENT_DAYS  = 30;
-  const BASELINE_DAYS = 180;  // 6-month baseline window (excludes most recent 30d)
+  const BASELINE_DAYS = 365;  // 1-year baseline window (excludes most recent 30d)
   const recentCutoff   = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - RECENT_DAYS);
   const baselineEnd    = new Date(recentCutoff);
   const baselineStart  = new Date(now); baselineStart.setDate(baselineStart.getDate() - BASELINE_DAYS);
@@ -1247,7 +1256,7 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 
     // ── Signal 1: SELLER FLIPS BUYER ───────────────────────────────
     // Had ≥2 sells in baseline, zero buys in baseline, now buying
-    if (baseSells.length >= 2 && baseBuys.length === 0 && recentBuys.length >= 1) {
+    if (baseSells.length >= 3 && baseBuys.length === 0 && recentBuys.length >= 1) {
       const sellVal  = baseSells.reduce((s, t) => s + (t.value || 0), 0);
       const buyVal   = recentBuys.reduce((s, t) => s + (t.value || 0), 0);
       const sellSpan = baseSells.length;
@@ -1289,7 +1298,9 @@ function buildRegimeShiftData(longTrades, recentTrades) {
       const recentVal = recent.reduce((s, t) => s + (t.value || 0), 0);
       const isBuying  = recentBuys.length > recentSells.length;
 
-      let score = 40;
+      // Require at least some buy activity for dormant — pure sells less interesting
+      if (!recentBuys.length && recentSells.length > recentBuys.length) return;
+      let score = 45;
       if (recent.length >= 3)    score += 15;
       if (recentVal >= 500000)   score += 15;
       if (recentVal >= 1000000)  score += 10;
@@ -1297,6 +1308,7 @@ function buildRegimeShiftData(longTrades, recentTrades) {
       if (recentBuys.length >= 2) score += 8;
       const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
       if (isCLevel) score += 10;
+      if (!isCLevel) score -= 10; // non-exec dormant activation is less signal
       score = Math.min(100, score);
 
       signals.push({
@@ -1328,7 +1340,7 @@ function buildRegimeShiftData(longTrades, recentTrades) {
       const baseVal    = baseSells.reduce((s,t)=>s+(t.value||0),0) / 6;
       const recentVal  = recentSells.reduce((s,t)=>s+(t.value||0),0);
 
-      if (ratio >= 2.5) {
+      if (ratio >= 3.0) {
         let score = 35;
         if (ratio >= 5)      score += 25;
         else if (ratio >= 3) score += 15;
@@ -1370,7 +1382,7 @@ function buildRegimeShiftData(longTrades, recentTrades) {
       const recentVal = recentBuys.reduce((s,t)=>s+(t.value||0),0);
       const valRatio  = recentVal / Math.max(baseVal, 1);
 
-      if (ratio >= 2.5 || valRatio >= 3) {
+      if (ratio >= 3.0 || valRatio >= 4) {
         let score = 35;
         if (ratio >= 5)       score += 20;
         else if (ratio >= 3)  score += 12;
@@ -1404,13 +1416,14 @@ function buildRegimeShiftData(longTrades, recentTrades) {
   });
 
   // Deduplicate: if same insider appears with multiple signal types, keep highest score per type
-  // but allow at most 2 signals per insider
+  // but allow at most 1 signal per insider (strictest dedup)
   const byInsiderCount = {};
   const deduped = signals
     .sort((a, b) => b.score - a.score)
     .filter(s => {
+      if (s.score < 40) return false; // require meaningful score
       const n = (byInsiderCount[s.insider] || 0);
-      if (n >= 2) return false;
+      if (n >= 1) return false;
       byInsiderCount[s.insider] = n + 1;
       return true;
     });
@@ -1597,7 +1610,7 @@ async function buildPostBuyDrift(longTrades, onProgress) {
   // Group all buy events by ticker
   const buysByTicker = {};
   (longTrades || []).forEach(t => {
-    if (t.type !== 'P' || !t.ticker || !t.price || t.price <= 0) return;
+    if (t.type !== 'P' || !t.ticker) return;
     const d = (t.trade || t.filing || '').slice(0, 10);
     if (!d || d < '2010-01-01') return;
     if (!buysByTicker[t.ticker]) buysByTicker[t.ticker] = [];
@@ -1605,7 +1618,7 @@ async function buildPostBuyDrift(longTrades, onProgress) {
   });
 
   // Need at least 2 buy events per ticker to compute meaningful averages
-  const tickers = Object.keys(buysByTicker).filter(tk => buysByTicker[tk].length >= 2);
+  const tickers = Object.keys(buysByTicker).filter(tk => buysByTicker[tk].length >= 1);
 
   const results = [];
   const BATCH   = 5;
@@ -1652,7 +1665,7 @@ async function buildPostBuyDrift(longTrades, onProgress) {
         if (gotEntry) measured++;
       });
 
-      if (measured < 2 || !returns[60].length) return;
+      if (measured < 1 || !returns[60].length) return;
 
       // Average return at each checkpoint
       const avg = {};
@@ -1957,13 +1970,9 @@ let _eventsCache       = {};   // sym → events[]
 const PROXIMITY_WINDOW = 30;  // days after buy to look for next event
 
 async function buildEventProximityData(trades, onProgress) {
-  // Collect all buys from last 90 days
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
-  const cutStr  = cutoff.toISOString().slice(0, 10);
-
+  // Candidates: all buys in the passed trades (already filtered to 30d by caller)
   const buys = (trades || []).filter(t =>
-    t.type === 'P' && t.value > 0 &&
-    (t.trade || t.filing || '') >= cutStr
+    t.type === 'P' && t.value > 0
   );
   if (!buys.length) return [];
 
@@ -2049,8 +2058,8 @@ async function buildEventProximityData(trades, onProgress) {
     else if (val >= 500000)  score += 5;
     else if (val >= 100000)  score += 2;
 
-    // Repeat pattern: did same insider buy before prior earnings?
-    const allInsiderBuys = (trades || []).filter(x =>
+    // Repeat pattern: did same insider buy before prior earnings? Use long history.
+    const allInsiderBuys = (_analysisDataLong || trades || []).filter(x =>
       x.ticker === t.ticker && x.insider === t.insider &&
       x.type === 'P' && (x.trade || x.filing) < buyDate
     );
@@ -2108,16 +2117,6 @@ function renderProximitySubpage() {
   const body    = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
-  // Need long trade history for repeat pattern detection
-  if (!_analysisDataLong) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading trade history…</span></div>
-    </div>`;
-    const poll = setInterval(() => { if (_analysisDataLong) { clearInterval(poll); renderProximitySubpage(); } }, 700);
-    return;
-  }
-
   if (_proximityCache) { _renderProximityResults(body, backBtn, _proximityCache); return; }
   if (_proximityRunning) return;
   _proximityRunning = true;
@@ -2143,8 +2142,8 @@ function renderProximitySubpage() {
     if (lbl) lbl.textContent = `Fetching event calendars… ${done} / ${total} tickers`;
   };
 
-  // Use long trades for repeat pattern detection, recent for candidate buys
-  buildEventProximityData(_analysisDataLong, onProgress).then(results => {
+  // Use recent trades (30d) for candidate buys, long trades for repeat pattern detection
+  buildEventProximityData(_analysisData || [], onProgress).then(results => {
     _proximityRunning = false;
     _proximityCache   = results;
     _renderProximityResults(body, backBtn, results);
@@ -2659,18 +2658,43 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
 
 function buildPressureChart(mainChart,trades,priceData) {
   const pc=document.getElementById('pressureContainer'); if(!pc||!trades.length)return; pc.innerHTML='';
-  const byDay={};
+
+  // Aggregate into weekly buckets (Mon–Sun) — sum buys and sells for the week
+  // Each week is represented by its Monday date; value held flat across entire week
+  const byWeek={};
   trades.forEach(t=>{
     const d=(t.trade||t.filing||'').slice(0,10); if(!d)return;
-    if(!byDay[d])byDay[d]={net:0,total:0};
+    // Find Monday of this trade's week
+    const dt=new Date(d+'T12:00:00Z');
+    const dow=dt.getUTCDay(); // 0=Sun,1=Mon..6=Sat
+    const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
+    const wk=monday.toISOString().slice(0,10);
+    if(!byWeek[wk])byWeek[wk]={net:0,total:0};
     const tc=tradeClass(t.type); const v=t.value||0;
-    if(tc==='buy'){byDay[d].net+=v;byDay[d].total+=v;}
-    if(tc==='sell'){byDay[d].net-=v;byDay[d].total+=v;}
+    if(tc==='buy'){byWeek[wk].net+=v;byWeek[wk].total+=v;}
+    if(tc==='sell'){byWeek[wk].net-=v;byWeek[wk].total+=v;}
   });
+
   const allDates=priceData.map(d=>d.time);
-  const maxTotal=Math.max(...Object.values(byDay).map(d=>d.total),1);
+  const maxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
+
+  // For each price bar date, find which week it belongs to and use that week's value
+  // This creates the "flat step" look — line stays at weekly value until next week
+  const weekKeys=Object.keys(byWeek).sort();
   const valueByDate={};
-  Object.entries(byDay).forEach(([date,d])=>{valueByDate[date]=+(d.net/maxTotal*100).toFixed(2);});
+  allDates.forEach(date=>{
+    // Find the most recent week that started on or before this date
+    let wkVal=0;
+    for(let i=weekKeys.length-1;i>=0;i--){
+      if(weekKeys[i]<=date){wkVal=+(byWeek[weekKeys[i]].net/maxTotal*100).toFixed(2);break;}
+    }
+    // Only set if that week had trades — otherwise 0
+    const dt=new Date(date+'T12:00:00Z');
+    const dow=dt.getUTCDay();
+    const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
+    const wk=monday.toISOString().slice(0,10);
+    valueByDate[date]=byWeek[wk]?+(byWeek[wk].net/maxTotal*100).toFixed(2):0;
+  });
   const pChart=LightweightCharts.createChart(pc,{
     width:pc.clientWidth||800,height:120,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
@@ -3651,9 +3675,9 @@ async function loadAnalysisPage(subpage) {
     } catch(e) { _analysisData = []; }
   }
 
-  // Kick off long-history fetch in background (needed for First Buy scanner)
+  // Kick off long-history fetch in background (needed for First Buy scanner, Drift, Regime)
   if (!_analysisDataLong) {
-    apiFetch('/api/screener?days=365&limit=2000').then(raw => {
+    apiFetch('/api/screener?days=1095&limit=5000').then(raw => {
       _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
     }).catch(() => { _analysisDataLong = _analysisData; });
   }
@@ -3698,6 +3722,7 @@ async function loadAnalysisPage(subpage) {
 }
 
 function renderAnalysisDashboard() {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
   const longTrades = _analysisDataLong || trades;
@@ -3973,6 +3998,7 @@ function renderAnalysisTile(tool) {
 }
 
 function renderAnalysisSubpage(id) {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
 
@@ -4901,8 +4927,19 @@ function renderClusterEngine(trades) {
 }
 
 function detectAdvancedClusters(trades) {
-  // Only open-market buys
-  const buys = trades.filter(t => t.type === 'P' && t.value > 0 && t.price > 0 && (t.trade || t.filing));
+  // Only open-market buys, sorted by transaction date
+  const buys = trades
+    .filter(t => t.type === 'P' && t.value > 0 && (t.trade || t.filing))
+    .sort((a,b) => (a.trade||a.filing||'').localeCompare(b.trade||b.filing||''));
+
+  // Rolling 30-day window: clusters must use transaction date, and only trades
+  // within 30 days of each other qualify (prevents old trades inflating clusters)
+  const CLUSTER_WINDOW_DAYS = 14;  // trades must be within 14 days of each other
+  const STALENESS_DAYS = 30;        // entire cluster must have a trade within last 30 days
+
+  const now = new Date();
+  const stalenessCutoff = new Date(now); stalenessCutoff.setDate(now.getDate() - STALENESS_DAYS);
+  const staleStr = stalenessCutoff.toISOString().slice(0,10);
 
   // Group by ticker
   const byTicker = {};
@@ -4911,21 +4948,28 @@ function detectAdvancedClusters(trades) {
   const results = [];
 
   Object.entries(byTicker).forEach(([ticker, allTicker]) => {
+    // Use transaction date (t.trade), fall back to filing only if no trade date
     const tickerBuys = buys.filter(t => t.ticker === ticker);
     if (tickerBuys.length < 2) return;
 
-    // Sort by date
-    const sorted = [...tickerBuys].sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
+    const sorted = [...tickerBuys].sort((a,b) => (a.trade||a.filing||'').localeCompare(b.trade||b.filing||''));
 
     // Sliding 14-day windows — find the densest cluster
     let bestCluster = null;
 
     for (let i = 0; i < sorted.length; i++) {
-      const anchor = new Date((sorted[i].trade||sorted[i].filing)+'T12:00:00Z').getTime();
+      const anchorDate = sorted[i].trade || sorted[i].filing || '';
+      if (!anchorDate) continue;
+      const anchor = new Date(anchorDate+'T12:00:00Z').getTime();
       const window14 = sorted.filter(t => {
-        const d = new Date((t.trade||t.filing)+'T12:00:00Z').getTime();
-        return d >= anchor && d <= anchor + 14 * 86400000;
+        const td = t.trade || t.filing || '';
+        if (!td) return false;
+        const d = new Date(td+'T12:00:00Z').getTime();
+        return d >= anchor && d <= anchor + CLUSTER_WINDOW_DAYS * 86400000;
       });
+      // Enforce staleness: skip cluster if most recent trade is older than 30 days
+      const mostRecentInCluster = window14.map(t => t.trade||t.filing||'').sort().pop() || '';
+      if (mostRecentInCluster < staleStr) continue;
       const uniqueInsiders = new Set(window14.map(t => t.insider)).size;
       if (uniqueInsiders < 2) continue;
 
