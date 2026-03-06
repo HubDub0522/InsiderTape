@@ -928,7 +928,6 @@ app.get('/api/stock-lists', (req, res) => {
              trade_date, type, MAX(COALESCE(value,0)) AS value, MAX(COALESCE(qty,0)) AS qty
       FROM trades
       WHERE ${filter} AND ${dateField} >= date('now','-${days} days')
-        AND (source IS NULL OR source='sec')
         AND type IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*'
