@@ -1783,8 +1783,8 @@ function renderDriftSubpage() {
   buildPostBuyDrift(_analysisDataLong, onProgress).then(results => {
     _driftRunning = false;
     _driftCache   = results;
-    // Re-score ranker now that drift data is available
-    if (_rankerCache) { const rows = _rankerCache.map(r => ({...r})); _rankerCache = null; if (rows.length) { apiFetch('/api/ranker?days=30').then(freshRows => { if (freshRows.length) { freshRows.forEach(fr => { const cached = rows.find(r => r.ticker === fr.ticker); if (cached) Object.assign(fr, { _pctFromLow: cached._pctFromLow, _last: cached._last }); }); _rankerCache = scoreOpportunityRanker(freshRows); } }); } }
+    // Re-score ranker now that drift data is available (uses cached data, no re-fetch needed)
+    if (_rankerCache) { try { _rankerCache = scoreOpportunityRanker(_rankerCache.map(r => ({...r}))); } catch(e) {} }
     _renderDriftResults(body, backBtn, results);
   }).catch(e => {
     _driftRunning = false;
@@ -3558,8 +3558,14 @@ function insiderLanding(opts={}) {
 async function loadInsiderDashboard() {
   const dash=document.getElementById('insiderDashboard'); if(!dash)return;
   try {
-    const recent=await apiFetch('/api/screener?days=30');
-    if(!recent.length){dash.innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><div>No recent data</div></div>';return;}
+    const resp=await apiFetch('/api/screener?days=30');
+    let recent = Array.isArray(resp) ? resp : (resp.trades || []);
+    // If no recent data, try a wider window
+    if(!recent.length) {
+      const wide=await apiFetch('/api/screener?days=365');
+      recent = Array.isArray(wide) ? wide : (wide.trades || []);
+    }
+    if(!recent.length){dash.innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><div>No data yet — sync may still be running</div></div>';return;}
     const buyMap={},sellMap={},countMap={};
     recent.forEach(t=>{const k=t.insider;if(!k)return;countMap[k]=(countMap[k]||0)+1;if(t.type==='P')buyMap[k]=(buyMap[k]||0)+(t.value||0);if(t.type==='S'||t.type==='S-')sellMap[k]=(sellMap[k]||0)+(t.value||0);});
     const topBuyers=Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -3684,7 +3690,9 @@ async function loadAnalysisPage(subpage) {
 
   // Kick off ranker data in background — refreshes tile once ready
   if (!_rankerCache) {
-    apiFetch('/api/ranker?days=30').then(async rows => {
+    apiFetch('/api/ranker?days=30').then(async resp => {
+      const rows = Array.isArray(resp) ? resp : [];
+      if (!rows.length) { _rankerCache = []; return; }
       // Enrich with price data (52-week low proximity) for top 40 by buy value
       const top40 = rows.slice(0, 20); // limit price fetches to avoid timeouts
       const priceResults = await Promise.allSettled(
