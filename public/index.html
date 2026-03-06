@@ -3717,11 +3717,6 @@ async function loadAnalysisPage(subpage) {
     }).catch(() => { _rankerCache = []; });
   }
 
-  // Kick off leaderboard scoring in background (accuracy + timing alpha)
-  if (!_insiderScoreCache && !_timingAlphaCache) {
-    computeLeaderboardScores();
-  }
-
   if (subpage) {
     renderAnalysisSubpage(subpage);
   } else {
@@ -3742,7 +3737,7 @@ function renderAnalysisDashboard() {
 
   // Kick off API fetch for first-buy tile data if not cached yet
   if (!_firstBuyCache) {
-    apiFetch('/api/firstbuys?mingap=1095&lookback=90&limit=50').then(rows => {
+    apiFetch('/api/firstbuys?mingap=730&lookback=90&limit=50').then(rows => {
       _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
       // Re-score ranker now that first-buy data is available
       _rankerCache = null;
@@ -4163,6 +4158,7 @@ function renderTimingLeadersList(ranked) {
 function renderTopScoresSubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+  if (_insiderScoreCache === null && _timingAlphaCache === null) computeLeaderboardScores();
   const loading = _insiderScoreCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
     ${backBtn}
@@ -4191,6 +4187,7 @@ function renderTopScoresSubpage() {
 function renderTimingLeadersSubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+  if (_insiderScoreCache === null && _timingAlphaCache === null) computeLeaderboardScores();
   const loading = _timingAlphaCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
     ${backBtn}
@@ -4827,7 +4824,7 @@ async function renderFirstBuySubpage() {
 
   // Controls
   const [minGap, lookback] = [
-    parseInt(document.getElementById('fbMinGap')?.value   || '1095'),
+    parseInt(document.getElementById('fbMinGap')?.value   || '730'),
     parseInt(document.getElementById('fbLookback')?.value || '90'),
   ];
 
