@@ -23,10 +23,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 process.on('uncaughtException',  err => console.error('UNCAUGHT:', err.message));
 process.on('unhandledRejection', err => console.error('UNHANDLED:', err?.message || err));
 
-// Per-request timeout: kill any request that takes > 25s so it returns a proper error
-// rather than hanging until the platform kills the whole dyno
+// Per-request timeout: kill any request that takes > 55s so it returns a proper error
+// rather than hanging until the platform kills the whole dyno.
+// Scoreboard needs ~10-15s for parallel price fetches; 55s gives comfortable headroom.
 app.use((req, res, next) => {
-  res.setTimeout(25000, () => {
+  const limit = req.path === '/api/scoreboard' ? 55000 : 25000;
+  res.setTimeout(limit, () => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
   });
   next();
@@ -493,20 +495,19 @@ app.get('/api/scoreboard', async (req, res) => {
 
     if (!rows.length) return res.json({ accuracy: [], timing: [] });
 
-    // Deduplicate tickers — cap to top 40 to avoid fetching hundreds of price series
+    // Deduplicate tickers — cap to 40 to stay well within the 25s server timeout.
+    // fetchPriceBars uses the warm in-memory cache so most hits are instant.
     const allTickers = [...new Set(
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )].slice(0, 80);
+    )].slice(0, 40);
 
-    // ── Fetch price data in batches of 10 to avoid hammering APIs ──
-    const priceEntries = [];
-    for (let i = 0; i < allTickers.length; i += 10) {
-      const batch = allTickers.slice(i, i + 10);
-      const results = await Promise.allSettled(batch.map(async sym => [sym, await fetchPriceBars(sym)]));
-      priceEntries.push(...results.filter(r => r.status === 'fulfilled').map(r => r.value));
-      if (i + 10 < allTickers.length) await new Promise(r => setTimeout(r, 100));
-    }
-    const priceCache   = Object.fromEntries(priceEntries.filter(([, v]) => v));
+    // Fetch all prices in parallel — warm cache makes most of these instant
+    const priceEntries = await Promise.allSettled(
+      allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
+    );
+    const priceCache = Object.fromEntries(
+      priceEntries.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
+    );
 
     // ── Score every insider ──
     const accuracyResults = [];
@@ -915,7 +916,7 @@ app.get('/api/events', async (req, res) => {
   ]) {
     if (fmpGotData) break;
     try {
-      const { status, body } = await get(url, 10000);
+      const { status, body } = await get(url, 6000); // 6s per attempt — 3 attempts = 18s max
       if (status === 200) {
         const data = JSON.parse(body.toString());
         const arr  = Array.isArray(data) ? data : (data?.historical || data?.earningCalendar || []);
@@ -942,7 +943,7 @@ app.get('/api/events', async (req, res) => {
       const today = new Date().toISOString().slice(0,10);
       const future = new Date(Date.now() + 90*86400000).toISOString().slice(0,10);
       const url = `https://financialmodelingprep.com/api/v3/earning_calendar?symbol=${sym}&from=${today}&to=${future}&apikey=${FMP}`;
-      const { status, body } = await get(url, 10000);
+      const { status, body } = await get(url, 6000);
       if (status === 200) {
         const arr = JSON.parse(body.toString());
         if (Array.isArray(arr)) {
@@ -961,7 +962,7 @@ app.get('/api/events', async (req, res) => {
   // 5.02 (officer changes), 8.01 (other material events)
   try {
     const url = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(sym)}%22&forms=8-K&dateRange=custom&startDate=${new Date(Date.now()-730*86400000).toISOString().slice(0,10)}&endDate=${new Date().toISOString().slice(0,10)}&hits.hits.total.value=1&hits.hits._source.period_of_report=1`;
-    const { status, body } = await get(url, 10000);
+    const { status, body } = await get(url, 5000); // 5s for SEC EFTS
     if (status === 200) {
       const json = JSON.parse(body.toString());
       const hits = json?.hits?.hits || [];
@@ -1150,8 +1151,57 @@ async function warmPriceCache() {
   } catch(e) { slog('Price cache warmer error: ' + e.message); }
 }
 
+// Pre-compute and cache the scoreboard after price cache is warm
+async function preComputeScoreboard() {
+  try {
+    slog('Pre-computing scoreboard...');
+    // Make an internal GET request to the scoreboard route by simulating req/res
+    const fakeReq = { query: { minbuys: '4', limit: '30' } };
+    let resolved = false;
+    await new Promise((resolve) => {
+      const fakeRes = {
+        headersSent: false,
+        json(data) {
+          _scoreboardCache = data;
+          _scoreboardCacheTime = Date.now();
+          resolved = true;
+          slog('Scoreboard pre-computed and cached');
+          resolve();
+        },
+        status() { return this; },
+        setTimeout() {}
+      };
+      // Directly invoke the scoreboard logic via the route handler
+      // by hitting our own server on localhost
+      const port = process.env.PORT || 3000;
+      const http = require('http');
+      const options = { hostname: 'localhost', port, path: '/api/scoreboard?minbuys=4&limit=30', method: 'GET', timeout: 50000 };
+      const req2 = http.request(options, res2 => {
+        let body = '';
+        res2.on('data', chunk => { body += chunk; });
+        res2.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            _scoreboardCache = data;
+            _scoreboardCacheTime = Date.now();
+            slog('Scoreboard pre-computed and cached');
+          } catch(e) { slog('Scoreboard pre-compute parse error: ' + e.message); }
+          resolve();
+        });
+      });
+      req2.on('error', (e) => { slog('Scoreboard pre-compute error: ' + e.message); resolve(); });
+      req2.on('timeout', () => { req2.destroy(); slog('Scoreboard pre-compute timeout'); resolve(); });
+      req2.end();
+    });
+  } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
+}
+
 // Warm price cache 60s after boot so first requests are fast
-setTimeout(() => warmPriceCache(), 60000);
+setTimeout(async () => {
+  await warmPriceCache();
+  // Pre-compute scoreboard immediately after price cache is warm
+  await preComputeScoreboard();
+}, 60000);
 // Re-warm every 2 hours to keep cache fresh
 setInterval(() => warmPriceCache(), 2 * 60 * 60 * 1000);
 
