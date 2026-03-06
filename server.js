@@ -204,6 +204,7 @@ app.get('/api/screener', (req, res) => {
              COALESCE(MAX(source), 'sec') AS source
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
+        AND type IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
         AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
@@ -221,6 +222,7 @@ app.get('/api/screener', (req, res) => {
                COALESCE(MAX(source), 'sec') AS source
         FROM trades
         WHERE (source IS NULL OR source = 'sec')
+        AND type IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
         AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
@@ -239,14 +241,18 @@ app.get('/api/ticker', (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
   try {
+    // Sort by transaction date, filter derivatives, deduplicate amendments
     const rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned
-      FROM trades WHERE ticker = ?
+      FROM trades
+      WHERE ticker = ?
+        AND type IN ('P','S','S-')
       GROUP BY ticker, insider, trade_date, type
-      ORDER BY trade_date DESC LIMIT 5000
+      ORDER BY trade_date DESC, filing_date DESC
+      LIMIT 5000
     `).all(sym);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -921,6 +927,7 @@ app.get('/api/stock-lists', (req, res) => {
       FROM trades
       WHERE ${filter} AND ${dateField} >= date('now','-${days} days')
         AND (source IS NULL OR source='sec')
+        AND type IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*'
         AND LENGTH(ticker) BETWEEN 1 AND 10
