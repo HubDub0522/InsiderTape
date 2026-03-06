@@ -1208,48 +1208,96 @@ async function warmPriceCache() {
   } catch(e) { slog('Price cache warmer error: ' + e.message); }
 }
 
-// Pre-compute and cache the scoreboard after price cache is warm
+// Pre-compute and cache the scoreboard after price cache is warm.
+// Runs the scoring logic directly — no localhost HTTP round-trip.
 async function preComputeScoreboard() {
+  if (_scoreboardCache) return;
   try {
     slog('Pre-computing scoreboard...');
-    // Make an internal GET request to the scoreboard route by simulating req/res
-    const fakeReq = { query: { minbuys: '4', limit: '30' } };
-    let resolved = false;
-    await new Promise((resolve) => {
-      const fakeRes = {
-        headersSent: false,
-        json(data) {
-          _scoreboardCache = data;
-          _scoreboardCacheTime = Date.now();
-          resolved = true;
-          slog('Scoreboard pre-computed and cached');
-          resolve();
-        },
-        status() { return this; },
-        setTimeout() {}
-      };
-      // Directly invoke the scoreboard logic via the route handler
-      // by hitting our own server on localhost
-      const port = process.env.PORT || 3000;
-      const http = require('http');
-      const options = { hostname: 'localhost', port, path: '/api/scoreboard?minbuys=4&limit=30', method: 'GET', timeout: 50000 };
-      const req2 = http.request(options, res2 => {
-        let body = '';
-        res2.on('data', chunk => { body += chunk; });
-        res2.on('end', () => {
-          try {
-            const data = JSON.parse(body);
-            _scoreboardCache = data;
-            _scoreboardCacheTime = Date.now();
-            slog('Scoreboard pre-computed and cached');
-          } catch(e) { slog('Scoreboard pre-compute parse error: ' + e.message); }
-          resolve();
+    const minBuys = 4, limit = 30;
+    const rows = db.prepare(`
+      SELECT insider, MAX(title) AS title, COUNT(*) AS buy_count,
+        GROUP_CONCAT(ticker || '|' || trade_date || '|' || COALESCE(price,0) || '|' || COALESCE(value,0), ';;') AS trade_data,
+        GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
+        CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
+      FROM trades
+      WHERE TRIM(type) = 'P' AND insider IS NOT NULL AND ticker IS NOT NULL
+        AND trade_date <= date('now', '-95 days')
+      GROUP BY insider HAVING buy_count >= ? AND span_days >= 90
+      ORDER BY buy_count DESC, span_days DESC LIMIT ?
+    `).all(minBuys, limit);
+    if (!rows.length) { slog('Scoreboard pre-compute: no qualifying rows'); return; }
+
+    const allTickers = [...new Set(rows.flatMap(r => (r.tickers_csv||'').split(',').filter(Boolean)))].slice(0,40);
+    const priceEntries = await Promise.allSettled(allTickers.map(async sym => [sym, await fetchPriceBars(sym)]));
+    const priceCache = Object.fromEntries(priceEntries.filter(r=>r.status==='fulfilled'&&r.value[1]).map(r=>r.value));
+
+    const accuracyResults = [], timingResults = [];
+    rows.forEach(leader => {
+      try {
+        const rawTrades = (leader.trade_data||'').split(';;').map(s => {
+          const [ticker,trade_date,priceStr,valueStr] = s.split('|');
+          return { ticker, trade: trade_date, price: parseFloat(priceStr)||0, value: parseFloat(valueStr)||0 };
+        }).filter(t => t.ticker && t.trade);
+        if (rawTrades.length < 4) return;
+        const scored = rawTrades.map(t => {
+          const bars = priceCache[t.ticker]||[]; if (!bars.length) return null;
+          const buyDate = t.trade.slice(0,10);
+          const entryBar = bars.find(b=>b.time>=buyDate);
+          const buyPrice = t.price>0 ? t.price : (entryBar?.close||0);
+          if (!buyPrice||buyPrice<=0) return null;
+          const fwd = d => { const fd=new Date(buyDate+'T12:00:00Z'); fd.setUTCDate(fd.getUTCDate()+d); const b=bars.find(x=>x.time>=fd.toISOString().slice(0,10)); return b?+((b.close-buyPrice)/buyPrice*100).toFixed(2):null; };
+          return { ticker:t.ticker, tradeDate:buyDate, buyPrice, ret30:fwd(30), ret90:fwd(90), ret180:fwd(180) };
+        }).filter(Boolean);
+        const completed = scored.filter(s=>s.ret90!==null); if (completed.length<3) return;
+        const rets90=completed.map(s=>s.ret90), avgRet90=+(rets90.reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
+        const rets30=completed.filter(s=>s.ret30!==null).map(s=>s.ret30);
+        const avgRet30=rets30.length?+(rets30.reduce((a,b)=>a+b,0)/rets30.length).toFixed(1):null;
+        const winRate=Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
+        const avgMag=+(rets90.map(Math.abs).reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
+        const sorted=[...rets90].sort((a,b)=>a-b), median=sorted[Math.floor(sorted.length/2)];
+        const consist=Math.round(Math.min(100,Math.max(0,(median/Math.max(avgMag,1)+1)*50)));
+        const accScore=Math.round(Math.min(100,Math.max(0,winRate*0.40+Math.min(35,Math.max(0,avgRet90/20*35))+consist*0.15+Math.min(10,completed.length*1.2))));
+        const tier=accScore>=75?'ELITE':accScore>=55?'STRONG':accScore>=35?'AVERAGE':'WEAK';
+        const tickers3=[...new Set(rawTrades.map(t=>t.ticker))].slice(0,3).join(', ');
+        accuracyResults.push({name:leader.insider,title:leader.title||'',accuracyScore:accScore,tier,winRate,avgRet90,avgRet30,tradeCount:completed.length,tickers:tickers3});
+
+        let nearLowCount=0,ret90sum=0,ret180sum=0,retN=0;
+        scored.forEach(s => {
+          const bars=priceCache[s.ticker]||[]; if(!bars.length||!s.buyPrice) return;
+          const yr1Start=new Date(s.tradeDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
+          const yr1Bars=bars.filter(b=>b.time>=yr1Start.toISOString().slice(0,10)&&b.time<=s.tradeDate);
+          if(yr1Bars.length<20) return;
+          const yr1Lo=Math.min(...yr1Bars.map(b=>b.low||b.close));
+          if((s.buyPrice-yr1Lo)/yr1Lo*100<=20) nearLowCount++;
+          if(s.ret90!==null){ret90sum+=s.ret90;retN++;} if(s.ret180!==null) ret180sum+=s.ret180;
         });
-      });
-      req2.on('error', (e) => { slog('Scoreboard pre-compute error: ' + e.message); resolve(); });
-      req2.on('timeout', () => { req2.destroy(); slog('Scoreboard pre-compute timeout'); resolve(); });
-      req2.end();
+        const n=scored.length, nearLowPct=n>0?Math.round(nearLowCount/n*100):0;
+        const avgFwd90=retN>0?+(ret90sum/retN).toFixed(1):null, avgFwd180=retN>0?+(ret180sum/retN).toFixed(1):null;
+        const avgPos=scored.reduce((acc,s)=>{
+          const bars=priceCache[s.ticker]||[]; if(!bars.length||!s.buyPrice) return acc;
+          const yr1Start=new Date(s.tradeDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
+          const yr1Bars=bars.filter(b=>b.time>=yr1Start.toISOString().slice(0,10)&&b.time<=s.tradeDate);
+          if(yr1Bars.length<20) return acc;
+          const yr1Lo=Math.min(...yr1Bars.map(b=>b.low||b.close)),yr1Hi=Math.max(...yr1Bars.map(b=>b.high||b.close)),rng=yr1Hi-yr1Lo;
+          return rng>0.01?{sum:acc.sum+(s.buyPrice-yr1Lo)/rng,n:acc.n+1}:acc;
+        },{sum:0,n:0});
+        const avgPosVal=avgPos.n>0?avgPos.sum/avgPos.n:0.5;
+        const timingAlpha=Math.min(100,Math.max(0,Math.round(Math.min(25,(nearLowPct/100)*50)+Math.min(25,Math.max(0,(0.7-avgPosVal)/0.4*25))+(avgFwd90!==null?Math.min(25,Math.max(0,avgFwd90/10*25)):12)+12)));
+        let verdict,verdictColor;
+        if(timingAlpha>=80&&nearLowPct>=50){verdict='Buys near bottoms';verdictColor='buy';}
+        else if(timingAlpha>=80){verdict='Elite forward returns';verdictColor='buy';}
+        else if(timingAlpha>=60){verdict='Above-average timing';verdictColor='accent';}
+        else if(timingAlpha>=40){verdict='Mixed timing signals';verdictColor='option';}
+        else{verdict='Tends to buy high';verdictColor='sell';}
+        if(timingAlpha>=35) timingResults.push({name:leader.insider,title:leader.title||'',timingAlpha,nearLowPct,nearHighSellPct:null,avgRet90:avgFwd90,avgRet180:avgFwd180,verdict,verdictColor,tradeCount:completed.length,tickers:tickers3});
+      } catch(e) { /* skip */ }
     });
+    accuracyResults.sort((a,b)=>b.accuracyScore-a.accuracyScore);
+    timingResults.sort((a,b)=>b.timingAlpha-a.timingAlpha);
+    _scoreboardCache = { accuracy:accuracyResults, timing:timingResults };
+    _scoreboardCacheTime = Date.now();
+    slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
   } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
 }
 
