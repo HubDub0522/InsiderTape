@@ -1710,8 +1710,8 @@ async function buildPostBuyDrift(longTrades, onProgress) {
 
       score = Math.min(100, Math.max(0, Math.round(score)));
 
-      // Only include tickers with positive expected drift
-      if (weightedAvg <= 0 && winRate < 50) return;
+      // Only include tickers with some measurable drift signal
+      if (score < 10 || measured < 2) return;
 
       const company = longTrades.find(t => t.ticker === tk)?.company || tk;
       const vals = buys.map(b => b.value).filter(v => v > 0).sort((a,b)=>a-b);
