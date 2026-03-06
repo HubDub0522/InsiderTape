@@ -639,7 +639,9 @@ document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 28000); // 28s timeout
+  // Scoreboard does many parallel price fetches — give it extra time
+  const ms = path.startsWith('/api/scoreboard') ? 55000 : 28000;
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
     const resp = await fetch(API_BASE + path, { ...opts, signal: controller.signal });
     if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
