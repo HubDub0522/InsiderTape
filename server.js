@@ -203,7 +203,7 @@ app.get('/api/screener', (req, res) => {
              MAX(value) AS value, MAX(owned) AS owned,
              COALESCE(MAX(source), 'sec') AS source
       FROM trades
-      WHERE filing_date >= date('now', '-' || ? || ' days')
+      WHERE trade_date >= date('now', '-' || ? || ' days')
         AND TRIM(type) IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
@@ -214,21 +214,27 @@ app.get('/api/screener', (req, res) => {
     `).all(days, limit);
 
     if (!rows.length && n > 0) {
-      rows = db.prepare(`
-        SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
-               trade_date AS trade, MAX(filing_date) AS filing,
-               TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
-               MAX(value) AS value, MAX(owned) AS owned,
-               COALESCE(MAX(source), 'sec') AS source
-        FROM trades
-        WHERE TRIM(type) IN ('P','S','S-')
-        AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
-        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
-        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
-        GROUP BY ticker, insider, trade_date, type
-        ORDER BY trade_date DESC, filing_date DESC
-        LIMIT 500
-      `).all();
+      // Smart fallback: use the most recent available window relative to MAX(trade_date)
+      // This handles the case where the daily worker hasn't inserted recent trades
+      const maxDate = db.prepare('SELECT MAX(trade_date) AS d FROM trades WHERE trade_date IS NOT NULL').get().d;
+      if (maxDate) {
+        rows = db.prepare(`
+          SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+                 trade_date AS trade, MAX(filing_date) AS filing,
+                 TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
+                 MAX(value) AS value, MAX(owned) AS owned,
+                 COALESCE(MAX(source), 'sec') AS source
+          FROM trades
+          WHERE trade_date >= date(?, '-' || ? || ' days')
+            AND TRIM(type) IN ('P','S','S-')
+            AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
+            AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+            AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
+          GROUP BY ticker, insider, trade_date, type
+          ORDER BY trade_date DESC, filing_date DESC
+          LIMIT ?
+        `).all(maxDate, days, limit);
+      }
     }
 
     res.json(rows);
@@ -240,7 +246,7 @@ app.get('/api/screener', (req, res) => {
 app.get('/api/history', (req, res) => {
   try {
     const days  = Math.min(Math.max(parseInt(req.query.days || '1095'), 1), 1825);
-    const limit = Math.min(parseInt(req.query.limit || '5000'), 8000);
+    const limit = Math.min(parseInt(req.query.limit || '10000'), 25000);
 
     const rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
@@ -406,7 +412,7 @@ app.get('/api/ranker', (req, res) => {
         MAX(CASE WHEN TRIM(type)='P' AND owned>qty AND qty>0
           THEN CAST(qty*100.0/(owned-qty) AS INTEGER) ELSE 0 END)       AS max_stake_pct
       FROM trades
-      WHERE filing_date >= date('now', '-' || ? || ' days')
+      WHERE trade_date >= date('now', '-' || ? || ' days')
       GROUP BY ticker
       HAVING buy_count > 0
       ORDER BY total_buy_val DESC
@@ -490,7 +496,7 @@ app.get('/api/scoreboard', async (req, res) => {
     // Deduplicate tickers — cap to top 40 to avoid fetching hundreds of price series
     const allTickers = [...new Set(
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )].slice(0, 40);
+    )].slice(0, 80);
 
     // ── Fetch price data in batches of 10 to avoid hammering APIs ──
     const priceEntries = [];
@@ -513,7 +519,7 @@ app.get('/api/scoreboard', async (req, res) => {
           const price = parseFloat(priceStr) || 0;
           const value = parseFloat(valueStr) || 0;
           return { ticker, trade: trade_date, price, value };
-        }).filter(t => t.ticker && t.trade && (t.price > 0 || t.value > 0));
+        }).filter(t => t.ticker && t.trade);
 
         if (rawTrades.length < 4) return;
 
@@ -995,7 +1001,7 @@ app.get('/api/stock-lists', (req, res) => {
   try {
     // All queries use a dedup subquery to prevent double-counting trades that appear
     // in both the quarterly bulk sync and the daily worker (different accession formats)
-    const DEDUP = (filter, days, dateField='filing_date') => `
+    const DEDUP = (filter, days, dateField='trade_date') => `
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date, type, MAX(COALESCE(value,0)) AS value, MAX(COALESCE(qty,0)) AS qty
       FROM trades
@@ -1144,16 +1150,8 @@ async function warmPriceCache() {
   } catch(e) { slog('Price cache warmer error: ' + e.message); }
 }
 
-// Start warming 60s after boot — 60s after boot
-setTimeout(async () => {
-  await warmPriceCache();
-  // Pre-compute scoreboard while cache is hot
-  try {
-    slog('Pre-computing scoreboard...');
-    const r = await fetch(`http://localhost:${PORT}/api/scoreboard?minbuys=4&limit=30`);
-    if (r.ok) slog('Scoreboard pre-computed and cached');
-  } catch(e) {}
-}, 60000);
+// Warm price cache 60s after boot so first requests are fast
+setTimeout(() => warmPriceCache(), 60000);
 // Re-warm every 2 hours to keep cache fresh
 setInterval(() => warmPriceCache(), 2 * 60 * 60 * 1000);
 
