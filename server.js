@@ -235,6 +235,34 @@ app.get('/api/screener', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// HISTORY — like screener but uses trade_date (not filing_date) for the window
+// Used by analysis tools that need historical data: drift, regime shift, first-buy
+app.get('/api/history', (req, res) => {
+  try {
+    const days  = Math.min(Math.max(parseInt(req.query.days || '1095'), 1), 1825);
+    const limit = Math.min(parseInt(req.query.limit || '5000'), 8000);
+
+    const rows = db.prepare(`
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date AS trade, MAX(filing_date) AS filing,
+             TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
+             MAX(value) AS value, MAX(owned) AS owned
+      FROM trades
+      WHERE trade_date >= date('now', '-' || ? || ' days')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
+        AND insider IS NOT NULL
+      GROUP BY ticker, insider, trade_date, type
+      ORDER BY trade_date DESC
+      LIMIT ?
+    `).all(days, limit);
+
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // TICKER
 app.get('/api/ticker', (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
@@ -306,7 +334,7 @@ app.get('/api/firstbuys', (req, res) => {
                  ORDER BY trade_date DESC, filing_date DESC
                ) AS rn
         FROM trades
-        WHERE type = 'P'
+        WHERE TRIM(type) = 'P'
           AND insider IS NOT NULL
           AND ticker  IS NOT NULL
       ),
@@ -351,23 +379,23 @@ app.get('/api/ranker', (req, res) => {
       SELECT
         ticker,
         MAX(company) AS company,
-        COUNT(CASE WHEN type='P' THEN 1 END)                            AS buy_count,
-        COUNT(DISTINCT CASE WHEN type='P' THEN insider END)             AS buyer_count,
-        SUM(CASE WHEN type='P' THEN COALESCE(value,0) ELSE 0 END)       AS total_buy_val,
-        MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)           AS latest_buy_date,
-        COUNT(CASE WHEN type IN ('S','S-') THEN 1 END)                  AS sell_count,
-        COUNT(DISTINCT CASE WHEN type IN ('S','S-') THEN insider END)   AS seller_count,
-        SUM(CASE WHEN type IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
-        MAX(CASE WHEN type IN ('S','S-') THEN trade_date ELSE NULL END) AS latest_sell_date,
-        MAX(CASE WHEN type='P' AND (
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                            AS buy_count,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END)             AS buyer_count,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)       AS total_buy_val,
+        MAX(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END)           AS latest_buy_date,
+        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END)                  AS sell_count,
+        COUNT(DISTINCT CASE WHEN TRIM(type) IN ('S','S-') THEN insider END)   AS seller_count,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
+        MAX(CASE WHEN TRIM(type) IN ('S','S-') THEN trade_date ELSE NULL END) AS latest_sell_date,
+        MAX(CASE WHEN TRIM(type)='P' AND (
           UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR
           UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%' OR
           UPPER(title) LIKE '%FOUNDER%' OR UPPER(title) LIKE '%COO%'
         ) THEN 1 ELSE 0 END)                                            AS has_exec_buyer,
         CAST(julianday('now') - julianday(
-          MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)
+          MAX(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END)
         ) AS INTEGER)                                                    AS days_since_buy,
-        MAX(CASE WHEN type='P' AND owned>qty AND qty>0
+        MAX(CASE WHEN TRIM(type)='P' AND owned>qty AND qty>0
           THEN CAST(qty*100.0/(owned-qty) AS INTEGER) ELSE 0 END)       AS max_stake_pct
       FROM trades
       WHERE filing_date >= date('now', '-' || ? || ' days')
@@ -391,15 +419,15 @@ app.get('/api/leaderboard', (req, res) => {
       SELECT
         insider,
         MAX(title)                                                          AS title,
-        COUNT(CASE WHEN type='P' THEN 1 END)                               AS buy_count,
-        COUNT(DISTINCT CASE WHEN type='P' THEN ticker END)                 AS ticker_count,
-        SUM(CASE WHEN type='P' THEN COALESCE(value,0) ELSE 0 END)          AS total_buy_val,
-        MAX(CASE WHEN type='P' THEN trade_date ELSE NULL END)               AS latest_buy,
-        MIN(CASE WHEN type='P' THEN trade_date ELSE NULL END)               AS earliest_buy,
-        GROUP_CONCAT(DISTINCT CASE WHEN type='P' THEN ticker END)          AS tickers_csv
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                               AS buy_count,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN ticker END)                 AS ticker_count,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)          AS total_buy_val,
+        MAX(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END)               AS latest_buy,
+        MIN(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END)               AS earliest_buy,
+        GROUP_CONCAT(DISTINCT CASE WHEN TRIM(type)='P' THEN ticker END)          AS tickers_csv
       FROM trades
       WHERE insider IS NOT NULL
-        AND type = 'P'
+        AND TRIM(type) = 'P'
       GROUP BY insider
       HAVING buy_count >= 3
       ORDER BY buy_count DESC, total_buy_val DESC
@@ -439,7 +467,7 @@ app.get('/api/scoreboard', async (req, res) => {
         GROUP_CONCAT(DISTINCT ticker)                                         AS tickers_csv,
         CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
       FROM trades
-      WHERE type = 'P'
+      WHERE TRIM(type) = 'P'
         AND insider IS NOT NULL
         AND ticker  IS NOT NULL
         AND trade_date <= date('now', '-95 days')
@@ -928,7 +956,7 @@ app.get('/api/stock-lists', (req, res) => {
              trade_date, type, MAX(COALESCE(value,0)) AS value, MAX(COALESCE(qty,0)) AS qty
       FROM trades
       WHERE ${filter} AND ${dateField} >= date('now','-${days} days')
-        AND type IN ('P','S','S-')
+        AND TRIM(type) IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*'
         AND LENGTH(ticker) BETWEEN 1 AND 10
@@ -938,11 +966,11 @@ app.get('/api/stock-lists', (req, res) => {
 
     const hotBuys = db.prepare(`
       SELECT ticker, MAX(company) AS company,
-        COUNT(CASE WHEN type='P' THEN 1 END) AS buys,
-        COUNT(DISTINCT CASE WHEN type='P' THEN insider END) AS buyers,
-        SUM(CASE WHEN type='P' THEN value ELSE 0 END) AS buy_val,
-        MAX(CASE WHEN type='P' THEN trade_date END) AS latest,
-        MAX(CASE WHEN type='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%'
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,
+        SUM(CASE WHEN TRIM(type)='P' THEN value ELSE 0 END) AS buy_val,
+        MAX(CASE WHEN TRIM(type)='P' THEN trade_date END) AS latest,
+        MAX(CASE WHEN TRIM(type)='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%'
           OR UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%') THEN 1 ELSE 0 END) AS exec_buy
       FROM (${DEDUP("type='P'", 30)})
       GROUP BY ticker HAVING buys > 0
@@ -989,8 +1017,8 @@ app.get('/api/stock-lists', (req, res) => {
       SELECT ticker, MAX(company) AS company,
         COUNT(*) AS total_trades,
         COUNT(DISTINCT insider) AS insiders,
-        SUM(CASE WHEN type='P' THEN 1 ELSE 0 END) AS buys,
-        SUM(CASE WHEN type IN ('S','S-') THEN 1 ELSE 0 END) AS sells,
+        SUM(CASE WHEN TRIM(type)='P' THEN 1 ELSE 0 END) AS buys,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 ELSE 0 END) AS sells,
         MAX(trade_date) AS latest
       FROM (${DEDUP("1=1", 7)})
       GROUP BY ticker
@@ -1056,7 +1084,7 @@ async function warmPriceCache() {
   try {
     const tickers = db.prepare(`
       SELECT DISTINCT ticker FROM trades
-      WHERE type='P' AND price>0 AND ticker IS NOT NULL
+      WHERE TRIM(type)='P' AND price>0 AND ticker IS NOT NULL
         AND trade_date >= date('now','-3 years')
       ORDER BY trade_date DESC
     `).all().map(r => r.ticker).slice(0, 120); // top 120 most recently active
@@ -1093,8 +1121,8 @@ app.get('/api/debug', (req, res) => {
     const total = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     const byType = db.prepare("SELECT COALESCE(type,'NULL') AS type, COUNT(*) AS n FROM trades GROUP BY type ORDER BY n DESC LIMIT 20").all();
     const recentDates = db.prepare("SELECT MAX(trade_date) AS latest, MIN(trade_date) AS earliest FROM trades WHERE trade_date IS NOT NULL").get();
-    const recentP = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE type='P' AND trade_date >= date('now','-30 days')").get().n;
-    const recentS = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE type IN ('S','S-') AND trade_date >= date('now','-30 days')").get().n;
+    const recentP = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date >= date('now','-30 days')").get().n;
+    const recentS = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type) IN ('S','S-') AND trade_date >= date('now','-30 days')").get().n;
     res.json({ total, byType, recentDates, recentP_30d: recentP, recentS_30d: recentS });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
