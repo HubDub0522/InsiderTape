@@ -673,10 +673,29 @@ async function _doFetch(sym) {
     return (bars || []).filter(d => d.close > 0 && d.time && /^\d{4}-\d{2}-\d{2}$/.test(d.time));
   }
 
-  // ── Source 1: FMP (best coverage, fast) ──────────────────────
+  // ── Source 1: Stooq (reliable, no auth, global coverage) ─────
   try {
     const { status, body } = await get(
-      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`, 12000
+      `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d`, 8000
+    );
+    if (status === 200) {
+      const text = body.toString();
+      const lines = text.trim().split('\n');
+      // CSV: Date,Open,High,Low,Close,Volume
+      if (lines.length > 2 && lines[0].toLowerCase().includes('date')) {
+        const bars = norm(lines.slice(1).map(line => {
+          const [date, open, high, low, close, volume] = line.split(',');
+          return { time: (date||'').trim(), open: +(+open).toFixed(2), high: +(+high).toFixed(2), low: +(+low).toFixed(2), close: +(+close).toFixed(2), volume: +(volume||0) };
+        }).filter(b => b.time && b.close > 0));
+        if (bars.length >= 5) { setPC(sym, bars, 60*60*1000); return bars; }
+      }
+    }
+  } catch(e) { /* try next */ }
+
+  // ── Source 2: FMP ─────────────────────────────────────────────
+  try {
+    const { status, body } = await get(
+      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`, 8000
     );
     if (status === 200) {
       const data = JSON.parse(body.toString());
@@ -691,11 +710,11 @@ async function _doFetch(sym) {
     }
   } catch(e) { slog(`FMP ${sym}: ${e.message}`); }
 
-  // ── Source 2: Yahoo Finance query1 ───────────────────────────
+  // ── Source 3: Yahoo Finance query1 ───────────────────────────
   try {
     const now = Math.floor(Date.now()/1000), from = now - 6*365*86400;
     const { status, body } = await get(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d&events=history`, 12000
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d&events=history`, 8000
     );
     if (status === 200) {
       const json = JSON.parse(body.toString()), r = json?.chart?.result?.[0];
@@ -712,11 +731,11 @@ async function _doFetch(sym) {
     }
   } catch(e) { slog(`Yahoo q1 ${sym}: ${e.message}`); }
 
-  // ── Source 3: Yahoo Finance query2 (different CDN) ───────────
+  // ── Source 4: Yahoo Finance query2 (different CDN) ───────────
   try {
     const now = Math.floor(Date.now()/1000), from = now - 6*365*86400;
     const { status, body } = await get(
-      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d`, 12000
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d`, 8000
     );
     if (status === 200) {
       const json = JSON.parse(body.toString()), r = json?.chart?.result?.[0];
@@ -766,6 +785,271 @@ app.get('/api/prices-bulk', async (req, res) => {
     if (bars) result[s] = bars;
   });
   res.json(result);
+});
+
+// POST-BUY DRIFT — computed fully server-side from DB trade prices.
+// Uses insider buy prices stored in the DB (no external price API needed).
+// For each ticker: groups all historical buys, uses DB price as entry price,
+// fetches forward prices via warm cache only (no blocking fetches), scores drift.
+let _driftServerCache = null;
+let _driftServerCacheTime = 0;
+const DRIFT_TTL = 30 * 60 * 1000; // 30 minutes
+
+app.get('/api/drift', async (req, res) => {
+  if (_driftServerCache && Date.now() - _driftServerCacheTime < DRIFT_TTL) {
+    return res.json(_driftServerCache);
+  }
+  try {
+    // Pull all historical buys with a price from the DB (last 3 years)
+    const rows = db.prepare(`
+      SELECT ticker, MAX(company) AS company, trade_date, COALESCE(AVG(price),0) AS avg_price,
+             SUM(COALESCE(value,0)) AS total_value, COUNT(*) AS n
+      FROM trades
+      WHERE TRIM(type) = 'P'
+        AND price > 0
+        AND ticker IS NOT NULL
+        AND trade_date >= date('now', '-1095 days')
+        AND trade_date <= date('now', '-61 days')
+      GROUP BY ticker, trade_date
+      ORDER BY ticker, trade_date
+    `).all();
+
+    if (!rows.length) return res.json([]);
+
+    // Group by ticker, keep tickers with 2+ buys
+    const byTicker = {};
+    rows.forEach(r => {
+      if (!byTicker[r.ticker]) byTicker[r.ticker] = { company: r.company, buys: [] };
+      byTicker[r.ticker].buys.push({ date: r.trade_date, price: r.avg_price, value: r.total_value });
+    });
+
+    // Sort by buy frequency, cap at 80 tickers
+    const tickers = Object.keys(byTicker)
+      .filter(tk => byTicker[tk].buys.length >= 2)
+      .sort((a, b) => byTicker[b].buys.length - byTicker[a].buys.length)
+      .slice(0, 80);
+
+    // Use only warm-cached prices — no blocking fetches
+    const OFFSETS = { 1: 2, 5: 8, 20: 29, 60: 87 };
+    const WEIGHTS = { 1: 0.10, 5: 0.20, 20: 0.30, 60: 0.40 };
+
+    const results = [];
+    for (const tk of tickers) {
+      const bars = getPC(tk);
+      if (!bars || bars.length < 30) continue;
+
+      const { company, buys } = byTicker[tk];
+      const returns = { 1: [], 5: [], 20: [], 60: [] };
+      let measured = 0;
+
+      buys.forEach(buy => {
+        const entryBar = bars.find(b => b.time >= buy.date);
+        const entryPrice = buy.price > 0 ? buy.price : entryBar?.close;
+        if (!entryPrice || entryPrice <= 0) return;
+        let gotAny = false;
+        [1, 5, 20, 60].forEach(cp => {
+          const fwdDt = new Date(buy.date + 'T12:00:00Z');
+          fwdDt.setUTCDate(fwdDt.getUTCDate() + OFFSETS[cp]);
+          const fwdBar = bars.find(b => b.time >= fwdDt.toISOString().slice(0, 10));
+          if (fwdBar && fwdBar.close > 0) {
+            returns[cp].push((fwdBar.close - entryPrice) / entryPrice * 100);
+            gotAny = true;
+          }
+        });
+        if (gotAny) measured++;
+      });
+
+      if (measured < 2 || !returns[60].length) continue;
+
+      const avg = {};
+      [1, 5, 20, 60].forEach(cp => {
+        avg[cp] = returns[cp].length ? returns[cp].reduce((s, v) => s + v, 0) / returns[cp].length : null;
+      });
+
+      let wSum = 0, wTot = 0;
+      [1, 5, 20, 60].forEach(cp => { if (avg[cp] !== null) { wSum += avg[cp] * WEIGHTS[cp]; wTot += WEIGHTS[cp]; } });
+      const wAvg = wTot > 0 ? wSum / wTot : 0;
+
+      let score = Math.max(0, Math.min(70, 35 + wAvg * 3.5));
+      const d60wins = returns[60].filter(r => r > 0).length;
+      const winRate = Math.round(d60wins / returns[60].length * 100);
+      if (winRate >= 75) score += 15; else if (winRate >= 60) score += 8; else if (winRate < 40) score -= 8;
+      const cps = [1, 5, 20, 60].filter(cp => avg[cp] !== null);
+      const accelerates = cps.length === 4 && avg[5] > avg[1] && avg[20] > avg[5] && avg[60] > avg[20];
+      const partialAccel = cps.length >= 3 && avg[60] > avg[20] && avg[20] > 0;
+      if (accelerates) score += 10; else if (partialAccel) score += 5;
+      if (measured >= 8) score += 5; else if (measured >= 5) score += 3; else if (measured >= 3) score += 1;
+      score = Math.min(100, Math.max(0, Math.round(score)));
+      if (score < 10) continue;
+
+      const vals = buys.map(b => b.value).filter(v => v > 0).sort((a, b) => a - b);
+      results.push({
+        ticker: tk, company, buyCount: measured, avg, winRate, accelerates,
+        weightedAvg: +wAvg.toFixed(2), score,
+        medianBuyVal: vals.length ? vals[Math.floor(vals.length / 2)] : 0,
+        lastBuy: buys.sort((a, b) => b.date.localeCompare(a.date))[0].date,
+        d60sample: returns[60].length,
+      });
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    _driftServerCache = results;
+    _driftServerCacheTime = Date.now();
+    res.json(results);
+  } catch(e) {
+    slog('drift error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// EVENT PROXIMITY — computed fully server-side.
+// Uses DB-predicted earnings dates (no external API needed) and recent buys.
+let _proximityServerCache = null;
+let _proximityServerCacheTime = 0;
+const PROXIMITY_TTL = 30 * 60 * 1000;
+const PROXIMITY_WINDOW = 45; // days after buy
+
+app.get('/api/proximity', async (req, res) => {
+  if (_proximityServerCache && Date.now() - _proximityServerCacheTime < PROXIMITY_TTL) {
+    return res.json(_proximityServerCache);
+  }
+  try {
+    // Candidate buys: last 30 days
+    const buys = db.prepare(`
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date, COALESCE(AVG(price),0) AS price, SUM(COALESCE(value,0)) AS value,
+             MAX(filing_date) AS filing_date
+      FROM trades
+      WHERE TRIM(type) = 'P'
+        AND ticker IS NOT NULL
+        AND insider IS NOT NULL
+        AND trade_date >= date('now', '-30 days')
+      GROUP BY ticker, insider, trade_date
+      ORDER BY trade_date DESC
+    `).all();
+
+    if (!buys.length) return res.json([]);
+
+    // For each unique ticker, compute predicted next earnings dates using historical
+    // trade patterns from the DB (quarterly cadence ~91 days)
+    const tickers = [...new Set(buys.map(b => b.ticker))];
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Get historical buy cadence per ticker to predict earnings windows
+    const tickerHistory = {};
+    tickers.forEach(tk => {
+      const hist = db.prepare(`
+        SELECT trade_date FROM trades
+        WHERE ticker = ? AND TRIM(type) = 'P' AND trade_date < date('now', '-30 days')
+        ORDER BY trade_date DESC LIMIT 8
+      `).all(tk);
+      tickerHistory[tk] = hist.map(r => r.trade_date);
+    });
+
+    const results = [];
+
+    buys.forEach(buy => {
+      const buyDate = buy.trade_date;
+      if (!buyDate) return;
+
+      // Build predicted upcoming earnings for this ticker
+      const hist = tickerHistory[buy.ticker] || [];
+      const predicted = [];
+
+      // Strategy 1: extrapolate from most recent historical buy clusters (quarterly ~91 days)
+      if (hist.length >= 2) {
+        // Find average gap between buy clusters — proxy for earnings cycle
+        const gaps = [];
+        for (let i = 0; i < Math.min(hist.length - 1, 4); i++) {
+          const d1 = new Date(hist[i] + 'T00:00:00Z');
+          const d2 = new Date(hist[i+1] + 'T00:00:00Z');
+          const gap = Math.abs((d1 - d2) / 86400000);
+          if (gap >= 30 && gap <= 150) gaps.push(gap);
+        }
+        const avgGap = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 91;
+        const mostRecent = new Date(hist[0] + 'T00:00:00Z');
+        // Project next 4 quarters forward from most recent
+        for (let q = 1; q <= 4; q++) {
+          const nextDt = new Date(mostRecent);
+          nextDt.setUTCDate(nextDt.getUTCDate() + Math.round(avgGap * q));
+          const nextStr = nextDt.toISOString().slice(0, 10);
+          if (nextStr > buyDate && nextStr <= new Date(Date.now() + 180*86400000).toISOString().slice(0,10)) {
+            predicted.push({ date: nextStr, type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
+          }
+        }
+      } else {
+        // Fallback: project quarterly from the buy date itself
+        for (let q = 1; q <= 4; q++) {
+          const nextDt = new Date(buyDate + 'T00:00:00Z');
+          nextDt.setUTCDate(nextDt.getUTCDate() + q * 91);
+          predicted.push({ date: nextDt.toISOString().slice(0, 10), type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
+        }
+      }
+
+      // Also add events from warm EVENT_CACHE if available
+      const cachedEvts = EVENT_CACHE.get(buy.ticker);
+      if (cachedEvts) {
+        const future = cachedEvts.data.filter(e => e.date > buyDate);
+        predicted.push(...future);
+      }
+
+      // Deduplicate and sort
+      const seen = new Set();
+      const upcoming = predicted.filter(e => {
+        if (seen.has(e.date)) return false;
+        seen.add(e.date); return true;
+      }).sort((a, b) => a.date.localeCompare(b.date));
+
+      if (!upcoming.length) return;
+
+      // Window: events within PROXIMITY_WINDOW days of buy
+      const windowEnd = new Date(buyDate + 'T00:00:00Z');
+      windowEnd.setUTCDate(windowEnd.getUTCDate() + PROXIMITY_WINDOW);
+      const windowEndStr = windowEnd.toISOString().slice(0, 10);
+      const inWindow = upcoming.filter(e => e.date > buyDate && e.date <= windowEndStr);
+      if (!inWindow.length) return;
+
+      const nextEvent = inWindow[0];
+      const buyDt = new Date(buyDate + 'T00:00:00Z');
+      const evtDt = new Date(nextEvent.date + 'T00:00:00Z');
+      const daysTo = Math.max(0, Math.round((evtDt - buyDt) / 86400000));
+
+      // Score: closer = higher urgency
+      let score = Math.round(Math.max(0, (1 - daysTo / PROXIMITY_WINDOW)) * 60);
+      const buyValue = buy.value || 0;
+      if (buyValue > 1000000) score += 20;
+      else if (buyValue > 500000) score += 12;
+      else if (buyValue > 100000) score += 6;
+      if (hist.length >= 4) score += 10; // active insider
+      score = Math.min(100, score);
+
+      const proximityColor = daysTo <= 7 ? 'var(--sell)' : daysTo <= 14 ? 'var(--option)' : daysTo <= 21 ? 'var(--accent)' : 'var(--muted)';
+      const isAbnormal = score >= 55 || daysTo <= 10;
+
+      results.push({
+        ticker: buy.ticker, company: buy.company || buy.ticker,
+        insider: buy.insider, title: buy.title || '',
+        buyDate, buyValue, daysTo, score, isAbnormal, proximityColor,
+        nextEvent, allUpcoming: inWindow,
+      });
+    });
+
+    // Deduplicate by ticker+insider, keep highest score
+    const deduped = Object.values(
+      results.reduce((acc, r) => {
+        const k = `${r.ticker}::${r.insider}`;
+        if (!acc[k] || r.score > acc[k].score) acc[k] = r;
+        return acc;
+      }, {})
+    ).sort((a, b) => b.score - a.score);
+
+    _proximityServerCache = deduped;
+    _proximityServerCacheTime = Date.now();
+    res.json(deduped);
+  } catch(e) {
+    slog('proximity error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 
