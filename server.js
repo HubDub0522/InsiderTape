@@ -746,6 +746,28 @@ app.get('/api/price', async (req, res) => {
   res.status(404).json({ error: `No price data for ${sym}` });
 });
 
+// PRICES-BULK — returns price bars for multiple tickers in one request.
+// Serves from warm in-memory cache; fetches cold misses in parallel (capped at 20 tickers).
+// Used by Post-Buy Drift Analyzer to avoid 150 individual round-trips.
+app.get('/api/prices-bulk', async (req, res) => {
+  const raw = (req.query.symbols || '').toUpperCase().trim();
+  if (!raw) return res.status(400).json({ error: 'symbols required' });
+  const syms = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 20);
+
+  // Serve anything already in the warm cache immediately; fetch cold misses in parallel
+  const coldMisses = syms.filter(s => !getPC(s));
+  if (coldMisses.length) {
+    await Promise.allSettled(coldMisses.map(s => fetchPriceBars(s)));
+  }
+
+  const result = {};
+  syms.forEach(s => {
+    const bars = getPC(s);
+    if (bars) result[s] = bars;
+  });
+  res.json(result);
+});
+
 
 
 // STATUS
@@ -906,8 +928,9 @@ app.get('/api/events', async (req, res) => {
   if (cached && Date.now() < cached.expires) return res.json(cached.data);
 
   const events = [];
+  const today  = new Date().toISOString().slice(0, 10);
 
-  // ── FMP: historical + upcoming earnings (try multiple URL formats) ──
+  // ── Source 1: FMP historical + upcoming earnings ──────────────
   let fmpGotData = false;
   for (const url of [
     `https://financialmodelingprep.com/api/v3/historical/earning_calendar/${sym}?apikey=${FMP}`,
@@ -916,7 +939,7 @@ app.get('/api/events', async (req, res) => {
   ]) {
     if (fmpGotData) break;
     try {
-      const { status, body } = await get(url, 6000); // 6s per attempt — 3 attempts = 18s max
+      const { status, body } = await get(url, 6000);
       if (status === 200) {
         const data = JSON.parse(body.toString());
         const arr  = Array.isArray(data) ? data : (data?.historical || data?.earningCalendar || []);
@@ -925,22 +948,16 @@ app.get('/api/events', async (req, res) => {
           arr.forEach(e => {
             const d = (e.date || e.reportDate || '').slice(0, 10);
             if (!d) return;
-            events.push({
-              date: d,
-              type: 'EARNINGS',
-              label: `Earnings${e.eps !== undefined ? ` (EPS: ${e.eps ?? 'est'})` : ''}`,
-              source: 'FMP',
-            });
+            events.push({ date: d, type: 'EARNINGS', label: `Earnings${e.eps !== undefined ? ` (EPS: ${e.eps ?? 'est'})` : ''}`, source: 'FMP' });
           });
         }
       }
-    } catch(e) { /* try next URL */ }
+    } catch(e) { /* try next */ }
   }
 
-  // ── FMP: upcoming earnings calendar (date range) ─────────────
+  // ── Source 2: FMP upcoming date-range calendar ────────────────
   if (!fmpGotData) {
     try {
-      const today = new Date().toISOString().slice(0,10);
       const future = new Date(Date.now() + 90*86400000).toISOString().slice(0,10);
       const url = `https://financialmodelingprep.com/api/v3/earning_calendar?symbol=${sym}&from=${today}&to=${future}&apikey=${FMP}`;
       const { status, body } = await get(url, 6000);
@@ -949,20 +966,64 @@ app.get('/api/events', async (req, res) => {
         if (Array.isArray(arr)) {
           arr.forEach(e => {
             const d = (e.date || '').slice(0, 10);
-            if (!d) return;
-            events.push({ date: d, type: 'EARNINGS', label: 'Upcoming Earnings', source: 'FMP' });
+            if (d) events.push({ date: d, type: 'EARNINGS', label: 'Upcoming Earnings', source: 'FMP' });
           });
+          if (arr.length) fmpGotData = true;
         }
       }
     } catch(e) { /* silent */ }
   }
 
-  // ── SEC EFTS: recent 8-K filings = material events ─────────────
-  // 8-K items that signal material events: 1.01 (agreements), 2.02 (results),
-  // 5.02 (officer changes), 8.01 (other material events)
+  // ── Source 3: Nasdaq free earnings calendar (no key required) ──
+  if (!fmpGotData) {
+    try {
+      const url = `https://api.nasdaq.com/api/calendar/earnings?date=${today}&symbol=${sym}`;
+      const { status, body } = await get(url, 6000);
+      if (status === 200) {
+        const json = JSON.parse(body.toString());
+        const rows = json?.data?.rows || [];
+        rows.forEach(r => {
+          const d = (r.priceEarningsDate || r.reportDate || r.date || '').slice(0, 10);
+          if (d) events.push({ date: d, type: 'EARNINGS', label: 'Upcoming Earnings', source: 'NASDAQ' });
+        });
+        if (rows.length) fmpGotData = true;
+      }
+    } catch(e) { /* silent */ }
+  }
+
+  // ── Source 4: DB-based earnings prediction from historical filing patterns ──
+  // If no external earnings data found, predict next earnings from insider filing history.
+  // Public companies typically report earnings quarterly every ~91 days.
+  if (!fmpGotData) {
+    try {
+      // Find the most recent earnings-proximate filing dates from 8-K filings in the DB
+      // Use the last known trade dates for this ticker to infer the earnings cycle
+      const rows = db.prepare(`
+        SELECT MAX(filing_date) AS last_filing, MAX(trade_date) AS last_trade
+        FROM trades WHERE ticker = ? AND insider IS NOT NULL
+      `).get(sym);
+
+      if (rows && (rows.last_filing || rows.last_trade)) {
+        // Predict quarterly earnings: ~91 days after last known activity cycle
+        const base = rows.last_filing || rows.last_trade;
+        const baseDt = new Date(base + 'T12:00:00Z');
+        for (let q = 1; q <= 4; q++) {
+          const predDt = new Date(baseDt);
+          predDt.setUTCDate(predDt.getUTCDate() + q * 91);
+          const predStr = predDt.toISOString().slice(0, 10);
+          if (predStr > today) {
+            events.push({ date: predStr, type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
+          }
+        }
+      }
+    } catch(e) { /* silent */ }
+  }
+
+  // ── Source 5: SEC EFTS — recent 8-K filings as material events ─
   try {
-    const url = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(sym)}%22&forms=8-K&dateRange=custom&startDate=${new Date(Date.now()-730*86400000).toISOString().slice(0,10)}&endDate=${new Date().toISOString().slice(0,10)}&hits.hits.total.value=1&hits.hits._source.period_of_report=1`;
-    const { status, body } = await get(url, 5000); // 5s for SEC EFTS
+    const startDate = new Date(Date.now() - 730*86400000).toISOString().slice(0,10);
+    const url = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(sym)}%22&forms=8-K&dateRange=custom&startDate=${startDate}&endDate=${today}&hits.hits.total.value=1&hits.hits._source.period_of_report=1`;
+    const { status, body } = await get(url, 5000);
     if (status === 200) {
       const json = JSON.parse(body.toString());
       const hits = json?.hits?.hits || [];
@@ -970,7 +1031,6 @@ app.get('/api/events', async (req, res) => {
         const d = (h._source?.period_of_report || h._source?.file_date || '').slice(0, 10);
         const items = (h._source?.items || '').toString();
         if (!d) return;
-        // Classify item type
         let type = 'MATERIAL_EVENT', label = '8-K Filing';
         if (items.includes('2.02') || items.includes('Results')) { type = 'EARNINGS'; label = '8-K: Earnings Results'; }
         else if (items.includes('1.01')) { label = '8-K: Material Agreement'; }
@@ -980,9 +1040,6 @@ app.get('/api/events', async (req, res) => {
       });
     }
   } catch(e) { /* silent */ }
-
-  // ── SEC EFTS: SC 13G/13D (activist/large holder — often precede announcements)
-  // Skip — too noisy
 
   // Deduplicate by date+type, sort descending
   const seen = new Set();
@@ -1138,7 +1195,7 @@ async function warmPriceCache() {
       WHERE TRIM(type)='P' AND price>0 AND ticker IS NOT NULL
         AND trade_date >= date('now','-3 years')
       ORDER BY trade_date DESC
-    `).all().map(r => r.ticker).slice(0, 120); // top 120 most recently active
+    `).all().map(r => r.ticker).slice(0, 180); // top 180 most recently active (covers drift tickers)
 
     slog(`Warming price cache for ${tickers.length} tickers...`);
     // Batch of 15 at a time — fast without hammering sources
