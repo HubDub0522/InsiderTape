@@ -199,7 +199,7 @@ app.get('/api/screener', (req, res) => {
         let rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
-             type, MAX(qty) AS qty, MAX(price) AS price,
+             TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned,
              COALESCE(MAX(source), 'sec') AS source
       FROM trades
@@ -217,7 +217,7 @@ app.get('/api/screener', (req, res) => {
       rows = db.prepare(`
         SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
                trade_date AS trade, MAX(filing_date) AS filing,
-               type, MAX(qty) AS qty, MAX(price) AS price,
+               TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
                MAX(value) AS value, MAX(owned) AS owned,
                COALESCE(MAX(source), 'sec') AS source
         FROM trades
@@ -244,11 +244,11 @@ app.get('/api/ticker', (req, res) => {
     const rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
-             type, MAX(qty) AS qty, MAX(price) AS price,
+             TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned
       FROM trades
       WHERE ticker = ?
-        AND type IN ('P','S','S-')
+        AND TRIM(type) IN ('P','S','S-')
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT 5000
@@ -271,7 +271,7 @@ app.get('/api/insider', (req, res) => {
     const rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
-             type, MAX(qty) AS qty, MAX(price) AS price,
+             TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned
       FROM trades WHERE UPPER(insider) LIKE UPPER(?)
       GROUP BY ticker, insider, trade_date, type
