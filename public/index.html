@@ -1617,8 +1617,11 @@ async function buildPostBuyDrift(longTrades, onProgress) {
     buysByTicker[t.ticker].push({ date: d, price: t.price, value: t.value || 0, insider: t.insider, title: t.title });
   });
 
-  // Need at least 2 buy events per ticker to compute meaningful averages
-  const tickers = Object.keys(buysByTicker).filter(tk => buysByTicker[tk].length >= 1);
+  // Sort tickers by buy count descending, cap at 150 to keep runtime reasonable
+  const tickers = Object.keys(buysByTicker)
+    .filter(tk => buysByTicker[tk].length >= 2)
+    .sort((a, b) => buysByTicker[b].length - buysByTicker[a].length)
+    .slice(0, 150);
 
   const results = [];
   const BATCH   = 5;
@@ -1969,7 +1972,7 @@ let _proximityCache    = null;
 let _proximityRunning  = false;
 let _eventsCache       = {};   // sym → events[]
 
-const PROXIMITY_WINDOW = 30;  // days after buy to look for next event
+const PROXIMITY_WINDOW = 45;  // days after buy to look for next event
 
 async function buildEventProximityData(trades, onProgress) {
   // Candidates: all buys in the passed trades (already filtered to 30d by caller)
@@ -3683,7 +3686,7 @@ async function loadAnalysisPage(subpage) {
 
   // Kick off long-history fetch in background (needed for First Buy scanner, Drift, Regime)
   if (!_analysisDataLong) {
-    apiFetch('/api/history?days=1095&limit=5000').then(raw => {
+    apiFetch('/api/history?days=1095&limit=15000').then(raw => {
       _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
     }).catch(() => { _analysisDataLong = _analysisData; });
   }
