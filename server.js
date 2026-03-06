@@ -479,13 +479,19 @@ app.get('/api/scoreboard', async (req, res) => {
 
     if (!rows.length) return res.json({ accuracy: [], timing: [] });
 
-    // Deduplicate tickers across all insiders
+    // Deduplicate tickers — cap to top 40 to avoid fetching hundreds of price series
     const allTickers = [...new Set(
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )];
+    )].slice(0, 40);
 
-    // ── Fetch all price data using shared fetchPriceBars helper (all sources + cache) ──
-    const priceEntries = await Promise.all(allTickers.map(async sym => [sym, await fetchPriceBars(sym)]));
+    // ── Fetch price data in batches of 10 to avoid hammering APIs ──
+    const priceEntries = [];
+    for (let i = 0; i < allTickers.length; i += 10) {
+      const batch = allTickers.slice(i, i + 10);
+      const results = await Promise.allSettled(batch.map(async sym => [sym, await fetchPriceBars(sym)]));
+      priceEntries.push(...results.filter(r => r.status === 'fulfilled').map(r => r.value));
+      if (i + 10 < allTickers.length) await new Promise(r => setTimeout(r, 100));
+    }
     const priceCache   = Object.fromEntries(priceEntries.filter(([, v]) => v));
 
     // ── Score every insider ──
@@ -1119,11 +1125,14 @@ setInterval(() => warmPriceCache(), 2 * 60 * 60 * 1000);
 app.get('/api/debug', (req, res) => {
   try {
     const total = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-    const byType = db.prepare("SELECT COALESCE(type,'NULL') AS type, COUNT(*) AS n FROM trades GROUP BY type ORDER BY n DESC LIMIT 20").all();
-    const recentDates = db.prepare("SELECT MAX(trade_date) AS latest, MIN(trade_date) AS earliest FROM trades WHERE trade_date IS NOT NULL").get();
-    const recentP = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date >= date('now','-30 days')").get().n;
-    const recentS = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type) IN ('S','S-') AND trade_date >= date('now','-30 days')").get().n;
-    res.json({ total, byType, recentDates, recentP_30d: recentP, recentS_30d: recentS });
+    const byType = db.prepare("SELECT COALESCE(TRIM(type),'NULL') AS type, COUNT(*) AS n FROM trades GROUP BY TRIM(type) ORDER BY n DESC LIMIT 20").all();
+    const dates = db.prepare("SELECT MAX(trade_date) AS td_latest, MIN(trade_date) AS td_earliest, MAX(filing_date) AS fd_latest, MIN(filing_date) AS fd_earliest FROM trades WHERE trade_date IS NOT NULL").get();
+    const p30_trade  = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date  >= date('now','-30 days')").get().n;
+    const p30_filing = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND filing_date >= date('now','-30 days')").get().n;
+    const p3yr_trade = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date  >= date('now','-1095 days')").get().n;
+    const ranker30   = db.prepare("SELECT COUNT(DISTINCT ticker) AS n FROM trades WHERE filing_date >= date('now','-30 days')").get().n;
+    const history1095 = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date >= date('now','-1095 days')").get().n;
+    res.json({ total, byType, dates, p30_trade, p30_filing, p3yr_trade, ranker30_tickers: ranker30, history1095_buys: history1095 });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
