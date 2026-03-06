@@ -308,7 +308,6 @@ app.get('/api/firstbuys', (req, res) => {
                ) AS rn
         FROM trades
         WHERE type = 'P'
-          AND price > 0
           AND insider IS NOT NULL
           AND ticker  IS NOT NULL
       ),
@@ -402,7 +401,6 @@ app.get('/api/leaderboard', (req, res) => {
       FROM trades
       WHERE insider IS NOT NULL
         AND type = 'P'
-        AND price > 0
       GROUP BY insider
       HAVING buy_count >= 3
       ORDER BY buy_count DESC, total_buy_val DESC
@@ -438,12 +436,11 @@ app.get('/api/scoreboard', async (req, res) => {
         insider,
         MAX(title)                                                            AS title,
         COUNT(*)                                                              AS buy_count,
-        GROUP_CONCAT(ticker || '|' || trade_date || '|' || price, ';;')      AS trade_data,
+        GROUP_CONCAT(ticker || '|' || trade_date || '|' || COALESCE(price,0) || '|' || COALESCE(value,0), ';;')  AS trade_data,
         GROUP_CONCAT(DISTINCT ticker)                                         AS tickers_csv,
         CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
       FROM trades
       WHERE type = 'P'
-        AND price > 0
         AND insider IS NOT NULL
         AND ticker  IS NOT NULL
         AND trade_date <= date('now', '-95 days')
@@ -471,9 +468,11 @@ app.get('/api/scoreboard', async (req, res) => {
     rows.forEach(leader => {
       try {
         const rawTrades = (leader.trade_data || '').split(';;').map(s => {
-          const [ticker, trade_date, price] = s.split('|');
-          return { ticker, trade: trade_date, price: parseFloat(price) };
-        }).filter(t => t.ticker && t.price > 0 && t.trade);
+          const [ticker, trade_date, priceStr, valueStr] = s.split('|');
+          const price = parseFloat(priceStr) || 0;
+          const value = parseFloat(valueStr) || 0;
+          return { ticker, trade: trade_date, price, value };
+        }).filter(t => t.ticker && t.trade && (t.price > 0 || t.value > 0));
 
         if (rawTrades.length < 4) return;
 
@@ -482,13 +481,17 @@ app.get('/api/scoreboard', async (req, res) => {
           const bars = priceCache[t.ticker] || [];
           if (!bars.length) return null;
           const buyDate = t.trade.slice(0, 10);
+          // Use price from SEC filing; if missing, use bar close on trade date
+          const entryBar = bars.find(b => b.time >= buyDate);
+          const buyPrice = t.price > 0 ? t.price : (entryBar?.close || 0);
+          if (!buyPrice || buyPrice <= 0) return null;
           const fwd = days => {
             const fd = new Date(buyDate + 'T12:00:00Z'); fd.setUTCDate(fd.getUTCDate() + days);
             const fs = fd.toISOString().slice(0, 10);
             const bar = bars.find(b => b.time >= fs);
-            return bar ? +((bar.close - t.price) / t.price * 100).toFixed(2) : null;
+            return bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
           };
-          return { ticker: t.ticker, tradeDate: buyDate, buyPrice: t.price,
+          return { ticker: t.ticker, tradeDate: buyDate, buyPrice,
             ret30: fwd(30), ret90: fwd(90), ret180: fwd(180) };
         }).filter(Boolean);
 
