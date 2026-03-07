@@ -3546,6 +3546,7 @@ function renderAnalysisDashboard() {
   }
 
   const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
+  const rankerLoading = !_rankerCache;
 
   const tools = [
     {
@@ -3555,6 +3556,7 @@ function renderAnalysisDashboard() {
       desc: 'The master score. Combines signals from every tool on this page — clusters, CAR scores, regime shifts, post-buy drift, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
       count: _rankerCache ? _rankerCache.length : '…',
       countLabel: 'tickers ranked',
+      loading: rankerLoading,
       top3: rankerTop3.map(r => ({
         ticker: r.ticker,
         label: `Score ${r.score}`,
@@ -3764,7 +3766,18 @@ function renderAnalysisDashboard() {
 }
 
 function renderAnalysisTile(tool) {
-  const top3Html = tool.top3.length ? `
+  const top3Html = tool.loading ? `
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
+      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">TOP SIGNALS</div>
+      ${[1,2,3].map(() => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(30,45,61,0.6)">
+          <div style="width:44px;height:13px;border-radius:3px;background:rgba(255,215,0,0.15);animation:pulse 1.4s ease-in-out infinite"></div>
+          <div style="flex:1;height:11px;border-radius:3px;background:rgba(255,255,255,0.06);animation:pulse 1.4s ease-in-out infinite;animation-delay:0.1s"></div>
+          <div style="width:52px;height:11px;border-radius:3px;background:rgba(255,215,0,0.1);animation:pulse 1.4s ease-in-out infinite;animation-delay:0.2s"></div>
+        </div>`).join('')}
+      <div style="font-family:'Space Mono',monospace;font-size:9px;color:rgba(255,215,0,0.5);margin-top:10px;text-align:center;letter-spacing:1px;animation:pulse 1.4s ease-in-out infinite">⏳ CALCULATING…</div>
+    </div>`
+  : tool.top3.length ? `
     <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
       <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">TOP SIGNALS</div>
       ${tool.top3.map((item, i) => `
