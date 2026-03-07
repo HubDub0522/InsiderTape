@@ -1840,7 +1840,7 @@ let _proximityCache    = null;
 let _proximityRunning  = false;
 let _eventsCache       = {};   // sym → events[]
 
-const PROXIMITY_WINDOW = 45;  // days after buy to look for next event
+const PROXIMITY_WINDOW = 120;  // days after buy to look for next predicted event
 
 async function buildEventProximityData(trades, onProgress) {
   // All computation is now server-side via /api/proximity
