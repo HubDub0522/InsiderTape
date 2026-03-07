@@ -3519,8 +3519,10 @@ function renderAnalysisDashboard() {
   if (!_firstBuyCache) {
     apiFetch('/api/firstbuys?mingap=730&lookback=90&limit=50').then(rows => {
       _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
-      // Re-score ranker now that first-buy data is available
-      _rankerCache = null;
+      // Re-score ranker in-place now that first-buy data is available (don't null it — that shows "Calculating")
+      if (_rankerCache) {
+        try { _rankerCache = scoreOpportunityRanker(_rankerCache.map(r => ({...r}))); } catch(e) {}
+      }
       // Refresh dashboard tiles once data arrives
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
