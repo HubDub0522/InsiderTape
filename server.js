@@ -906,7 +906,7 @@ app.get('/api/drift', (req, res) => {
 let _proximityServerCache = null;
 let _proximityServerCacheTime = 0;
 const PROXIMITY_TTL = 30 * 60 * 1000;
-const PROXIMITY_WINDOW = 45; // days after buy
+const PROXIMITY_WINDOW = 120; // days after buy — covers full quarterly cycle
 
 app.get('/api/proximity', async (req, res) => {
   if (_proximityServerCache && Date.now() - _proximityServerCacheTime < PROXIMITY_TTL) {
@@ -1001,9 +1001,9 @@ app.get('/api/proximity', async (req, res) => {
 
       if (!upcoming.length) return;
 
-      // Window: events within PROXIMITY_WINDOW days of buy
+      // Window: look up to 120 days out for events (full quarter + buffer)
       const windowEnd = new Date(buyDate + 'T00:00:00Z');
-      windowEnd.setUTCDate(windowEnd.getUTCDate() + PROXIMITY_WINDOW);
+      windowEnd.setUTCDate(windowEnd.getUTCDate() + 120);
       const windowEndStr = windowEnd.toISOString().slice(0, 10);
       const inWindow = upcoming.filter(e => e.date > buyDate && e.date <= windowEndStr);
       if (!inWindow.length) return;
@@ -1013,8 +1013,8 @@ app.get('/api/proximity', async (req, res) => {
       const evtDt = new Date(nextEvent.date + 'T00:00:00Z');
       const daysTo = Math.max(0, Math.round((evtDt - buyDt) / 86400000));
 
-      // Score: closer = higher urgency
-      let score = Math.round(Math.max(0, (1 - daysTo / PROXIMITY_WINDOW)) * 60);
+      // Score: closer = higher urgency (scale over 120-day window)
+      let score = Math.round(Math.max(0, (1 - daysTo / 120)) * 60);
       const buyValue = buy.value || 0;
       if (buyValue > 1000000) score += 20;
       else if (buyValue > 500000) score += 12;
@@ -1022,14 +1022,15 @@ app.get('/api/proximity', async (req, res) => {
       if (hist.length >= 4) score += 10; // active insider
       score = Math.min(100, score);
 
-      const proximityColor = daysTo <= 7 ? 'var(--sell)' : daysTo <= 14 ? 'var(--option)' : daysTo <= 21 ? 'var(--accent)' : 'var(--muted)';
-      const isAbnormal = score >= 55 || daysTo <= 10;
+      const proximityColor = daysTo <= 14 ? 'var(--sell)' : daysTo <= 30 ? 'var(--option)' : daysTo <= 60 ? 'var(--accent)' : 'var(--muted)';
+      const isAbnormal = score >= 55 || daysTo <= 21;
 
       results.push({
         ticker: buy.ticker, company: buy.company || buy.ticker,
         insider: buy.insider, title: buy.title || '',
-        buyDate, buyValue, daysTo, score, isAbnormal, proximityColor,
-        nextEvent, allUpcoming: inWindow,
+        buyDate, buyVal: buyValue, buyValue, daysTo, score, isAbnormal, proximityColor,
+        repeatPattern: hist.length >= 3, // insider has repeated buying pattern
+        nextEvent, allUpcoming: inWindow.slice(0, 4),
       });
     });
 
@@ -1666,14 +1667,80 @@ setTimeout(() => {
 setTimeout(() => {
   try {
     slog('Pre-computing proximity...');
-    const fakeRes = {
-      json(data) { _proximityServerCache = data; _proximityServerCacheTime = Date.now(); slog(`Proximity pre-computed: ${data.length} results`); },
-      status(c) { return this; }
-    };
-    // Reuse same logic as the route — call it via a simulated request
-    const fakeReq = { query: {} };
-    // We'll just let the first real request populate it; this is a best-effort warm
-  } catch(e) {}
+    const buys = db.prepare(`
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date, COALESCE(AVG(price),0) AS price, SUM(COALESCE(value,0)) AS value,
+             MAX(filing_date) AS filing_date
+      FROM trades
+      WHERE TRIM(type) = 'P' AND ticker IS NOT NULL AND insider IS NOT NULL
+        AND trade_date >= date('now', '-30 days')
+      GROUP BY ticker, insider, trade_date
+      ORDER BY trade_date DESC
+    `).all();
+    if (!buys.length) { slog('Proximity: no recent buys'); return; }
+
+    const tickers = [...new Set(buys.map(b => b.ticker))];
+    const tickerHistory = {};
+    tickers.forEach(tk => {
+      const hist = db.prepare(`
+        SELECT trade_date FROM trades
+        WHERE ticker = ? AND TRIM(type) = 'P' AND trade_date < date('now', '-30 days')
+        ORDER BY trade_date DESC LIMIT 8
+      `).all(tk);
+      tickerHistory[tk] = hist.map(r => r.trade_date);
+    });
+
+    const results = [];
+    buys.forEach(buy => {
+      const buyDate = buy.trade_date; if (!buyDate) return;
+      const hist = tickerHistory[buy.ticker] || [];
+      const predicted = [];
+      if (hist.length >= 2) {
+        const gaps = [];
+        for (let i = 0; i < Math.min(hist.length-1,4); i++) {
+          const gap = Math.abs((new Date(hist[i]+'T00:00:00Z') - new Date(hist[i+1]+'T00:00:00Z')) / 86400000);
+          if (gap >= 30 && gap <= 150) gaps.push(gap);
+        }
+        const avgGap = gaps.length ? gaps.reduce((a,b)=>a+b,0)/gaps.length : 91;
+        const mostRecent = new Date(hist[0]+'T00:00:00Z');
+        for (let q = 1; q <= 6; q++) {
+          const nd = new Date(mostRecent); nd.setUTCDate(nd.getUTCDate() + Math.round(avgGap*q));
+          const ns = nd.toISOString().slice(0,10);
+          if (ns > buyDate) predicted.push({ date: ns, type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
+        }
+      } else {
+        for (let q = 1; q <= 4; q++) {
+          const nd = new Date(buyDate+'T00:00:00Z'); nd.setUTCDate(nd.getUTCDate() + q*91);
+          predicted.push({ date: nd.toISOString().slice(0,10), type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
+        }
+      }
+      const cachedEvts = EVENT_CACHE.get(buy.ticker);
+      if (cachedEvts) predicted.push(...cachedEvts.data.filter(e => e.date > buyDate));
+      const seen = new Set();
+      const upcoming = predicted.filter(e => { if (seen.has(e.date)) return false; seen.add(e.date); return true; }).sort((a,b) => a.date.localeCompare(b.date));
+      if (!upcoming.length) return;
+      const windowEnd = new Date(buyDate+'T00:00:00Z'); windowEnd.setUTCDate(windowEnd.getUTCDate()+120);
+      const inWindow = upcoming.filter(e => e.date > buyDate && e.date <= windowEnd.toISOString().slice(0,10));
+      if (!inWindow.length) return;
+      const nextEvent = inWindow[0];
+      const daysTo = Math.max(0, Math.round((new Date(nextEvent.date+'T00:00:00Z') - new Date(buyDate+'T00:00:00Z')) / 86400000));
+      let score = Math.round(Math.max(0,(1-daysTo/120))*60);
+      const bv = buy.value||0;
+      if (bv>1000000) score+=20; else if (bv>500000) score+=12; else if (bv>100000) score+=6;
+      if (hist.length>=4) score+=10;
+      score = Math.min(100,score);
+      const proximityColor = daysTo<=14?'var(--sell)':daysTo<=30?'var(--option)':daysTo<=60?'var(--accent)':'var(--muted)';
+      results.push({ ticker:buy.ticker, company:buy.company||buy.ticker, insider:buy.insider, title:buy.title||'',
+        buyDate, buyVal:bv, buyValue:bv, daysTo, score, isAbnormal:score>=55||daysTo<=21, proximityColor,
+        repeatPattern:hist.length>=3, nextEvent, allUpcoming:inWindow.slice(0,4) });
+    });
+    const deduped = Object.values(results.reduce((acc,r)=>{
+      const k=`${r.ticker}::${r.insider}`; if (!acc[k]||r.score>acc[k].score) acc[k]=r; return acc;
+    },{})).sort((a,b)=>b.score-a.score);
+    _proximityServerCache = deduped;
+    _proximityServerCacheTime = Date.now();
+    slog(`Proximity pre-computed: ${deduped.length} results`);
+  } catch(e) { slog('Proximity pre-compute error: ' + e.message); }
 }, 12000);
 
 
