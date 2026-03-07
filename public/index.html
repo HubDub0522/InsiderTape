@@ -579,8 +579,16 @@ function showToast(msg, isError=false) {
 function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
 // Detect government officials (Senators, Representatives, federal officers)
-const GOV_TITLES = /\b(senator|representative|congressman|congresswoman|secretary|governor|president|vice.?president|attorney.?general|treasurer|comptroller|director.*federal|chairman.*federal)\b/i;
-const GOV_NAMES  = /\b(nancy pelosi|mitch mcconnell|paul pelosi|kevin mccarthy|chuck schumer|elizabeth warren|bernie sanders|mark kelly|tommy tuberville|dan sullivan|sheldon whitehouse|ron wyden|pat roberts|richard burr|kelly loeffler|david perdue|jim inhofe)\b/i;
+// Government official detection.
+// IMPORTANT: We only match titles that are unambiguously governmental.
+// "President" and "Vice President" are intentionally EXCLUDED — they are extremely
+// common corporate titles (President & CEO, VP of Finance, etc.) and would produce
+// massive false positives. Government senators/reps/governors have those specific titles.
+const GOV_TITLES = /\b(senator|representative|congressman|congresswoman|attorney\s*general|governor|secretary\s+of\s+(state|treasury|defense|commerce|labor|energy|education|transportation)|comptroller\s+of\s+the\s+currency|member\s+of\s+congress)\b/i;
+
+// Verified current and recent government officials who trade under STOCK Act.
+// These are exact full names as they appear in STOCK Act disclosures.
+const GOV_NAMES = /^(nancy pelosi|paul pelosi|mitch mcconnell|kevin mccarthy|chuck schumer|elizabeth warren|bernie sanders|mark kelly|tommy tuberville|dan sullivan|sheldon whitehouse|ron wyden|pat roberts|richard burr|kelly loeffler|david perdue|jim inhofe|john boozman|marsha blackburn|bill hagerty|thom tillis|mike crapo|james risch|john barrasso|roger wicker|cindy hyde-smith|john kennedy|bill cassidy|john cornyn|ted cruz|mike rounds|john thune|jerry moran|rob portman|sherrod brown|tim scott|lindsey graham|dianne feinstein|alex padilla|mark warner|tim kaine|ben cardin|chris van hollen|chris coons|tom carper|joe manchin|shelley moore capito|patrick leahy|peter welch|angus king|susan collins|jack reed|bob casey|pat toomey|dick durbin|tammy duckworth|todd young|mike braun|chuck grassley|joni ernst|gary peters|debbie stabenow|amy klobuchar|tina smith|jon tester|steve daines|deb fischer|jeff merkley|bob menendez|cory booker|martin heinrich|ben ray lujan|kirsten gillibrand|richard blumenthal|chris murphy|michael bennet|john hickenlooper|brian schatz|mazie hirono|mike lee|mitt romney|rand paul|ro khanna|eric swalwell|brad sherman|virginia foxx|patrick mchenry|greg meeks|maxine waters)$/i;
 function isGovOfficial(titleOrName) {
   if (!titleOrName) return false;
   return GOV_TITLES.test(titleOrName) || GOV_NAMES.test(titleOrName);
@@ -3482,12 +3490,14 @@ async function loadAnalysisPage(subpage) {
       const rows = Array.isArray(resp) ? resp : [];
       if (!rows.length) { _rankerCache = []; return; }
       // Enrich with price data (52-week low proximity) for top 40 by buy value
-      const top40 = rows.slice(0, 20); // limit price fetches to avoid timeouts
-      const priceResults = await Promise.allSettled(
-        top40.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)).catch(()=>null))
-      );
-      top40.forEach((r, i) => {
-        const bars = priceResults[i].status === 'fulfilled' ? priceResults[i].value : [];
+      const top40 = rows.slice(0, 20);
+      let priceMap2 = {};
+      try {
+        const syms = top40.map(r => r.ticker).join(',');
+        priceMap2 = await apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(syms));
+      } catch(e) {}
+      top40.forEach(r => {
+        const bars = priceMap2[r.ticker];
         if (Array.isArray(bars) && bars.length >= 50) {
           const year = bars.slice(-252);
           const hi52 = Math.max(...year.map(b => b.high || b.close));
@@ -4031,13 +4041,15 @@ async function renderRankerSubpage() {
 
   try {
     const rows = await apiFetch('/api/ranker?days=30');
-    // Enrich top 50 with price data
+    // Enrich with price data using single bulk call (warm cache only, non-blocking)
     const top50 = rows.slice(0, 50);
-    const priceResults = await Promise.allSettled(
-      top50.map(r => apiFetch('/api/price?symbol=' + encodeURIComponent(r.ticker)))
-    );
-    top50.forEach((r, i) => {
-      const bars = priceResults[i].status === 'fulfilled' ? priceResults[i].value : [];
+    const symbols = top50.map(r => r.ticker).join(',');
+    let priceMap = {};
+    try {
+      priceMap = await apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(symbols));
+    } catch(e) { /* price enrichment optional */ }
+    top50.forEach(r => {
+      const bars = priceMap[r.ticker];
       if (Array.isArray(bars) && bars.length >= 50) {
         const year = bars.slice(-252);
         const hi52 = Math.max(...year.map(b => b.high || b.close));
