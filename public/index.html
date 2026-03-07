@@ -3607,6 +3607,7 @@ function renderAnalysisDashboard() {
       desc: 'Ranks insiders by their historical accuracy score — win rate, average forward return, and consistency across all tracked trades.',
       count: _insiderScoreCache ? _insiderScoreCache.length : '…',
       countLabel: 'insiders scored',
+      loading: _insiderScoreCache === null,
       top3: (_insiderScoreCache || []).slice(0,3).map(r => ({
         ticker: r.name.split(' ')[0],
         label: `Score ${r.accuracyScore}`,
@@ -3624,6 +3625,7 @@ function renderAnalysisDashboard() {
       desc: 'Ranks insiders by Timing Alpha Score — who consistently buys near 12-month lows, sells near highs, and achieves the best forward returns after each trade.',
       count: _timingAlphaCache ? _timingAlphaCache.length : '…',
       countLabel: 'insiders ranked',
+      loading: _timingAlphaCache === null,
       top3: (_timingAlphaCache || []).slice(0,3).map(r => ({
         ticker: r.name.split(' ')[0],
         label: `Alpha ${r.timingAlpha}`,
@@ -3724,6 +3726,7 @@ function renderAnalysisDashboard() {
     desc: 'Detects insiders making their first open-market purchase after 3+ years of inactivity on a stock. A rare, deliberate signal — insiders who stayed inactive for years and then suddenly buy.',
     count: _firstBuyCache ? _firstBuyCache.length : '…',
     countLabel: 'signals found',
+    loading: _firstBuyCache === null,
     top3: firstBuyTop3.map(s => ({
       ticker: s.ticker,
       label: `${s.gapYears.toFixed(1)}yr gap`,
@@ -3753,11 +3756,11 @@ function renderAnalysisTile(tool) {
       <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px">TOP SIGNALS</div>
       ${[1,2,3].map(() => `
         <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(30,45,61,0.6)">
-          <div style="width:44px;height:13px;border-radius:3px;background:rgba(255,215,0,0.15);animation:pulse 1.4s ease-in-out infinite"></div>
+          <div style="width:44px;height:13px;border-radius:3px;background:${tool.accentColor}22;animation:pulse 1.4s ease-in-out infinite"></div>
           <div style="flex:1;height:11px;border-radius:3px;background:rgba(255,255,255,0.06);animation:pulse 1.4s ease-in-out infinite;animation-delay:0.1s"></div>
-          <div style="width:52px;height:11px;border-radius:3px;background:rgba(255,215,0,0.1);animation:pulse 1.4s ease-in-out infinite;animation-delay:0.2s"></div>
+          <div style="width:52px;height:11px;border-radius:3px;background:${tool.accentColor}18;animation:pulse 1.4s ease-in-out infinite;animation-delay:0.2s"></div>
         </div>`).join('')}
-      <div style="font-family:'Space Mono',monospace;font-size:9px;color:rgba(255,215,0,0.5);margin-top:10px;text-align:center;letter-spacing:1px;animation:pulse 1.4s ease-in-out infinite">⏳ CALCULATING…</div>
+      <div style="font-family:'Space Mono',monospace;font-size:9px;color:${tool.accentColor};opacity:0.6;margin-top:10px;text-align:center;letter-spacing:1px;animation:pulse 1.4s ease-in-out infinite">⏳ CALCULATING…</div>
     </div>`
   : tool.top3.length ? `
     <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:12px">
