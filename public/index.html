@@ -3486,28 +3486,10 @@ async function loadAnalysisPage(subpage) {
 
   // Kick off ranker data in background — refreshes tile once ready
   if (!_rankerCache) {
-    apiFetch('/api/ranker?days=30').then(async resp => {
+    apiFetch('/api/ranker?days=30').then(resp => {
       const rows = Array.isArray(resp) ? resp : [];
       if (!rows.length) { _rankerCache = []; return; }
-      // Enrich with price data (52-week low proximity) for top 40 by buy value
-      const top40 = rows.slice(0, 20);
-      let priceMap2 = {};
-      try {
-        const syms = top40.map(r => r.ticker).join(',');
-        priceMap2 = await apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(syms));
-      } catch(e) {}
-      top40.forEach(r => {
-        const bars = priceMap2[r.ticker];
-        if (Array.isArray(bars) && bars.length >= 50) {
-          const year = bars.slice(-252);
-          const hi52 = Math.max(...year.map(b => b.high || b.close));
-          const lo52 = Math.min(...year.map(b => b.low  || b.close));
-          const last  = bars[bars.length - 1]?.close || 0;
-          r._hi52 = hi52; r._lo52 = lo52; r._last = last;
-          r._pctFromLow  = lo52 > 0 ? ((last - lo52)  / lo52  * 100) : null;
-          r._pctFromHigh = hi52 > 0 ? ((hi52 - last)  / hi52  * 100) : null;
-        }
-      });
+      // Score immediately — no external price fetches on this path
       _rankerCache = scoreOpportunityRanker(rows);
       // Refresh dashboard tiles
       const body = document.getElementById('analysisViewBody');
@@ -4054,8 +4036,8 @@ async function renderRankerSubpage() {
 
   try {
     const rows = await apiFetch('/api/ranker?days=30');
-    // Enrich with price data using single bulk call (warm cache only, non-blocking)
     const top50 = rows.slice(0, 50);
+    // Enrich from warm cache only (instant, no external API calls)
     const symbols = top50.map(r => r.ticker).join(',');
     let priceMap = {};
     try {
