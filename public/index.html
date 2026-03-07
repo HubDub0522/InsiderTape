@@ -1055,8 +1055,18 @@ let _carCache = null;
 
 function renderCapitalAtRiskSubpage() {
   const body    = document.getElementById('analysisViewBody');
-  const trades  = _analysisDataLong || _analysisData || [];
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  if (!_analysisDataLong) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${backBtn}
+      <div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading trade history…</span></div>
+    </div>`;
+    ensureAnalysisDataLong(() => renderCapitalAtRiskSubpage());
+    return;
+  }
+
+  const trades  = _analysisDataLong || _analysisData || [];
 
   _carCache = buildCapitalAtRiskData(trades);
 
@@ -1437,22 +1447,19 @@ let _regimeCache = null;
 
 function renderRegimeShiftSubpage() {
   const body      = document.getElementById('analysisViewBody');
-  const longT     = _analysisDataLong || _analysisData || [];
-  const recentT   = _analysisData || [];
   const backBtn   = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
-  // Show loading state if long history not ready yet
   if (!_analysisDataLong) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
       ${backBtn}
       <div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading 12-month history for baseline comparison…</span></div>
     </div>`;
-    // Retry when data arrives
-    const poll = setInterval(() => {
-      if (_analysisDataLong) { clearInterval(poll); renderRegimeShiftSubpage(); }
-    }, 800);
+    ensureAnalysisDataLong(() => renderRegimeShiftSubpage());
     return;
   }
+
+  const longT     = _analysisDataLong || _analysisData || [];
+  const recentT   = _analysisData || [];
 
   _regimeCache = buildRegimeShiftData(longT, recentT);
 
@@ -3403,7 +3410,28 @@ document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput'
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
 let _analysisData = null;     // 30-day trades cache
-let _analysisDataLong = null; // 365-day trades cache
+let _analysisDataLong = null; // 3-year trades cache — loaded lazily by subpages that need it
+let _analysisDataLongLoading = false;
+let _analysisDataLongCallbacks = [];
+
+function ensureAnalysisDataLong(cb) {
+  if (_analysisDataLong) { cb(_analysisDataLong); return; }
+  _analysisDataLongCallbacks.push(cb);
+  if (_analysisDataLongLoading) return; // already in flight
+  _analysisDataLongLoading = true;
+  apiFetch('/api/history?days=1095&limit=10000').then(raw => {
+    _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
+    _analysisDataLongLoading = false;
+    _analysisDataLongCallbacks.forEach(fn => fn(_analysisDataLong));
+    _analysisDataLongCallbacks = [];
+  }).catch(() => {
+    _analysisDataLong = _analysisData || [];
+    _analysisDataLongLoading = false;
+    _analysisDataLongCallbacks.forEach(fn => fn(_analysisDataLong));
+    _analysisDataLongCallbacks = [];
+  });
+}
+
 let _firstBuyCache = null;      // firstbuys API results cache
 let _rankerCache = null;        // opportunity ranker results cache
 let _insiderScoreCache = null;  // top insider accuracy scores cache
@@ -3422,12 +3450,8 @@ async function loadAnalysisPage(subpage) {
     } catch(e) { _analysisData = []; }
   }
 
-  // Kick off long-history fetch in background (needed for First Buy scanner, Drift, Regime)
-  if (!_analysisDataLong) {
-    apiFetch('/api/history?days=1095&limit=15000').then(raw => {
-      _analysisDataLong = Array.isArray(raw) ? raw : (raw.trades || []);
-    }).catch(() => { _analysisDataLong = _analysisData; });
-  }
+  // NOTE: _analysisDataLong is fetched lazily by the subpages that need it
+  // (Capital at Risk, Regime Shift) — not here, to avoid blocking the server.
 
   // Kick off leaderboard scores in background so tiles show counts when dashboard renders
   if (_insiderScoreCache === null && _timingAlphaCache === null) {
