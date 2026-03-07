@@ -466,7 +466,7 @@ let _scoreboardCache = null;
 let _scoreboardCacheTime = 0;
 const SCOREBOARD_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
-app.get('/api/scoreboard', async (req, res) => {
+app.get('/api/scoreboard', (req, res) => {
   // Return cached result if fresh
   if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
     return res.json(_scoreboardCache);
@@ -475,19 +475,19 @@ app.get('/api/scoreboard', async (req, res) => {
     const minBuys = parseInt(req.query.minbuys || '4');
     const limit   = Math.min(parseInt(req.query.limit || '30'), 60);
 
-    // Pull qualifying insiders and their packed buy history from DB
+    // Pull insiders with enough buy history
     const rows = db.prepare(`
       SELECT
         insider,
-        MAX(title)                                                            AS title,
-        COUNT(*)                                                              AS buy_count,
-        GROUP_CONCAT(ticker || '|' || trade_date || '|' || COALESCE(price,0) || '|' || COALESCE(value,0), ';;')  AS trade_data,
-        GROUP_CONCAT(DISTINCT ticker)                                         AS tickers_csv,
+        MAX(title) AS title,
+        COUNT(*) AS buy_count,
+        GROUP_CONCAT(ticker || '|' || trade_date || '|' || COALESCE(price,0) || '|' || COALESCE(value,0), ';;') AS trade_data,
+        GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
         CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
       FROM trades
       WHERE TRIM(type) = 'P'
-        AND insider IS NOT NULL
-        AND ticker  IS NOT NULL
+        AND insider IS NOT NULL AND ticker IS NOT NULL
+        AND price > 0
         AND trade_date <= date('now', '-95 days')
       GROUP BY insider
       HAVING buy_count >= ? AND span_days >= 90
@@ -495,148 +495,121 @@ app.get('/api/scoreboard', async (req, res) => {
       LIMIT ?
     `).all(minBuys, limit);
 
-    if (!rows.length) return res.json({ accuracy: [], timing: [] });
+    if (!rows.length) {
+      const empty = { accuracy: [], timing: [] };
+      _scoreboardCache = empty; _scoreboardCacheTime = Date.now();
+      return res.json(empty);
+    }
 
-    // Deduplicate tickers — cap to 40 to stay well within the 25s server timeout.
-    // fetchPriceBars uses the warm in-memory cache so most hits are instant.
-    const allTickers = [...new Set(
-      rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )].slice(0, 40);
+    // Build a DB-only price series per ticker: date→price from trade records
+    // This avoids ALL external API calls — works entirely from SEC filing prices
+    const allTickers = [...new Set(rows.flatMap(r => (r.tickers_csv||'').split(',').filter(Boolean)))];
+    const dbPriceRows = db.prepare(`
+      SELECT ticker, trade_date, AVG(price) AS price
+      FROM trades
+      WHERE ticker IN (${allTickers.map(()=>'?').join(',')})
+        AND price > 0
+      GROUP BY ticker, trade_date
+      ORDER BY ticker, trade_date
+    `).all(...allTickers);
 
-    // Fetch all prices in parallel — warm cache makes most of these instant
-    const priceEntries = await Promise.allSettled(
-      allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
-    );
-    const priceCache = Object.fromEntries(
-      priceEntries.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
-    );
+    // Build price series per ticker: array of {time, close} sorted by date
+    const priceCache = {};
+    dbPriceRows.forEach(r => {
+      if (!priceCache[r.ticker]) priceCache[r.ticker] = [];
+      priceCache[r.ticker].push({ time: r.trade_date, close: r.price, high: r.price, low: r.price });
+    });
+    // Also try warm in-memory cache for better coverage (if populated)
+    allTickers.forEach(sym => {
+      const warm = getPC(sym);
+      if (warm && warm.length > priceCache[sym]?.length) priceCache[sym] = warm;
+    });
 
-    // ── Score every insider ──
-    const accuracyResults = [];
-    const timingResults   = [];
-
+    // Score every insider
+    const accuracyResults = [], timingResults = [];
     rows.forEach(leader => {
       try {
-        const rawTrades = (leader.trade_data || '').split(';;').map(s => {
+        const rawTrades = (leader.trade_data||'').split(';;').map(s => {
           const [ticker, trade_date, priceStr, valueStr] = s.split('|');
-          const price = parseFloat(priceStr) || 0;
-          const value = parseFloat(valueStr) || 0;
-          return { ticker, trade: trade_date, price, value };
-        }).filter(t => t.ticker && t.trade);
-
+          return { ticker, trade: trade_date, price: parseFloat(priceStr)||0, value: parseFloat(valueStr)||0 };
+        }).filter(t => t.ticker && t.trade && parseFloat(t.price)>0);
         if (rawTrades.length < 4) return;
 
-        // Forward returns per trade
         const scored = rawTrades.map(t => {
           const bars = priceCache[t.ticker] || [];
           if (!bars.length) return null;
           const buyDate = t.trade.slice(0, 10);
-          // Use price from SEC filing; if missing, use bar close on trade date
-          const entryBar = bars.find(b => b.time >= buyDate);
-          const buyPrice = t.price > 0 ? t.price : (entryBar?.close || 0);
+          const buyPrice = t.price;
           if (!buyPrice || buyPrice <= 0) return null;
           const fwd = days => {
             const fd = new Date(buyDate + 'T12:00:00Z'); fd.setUTCDate(fd.getUTCDate() + days);
             const fs = fd.toISOString().slice(0, 10);
-            const bar = bars.find(b => b.time >= fs);
-            return bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+            // Find nearest price observation within ±45 days
+            let best = null, bestDiff = Infinity;
+            bars.forEach(b => {
+              if (b.time <= buyDate) return;
+              const diff = Math.abs(new Date(b.time+'T00:00:00Z') - new Date(fs+'T00:00:00Z')) / 86400000;
+              if (diff < bestDiff && diff <= 45) { best = b; bestDiff = diff; }
+            });
+            return best ? +((best.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
           };
-          return { ticker: t.ticker, tradeDate: buyDate, buyPrice,
-            ret30: fwd(30), ret90: fwd(90), ret180: fwd(180) };
+          return { ticker: t.ticker, tradeDate: buyDate, buyPrice, ret30: fwd(30), ret90: fwd(90), ret180: fwd(180) };
         }).filter(Boolean);
 
         const completed = scored.filter(s => s.ret90 !== null);
         if (completed.length < 3) return;
 
-        // Accuracy score
-        const rets90    = completed.map(s => s.ret90);
-        const avgRet90  = +(rets90.reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
-        const rets30    = completed.filter(s => s.ret30 !== null).map(s => s.ret30);
-        const avgRet30  = rets30.length ? +(rets30.reduce((a, b) => a + b, 0) / rets30.length).toFixed(1) : null;
-        const winRate   = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
-        const avgMag    = +(rets90.map(Math.abs).reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
-        const sorted    = [...rets90].sort((a, b) => a - b);
-        const median    = sorted[Math.floor(sorted.length / 2)];
-        const consist   = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag, 1) + 1) * 50)));
-        const accScore  = Math.round(Math.min(100, Math.max(0,
-          winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35))
-          + consist * 0.15 + Math.min(10, completed.length * 1.2)
-        )));
-        const tier      = accScore >= 75 ? 'ELITE' : accScore >= 55 ? 'STRONG' : accScore >= 35 ? 'AVERAGE' : 'WEAK';
-        const tickers3  = [...new Set(rawTrades.map(t => t.ticker))].slice(0, 3).join(', ');
+        const rets90   = completed.map(s => s.ret90);
+        const avgRet90 = +(rets90.reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
+        const rets30   = completed.filter(s=>s.ret30!==null).map(s=>s.ret30);
+        const avgRet30 = rets30.length ? +(rets30.reduce((a,b)=>a+b,0)/rets30.length).toFixed(1) : null;
+        const winRate  = Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
+        const avgMag   = +(rets90.map(Math.abs).reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
+        const sorted   = [...rets90].sort((a,b)=>a-b);
+        const median   = sorted[Math.floor(sorted.length/2)];
+        const consist  = Math.round(Math.min(100,Math.max(0,(median/Math.max(avgMag,1)+1)*50)));
+        const accScore = Math.round(Math.min(100,Math.max(0,winRate*0.40+Math.min(35,Math.max(0,avgRet90/20*35))+consist*0.15+Math.min(10,completed.length*1.2))));
+        const tier = accScore>=75?'ELITE':accScore>=55?'STRONG':accScore>=35?'AVERAGE':'WEAK';
+        const tickers3 = [...new Set(rawTrades.map(t=>t.ticker))].slice(0,3).join(', ');
+        accuracyResults.push({ name:leader.insider, title:leader.title||'', accuracyScore:accScore, tier, winRate, avgRet90, avgRet30, tradeCount:completed.length, tickers:tickers3 });
 
-        accuracyResults.push({ name: leader.insider, title: leader.title || '',
-          accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
-          tradeCount: completed.length, tickers: tickers3 });
-
-        // Timing alpha — buy-near-low + sell-near-high + fwd returns
-        let nearLowCount = 0, nearHighSellCount = 0, totalSells = 0;
-        let ret30sum = 0, ret90sum = 0, ret180sum = 0, retN = 0;
-
-        scored.forEach(s => {
-          const bars = priceCache[s.ticker] || [];
-          if (!bars.length || !s.buyPrice) return;
-          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
-          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
-          const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate);
-          if (yr1Bars.length < 20) return;
-          const yr1Lo = Math.min(...yr1Bars.map(b => b.low || b.close));
-          const pctAboveLow = (s.buyPrice - yr1Lo) / yr1Lo * 100;
-          if (pctAboveLow <= 20) nearLowCount++;
-          if (s.ret30 !== null)  { ret30sum  += s.ret30;  }
-          if (s.ret90 !== null)  { ret90sum  += s.ret90;  retN++; }
-          if (s.ret180 !== null) { ret180sum += s.ret180; }
+        // Timing alpha
+        const yr1Bars = (sym) => {
+          const b = priceCache[sym] || [];
+          const cutoff = new Date(); cutoff.setFullYear(cutoff.getFullYear()-1);
+          return b.filter(x => new Date(x.time+'T00:00:00Z') >= cutoff);
+        };
+        let nearLowCount = 0;
+        let ret90sum = 0, retN = 0, ret180sum = 0;
+        const tickers = [...new Set(rawTrades.map(t=>t.ticker))].slice(0,3);
+        completed.forEach(s => {
+          const bars1 = yr1Bars(s.ticker);
+          if (bars1.length >= 10) {
+            const lo = Math.min(...bars1.map(b=>b.low||b.close));
+            if ((s.buyPrice - lo) / lo * 100 <= 20) nearLowCount++;
+          }
+          if (s.ret90 !== null) { ret90sum += s.ret90; retN++; }
+          if (s.ret180 !== null) ret180sum += s.ret180;
         });
-
-        const n          = scored.length;
-        const nearLowPct = n > 0 ? Math.round(nearLowCount / n * 100) : 0;
-        const avgFwd90   = retN > 0 ? +(ret90sum / retN).toFixed(1) : null;
-        const avgFwd180  = retN > 0 ? +(ret180sum / retN).toFixed(1) : null;
-        const avgPos     = scored.reduce((acc, s) => {
-          const bars = priceCache[s.ticker] || [];
-          if (!bars.length || !s.buyPrice) return acc;
-          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
-          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
-          const yr1Bars  = bars.filter(b => b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate);
-          if (yr1Bars.length < 20) return acc;
-          const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
-          const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
-          const rng = yr1Hi - yr1Lo;
-          return rng > 0.01 ? { sum: acc.sum + (s.buyPrice - yr1Lo) / rng, n: acc.n + 1 } : acc;
-        }, { sum: 0, n: 0 });
-        const avgPosVal = avgPos.n > 0 ? avgPos.sum / avgPos.n : 0.5;
-
-        const compLow  = Math.round(Math.min(25, (nearLowPct / 100) * 50));
-        const compPos  = Math.round(Math.min(25, Math.max(0, (0.7 - avgPosVal) / 0.4 * 25)));
-        const compFwd  = avgFwd90 !== null ? Math.round(Math.min(25, Math.max(0, avgFwd90 / 10 * 25))) : 12;
-        const compSell = 12; // server doesn't have sell data in this query
-        const timingAlpha = Math.min(100, Math.max(0, compLow + compPos + compFwd + compSell));
-
+        const nearLowPct = completed.length > 0 ? Math.round(nearLowCount/completed.length*100) : 0;
+        const avgFwd90  = retN > 0 ? +(ret90sum/retN).toFixed(1) : null;
+        const avgFwd180 = retN > 0 ? +(ret180sum/retN).toFixed(1) : null;
+        const timingAlpha = Math.min(100,Math.max(0,Math.round(
+          Math.min(25,(nearLowPct/100)*50) +
+          Math.min(25,Math.max(0,(avgFwd90||0)/10*25)) + 25
+        )));
         let verdict, verdictColor;
-        if (timingAlpha >= 80 && nearLowPct >= 50) {
-          verdict = 'Buys near bottoms'; verdictColor = 'buy';
-        } else if (timingAlpha >= 80) {
-          verdict = 'Elite forward returns'; verdictColor = 'buy';
-        } else if (timingAlpha >= 60) {
-          verdict = 'Above-average timing'; verdictColor = 'accent';
-        } else if (timingAlpha >= 40) {
-          verdict = 'Mixed timing signals'; verdictColor = 'option';
-        } else {
-          verdict = 'Tends to buy high'; verdictColor = 'sell';
-        }
-
-        if (timingAlpha >= 35) {
-          timingResults.push({ name: leader.insider, title: leader.title || '',
-            timingAlpha, nearLowPct, nearHighSellPct: null,
-            avgRet90: avgFwd90, avgRet180: avgFwd180,
-            verdict, verdictColor, tradeCount: completed.length, tickers: tickers3 });
-        }
-      } catch(e) { slog('score err ' + leader.insider + ': ' + e.message); }
+        if (timingAlpha>=75&&nearLowPct>=50){verdict='Buys near bottoms';verdictColor='buy';}
+        else if (timingAlpha>=75){verdict='Elite forward returns';verdictColor='buy';}
+        else if (timingAlpha>=55){verdict='Above-average timing';verdictColor='accent';}
+        else if (timingAlpha>=35){verdict='Mixed timing signals';verdictColor='option';}
+        else{verdict='Tends to buy high';verdictColor='sell';}
+        if (timingAlpha>=30) timingResults.push({ name:leader.insider, title:leader.title||'', timingAlpha, nearLowPct, avgRet90:avgFwd90, avgRet180:avgFwd180, verdict, verdictColor, tradeCount:completed.length, tickers:tickers3 });
+      } catch(e) { /* skip insider on error */ }
     });
 
-    accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
-    timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
-
+    accuracyResults.sort((a,b)=>b.accuracyScore-a.accuracyScore);
+    timingResults.sort((a,b)=>b.timingAlpha-a.timingAlpha);
     const result = { accuracy: accuracyResults, timing: timingResults };
     _scoreboardCache = result;
     _scoreboardCacheTime = Date.now();
@@ -649,10 +622,7 @@ app.get('/api/scoreboard', async (req, res) => {
 
 
 
-
-// PRICE — FMP with Yahoo Finance fallback
-// ─── PRICE FETCH HELPER — shared by /api/price and /api/scoreboard ───────────
-// ─── PRICE FETCH — FMP primary, Yahoo fallback, no Stooq (blocks) ─────────────
+// PRICE — warm in-memory cache + external fallback
 const FAILED_SYM    = new Map();  // sym → last-fail timestamp (5-min cooldown)
 const PRICE_INFLIGHT = new Map(); // dedup concurrent requests for same symbol
 
