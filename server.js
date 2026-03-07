@@ -27,7 +27,9 @@ process.on('unhandledRejection', err => console.error('UNHANDLED:', err?.message
 // rather than hanging until the platform kills the whole dyno.
 // Scoreboard needs ~10-15s for parallel price fetches; 55s gives comfortable headroom.
 app.use((req, res, next) => {
-  const limit = req.path === '/api/scoreboard' ? 55000 : 25000;
+  const limit = req.path === '/api/scoreboard' ? 55000
+              : (req.path === '/api/drift' || req.path === '/api/proximity') ? 45000
+              : 25000;
   res.setTimeout(limit, () => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
   });
@@ -462,7 +464,7 @@ app.get('/api/leaderboard', (req, res) => {
 // Browser makes ONE request and receives ranked leaderboards ready to render
 let _scoreboardCache = null;
 let _scoreboardCacheTime = 0;
-const SCOREBOARD_TTL = 10 * 60 * 1000; // 10 minutes
+const SCOREBOARD_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 app.get('/api/scoreboard', async (req, res) => {
   // Return cached result if fresh
@@ -800,52 +802,64 @@ app.get('/api/drift', (req, res) => {
     return res.json(_driftServerCache);
   }
   try {
-    // For each ticker that has multiple buys: use the DB prices themselves as a sparse
-    // price series. For each buy event, find the closest DB price observation ~30/90/180
-    // calendar days later (any trade type, buy or sell) as the forward price.
-    const rows = db.prepare(`
+    // Fast query: only buy trades (type='P') with a price, last 4 years
+    // Two-pass: first get all buys per ticker, then get all price observations
+    const buyRows = db.prepare(`
       SELECT ticker, MAX(company) AS company,
-        trade_date, TRIM(type) AS type,
-        AVG(price) AS price, SUM(COALESCE(value,0)) AS val
+        trade_date, AVG(price) AS price, SUM(COALESCE(value,0)) AS val
       FROM trades
-      WHERE price > 0 AND ticker IS NOT NULL AND trade_date >= date('now','-4 years')
-      GROUP BY ticker, trade_date, TRIM(type)
+      WHERE TRIM(type) = 'P' AND price > 0 AND ticker IS NOT NULL
+        AND trade_date >= date('now','-4 years')
+      GROUP BY ticker, trade_date
       ORDER BY ticker, trade_date
     `).all();
 
-    // Build sparse price series per ticker: { date -> price }
-    const seriesByTicker = {};
+    // Get all price observations (any type) per ticker for forward price lookups
+    const priceRows = db.prepare(`
+      SELECT ticker, trade_date, AVG(price) AS price
+      FROM trades
+      WHERE price > 0 AND ticker IS NOT NULL
+        AND trade_date >= date('now','-4 years')
+      GROUP BY ticker, trade_date
+      ORDER BY ticker, trade_date
+    `).all();
+
+    // Build price series per ticker
+    const priceSeriesByTicker = {};
+    priceRows.forEach(r => {
+      if (!priceSeriesByTicker[r.ticker]) priceSeriesByTicker[r.ticker] = [];
+      priceSeriesByTicker[r.ticker].push({ date: r.trade_date, price: r.price });
+    });
+
+    // Group buys by ticker
+    const buysByTicker = {};
     const companyByTicker = {};
-    rows.forEach(r => {
-      if (!seriesByTicker[r.ticker]) { seriesByTicker[r.ticker] = []; companyByTicker[r.ticker] = r.company; }
-      seriesByTicker[r.ticker].push({ date: r.trade_date, price: r.price, type: r.type, val: r.val });
+    buyRows.forEach(r => {
+      if (!buysByTicker[r.ticker]) { buysByTicker[r.ticker] = []; companyByTicker[r.ticker] = r.company; }
+      buysByTicker[r.ticker].push({ date: r.trade_date, price: r.price, val: r.val });
     });
 
     const results = [];
+    const cutoff = new Date(Date.now() - 180 * 86400000);
 
-    for (const [ticker, series] of Object.entries(seriesByTicker)) {
-      const buys = series.filter(s => s.type === 'P');
-      if (buys.length < 3) continue; // need enough buys for meaningful stats
+    for (const [ticker, buys] of Object.entries(buysByTicker)) {
+      if (buys.length < 3) continue;
 
-      // For each buy, find the nearest price observation at ~30, 90, 180 calendar days later
+      const priceSeries = priceSeriesByTicker[ticker] || [];
       const TARGETS = [30, 90, 180];
       const retsByTarget = { 30: [], 90: [], 180: [] };
       let measured = 0;
 
       buys.forEach(buy => {
-        // Only use buys that are old enough to have forward data (>180 days ago)
         const buyDt = new Date(buy.date + 'T00:00:00Z');
-        const cutoff = new Date(Date.now() - 180 * 86400000);
-        if (buyDt > cutoff) return;
+        if (buyDt > cutoff) return; // need 180 days of forward data
 
         let gotAny = false;
         TARGETS.forEach(days => {
           const targetDt = new Date(buyDt.getTime() + days * 86400000);
-          const targetStr = targetDt.toISOString().slice(0, 10);
-          // Find closest price observation within ±45 days of target
           let best = null, bestDiff = Infinity;
-          series.forEach(obs => {
-            if (obs.date <= buy.date) return; // must be after buy
+          priceSeries.forEach(obs => {
+            if (obs.date <= buy.date) return;
             const diff = Math.abs(new Date(obs.date + 'T00:00:00Z') - targetDt) / 86400000;
             if (diff < bestDiff && diff <= 45) { best = obs; bestDiff = diff; }
           });
@@ -881,7 +895,6 @@ app.get('/api/drift', (req, res) => {
       results.push({
         ticker, company: companyByTicker[ticker] || ticker,
         buyCount: measured,
-        // Map to the display keys the frontend expects: 1→D+30, 5→D+90, 20→D+180
         avg: { 1: avg[30], 5: avg[90], 20: avg[180], 60: avg[180] },
         winRate, accelerates,
         weightedAvg: +wAvg.toFixed(2), score,
