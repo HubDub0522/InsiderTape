@@ -502,28 +502,28 @@ app.get('/api/scoreboard', (req, res) => {
       return res.json(empty);
     }
 
-    // Build a DB-only price series per ticker: date→price from trade records
-    // This avoids ALL external API calls — works entirely from SEC filing prices
-    const allTickers = [...new Set(rows.flatMap(r => (r.tickers_csv||'').split(',').filter(Boolean)))];
-    const dbPriceRows = db.prepare(`
-      SELECT ticker, trade_date, AVG(price) AS price
-      FROM trades
-      WHERE ticker IN (${allTickers.map(()=>'?').join(',')})
-        AND price > 0
-      GROUP BY ticker, trade_date
-      ORDER BY ticker, trade_date
-    `).all(...allTickers);
-
-    // Build price series per ticker: array of {time, close} sorted by date
+    // Build a DB-only price series per ticker using indexed per-ticker queries.
+    // Capped at 60 tickers to avoid blocking the SQLite event loop.
+    // Each query uses the idx_ticker_date_price covering index — fast range scan.
+    const allTickers = [...new Set(rows.flatMap(r => (r.tickers_csv||'').split(',').filter(Boolean)))].slice(0, 60);
     const priceCache = {};
-    dbPriceRows.forEach(r => {
-      if (!priceCache[r.ticker]) priceCache[r.ticker] = [];
-      priceCache[r.ticker].push({ time: r.trade_date, close: r.price, high: r.price, low: r.price });
-    });
-    // Also try warm in-memory cache for better coverage (if populated)
+    const priceStmt = db.prepare(`
+      SELECT trade_date, AVG(price) AS price
+      FROM trades
+      WHERE ticker = ? AND price > 0
+      GROUP BY trade_date
+      ORDER BY trade_date
+    `);
     allTickers.forEach(sym => {
-      const warm = getPC(sym);
-      if (warm && warm.length > priceCache[sym]?.length) priceCache[sym] = warm;
+      const warmBars = getPC(sym);
+      if (warmBars && warmBars.length > 10) {
+        priceCache[sym] = warmBars; // prefer full OHLC from warm cache
+      } else {
+        const rows2 = priceStmt.all(sym);
+        if (rows2.length) {
+          priceCache[sym] = rows2.map(r => ({ time: r.trade_date, close: r.price, high: r.price, low: r.price }));
+        }
+      }
     });
 
     // Score every insider
