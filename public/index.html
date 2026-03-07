@@ -640,7 +640,9 @@ const API_BASE = '';
 async function apiFetch(path, opts={}) {
   const controller = new AbortController();
   // Scoreboard does many parallel price fetches — give it extra time
-  const ms = path.startsWith('/api/scoreboard') ? 55000 : 28000;
+  const ms = path.startsWith('/api/scoreboard') ? 55000
+           : (path.startsWith('/api/drift') || path.startsWith('/api/proximity')) ? 45000
+           : 28000;
   const timer = setTimeout(() => controller.abort(), ms);
   try {
     const resp = await fetch(API_BASE + path, { ...opts, signal: controller.signal });
@@ -1930,8 +1932,10 @@ function _renderProximityResults(body, backBtn, results) {
     const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(255,170,0,0.07)' : 'rgba(0,212,255,0.05)';
 
     // Days-to bar
-    const daysBarWidth = Math.round((1 - r.daysTo / PROXIMITY_WINDOW) * 100);
-    const evtIcon = typeIcon[r.nextEvent.type] || '📅';
+    const daysBarWidth = Math.max(5, Math.min(95, Math.round((1 - r.daysTo / PROXIMITY_WINDOW) * 100)));
+    const evtIcon = typeIcon[r.nextEvent?.type] || '📅';
+    const evtDate = r.nextEvent?.date || '—';
+    const evtLabel = r.nextEvent?.label || (r.nextEvent?.type === 'EARNINGS' ? 'Predicted Earnings' : 'Upcoming Event');
 
     // Timeline: buy → event
     const timeline = `
@@ -1943,11 +1947,11 @@ function _renderProximityResults(body, backBtn, results) {
         <div style="position:absolute;top:50%;left:${daysBarWidth}%;transform:translate(-50%,-50%);background:${r.proximityColor};width:8px;height:8px;border-radius:50%"></div>
         <div style="position:absolute;top:-1px;left:50%;transform:translateX(-50%);font-size:8px;color:${r.proximityColor};white-space:nowrap">${r.daysTo}d</div>
       </div>
-      <div style="font-family:'Space Mono',monospace;font-size:9px;color:${r.proximityColor};white-space:nowrap">${evtIcon} ${r.nextEvent.date}</div>
+      <div style="font-family:'Space Mono',monospace;font-size:9px;color:${r.proximityColor};white-space:nowrap">${evtIcon} ${evtDate}</div>
     </div>`;
 
     // Event list pills
-    const evtPills = r.allUpcoming.map((e, i) => {
+    const evtPills = (r.allUpcoming || []).map((e, i) => {
       const ic = typeIcon[e.type] || '📅';
       const evDt = new Date(e.date + 'T12:00:00Z');
       const buyDt = new Date(r.buyDate + 'T12:00:00Z');
@@ -1987,7 +1991,7 @@ function _renderProximityResults(body, backBtn, results) {
             <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${scoreColor};line-height:1">${r.score}</div>
             <div style="font-family:'Space Mono',monospace;font-size:7px;color:${scoreColor};letter-spacing:1px">PROXIMITY</div>
           </div>
-          <div style="font-family:'Space Mono',monospace;font-size:8px;color:${r.proximityColor};margin-top:4px">${r.proximityTier}</div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:${r.proximityColor};margin-top:4px">${r.daysTo <= 14 ? '🔴 IMMINENT' : r.daysTo <= 30 ? '🟡 SOON' : r.daysTo <= 60 ? '🔵 UPCOMING' : '⬜ WATCH'}</div>
         </div>
       </div>
 
@@ -2001,8 +2005,8 @@ function _renderProximityResults(body, backBtn, results) {
 
       <!-- Footer stats -->
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
-        <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal)}</span></div>
-        <div style="font-size:10px;color:var(--muted)">Next: <span style="color:${r.proximityColor}">${r.nextEvent.label}</span> in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
+        <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal || r.buyValue || 0)}</span></div>
+        <div style="font-size:10px;color:var(--muted)">Next: <span style="color:${r.proximityColor}">${evtLabel}</span> in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
       </div>
     </div>`;
   };
@@ -3450,8 +3454,22 @@ async function loadAnalysisPage(subpage) {
     } catch(e) { _analysisData = []; }
   }
 
-  // NOTE: _analysisDataLong is fetched lazily by the subpages that need it
-  // (Capital at Risk, Regime Shift) — not here, to avoid blocking the server.
+  // Pre-fetch drift and proximity in background so tiles are instant when clicked
+  if (!_driftCache) {
+    apiFetch('/api/drift').then(results => {
+      _driftCache = Array.isArray(results) ? results : [];
+      // Refresh dashboard tile count once loaded
+      const b = document.getElementById('analysisViewBody');
+      if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+    }).catch(() => { _driftCache = []; });
+  }
+  if (!_proximityCache) {
+    apiFetch('/api/proximity').then(results => {
+      _proximityCache = Array.isArray(results) ? results : [];
+      const b = document.getElementById('analysisViewBody');
+      if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+    }).catch(() => { _proximityCache = []; });
+  }
 
   // Kick off leaderboard scores in background so tiles show counts when dashboard renders
   if (_insiderScoreCache === null && _timingAlphaCache === null) {
@@ -3636,7 +3654,7 @@ function renderAnalysisDashboard() {
     top3: proxTop3.map(r => ({
       ticker: r.ticker,
       label: `Score ${r.score}`,
-      sub: `${r.daysTo}d before ${r.nextEvent.type === 'EARNINGS' ? 'earnings' : 'event'} · ${r.proximityTier}`,
+      sub: `${r.daysTo}d before ${r.nextEvent?.type === 'EARNINGS' ? 'earnings' : 'event'} · ${r.insider ? r.insider.split(' ').slice(-1)[0] : r.ticker}`,
       color: r.isAbnormal ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : 'var(--accent)',
     })),
     accentColor: 'var(--sell)',
