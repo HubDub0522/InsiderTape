@@ -52,6 +52,7 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
 
 // ─── Clean up bad/invalid trade records ──────────────────────
 {
@@ -740,23 +741,26 @@ app.get('/api/price', async (req, res) => {
 // PRICES-BULK — returns price bars for multiple tickers in one request.
 // Serves from warm in-memory cache; fetches cold misses in parallel (capped at 20 tickers).
 // Used by Post-Buy Drift Analyzer to avoid 150 individual round-trips.
-app.get('/api/prices-bulk', async (req, res) => {
+app.get('/api/prices-bulk', (req, res) => {
   const raw = (req.query.symbols || '').toUpperCase().trim();
   if (!raw) return res.status(400).json({ error: 'symbols required' });
-  const syms = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 20);
+  const syms = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 50);
 
-  // Serve anything already in the warm cache immediately; fetch cold misses in parallel
-  const coldMisses = syms.filter(s => !getPC(s));
-  if (coldMisses.length) {
-    await Promise.allSettled(coldMisses.map(s => fetchPriceBars(s)));
-  }
-
+  // Respond IMMEDIATELY with whatever is in warm cache — never block on external fetches.
+  // Fire cold-miss fetches in background so they'll be warm on the next request.
   const result = {};
+  const coldMisses = [];
   syms.forEach(s => {
     const bars = getPC(s);
     if (bars) result[s] = bars;
+    else coldMisses.push(s);
   });
-  res.json(result);
+  res.json(result); // instant response
+
+  // Warm up cold misses in background (don't await)
+  if (coldMisses.length) {
+    Promise.allSettled(coldMisses.map(s => fetchPriceBars(s))).catch(() => {});
+  }
 });
 
 // POST-BUY DRIFT — computed entirely from the DB's own trade price records.
