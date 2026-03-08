@@ -56,14 +56,35 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trad
 
 // ─── Clean up bad/invalid trade records ──────────────────────
 {
-  const r = db.prepare(`
+  // Remove invalid tickers
+  const r1 = db.prepare(`
     DELETE FROM trades
     WHERE ticker IN ('N/A','NA','NONE','NULL','--','-','.')
        OR ticker NOT GLOB '[A-Z]*'
        OR LENGTH(ticker) < 1 OR LENGTH(ticker) > 10
        OR COALESCE(company,'') IN ('N/A','NA','None','NULL','--','-')
   `).run();
-  if (r.changes > 0) console.log(`Cleaned up ${r.changes} invalid trade records`);
+  if (r1.changes > 0) console.log(`Cleaned up ${r1.changes} invalid ticker records`);
+
+  // Remove non-open-market transaction codes.
+  // Only keep P (open-market buy), S (open-market sell), S- (sale under 10b5-1 plan).
+  // Conversions (C), exercises (M), awards (A), gifts (G), tax withholding (F),
+  // disposals (D), inheritance (W), trust transfers (Z), etc. are not market trades
+  // and produce fabricated values (qty * exercise_price = billions of fake dollars).
+  const r2 = db.prepare(`
+    DELETE FROM trades
+    WHERE TRIM(type) NOT IN ('P', 'S', 'S-')
+  `).run();
+  if (r2.changes > 0) console.log(`Removed ${r2.changes} non-market transaction records (conversions, exercises, awards, etc.)`);
+
+  // Remove records with implausible values that slipped through
+  const r3 = db.prepare(`
+    DELETE FROM trades
+    WHERE value > 2000000000
+       OR price > 1500000
+       OR qty   > 50000000
+  `).run();
+  if (r3.changes > 0) console.log(`Removed ${r3.changes} records with implausible values (likely derivative artifacts)`);
 }
 
 db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
@@ -304,15 +325,16 @@ app.get('/api/insider', (req, res) => {
   if (name.length < 2) return res.status(400).json({ error: 'name too short' });
   try {
     const pattern = exact ? name : `%${name}%`;
-    // Exact match: full history up to 2000 rows
-    // Fuzzy match: cap at 500 rows to avoid massive payloads on broad queries
     const limit = exact ? 2000 : 500;
     const rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned
-      FROM trades WHERE UPPER(insider) LIKE UPPER(?)
+      FROM trades
+      WHERE UPPER(insider) LIKE UPPER(?)
+        AND TRIM(type) IN ('P','S','S-')
+        AND COALESCE(value, 0) <= 2000000000
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC LIMIT ?
     `).all(pattern, limit);
