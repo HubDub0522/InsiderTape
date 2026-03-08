@@ -411,6 +411,7 @@
     <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
     <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
     <button class="nav-tab" id="analysisTab" onclick="switchView('analysis', this)">ANALYSIS</button>
+    <button class="nav-tab" id="monitorTab" onclick="switchView('monitor', this)">MONITOR</button>
   </nav>
 </header>
 
@@ -521,6 +522,10 @@
   <div id="analysisViewBody"></div>
 </div>
 
+<div id="view-monitor" class="view">
+  <div id="monitorViewBody"></div>
+</div>
+
 
 </main>
 <div class="toast" id="toast"></div>
@@ -600,7 +605,7 @@ function switchView(view, btn, opts={}) {
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
-    const idx = {screener:0, stock:1, insider:2, analysis:3}[view];
+    const idx = {screener:0, stock:1, insider:2, analysis:3, monitor:4}[view];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
   }
   if (view === 'insider') {
@@ -625,6 +630,9 @@ function switchView(view, btn, opts={}) {
       renderAnalysisDashboard();
     }
   }
+  if (view === 'monitor') {
+    loadMonitorPage();
+  }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
     history.pushState({view, subview: null}, '', url);
@@ -633,7 +641,7 @@ function switchView(view, btn, opts={}) {
 }
 
 function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis'};
+  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis', monitor:'INSIDERTAPE — Monitor'};
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function searchTicker() {
@@ -5095,6 +5103,312 @@ function renderClusterCard(c) {
       <div style="font-size:11px;color:var(--accent)">View chart →</div>
     </div>
   </div>`;
+}
+
+// ── MONITOR PAGE ──────────────────────────────────────────────────
+// Pulls signals from all Analysis tools across 3 time windows (today, week, month)
+// and presents them as a unified alert feed.
+
+let _monitorTab = 'today'; // 'today' | 'week' | 'month'
+let _monitorCache = {}; // keyed by window
+
+async function loadMonitorPage() {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('monitorViewBody');
+  if (!body) return;
+  renderMonitorShell(body);
+  await runMonitorWindow(_monitorTab, body);
+}
+
+function renderMonitorShell(body) {
+  const tabStyle = (id) => `
+    display:inline-flex;align-items:center;gap:6px;padding:8px 18px;
+    font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;
+    border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s;
+    background:${_monitorTab===id?'rgba(0,212,255,0.12)':'transparent'};
+    color:${_monitorTab===id?'var(--accent)':'var(--muted)'};
+    border-color:${_monitorTab===id?'var(--accent)':'var(--border)'};
+  `;
+  body.innerHTML = `
+  <div style="max-width:1100px;margin:0 auto;padding:24px 20px">
+    <div style="margin-bottom:24px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Real-time signal alerts from all Analysis tools · Sorted by strength</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:28px">
+      <button style="${tabStyle('today')}" onclick="switchMonitorTab('today')">📅 TODAY'S NOTABLE</button>
+      <button style="${tabStyle('week')}"  onclick="switchMonitorTab('week')">📆 THIS WEEK</button>
+      <button style="${tabStyle('month')}" onclick="switchMonitorTab('month')">🗓 THIS MONTH</button>
+    </div>
+    <div id="monitorAlerts">
+      <div class="loading-state"><div class="spinner"></div><span>Scanning for notable activity…</span></div>
+    </div>
+  </div>`;
+}
+
+async function switchMonitorTab(tab) {
+  _monitorTab = tab;
+  const body = document.getElementById('monitorViewBody');
+  if (!body) return;
+  renderMonitorShell(body);
+  await runMonitorWindow(tab, body);
+}
+
+async function runMonitorWindow(tab, body) {
+  window.scrollTo(0, 0);
+  const days = tab === 'today' ? 1 : tab === 'week' ? 7 : 30;
+  const label = tab === 'today' ? 'today' : tab === 'week' ? 'this week' : 'this month';
+
+  // Use cache if available
+  if (_monitorCache[tab]) {
+    renderMonitorAlerts(_monitorCache[tab], label, body);
+    return;
+  }
+
+  try {
+    // Fetch trades for this window
+    const resp = await apiFetch('/api/screener?days=' + days);
+    const trades = Array.isArray(resp) ? resp : (resp.trades || []);
+
+    // Also fetch firstbuys for this window
+    const lookback = days;
+    let firstBuys = [];
+    try {
+      const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${lookback}&limit=50`);
+      firstBuys = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
+    } catch(e) {}
+
+    // Also fetch proximity and drift from cache (already loaded by analysis page)
+    const proximity = _proximityCache || [];
+    const drift     = _driftCache || [];
+
+    const alerts = buildMonitorAlerts(trades, firstBuys, proximity, drift, days);
+    _monitorCache[tab] = alerts;
+    renderMonitorAlerts(alerts, label, body);
+  } catch(e) {
+    const el = document.getElementById('monitorAlerts');
+    if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px;font-size:13px">Error loading monitor data: ${e.message}</div>`;
+  }
+}
+
+function buildMonitorAlerts(trades, firstBuys, proximity, drift, days) {
+  const alerts = [];
+  const now = new Date();
+  const cutoff = new Date(now); cutoff.setDate(now.getDate() - days);
+  const cutStr = cutoff.toISOString().slice(0, 10);
+
+  // ── 1. Cluster Buys ──────────────────────────────────────────
+  try {
+    detectAdvancedClusters(trades).forEach(c => {
+      const latestDate = c.trades?.map(t => t.trade||t.filing||'').sort().reverse()[0] || '';
+      if (latestDate < cutStr) return;
+      const totalVal = (c.trades||[]).reduce((s, t) => s + (t.value||0), 0);
+      alerts.push({
+        ticker:   c.ticker,
+        company:  c.company || c.ticker,
+        type:     'CLUSTER',
+        icon:     '🔵',
+        color:    'var(--accent)',
+        headline: `${c.insiders?.size || c.buyerCount || '?'} insiders buying in cluster`,
+        detail:   `${c.insiders?.size || '?'} unique insiders · ${fmt(totalVal)} total · window: ${c.dateRange || ''}`,
+        score:    90,
+        date:     latestDate,
+      });
+    });
+  } catch(e) {}
+
+  // ── 2. High Conviction ────────────────────────────────────────
+  try {
+    buildConvictionData(trades).filter(c => c.score >= 60).forEach(c => {
+      const latestDate = (c.trades||[]).map(t => t.trade||t.filing||'').sort().reverse()[0] || '';
+      if (latestDate < cutStr) return;
+      alerts.push({
+        ticker:   c.ticker,
+        company:  c.company || c.ticker,
+        type:     'CONVICTION',
+        icon:     '⚡',
+        color:    '#ffd700',
+        headline: `High conviction buy · Score ${c.score}`,
+        detail:   c.reasons?.slice(0,2).join(' · ') || '',
+        score:    c.score,
+        date:     latestDate,
+      });
+    });
+  } catch(e) {}
+
+  // ── 3. First Buy in Years ─────────────────────────────────────
+  firstBuys.forEach(s => {
+    if (!s.ticker || (s.latestTrade || '') < cutStr) return;
+    alerts.push({
+      ticker:   s.ticker,
+      company:  s.company || s.ticker,
+      type:     'FIRST BUY',
+      icon:     '🚨',
+      color:    'var(--sell)',
+      headline: `First buy in ${s.gapYears?.toFixed(1) || '?'}yr — ${s.insider}`,
+      detail:   `${s.title || 'Insider'} · ${fmt(s.value || 0)} · gap: ${s.gapYears?.toFixed(1)}yrs`,
+      score:    85,
+      date:     s.latestTrade || '',
+    });
+  });
+
+  // ── 4. Exit Warnings ─────────────────────────────────────────
+  try {
+    detectExitWarnings(trades).forEach(w => {
+      const latestDate = (w.sells||[]).map(t => t.trade||t.filing||'').sort().reverse()[0] || '';
+      if (latestDate < cutStr) return;
+      alerts.push({
+        ticker:   w.ticker,
+        company:  w.company || w.ticker,
+        type:     'EXIT WARNING',
+        icon:     '⚠️',
+        color:    'var(--sell)',
+        headline: `Exit warning · ${w.warning || 'Insider selling detected'}`,
+        detail:   w.detail || `${fmt(w.totalSellVal || 0)} sold`,
+        score:    70,
+        date:     latestDate,
+      });
+    });
+  } catch(e) {}
+
+  // ── 5. Capital at Risk ────────────────────────────────────────
+  try {
+    buildCapitalAtRiskData(trades).filter(c => c.score >= 70).forEach(c => {
+      const latestDate = (c.trades||[]).map(t => t.trade||t.filing||'').sort().reverse()[0] || '';
+      if (latestDate < cutStr) return;
+      alerts.push({
+        ticker:   c.ticker,
+        company:  c.company || c.ticker,
+        type:     'HIGH CAR',
+        icon:     '💰',
+        color:    'var(--buy)',
+        headline: `High personal capital at risk · CAR ${c.score}`,
+        detail:   c.reason || `${c.insider} · ${fmt(c.value || 0)}`,
+        score:    c.score,
+        date:     latestDate,
+      });
+    });
+  } catch(e) {}
+
+  // ── 6. Event Proximity (from cached proximity data) ───────────
+  proximity.filter(p => p.score >= 60).forEach(p => {
+    const d = p.latestBuy || p.date || '';
+    if (d && d < cutStr) return;
+    alerts.push({
+      ticker:   p.ticker,
+      company:  p.company || p.ticker,
+      type:     'EVENT PROXIMITY',
+      icon:     '🎯',
+      color:    'var(--option)',
+      headline: `Buying ${p.daysTo != null ? p.daysTo + 'd before' : 'near'} ${p.nextEvent?.type || 'event'}`,
+      detail:   p.topInsiders?.slice(0,2).join(', ') || '',
+      score:    p.score,
+      date:     d,
+    });
+  });
+
+  // ── 7. Drift leaders newly active in this window ─────────────
+  const driftTickers = new Set(trades.filter(t => t.type === 'P').map(t => t.ticker));
+  drift.filter(d => d.score >= 65 && driftTickers.has(d.ticker)).forEach(d => {
+    const t = trades.find(tr => tr.ticker === d.ticker && tr.type === 'P');
+    const latestDate = t?.trade || t?.filing || '';
+    if (latestDate && latestDate < cutStr) return;
+    alerts.push({
+      ticker:   d.ticker,
+      company:  d.company || d.ticker,
+      type:     'STRONG DRIFT',
+      icon:     '📈',
+      color:    'var(--buy)',
+      headline: `Strong post-buy drift history · Score ${d.score}`,
+      detail:   `${d.winRate}% win rate · avg D+90: ${d.avg?.[5] != null ? (d.avg[5] >= 0 ? '+' : '') + d.avg[5].toFixed(1) + '%' : '—'}`,
+      score:    d.score,
+      date:     latestDate,
+    });
+  });
+
+  // Sort: score desc, then date desc
+  alerts.sort((a, b) => (b.score - a.score) || (b.date||'').localeCompare(a.date||''));
+
+  // Deduplicate: keep only highest-score alert per ticker+type combo, max 3 alerts per ticker
+  const tickerCount = {};
+  const seen = new Set();
+  return alerts.filter(a => {
+    const key = a.ticker + '|' + a.type;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    tickerCount[a.ticker] = (tickerCount[a.ticker] || 0) + 1;
+    return tickerCount[a.ticker] <= 3;
+  });
+}
+
+function renderMonitorAlerts(alerts, label, body) {
+  const el = document.getElementById('monitorAlerts');
+  if (!el) return;
+
+  if (!alerts.length) {
+    el.innerHTML = `
+      <div style="text-align:center;padding:60px 20px;color:var(--muted)">
+        <div style="font-size:32px;margin-bottom:12px">🔍</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:8px">NO NOTABLE ACTIVITY ${label.toUpperCase()}</div>
+        <div style="font-size:12px">Check back later — signals appear when insiders make significant moves.</div>
+      </div>`;
+    return;
+  }
+
+  // Group by ticker for cleaner presentation
+  const byTicker = {};
+  alerts.forEach(a => {
+    if (!byTicker[a.ticker]) byTicker[a.ticker] = { company: a.company, date: a.date, alerts: [] };
+    byTicker[a.ticker].alerts.push(a);
+    if (a.date > byTicker[a.ticker].date) byTicker[a.ticker].date = a.date;
+  });
+
+  // Sort ticker groups by their highest alert score
+  const groups = Object.entries(byTicker).sort((a, b) => {
+    const sa = Math.max(...a[1].alerts.map(x => x.score));
+    const sb = Math.max(...b[1].alerts.map(x => x.score));
+    return sb - sa;
+  });
+
+  el.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:16px;font-family:'Space Mono',monospace">
+      ${alerts.length} signals across ${groups.length} tickers ${label}
+    </div>
+    ${groups.map(([ticker, group]) => {
+      const topScore = Math.max(...group.alerts.map(a => a.score));
+      const scoreColor = topScore >= 80 ? 'var(--buy)' : topScore >= 60 ? 'var(--accent)' : 'var(--option)';
+      const scoreBg    = topScore >= 80 ? 'rgba(0,255,136,0.08)' : topScore >= 60 ? 'rgba(0,212,255,0.07)' : 'rgba(255,170,0,0.06)';
+      const scoreBorder= topScore >= 80 ? 'rgba(0,255,136,0.25)' : topScore >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(255,170,0,0.18)';
+      return `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden;transition:border-color .15s"
+           onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
+        <!-- Ticker header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);cursor:pointer"
+             onclick="loadStockView('${ticker}')">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent)">${ticker}</span>
+            <span style="font-size:12px;color:var(--muted)">${group.company}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">${fmtDate(group.date)}</span>
+            <div style="background:${scoreBg};border:1px solid ${scoreBorder};border-radius:5px;padding:4px 10px;font-family:'Bebas Neue',sans-serif;font-size:18px;color:${scoreColor};line-height:1">${topScore}</div>
+          </div>
+        </div>
+        <!-- Alerts for this ticker -->
+        ${group.alerts.map((a, i) => `
+          <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 18px;${i < group.alerts.length-1 ? 'border-bottom:1px solid rgba(30,45,61,0.6)' : ''}">
+            <span style="font-size:16px;line-height:1.4;flex-shrink:0">${a.icon}</span>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:2px 6px;background:${a.color}22;border:1px solid ${a.color}44;border-radius:3px;color:${a.color}">${a.type}</span>
+                <span style="font-size:12px;color:var(--text);font-weight:600">${a.headline}</span>
+              </div>
+              ${a.detail ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">${a.detail}</div>` : ''}
+            </div>
+            <div style="font-family:'Space Mono',monospace;font-size:11px;color:${a.color};flex-shrink:0;padding-top:2px">${a.score}</div>
+          </div>`).join('')}
+      </div>`;
+    }).join('')}`;
 }
 
 // ── URL ROUTING ───────────────────────────────────────────────────
