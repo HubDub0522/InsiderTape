@@ -812,6 +812,7 @@ function computeConvictionScores(trades) {
 }
 
 function renderScreener() {
+  window.scrollTo(0, 0);
   const data = state.screenerData;
   const buys = data.filter(t => t.type==='P'), sells = data.filter(t => t.type==='S'||t.type==='S-');
   const totalBuyVal = buys.reduce((s,t)=>s+t.value,0), totalSellVal = sells.reduce((s,t)=>s+t.value,0);
@@ -1064,6 +1065,7 @@ function buildCapitalAtRiskData(trades) {
 let _carCache = null;
 
 function renderCapitalAtRiskSubpage() {
+  window.scrollTo(0, 0);
   const body    = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -1456,6 +1458,7 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 let _regimeCache = null;
 
 function renderRegimeShiftSubpage() {
+  window.scrollTo(0, 0);
   const body      = document.getElementById('analysisViewBody');
   const backBtn   = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -1633,6 +1636,7 @@ async function buildPostBuyDrift(longTrades, onProgress) {
 }
 
 function renderDriftSubpage() {
+  window.scrollTo(0, 0);
   const body    = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -1867,6 +1871,7 @@ async function buildEventProximityData(trades, onProgress) {
 }
 
 function renderProximitySubpage() {
+  window.scrollTo(0, 0);
   const body    = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -2116,6 +2121,7 @@ async function loadStockLanding() {
 }
 
 function renderStockLanding(lists) {
+  window.scrollTo(0, 0);
   const content = document.getElementById('stockContent');
   if (!content) return;
   const { hotBuys=[], clusterBuys=[], freshBuys=[], heavySells=[], mostActive=[] } = lists;
@@ -2615,6 +2621,7 @@ function renderStockTradesTable(trades) {
 
 // ── INSIDER PROFILE ───────────────────────────────────────────────
 async function openInsiderProfile(name, title, opts={}) {
+  window.scrollTo(0, 0);
   const tab=document.getElementById('insiderTab');
   document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active')); tab.classList.add('active');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -2630,6 +2637,7 @@ async function openInsiderProfile(name, title, opts={}) {
 }
 
 async function renderInsiderProfile(name, title, trades) {
+  window.scrollTo(0, 0);
   const buys=trades.filter(t=>t.type==='P'), sells=trades.filter(t=>t.type==='S'||t.type==='S-');
   const buyVal=buys.reduce((s,t)=>s+t.value,0), sellVal=sells.reduce((s,t)=>s+t.value,0), netVal=buyVal-sellVal;
   const tickerMap={};
@@ -3397,6 +3405,7 @@ async function runInsiderSearch() {
 }
 
 async function openInsiderProfileFull(name, title) {
+  window.scrollTo(0, 0);
   const body=document.getElementById('insiderViewBody');
   body.dataset.showing = 'profile';
   body.innerHTML=`<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
@@ -3954,6 +3963,7 @@ function renderTimingLeadersList(ranked) {
 }
 
 function renderTopScoresSubpage() {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
   if (_insiderScoreCache === null) computeLeaderboardScores();
@@ -3983,6 +3993,7 @@ function renderTopScoresSubpage() {
 }
 
 function renderTimingLeadersSubpage() {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
   if (_timingAlphaCache === null) computeLeaderboardScores();
@@ -4015,6 +4026,7 @@ function renderTimingLeadersSubpage() {
 // ── INSIDER OPPORTUNITY RANKER ────────────────────────────────────
 
 async function renderRankerSubpage() {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -4340,6 +4352,7 @@ function renderRankerCard(r, idx) {
 // ── INSIDER EXIT WARNING SYSTEM ───────────────────────────────────
 
 function renderExitWarningSubpage() {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
@@ -4619,6 +4632,7 @@ const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
 // ── FIRST BUY IN YEARS SCANNER ────────────────────────────────────
 
 async function renderFirstBuySubpage() {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -4829,6 +4843,7 @@ function renderFirstBuyCard(s) {
 }
 
 function renderClusterEngine(trades) {
+  window.scrollTo(0, 0);
   const clusters = detectAdvancedClusters(trades);
   if (!clusters.length) return `<div style="color:var(--muted);font-size:12px;padding:20px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;text-align:center">No qualifying clusters detected in the last 30 days. Try a broader time window.</div>`;
 
