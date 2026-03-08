@@ -220,7 +220,7 @@ app.get('/api/screener', (req, res) => {
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
 
     const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
-    const limit = Math.min(parseInt(req.query.limit || '1000'), 2000);
+    const limit = Math.min(parseInt(req.query.limit || '5000'), 10000);
 
         let rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
