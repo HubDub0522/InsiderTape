@@ -5325,21 +5325,23 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   } catch(e) {}
 
   // ── 2. High Conviction ────────────────────────────────────────
+  // buildConvictionData returns: { ticker, company, score, reasons, latestDate, totalVal }
   try {
-    buildConvictionData(trades).filter(c => c.score >= 60).forEach(c => {
-      const latestDate = (c.trades||[]).map(t=>t.trade||t.filing||'').sort().reverse()[0] || '';
+    buildConvictionData(trades).filter(c => c.score >= 55).forEach(c => {
+      const latestDate = c.latestDate || '';
       if (!latestDate || latestDate < cutStr) return;
       alerts.push({
         ticker: c.ticker, company: c.company || c.ticker,
         type: 'CONVICTION', icon: '⚡', color: '#ffd700',
         headline: `High conviction buy · Score ${c.score}`,
-        detail: c.reasons?.slice(0,2).join(' · ') || '',
+        detail: (c.reasons||[]).slice(0,2).join(' · '),
         score: c.score, date: latestDate,
       });
     });
   } catch(e) {}
 
   // ── 3. First Buy in Years ─────────────────────────────────────
+  // buildFirstBuySignal returns: { ticker, company, insider, title, value, gapYears, latestTrade }
   firstBuys.forEach(s => {
     if (!s.ticker || !s.latestTrade || s.latestTrade < cutStr) return;
     alerts.push({
@@ -5352,60 +5354,67 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   });
 
   // ── 4. Exit Warnings ─────────────────────────────────────────
+  // detectExitWarnings returns: { ticker, company, score, signals, totalSellVal, latestSell, topSignal, sellerCount }
   try {
-    detectExitWarnings(trades).forEach(w => {
-      const latestDate = (w.sells||[]).map(t=>t.trade||t.filing||'').sort().reverse()[0] || '';
+    detectExitWarnings(trades).filter(w => w.score >= 40).forEach(w => {
+      const latestDate = (w.latestSell?.trade || w.latestSell?.filing || '').slice(0,10);
       if (!latestDate || latestDate < cutStr) return;
       alerts.push({
         ticker: w.ticker, company: w.company || w.ticker,
         type: 'EXIT WARNING', icon: '⚠️', color: 'var(--sell)',
-        headline: `Exit warning · ${w.warning||'Insider selling detected'}`,
-        detail: w.detail || `${fmt(w.totalSellVal||0)} sold`,
-        score: 70, date: latestDate,
+        headline: `Exit warning · ${w.topSignal || w.severity || 'Insider selling'}`,
+        detail: `${w.sellerCount} seller${w.sellerCount!==1?'s':''} · ${fmt(w.totalSellVal)} sold`,
+        score: w.score, date: latestDate,
       });
     });
   } catch(e) {}
 
   // ── 5. Capital at Risk ────────────────────────────────────────
+  // buildCapitalAtRiskData returns: { ticker, company, insider, title, score, tradeDate, tradeVal, tier, factors }
   try {
-    buildCapitalAtRiskData(trades).filter(c => c.score >= 70).forEach(c => {
-      const latestDate = (c.trades||[]).map(t=>t.trade||t.filing||'').sort().reverse()[0] || '';
+    buildCapitalAtRiskData(trades).filter(c => c.score >= 60).forEach(c => {
+      const latestDate = (c.tradeDate || '').slice(0,10);
       if (!latestDate || latestDate < cutStr) return;
+      const topFactor = (c.factors||[])[0]?.label || '';
       alerts.push({
         ticker: c.ticker, company: c.company || c.ticker,
         type: 'HIGH CAR', icon: '💰', color: 'var(--buy)',
-        headline: `High personal capital at risk · CAR ${c.score}`,
-        detail: c.reason || `${c.insider} · ${fmt(c.value||0)}`,
+        headline: `${c.insider} putting serious capital at risk · CAR ${c.score}`,
+        detail: `${c.title||'Insider'} · ${fmt(c.tradeVal)} · ${topFactor}`,
         score: c.score, date: latestDate,
       });
     });
   } catch(e) {}
 
   // ── 6. Event Proximity ────────────────────────────────────────
-  proximity.filter(p => p.score >= 60).forEach(p => {
-    const d = p.latestBuy || p.date || '';
+  // _proximityCache entries: { ticker, company, score, latestBuy, daysTo, nextEvent, topInsiders }
+  proximity.filter(p => p.score >= 55).forEach(p => {
+    const d = (p.latestBuy || p.date || '').slice(0,10);
     if (!d || d < cutStr) return;
     alerts.push({
       ticker: p.ticker, company: p.company || p.ticker,
       type: 'EVENT PROXIMITY', icon: '🎯', color: 'var(--option)',
       headline: `Buying ${p.daysTo != null ? p.daysTo+'d before' : 'near'} ${p.nextEvent?.type||'event'}`,
-      detail: p.topInsiders?.slice(0,2).join(', ') || '',
+      detail: (p.topInsiders||[]).slice(0,2).join(', '),
       score: p.score, date: d,
     });
   });
 
   // ── 7. Strong Drift + new buy in window ──────────────────────
+  // _driftCache entries: { ticker, company, score, winRate, avg }
   const driftTickers = new Set(trades.filter(t => t.type==='P').map(t => t.ticker));
-  drift.filter(d => d.score >= 65 && driftTickers.has(d.ticker)).forEach(d => {
-    const t = trades.filter(tr => tr.ticker===d.ticker && tr.type==='P')
-                    .sort((a,b)=>(b.trade||b.filing||'').localeCompare(a.trade||a.filing||''))[0];
-    const latestDate = t?.trade || t?.filing || '';
+  drift.filter(d => d.score >= 60 && driftTickers.has(d.ticker)).forEach(d => {
+    const t = trades
+      .filter(tr => tr.ticker===d.ticker && tr.type==='P')
+      .sort((a,b)=>(b.trade||b.filing||'').localeCompare(a.trade||a.filing||''))[0];
+    const latestDate = (t?.trade || t?.filing || '').slice(0,10);
     if (!latestDate || latestDate < cutStr) return;
+    const avg90 = d.avg?.[5];
     alerts.push({
       ticker: d.ticker, company: d.company || d.ticker,
       type: 'STRONG DRIFT', icon: '📈', color: 'var(--buy)',
-      headline: `Strong post-buy drift · Score ${d.score}`,
-      detail: `${d.winRate}% win rate · avg D+90: ${d.avg?.[5]!=null?(d.avg[5]>=0?'+':'')+d.avg[5].toFixed(1)+'%':'—'}`,
+      headline: `Strong post-buy drift history · Score ${d.score}`,
+      detail: `${d.winRate}% win rate · avg D+90: ${avg90!=null?(avg90>=0?'+':'')+avg90.toFixed(1)+'%':'—'}`,
       score: d.score, date: latestDate,
     });
   });
