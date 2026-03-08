@@ -463,7 +463,6 @@
         <span class="filter-label">Data Source</span>
         <p style="font-size:11px;color:var(--muted);line-height:1.6">
           Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
-          Price data via Yahoo Finance.<br><br>
           <span style="color:var(--accent)">Note:</span> Data may be delayed up to 48hrs from SEC filing.
         </p>
       </div>
@@ -530,7 +529,7 @@
 const state = {
   screenerData: [], currentPage: 1, pageSize: 25,
   sortCol: 'trade', sortDir: -1,
-  activeTypes: new Set(['P','S','A','M']),
+  activeTypes: new Set(['P','S','S-']),
   activeRole: 'all', minVal: 100000, days: 7,
   currentTicker: null, tickerTrades: [],
   chart: null, candleSeries: null, markers: [],
@@ -695,15 +694,8 @@ async function loadScreener() {
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
     if (!trades.length) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>No recent data yet — loading most recent available...</span></div></td></tr>`;
-      const fallback = await apiFetch('/api/screener?days=365');
-      const all = Array.isArray(fallback) ? fallback : (fallback.trades || []);
-      if (!all.length) {
-        document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found.</div></div></td></tr>`;
-        return;
-      }
-      trades = all;
-      document.getElementById('summaryBar').innerHTML = `<div style="padding:8px 12px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;font-size:11px;color:#ffaa00;margin-bottom:8px">⚠ Recent daily data still loading. Showing most recent available filings.</div>`;
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
+      return;
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
@@ -2343,8 +2335,8 @@ function buildChart(priceData, trades) {
 
   // Watermark overlay — visible in screenshots
   const wm = document.createElement('div');
-  wm.style.cssText = 'position:absolute;bottom:48px;right:14px;font-family:"Bebas Neue",sans-serif;font-size:13px;letter-spacing:2px;color:rgba(255,255,255,0.13);pointer-events:none;user-select:none;z-index:2';
-  wm.textContent = 'INSIDERTAPE.COM';
+  wm.style.cssText = 'position:absolute;bottom:52px;right:16px;font-family:"Bebas Neue",sans-serif;font-size:18px;letter-spacing:3px;color:rgba(255,255,255,0.18);pointer-events:none;user-select:none;z-index:2';
+  wm.textContent = 'InsiderTape';
   container.appendChild(wm);
   const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
   const cutStr=cutoff.toISOString().split('T')[0];
