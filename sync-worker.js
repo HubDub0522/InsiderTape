@@ -117,28 +117,55 @@ const doInsert = db.transaction(batch => {
 function processTransactions(zipBuf, prefix, subMap, ownerMap) {
   const lines = extractOne(zipBuf, prefix);
   if (!lines) { log(`  ${prefix}: not found`); return 0; }
+
+  // Only process non-derivative transactions.
+  // Derivative transactions (options, convertibles, warrants) have underlying share counts
+  // that are enormous and exercise prices that are not open-market prices.
+  // qty * exercise_price produces fabricated "values" like $31,000B. Skip entirely.
+  if (prefix.toUpperCase().startsWith('DERIV_TRANS')) {
+    log(`  ${prefix}: skipping derivative transactions (non-market values excluded)`);
+    return 0;
+  }
+
   let batch = [], count = 0;
   for (const t of tsvRows(lines)) {
     const acc = t.ACCESSION_NUMBER || '';
     const sub = subMap[acc];
     if (!sub?.ticker) continue;
-    const date  = parseDate(t.TRANS_DATE||'') || sub.period || sub.filed;
+    const date = parseDate(t.TRANS_DATE||'') || sub.period || sub.filed;
     if (!date) continue;
-    const qty   = Math.round(Math.abs(parseFloat(t.TRANS_SHARES||t.UNDERLYING_SHARES||'0')||0));
-    const price = Math.abs(parseFloat(t.TRANS_PRICEPERSHARE||t.EXERCISE_PRICE||'0')||0);
+
+    // Only store open-market buys (P) and sales (S, S-)
+    // All other codes (C=conversion, M=exercise, A=award, G=gift, F=tax, J=other, etc.)
+    // are not open-market transactions and produce misleading values
+    const code = (t.TRANS_CODE||'').trim();
+    if (!['P','S','S-'].includes(code)) continue;
+
+    const qty   = Math.round(Math.abs(parseFloat(t.TRANS_SHARES||'0')||0));
+    const price = Math.abs(parseFloat(t.TRANS_PRICEPERSHARE||'0')||0);
+
+    // Sanity checks: reject implausible values
+    // Max realistic single-trade quantity: 50M shares (even large block trades rarely exceed this)
+    if (qty > 50_000_000) continue;
+    // Max realistic price per share: $1,500,000 (above Berkshire A ~$700K)
+    if (price > 1_500_000) continue;
+    // Computed value cap: $2B per single trade record (catches any remaining edge cases)
+    const value = Math.round(qty * price);
+    if (value > 2_000_000_000) continue;
+
     batch.push([
       sub.ticker, sub.company,
       ownerMap[acc]?.name||'', ownerMap[acc]?.title||'',
       date, sub.filed||date,
-      (t.TRANS_CODE||'?').trim(),
-      qty, +price.toFixed(4), Math.round(qty*price),
+      code,
+      qty, +price.toFixed(4), value,
       Math.round(Math.abs(parseFloat(t.SHRSOWNFOLLOWINGTRANS||'0')||0)),
       acc,
     ]);
     if (batch.length >= 500) { doInsert(batch); count += batch.length; batch = []; }
   }
   if (batch.length) { doInsert(batch); count += batch.length; }
-  lines.length = 0; // free memory
+  lines.length = 0;
   return count;
 }
 
