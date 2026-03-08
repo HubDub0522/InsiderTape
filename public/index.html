@@ -5110,19 +5110,47 @@ function renderClusterCard(c) {
 // and presents them as a unified alert feed.
 
 let _monitorTab = 'today';
-let _monitorCache = {};       // keyed by tab
-let _monitorTypeFilter = '';  // '' = all, or a type string like 'CLUSTER'
+let _monitorCache = {};
+let _monitorTypeFilters = new Set(); // empty = show all
 
 const MONITOR_TYPES = [
-  { key: '',               label: 'ALL'            },
-  { key: 'CLUSTER',        label: '🔵 CLUSTER'      },
-  { key: 'CONVICTION',     label: '⚡ CONVICTION'   },
-  { key: 'FIRST BUY',      label: '🚨 FIRST BUY'   },
-  { key: 'EXIT WARNING',   label: '⚠️ EXIT'         },
-  { key: 'HIGH CAR',       label: '💰 HIGH CAR'     },
-  { key: 'EVENT PROXIMITY',label: '🎯 PROXIMITY'    },
-  { key: 'STRONG DRIFT',   label: '📈 DRIFT'        },
+  { key: 'CLUSTER',         label: '🔵 CLUSTER'    },
+  { key: 'CONVICTION',      label: '⚡ CONVICTION'  },
+  { key: 'FIRST BUY',       label: '🚨 FIRST BUY'  },
+  { key: 'EXIT WARNING',    label: '⚠️ EXIT'        },
+  { key: 'HIGH CAR',        label: '💰 HIGH CAR'    },
+  { key: 'EVENT PROXIMITY', label: '🎯 PROXIMITY'   },
+  { key: 'STRONG DRIFT',    label: '📈 DRIFT'       },
 ];
+
+// Returns true if US markets are currently open (9:30–16:00 ET, Mon–Fri)
+function isMarketOpen() {
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = et.getDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const mins = et.getHours() * 60 + et.getMinutes();
+  return mins >= 570 && mins < 960; // 9:30am–4:00pm ET
+}
+
+// Returns ISO date of most recent trading day (today if market open or after close on weekday, else prior Friday/weekday)
+function lastTradingDate() {
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = et.getDay();
+  const mins = et.getHours() * 60 + et.getMinutes();
+  // If before market open on a weekday, use previous trading day
+  const isWeekday = day >= 1 && day <= 5;
+  const beforeOpen = mins < 570;
+  if (isWeekday && !beforeOpen) {
+    // Today is a valid trading day (during or after market hours)
+    return et.toISOString().slice(0, 10);
+  }
+  // Roll back to last weekday
+  const d = new Date(et);
+  do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
 
 async function loadMonitorPage() {
   window.scrollTo(0, 0);
@@ -5138,50 +5166,58 @@ function renderMonitorShell(body) {
     return `<button onclick="switchMonitorTab('${id}')" style="
       display:inline-flex;align-items:center;gap:6px;padding:8px 18px;
       font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;
-      border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};border-radius:6px;
+      border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:6px;
       cursor:pointer;transition:all .15s;
-      background:${active ? 'rgba(0,212,255,0.12)' : 'transparent'};
-      color:${active ? 'var(--accent)' : 'var(--muted)'}">${emoji} ${label}</button>`;
+      background:${active?'rgba(0,212,255,0.12)':'transparent'};
+      color:${active?'var(--accent)':'var(--muted)'}">${emoji} ${label}</button>`;
   };
   const typeBtn = (key, label) => {
-    const active = _monitorTypeFilter === key;
-    return `<button onclick="setMonitorTypeFilter('${key}')" style="
+    const active = _monitorTypeFilters.has(key);
+    return `<button onclick="toggleMonitorTypeFilter('${key}')" style="
       display:inline-flex;align-items:center;gap:4px;padding:5px 12px;
       font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.5px;
-      border:1px solid ${active ? 'rgba(255,255,255,0.4)' : 'var(--border)'};border-radius:4px;
+      border:1px solid ${active?'rgba(255,255,255,0.45)':'var(--border)'};border-radius:4px;
       cursor:pointer;transition:all .15s;white-space:nowrap;
-      background:${active ? 'rgba(255,255,255,0.1)' : 'transparent'};
-      color:${active ? 'var(--text)' : 'var(--muted)'}">${label}</button>`;
+      background:${active?'rgba(255,255,255,0.12)':'transparent'};
+      color:${active?'var(--text)':'var(--muted)'}">${label}</button>`;
   };
+  const filterNote = _monitorTypeFilters.size > 0
+    ? `<button onclick="clearMonitorFilters()" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;font-family:'Space Mono',monospace;font-size:9px;border:1px solid var(--sell);border-radius:4px;cursor:pointer;background:rgba(255,68,102,0.08);color:var(--sell)">✕ CLEAR</button>`
+    : '';
   body.innerHTML = `
   <div style="max-width:1100px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:20px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
     </div>
-
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
       ${tabBtn('today','📅','TODAY\'S NOTABLE')}
       ${tabBtn('week', '📆','THIS WEEK')}
       ${tabBtn('month','🗓','THIS MONTH')}
     </div>
-
-    <div style="display:flex;gap:6px;margin-bottom:24px;flex-wrap:wrap;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
-      <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;align-self:center;margin-right:4px">FILTER:</span>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:24px;flex-wrap:wrap;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-right:2px">FILTER:</span>
       ${MONITOR_TYPES.map(t => typeBtn(t.key, t.label)).join('')}
+      ${filterNote}
     </div>
-
     <div id="monitorAlerts">
       <div class="loading-state"><div class="spinner"></div><span>Scanning for notable activity…</span></div>
     </div>
   </div>`;
 }
 
-function setMonitorTypeFilter(key) {
-  _monitorTypeFilter = key;
+function toggleMonitorTypeFilter(key) {
+  if (_monitorTypeFilters.has(key)) _monitorTypeFilters.delete(key);
+  else _monitorTypeFilters.add(key);
+  _redrawMonitorAlerts();
+}
+function clearMonitorFilters() {
+  _monitorTypeFilters.clear();
+  _redrawMonitorAlerts();
+}
+function _redrawMonitorAlerts() {
   const body = document.getElementById('monitorViewBody');
   if (!body) return;
-  // Re-render shell (updates button states) then re-render alerts from cache
   const cached = _monitorCache[_monitorTab];
   renderMonitorShell(body);
   if (cached) {
@@ -5210,66 +5246,80 @@ async function runMonitorWindow(tab, body) {
   }
 
   try {
-    // For "today": fetch last 7 days so we always have the most recent trading day's data,
-    // then filter client-side to the most recent trade_date found in the response.
-    // This handles weekends and holidays automatically.
-    const fetchDays = tab === 'today' ? 7 : tab === 'week' ? 7 : 30;
+    // Fetch enough data for signal engines to work with
+    const fetchDays = tab === 'today' ? 14 : tab === 'week' ? 14 : 30;
     const resp = await apiFetch('/api/screener?days=' + fetchDays);
-    let trades = Array.isArray(resp) ? resp : (resp.trades || []);
+    const allTrades = Array.isArray(resp) ? resp : (resp.trades || []);
 
-    let cutStr;
+    // Determine the display cutoff:
+    // today → last trading day date (from server data, not client clock)
+    // week/month → calendar cutoff
+    let displayCutStr;
     if (tab === 'today') {
-      // Find most recent trade_date in the data (= last real trading day)
-      const dates = trades.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean).sort();
-      const lastTradingDay = dates[dates.length - 1] || '';
-      trades = trades.filter(t => (t.trade||t.filing||'').slice(0,10) === lastTradingDay);
-      cutStr = lastTradingDay;
+      // Use the most recent trade_date found in the server response as the anchor.
+      // This is reliable regardless of weekends/holidays/timezones.
+      const tradeDates = allTrades
+        .map(t => (t.trade || t.filing || '').slice(0, 10))
+        .filter(Boolean)
+        .sort();
+      const latestInDb = tradeDates[tradeDates.length - 1] || '';
+
+      // If market is currently open, prefer today's calendar date so live filings show up.
+      // Otherwise always use the last date actually present in the DB.
+      if (isMarketOpen()) {
+        const todayET = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+        displayCutStr = new Date(todayET).toISOString().slice(0, 10);
+        // Fall back to latestInDb if today has no data yet (pre-9:30 filings may not exist)
+        if (!tradeDates.includes(displayCutStr)) displayCutStr = latestInDb;
+      } else {
+        displayCutStr = latestInDb;
+      }
     } else {
       const now = new Date();
-      const cutoff = new Date(now); cutoff.setDate(now.getDate() - fetchDays);
-      cutStr = cutoff.toISOString().slice(0, 10);
+      const cutoff = new Date(now);
+      cutoff.setDate(now.getDate() - (tab === 'week' ? 7 : 30));
+      displayCutStr = cutoff.toISOString().slice(0, 10);
     }
 
+    // Pass ALL fetched trades to signal engines (so cluster detection etc. has enough context),
+    // but pass displayCutStr so buildMonitorAlerts filters alerts to the right window.
     let firstBuys = [];
     try {
-      const lookback = tab === 'today' ? 7 : fetchDays;
-      const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${lookback}&limit=50`);
-      const raw = Array.isArray(fb) ? fb : [];
-      firstBuys = raw.map(r => buildFirstBuySignal(r)).filter(s => {
-        if (tab !== 'today') return true;
-        return (s.latestTrade||'').slice(0,10) === cutStr;
-      });
+      const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${fetchDays}&limit=50`);
+      firstBuys = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
     } catch(e) {}
 
     const proximity = _proximityCache || [];
     const drift     = _driftCache     || [];
 
-    const alerts = buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr);
+    const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, drift, displayCutStr);
     _monitorCache[tab] = alerts;
-    renderMonitorAlerts(alerts, label, body);
+
+    // Annotate today label with actual trading day shown
+    const displayLabel = tab === 'today'
+      ? `on ${fmtDate(displayCutStr)}${isMarketOpen() ? ' (live)' : ''}`
+      : label;
+    renderMonitorAlerts(alerts, displayLabel, body);
   } catch(e) {
     const el = document.getElementById('monitorAlerts');
     if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px;font-size:13px">Error: ${e.message}</div>`;
   }
 }
 
-// cutStr = ISO date string — only include alerts with date >= cutStr
 function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   const alerts = [];
 
   // ── 1. Cluster Buys ──────────────────────────────────────────
   try {
     detectAdvancedClusters(trades).forEach(c => {
-      const latestDate = c.latestDate || c.trades?.map(t=>t.trade||t.filing||'').sort().reverse()[0] || '';
-      if (latestDate < cutStr) return;
+      const latestDate = c.latestDate || '';
+      if (!latestDate || latestDate < cutStr) return;
       alerts.push({
-        ticker:  c.ticker,
-        company: c.company || c.ticker,
-        type:    'CLUSTER', icon: '🔵', color: 'var(--accent)',
+        ticker:  c.ticker, company: c.company || c.ticker,
+        type: 'CLUSTER', icon: '🔵', color: 'var(--accent)',
         headline: `${c.insiderCount} insider${c.insiderCount !== 1 ? 's' : ''} buying in cluster`,
-        detail:  `${c.insiderCount} unique insiders · ${fmt(c.totalVal)} total · ${c.daySpan}d window`,
-        score:   Math.max(c.score, 60),
-        date:    latestDate,
+        detail: `${c.insiderCount} unique insiders · ${fmt(c.totalVal)} total · ${c.daySpan}d window`,
+        score: Math.max(c.score, 60), date: latestDate,
       });
     });
   } catch(e) {}
@@ -5278,30 +5328,26 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   try {
     buildConvictionData(trades).filter(c => c.score >= 60).forEach(c => {
       const latestDate = (c.trades||[]).map(t=>t.trade||t.filing||'').sort().reverse()[0] || '';
-      if (latestDate < cutStr) return;
+      if (!latestDate || latestDate < cutStr) return;
       alerts.push({
-        ticker:  c.ticker,
-        company: c.company || c.ticker,
-        type:    'CONVICTION', icon: '⚡', color: '#ffd700',
+        ticker: c.ticker, company: c.company || c.ticker,
+        type: 'CONVICTION', icon: '⚡', color: '#ffd700',
         headline: `High conviction buy · Score ${c.score}`,
-        detail:  c.reasons?.slice(0,2).join(' · ') || '',
-        score:   c.score,
-        date:    latestDate,
+        detail: c.reasons?.slice(0,2).join(' · ') || '',
+        score: c.score, date: latestDate,
       });
     });
   } catch(e) {}
 
   // ── 3. First Buy in Years ─────────────────────────────────────
   firstBuys.forEach(s => {
-    if (!s.ticker || (s.latestTrade||'') < cutStr) return;
+    if (!s.ticker || !s.latestTrade || s.latestTrade < cutStr) return;
     alerts.push({
-      ticker:  s.ticker,
-      company: s.company || s.ticker,
-      type:    'FIRST BUY', icon: '🚨', color: 'var(--sell)',
+      ticker: s.ticker, company: s.company || s.ticker,
+      type: 'FIRST BUY', icon: '🚨', color: 'var(--sell)',
       headline: `First buy in ${s.gapYears?.toFixed(1)||'?'}yr — ${s.insider}`,
-      detail:  `${s.title||'Insider'} · ${fmt(s.value||0)} · gap: ${s.gapYears?.toFixed(1)}yrs`,
-      score:   85,
-      date:    s.latestTrade || '',
+      detail: `${s.title||'Insider'} · ${fmt(s.value||0)} · gap: ${s.gapYears?.toFixed(1)}yrs`,
+      score: 85, date: s.latestTrade,
     });
   });
 
@@ -5309,15 +5355,13 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   try {
     detectExitWarnings(trades).forEach(w => {
       const latestDate = (w.sells||[]).map(t=>t.trade||t.filing||'').sort().reverse()[0] || '';
-      if (latestDate < cutStr) return;
+      if (!latestDate || latestDate < cutStr) return;
       alerts.push({
-        ticker:  w.ticker,
-        company: w.company || w.ticker,
-        type:    'EXIT WARNING', icon: '⚠️', color: 'var(--sell)',
+        ticker: w.ticker, company: w.company || w.ticker,
+        type: 'EXIT WARNING', icon: '⚠️', color: 'var(--sell)',
         headline: `Exit warning · ${w.warning||'Insider selling detected'}`,
-        detail:  w.detail || `${fmt(w.totalSellVal||0)} sold`,
-        score:   70,
-        date:    latestDate,
+        detail: w.detail || `${fmt(w.totalSellVal||0)} sold`,
+        score: 70, date: latestDate,
       });
     });
   } catch(e) {}
@@ -5326,15 +5370,13 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   try {
     buildCapitalAtRiskData(trades).filter(c => c.score >= 70).forEach(c => {
       const latestDate = (c.trades||[]).map(t=>t.trade||t.filing||'').sort().reverse()[0] || '';
-      if (latestDate < cutStr) return;
+      if (!latestDate || latestDate < cutStr) return;
       alerts.push({
-        ticker:  c.ticker,
-        company: c.company || c.ticker,
-        type:    'HIGH CAR', icon: '💰', color: 'var(--buy)',
+        ticker: c.ticker, company: c.company || c.ticker,
+        type: 'HIGH CAR', icon: '💰', color: 'var(--buy)',
         headline: `High personal capital at risk · CAR ${c.score}`,
-        detail:  c.reason || `${c.insider} · ${fmt(c.value||0)}`,
-        score:   c.score,
-        date:    latestDate,
+        detail: c.reason || `${c.insider} · ${fmt(c.value||0)}`,
+        score: c.score, date: latestDate,
       });
     });
   } catch(e) {}
@@ -5342,39 +5384,34 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   // ── 6. Event Proximity ────────────────────────────────────────
   proximity.filter(p => p.score >= 60).forEach(p => {
     const d = p.latestBuy || p.date || '';
-    if (d && d < cutStr) return;
+    if (!d || d < cutStr) return;
     alerts.push({
-      ticker:  p.ticker,
-      company: p.company || p.ticker,
-      type:    'EVENT PROXIMITY', icon: '🎯', color: 'var(--option)',
+      ticker: p.ticker, company: p.company || p.ticker,
+      type: 'EVENT PROXIMITY', icon: '🎯', color: 'var(--option)',
       headline: `Buying ${p.daysTo != null ? p.daysTo+'d before' : 'near'} ${p.nextEvent?.type||'event'}`,
-      detail:  p.topInsiders?.slice(0,2).join(', ') || '',
-      score:   p.score,
-      date:    d,
+      detail: p.topInsiders?.slice(0,2).join(', ') || '',
+      score: p.score, date: d,
     });
   });
 
   // ── 7. Strong Drift + new buy in window ──────────────────────
   const driftTickers = new Set(trades.filter(t => t.type==='P').map(t => t.ticker));
   drift.filter(d => d.score >= 65 && driftTickers.has(d.ticker)).forEach(d => {
-    const t = trades.find(tr => tr.ticker===d.ticker && tr.type==='P');
+    const t = trades.filter(tr => tr.ticker===d.ticker && tr.type==='P')
+                    .sort((a,b)=>(b.trade||b.filing||'').localeCompare(a.trade||a.filing||''))[0];
     const latestDate = t?.trade || t?.filing || '';
-    if (latestDate && latestDate < cutStr) return;
+    if (!latestDate || latestDate < cutStr) return;
     alerts.push({
-      ticker:  d.ticker,
-      company: d.company || d.ticker,
-      type:    'STRONG DRIFT', icon: '📈', color: 'var(--buy)',
+      ticker: d.ticker, company: d.company || d.ticker,
+      type: 'STRONG DRIFT', icon: '📈', color: 'var(--buy)',
       headline: `Strong post-buy drift · Score ${d.score}`,
-      detail:  `${d.winRate}% win rate · avg D+90: ${d.avg?.[5]!=null?(d.avg[5]>=0?'+':'')+d.avg[5].toFixed(1)+'%':'—'}`,
-      score:   d.score,
-      date:    latestDate,
+      detail: `${d.winRate}% win rate · avg D+90: ${d.avg?.[5]!=null?(d.avg[5]>=0?'+':'')+d.avg[5].toFixed(1)+'%':'—'}`,
+      score: d.score, date: latestDate,
     });
   });
 
-  // Sort score desc → date desc
   alerts.sort((a,b) => (b.score-a.score) || (b.date||'').localeCompare(a.date||''));
 
-  // Deduplicate: max 1 per ticker+type, max 3 per ticker
   const tickerCount = {}, seen = new Set();
   return alerts.filter(a => {
     const key = a.ticker+'|'+a.type;
@@ -5389,19 +5426,18 @@ function renderMonitorAlerts(allAlerts, label, body) {
   const el = document.getElementById('monitorAlerts');
   if (!el) return;
 
-  // Apply type filter
-  const alerts = _monitorTypeFilter
-    ? allAlerts.filter(a => a.type === _monitorTypeFilter)
+  const alerts = _monitorTypeFilters.size > 0
+    ? allAlerts.filter(a => _monitorTypeFilters.has(a.type))
     : allAlerts;
 
   if (!alerts.length) {
-    const msg = _monitorTypeFilter
-      ? `No <strong>${_monitorTypeFilter}</strong> signals ${label}`
-      : `No notable activity ${label}`;
+    const filterList = [..._monitorTypeFilters].join(' + ');
     el.innerHTML = `
       <div style="text-align:center;padding:60px 20px;color:var(--muted)">
         <div style="font-size:32px;margin-bottom:12px">🔍</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:8px">${msg.toUpperCase()}</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:8px">
+          NO${filterList?' '+filterList:''} SIGNALS ${label.toUpperCase()}
+        </div>
         <div style="font-size:12px">Signals appear when insiders make significant moves.</div>
       </div>`;
     return;
@@ -5414,13 +5450,17 @@ function renderMonitorAlerts(allAlerts, label, body) {
     if (a.date > byTicker[a.ticker].date) byTicker[a.ticker].date = a.date;
   });
 
-  const groups = Object.entries(byTicker).sort((a,b) => {
-    return Math.max(...b[1].alerts.map(x=>x.score)) - Math.max(...a[1].alerts.map(x=>x.score));
-  });
+  const groups = Object.entries(byTicker).sort((a,b) =>
+    Math.max(...b[1].alerts.map(x=>x.score)) - Math.max(...a[1].alerts.map(x=>x.score))
+  );
+
+  const activeFilters = _monitorTypeFilters.size > 0
+    ? ` · ${[..._monitorTypeFilters].join(' + ')}`
+    : '';
 
   el.innerHTML = `
     <div style="font-size:11px;color:var(--muted);margin-bottom:16px;font-family:'Space Mono',monospace">
-      ${alerts.length} signal${alerts.length!==1?'s':''} across ${groups.length} ticker${groups.length!==1?'s':''} ${label}${_monitorTypeFilter?' · filtered: '+_monitorTypeFilter:''}
+      ${alerts.length} signal${alerts.length!==1?'s':''} across ${groups.length} ticker${groups.length!==1?'s':''} ${label}${activeFilters}
     </div>
     ${groups.map(([ticker, group]) => {
       const topScore   = Math.max(...group.alerts.map(a=>a.score));
