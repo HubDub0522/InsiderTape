@@ -220,7 +220,10 @@ app.get('/api/screener', (req, res) => {
       return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
 
     const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
-    const limit = Math.min(parseInt(req.query.limit || '5000'), 10000);
+    // Scale limit by window so every range returns a meaningfully different dataset.
+    // 7d → 1000, 30d → 2000, 90d → 5000, 365d → 15000
+    const defaultLimit = days <= 7 ? 1000 : days <= 30 ? 2000 : days <= 90 ? 5000 : 15000;
+    const limit = Math.min(parseInt(req.query.limit || String(defaultLimit)), 20000);
 
         let rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
