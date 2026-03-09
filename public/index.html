@@ -4091,7 +4091,8 @@ async function renderRankerSubpage() {
       }
     });
     _rankerCache = scoreOpportunityRanker(rows);
-    _rankerRawRows = null; // clear raw cache now that scored cache exists
+    _rankerRawRows = null;
+    console.log('[Ranker] scored', rows.length, 'raw →', _rankerCache.length, 'above threshold. Top 5:', _rankerCache.slice(0,5).map(r=>r.ticker+':'+r.score).join(', '));
     renderRankerResults(_rankerCache);
   } catch(e) {
     const el = document.getElementById('rankerResults');
@@ -4260,8 +4261,9 @@ function scoreOpportunityRanker(rows) {
       topFactors: factors.filter(f => !f.startsWith('⚠')).slice(0, 3),
       crossToolBadges };
   })
-  .filter(r => r.score >= 30)
-  .sort((a, b) => b.score - a.score);
+  .filter(r => r.score >= 20)
+  .sort((a, b) => b.score - a.score)
+  .slice(0, 100);
 }
 
 function renderRankerResults(ranked) {
