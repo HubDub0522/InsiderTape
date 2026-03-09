@@ -508,17 +508,24 @@ async function getSectorsForTickers(tickers) {
   const BATCH = 50;
   for (let i = 0; i < toFetch.length; i += BATCH) {
     const batch = toFetch.slice(i, i + BATCH);
+    let parsed = 0;
     try {
+      // Try v3 profile bulk endpoint
       const url = `https://financialmodelingprep.com/api/v3/profile/${batch.join(',')}?apikey=${FMP}`;
       const { status, body } = await get(url, 12000);
-      if (status !== 200) continue;
-      const data = JSON.parse(body.toString());
-      const arr = Array.isArray(data) ? data : [data];
-      for (const p of arr) {
-        if (!p?.symbol || !p?.sector) continue;
-        const entry = { sector: p.sector, industry: p.industry || '', cached_at: now };
-        _sectorTickerCache[p.symbol] = entry;
-        result[p.symbol] = entry;
+      slog(`sector FMP batch ${i/BATCH+1}: status=${status} tickers=${batch.length} bodyLen=${body.length}`);
+      if (status === 200) {
+        const text = body.toString();
+        const data = JSON.parse(text);
+        const arr = Array.isArray(data) ? data : (data ? [data] : []);
+        for (const p of arr) {
+          if (!p?.symbol || !p?.sector) continue;
+          const entry = { sector: p.sector, industry: p.industry || '', cached_at: now };
+          _sectorTickerCache[p.symbol] = entry;
+          result[p.symbol] = entry;
+          parsed++;
+        }
+        slog(`sector FMP batch ${i/BATCH+1}: parsed ${parsed}/${batch.length} sectors`);
       }
     } catch(e) { slog('sector FMP batch error: ' + e.message); }
   }
