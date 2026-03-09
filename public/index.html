@@ -3454,7 +3454,8 @@ function ensureAnalysisDataLong(cb) {
 }
 
 let _firstBuyCache = null;      // firstbuys API results cache
-let _rankerCache = null;        // opportunity ranker results cache
+let _rankerCache = null;        // opportunity ranker scored results cache
+let _rankerRawRows = null;      // raw rows from /api/ranker before price enrichment
 let _insiderScoreCache = null;  // top insider accuracy scores cache
 let _timingAlphaCache = null;   // top timing alpha scores cache
 
@@ -3493,14 +3494,14 @@ async function loadAnalysisPage(subpage) {
     computeLeaderboardScores();
   }
 
-  // Kick off ranker data in background — refreshes tile once ready
+  // Kick off ranker data in background — store raw rows only, score in subpage with prices
   if (!_rankerCache) {
     apiFetch('/api/ranker?days=30').then(resp => {
       const rows = Array.isArray(resp) ? resp : [];
       if (!rows.length) { _rankerCache = []; return; }
-      // Score immediately — no external price fetches on this path
-      _rankerCache = scoreOpportunityRanker(rows);
-      // Refresh dashboard tiles
+      // Store raw rows tagged so subpage knows to score them with price enrichment
+      _rankerRawRows = rows;
+      // Refresh dashboard tile to show count
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _rankerCache = []; });
@@ -3530,7 +3531,7 @@ function renderAnalysisDashboard() {
       _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
       // Re-score ranker in-place now that first-buy data is available (don't null it — that shows "Calculating")
       if (_rankerCache) {
-        try { _rankerCache = scoreOpportunityRanker(_rankerCache.map(r => ({...r}))); } catch(e) {}
+        try { _rankerCache = scoreOpportunityRanker(_rankerRawRows || _rankerCache.map(r => ({...r}))); } catch(e) {}
       }
       // Refresh dashboard tiles once data arrives
       const body = document.getElementById('analysisViewBody');
@@ -3539,7 +3540,7 @@ function renderAnalysisDashboard() {
   }
 
   const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
-  const rankerLoading = !_rankerCache;
+  const rankerLoading = !_rankerCache && !_rankerRawRows;
 
   const tools = [
     {
@@ -3547,7 +3548,7 @@ function renderAnalysisDashboard() {
       icon: '🏆',
       name: 'Insider Opportunity Ranker',
       desc: 'The master score. Combines signals from every tool on this page — clusters, CAR scores, regime shifts, post-buy drift, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
-      count: _rankerCache ? _rankerCache.length : '…',
+      count: _rankerCache ? _rankerCache.length : (_rankerRawRows ? _rankerRawRows.length : '…'),
       countLabel: 'tickers ranked',
       loading: rankerLoading,
       top3: rankerTop3.map(r => ({
@@ -4045,21 +4046,31 @@ async function renderRankerSubpage() {
     <div id="rankerResults"><div class="loading-state"><div class="spinner"></div><span>Scoring all tickers…</span></div></div>
   </div>`;
 
-  // Use cache if already computed
-  if (_rankerCache) {
+  // Use scored cache if already computed with prices
+  if (_rankerCache && _rankerCache.length > 0) {
     renderRankerResults(_rankerCache);
     return;
   }
 
   try {
-    const rows = await apiFetch('/api/ranker?days=30');
+    // Use pre-fetched raw rows if available, otherwise fetch fresh
+    const rows = _rankerRawRows && _rankerRawRows.length
+      ? _rankerRawRows
+      : await apiFetch('/api/ranker?days=30');
+
+    if (!rows || !rows.length) {
+      document.getElementById('rankerResults').innerHTML =
+        `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No tickers scored above threshold in current window.</div>`;
+      return;
+    }
+
+    // Enrich top 50 with price data (52-week high/low proximity scoring)
     const top50 = rows.slice(0, 50);
-    // Enrich from warm cache only (instant, no external API calls)
     const symbols = top50.map(r => r.ticker).join(',');
     let priceMap = {};
     try {
       priceMap = await apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(symbols));
-    } catch(e) { /* price enrichment optional */ }
+    } catch(e) { /* price enrichment optional — scores still valid without it */ }
     top50.forEach(r => {
       const bars = priceMap[r.ticker];
       if (Array.isArray(bars) && bars.length >= 50) {
@@ -4073,6 +4084,7 @@ async function renderRankerSubpage() {
       }
     });
     _rankerCache = scoreOpportunityRanker(rows);
+    _rankerRawRows = null; // clear raw cache now that scored cache exists
     renderRankerResults(_rankerCache);
   } catch(e) {
     const el = document.getElementById('rankerResults');
