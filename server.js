@@ -230,7 +230,7 @@ app.get('/api/screener', (req, res) => {
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned,
-             COALESCE(MAX(source), 'sec') AS source
+             COALESCE(MAX(source), 'sec') AS source, MAX(accession) AS accession
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
         AND TRIM(type) IN ('P','S','S-')
@@ -252,7 +252,7 @@ app.get('/api/screener', (req, res) => {
                  trade_date AS trade, MAX(filing_date) AS filing,
                  TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
                  MAX(value) AS value, MAX(owned) AS owned,
-                 COALESCE(MAX(source), 'sec') AS source
+                 COALESCE(MAX(source), 'sec') AS source, MAX(accession) AS accession
           FROM trades
           WHERE trade_date >= date(?, '-' || ? || ' days')
             AND TRIM(type) IN ('P','S','S-')
@@ -281,7 +281,7 @@ app.get('/api/history', (req, res) => {
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
-             MAX(value) AS value, MAX(owned) AS owned
+             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
         AND TRIM(type) IN ('P','S','S-')
@@ -308,7 +308,7 @@ app.get('/api/ticker', (req, res) => {
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
-             MAX(value) AS value, MAX(owned) AS owned
+             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
       FROM trades
       WHERE ticker = ?
         AND TRIM(type) IN ('P','S','S-')
@@ -333,7 +333,7 @@ app.get('/api/insider', (req, res) => {
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
-             MAX(value) AS value, MAX(owned) AS owned
+             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
       FROM trades
       WHERE UPPER(insider) LIKE UPPER(?)
         AND TRIM(type) IN ('P','S','S-')
@@ -367,7 +367,7 @@ app.get('/api/firstbuys', (req, res) => {
         SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
                trade_date, MAX(filing_date) AS filing_date,
                MAX(price) AS price, MAX(qty) AS qty,
-               MAX(value) AS value, MAX(owned) AS owned
+               MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
         FROM trades
         WHERE TRIM(type) = 'P'
           AND insider IS NOT NULL
@@ -480,6 +480,114 @@ app.get('/api/leaderboard', (req, res) => {
     res.json(rows);
   } catch(e) {
     slog('leaderboard error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// SECTORS — aggregates insider buy/sell activity by sector using FMP profile data
+// Caches sector mappings in memory to avoid hammering FMP
+const _sectorTickerCache = {};   // ticker → { sector, industry, cached_at }
+const SECTOR_TTL = 24 * 60 * 60 * 1000; // 24hr per ticker
+
+async function getSectorForTicker(ticker) {
+  const now = Date.now();
+  if (_sectorTickerCache[ticker] && now - _sectorTickerCache[ticker].cached_at < SECTOR_TTL) {
+    return _sectorTickerCache[ticker];
+  }
+  try {
+    const url = `https://financialmodelingprep.com/api/v3/profile/${ticker}?apikey=${FMP}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const p = Array.isArray(data) ? data[0] : data;
+    if (!p || !p.sector) return null;
+    const entry = { sector: p.sector, industry: p.industry || '', mktCap: p.mktCap || 0, cached_at: now };
+    _sectorTickerCache[ticker] = entry;
+    return entry;
+  } catch(e) { return null; }
+}
+
+let _sectorCache = null;
+let _sectorCacheTime = 0;
+const SECTOR_CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
+
+app.get('/api/sectors', async (req, res) => {
+  if (_sectorCache && Date.now() - _sectorCacheTime < SECTOR_CACHE_TTL) {
+    return res.json(_sectorCache);
+  }
+  try {
+    const days = Math.min(parseInt(req.query.days || '30'), 90);
+
+    // Pull top tickers by activity in window
+    const rows = db.prepare(`
+      SELECT
+        ticker, MAX(company) AS company,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)       AS buy_val,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                             AS buy_count,
+        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END)                  AS sell_count,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END)              AS buyer_count,
+        MAX(CASE WHEN TRIM(type)='P' THEN trade_date END)                      AS latest_buy
+      FROM trades
+      WHERE trade_date >= date('now', '-' || ? || ' days')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+      GROUP BY ticker
+      HAVING buy_count > 0 OR sell_count > 0
+      ORDER BY (buy_val + sell_val) DESC
+      LIMIT 300
+    `).all(days);
+
+    if (!rows.length) return res.json({ sectors: [], days });
+
+    // Fetch sector for each ticker (uses cache, fires in parallel batches of 10)
+    const BATCH = 10;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH);
+      await Promise.all(batch.map(r => getSectorForTicker(r.ticker).then(s => { r._sector = s; })));
+    }
+
+    // Aggregate by sector
+    const sectorMap = {};
+    rows.forEach(r => {
+      const sector = r._sector?.sector || 'Unknown';
+      const industry = r._sector?.industry || '';
+      if (!sectorMap[sector]) {
+        sectorMap[sector] = {
+          sector, buy_val: 0, sell_val: 0, buy_count: 0, sell_count: 0,
+          buyer_count: 0, ticker_count: 0, tickers: [], industries: {}
+        };
+      }
+      const s = sectorMap[sector];
+      s.buy_val    += r.buy_val || 0;
+      s.sell_val   += r.sell_val || 0;
+      s.buy_count  += r.buy_count || 0;
+      s.sell_count += r.sell_count || 0;
+      s.buyer_count += r.buyer_count || 0;
+      s.ticker_count++;
+      if (r.buy_val > 0) s.tickers.push({ ticker: r.ticker, company: r.company, buy_val: r.buy_val, buyer_count: r.buyer_count, latest_buy: r.latest_buy });
+      if (industry) s.industries[industry] = (s.industries[industry] || 0) + (r.buy_val || 0);
+    });
+
+    // Sort sectors by buy_val desc, tickers within each sector too
+    const sectors = Object.values(sectorMap)
+      .filter(s => s.sector !== 'Unknown' || s.buy_val > 0)
+      .map(s => ({
+        ...s,
+        tickers: s.tickers.sort((a,b) => b.buy_val - a.buy_val).slice(0, 10),
+        top_industry: Object.entries(s.industries).sort((a,b)=>b[1]-a[1])[0]?.[0] || '',
+        sentiment: s.buy_val > 0 && s.sell_val > 0
+          ? (s.buy_val / (s.buy_val + s.sell_val) * 100).toFixed(0)
+          : s.buy_val > 0 ? 100 : 0,
+      }))
+      .sort((a, b) => b.buy_val - a.buy_val);
+
+    const result = { sectors, days, total_buy_val: sectors.reduce((s,x) => s+x.buy_val, 0) };
+    _sectorCache = result;
+    _sectorCacheTime = Date.now();
+    res.json(result);
+  } catch(e) {
+    slog('sectors error: ' + e.message);
     res.status(500).json({ error: e.message });
   }
 });
