@@ -484,131 +484,169 @@ app.get('/api/leaderboard', (req, res) => {
   }
 });
 
-// SECTORS — aggregates insider buy/sell activity by sector using FMP profile data
-// Uses FMP bulk profile endpoint to get sectors for many tickers in one call
-const _sectorTickerCache = {};   // ticker → { sector, industry, cached_at }
-const SECTOR_TTL = 48 * 60 * 60 * 1000; // 48hr per ticker
+// ── SECTORS ─────────────────────────────────────────────────────────────────
+// Sector data is precomputed at startup via a background worker that looks up
+// each active ticker's sector/industry from Yahoo Finance quoteSummary.
+// The /api/sectors route just does a fast DB aggregation + in-memory lookup.
 
-async function getSectorsForTickers(tickers) {
-  const now = Date.now();
-  const result = {};
-  const toFetch = [];
+const _sectorTickerCache = {};  // ticker → { sector, industry, fetchedAt }
 
-  for (const t of tickers) {
-    if (_sectorTickerCache[t] && now - _sectorTickerCache[t].cached_at < SECTOR_TTL) {
-      result[t] = _sectorTickerCache[t];
-    } else {
-      toFetch.push(t);
-    }
+// Fetch sector/industry for one ticker from Yahoo Finance quoteSummary
+async function fetchTickerSector(ticker) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=assetProfile`;
+    const { status, body } = await get(url, 8000);
+    if (status !== 200) throw new Error(`status ${status}`);
+    const data = JSON.parse(body.toString());
+    const profile = data?.quoteSummary?.result?.[0]?.assetProfile;
+    if (!profile) return null;
+    const sector   = profile.sector   || null;
+    const industry = profile.industry || '';
+    if (!sector) return null;
+    return { sector, industry, fetchedAt: Date.now() };
+  } catch(e) {
+    return null;
   }
-
-  if (!toFetch.length) return result;
-
-  // FMP bulk profile — up to 50 symbols per call
-  const BATCH = 50;
-  for (let i = 0; i < toFetch.length; i += BATCH) {
-    const batch = toFetch.slice(i, i + BATCH);
-    let parsed = 0;
-    try {
-      // Try v3 profile bulk endpoint
-      const url = `https://financialmodelingprep.com/api/v3/profile/${batch.join(',')}?apikey=${FMP}`;
-      const { status, body } = await get(url, 12000);
-      slog(`sector FMP batch ${i/BATCH+1}: status=${status} tickers=${batch.length} bodyLen=${body.length}`);
-      if (status === 200) {
-        const text = body.toString();
-        const data = JSON.parse(text);
-        const arr = Array.isArray(data) ? data : (data ? [data] : []);
-        for (const p of arr) {
-          if (!p?.symbol || !p?.sector) continue;
-          const entry = { sector: p.sector, industry: p.industry || '', cached_at: now };
-          _sectorTickerCache[p.symbol] = entry;
-          result[p.symbol] = entry;
-          parsed++;
-        }
-        slog(`sector FMP batch ${i/BATCH+1}: parsed ${parsed}/${batch.length} sectors`);
-      }
-    } catch(e) { slog('sector FMP batch error: ' + e.message); }
-  }
-
-  return result;
 }
 
-let _sectorCache = null;
-let _sectorCacheTime = 0;
-const SECTOR_CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
-
-app.get('/api/sectors', async (req, res) => {
-  if (_sectorCache && Date.now() - _sectorCacheTime < SECTOR_CACHE_TTL) {
-    return res.json(_sectorCache);
-  }
+// Background precomputation — called at startup and refreshed every 12 hours.
+// Looks up sectors for all tickers active in the last 90 days.
+// Runs serially with small delays to avoid hammering Yahoo.
+let _sectorPrecomputeRunning = false;
+async function precomputeSectorCache() {
+  if (_sectorPrecomputeRunning) return;
+  _sectorPrecomputeRunning = true;
   try {
-    const days = Math.min(parseInt(req.query.days || '30'), 90);
-
-    // Pull top tickers by activity in window — limit to 100 for manageable FMP calls
+    slog('Sectors: starting ticker sector precompute...');
     const rows = db.prepare(`
-      SELECT
-        ticker, MAX(company) AS company,
-        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)           AS buy_val,
-        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
-        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                                 AS buy_count,
-        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END)                       AS sell_count,
-        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END)                  AS buyer_count,
-        MAX(CASE WHEN TRIM(type)='P' THEN trade_date END)                          AS latest_buy
-      FROM trades
-      WHERE trade_date >= date('now', '-' || ? || ' days')
+      SELECT DISTINCT ticker FROM trades
+      WHERE trade_date >= date('now','-90 days')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND TRIM(type) IN ('P','S','S-')
-        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
-      GROUP BY ticker
-      HAVING buy_count > 0 OR sell_count > 0
-      ORDER BY (buy_val + sell_val) DESC
-      LIMIT 100
-    `).all(days);
+      ORDER BY ticker
+    `).all();
 
-    if (!rows.length) return res.json({ sectors: [], days });
-
-    // Fetch all sectors in 2 bulk FMP calls (50 tickers each)
     const tickers = rows.map(r => r.ticker);
-    const sectorMap_lookup = await getSectorsForTickers(tickers);
-
-    // Aggregate by sector — skip Unknown entirely
-    const sectorMap = {};
-    rows.forEach(r => {
-      const info = sectorMap_lookup[r.ticker];
-      if (!info?.sector) return; // skip tickers with no sector data
-      const sector = info.sector;
-      const industry = info.industry || '';
-      if (!sectorMap[sector]) {
-        sectorMap[sector] = {
-          sector, buy_val: 0, sell_val: 0, buy_count: 0, sell_count: 0,
-          buyer_count: 0, ticker_count: 0, tickers: [], industries: {}
-        };
-      }
-      const s = sectorMap[sector];
-      s.buy_val     += r.buy_val || 0;
-      s.sell_val    += r.sell_val || 0;
-      s.buy_count   += r.buy_count || 0;
-      s.sell_count  += r.sell_count || 0;
-      s.buyer_count += r.buyer_count || 0;
-      s.ticker_count++;
-      if (r.buy_val > 0) s.tickers.push({ ticker: r.ticker, company: r.company, buy_val: r.buy_val, buyer_count: r.buyer_count, latest_buy: r.latest_buy });
-      if (industry) s.industries[industry] = (s.industries[industry] || 0) + (r.buy_val || 0);
+    const now = Date.now();
+    const TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const toFetch = tickers.filter(t => {
+      const c = _sectorTickerCache[t];
+      return !c || (now - c.fetchedAt > TTL);
     });
 
-    const sectors = Object.values(sectorMap)
-      .filter(s => s.buy_val > 0 || s.sell_val > 0)
-      .map(s => ({
-        ...s,
-        tickers: s.tickers.sort((a,b) => b.buy_val - a.buy_val).slice(0, 10),
-        top_industry: Object.entries(s.industries).sort((a,b)=>b[1]-a[1])[0]?.[0] || '',
-        sentiment: s.buy_val > 0 && s.sell_val > 0
-          ? (s.buy_val / (s.buy_val + s.sell_val) * 100).toFixed(0)
-          : s.buy_val > 0 ? 100 : 0,
-      }))
-      .sort((a, b) => b.buy_val - a.buy_val);
+    slog(`Sectors: ${tickers.length} active tickers, ${toFetch.length} need lookup`);
+    let fetched = 0, failed = 0;
 
-    const result = { sectors, days, total_buy_val: sectors.reduce((s,x) => s+x.buy_val, 0) };
-    _sectorCache = result;
-    _sectorCacheTime = Date.now();
+    for (const ticker of toFetch) {
+      const info = await fetchTickerSector(ticker);
+      if (info) {
+        _sectorTickerCache[ticker] = info;
+        fetched++;
+      } else {
+        // Cache a null sentinel so we don't retry until TTL expires
+        _sectorTickerCache[ticker] = { sector: null, industry: '', fetchedAt: now };
+        failed++;
+      }
+      // Small delay between calls to be polite to Yahoo
+      await new Promise(r => setTimeout(r, 120));
+    }
+    // Invalidate the sectors result cache so next request rebuilds
+    _sectorResultCache = null;
+    slog(`Sectors: precompute done — ${fetched} sectors fetched, ${failed} not found`);
+  } catch(e) {
+    slog('Sectors precompute error: ' + e.message);
+  } finally {
+    _sectorPrecomputeRunning = false;
+  }
+}
+
+// Aggregates DB activity into sector buckets using the precomputed ticker cache
+function buildSectorResult(days) {
+  const rows = db.prepare(`
+    SELECT
+      ticker, MAX(company) AS company,
+      SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)           AS buy_val,
+      SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+      COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                                 AS buy_count,
+      COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END)                       AS sell_count,
+      COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END)                  AS buyer_count,
+      MAX(CASE WHEN TRIM(type)='P' THEN trade_date END)                          AS latest_buy
+    FROM trades
+    WHERE trade_date >= date('now', '-' || ? || ' days')
+      AND TRIM(type) IN ('P','S','S-')
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+    GROUP BY ticker
+    HAVING buy_count > 0 OR sell_count > 0
+    ORDER BY (buy_val + sell_val) DESC
+    LIMIT 300
+  `).all(days);
+
+  const sectorMap = {};
+  let mapped = 0, skipped = 0;
+  rows.forEach(r => {
+    const info = _sectorTickerCache[r.ticker];
+    if (!info?.sector) { skipped++; return; }
+    mapped++;
+    const { sector, industry } = info;
+    if (!sectorMap[sector]) {
+      sectorMap[sector] = {
+        sector, buy_val: 0, sell_val: 0, buy_count: 0, sell_count: 0,
+        buyer_count: 0, ticker_count: 0, tickers: [], industries: {}
+      };
+    }
+    const s = sectorMap[sector];
+    s.buy_val     += r.buy_val  || 0;
+    s.sell_val    += r.sell_val || 0;
+    s.buy_count   += r.buy_count  || 0;
+    s.sell_count  += r.sell_count || 0;
+    s.buyer_count += r.buyer_count || 0;
+    s.ticker_count++;
+    if (r.buy_val > 0) s.tickers.push({ ticker: r.ticker, company: r.company || r.ticker, buy_val: r.buy_val, buyer_count: r.buyer_count, latest_buy: r.latest_buy });
+    if (industry) s.industries[industry] = (s.industries[industry] || 0) + (r.buy_val || 0);
+  });
+
+  slog(`Sectors buildResult(${days}d): ${rows.length} tickers, ${mapped} mapped, ${skipped} skipped`);
+
+  const sectors = Object.values(sectorMap)
+    .filter(s => s.buy_val > 0 || s.sell_val > 0)
+    .map(s => ({
+      ...s,
+      tickers: s.tickers.sort((a, b) => b.buy_val - a.buy_val).slice(0, 10),
+      top_industry: Object.entries(s.industries).sort((a, b) => b[1] - a[1])[0]?.[0] || '',
+      sentiment: s.buy_val + s.sell_val > 0
+        ? Math.round(s.buy_val / (s.buy_val + s.sell_val) * 100)
+        : 0,
+    }))
+    .sort((a, b) => b.buy_val - a.buy_val);
+
+  return { sectors, days, total_buy_val: sectors.reduce((s, x) => s + x.buy_val, 0) };
+}
+
+// Per-days result cache (rebuilt after sector precompute runs)
+let _sectorResultCache = null;   // { 7: {...}, 30: {...}, 90: {...} }
+let _sectorResultCacheTime = 0;
+const SECTOR_RESULT_TTL = 30 * 60 * 1000; // 30 min
+
+app.get('/api/sectors', (req, res) => {
+  try {
+    const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 30;
+
+    // Return cached if fresh
+    if (_sectorResultCache?.[days] && Date.now() - _sectorResultCacheTime < SECTOR_RESULT_TTL) {
+      return res.json(_sectorResultCache[days]);
+    }
+
+    const result = buildSectorResult(days);
+    if (!_sectorResultCache) _sectorResultCache = {};
+    _sectorResultCache[days] = result;
+    _sectorResultCacheTime = Date.now();
+
+    // If no sectors mapped yet, trigger precompute in background (non-blocking)
+    if (result.sectors.length === 0 && !_sectorPrecomputeRunning) {
+      slog('Sectors: no cache yet, triggering background precompute');
+      precomputeSectorCache().catch(e => slog('Sectors bg error: ' + e.message));
+    }
+
     res.json(result);
   } catch(e) {
     slog('sectors error: ' + e.message);
@@ -1888,6 +1926,18 @@ setTimeout(() => {
 }, 12000);
 
 
+
+// Pre-compute sector cache at startup — runs 60s after boot to let price/drift settle first.
+// Iterates all active tickers and fetches sector/industry from Yahoo Finance.
+// Results live in _sectorTickerCache and survive for 7 days each.
+// Refreshes every 12 hours in case tickers change.
+setTimeout(() => {
+  precomputeSectorCache().catch(e => slog('Sector precompute startup error: ' + e.message));
+}, 60000);
+
+setInterval(() => {
+  precomputeSectorCache().catch(e => slog('Sector precompute refresh error: ' + e.message));
+}, 12 * 60 * 60 * 1000);
 
 // ─── DEBUG ENDPOINT — shows DB stats for diagnosing data issues ───────────
 app.get('/api/debug', (req, res) => {
