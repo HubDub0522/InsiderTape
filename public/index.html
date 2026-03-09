@@ -3501,14 +3501,15 @@ async function loadAnalysisPage(subpage) {
     computeLeaderboardScores();
   }
 
-  // Kick off ranker data in background — store raw rows only, score in subpage with prices
-  if (!_rankerCache) {
+  // Kick off ranker data in background — score immediately for tile, re-score with prices in subpage
+  if (!_rankerCache && !_rankerRawRows) {
     apiFetch('/api/ranker?days=30').then(resp => {
       const rows = Array.isArray(resp) ? resp : [];
       if (!rows.length) { _rankerCache = []; return; }
-      // Store raw rows tagged so subpage knows to score them with price enrichment
       _rankerRawRows = rows;
-      // Refresh dashboard tile to show count
+      // Score now (without price data) so the tile shows top 3 immediately
+      _rankerCache = scoreOpportunityRanker(rows);
+      // Refresh dashboard tile
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _rankerCache = []; });
@@ -3555,7 +3556,7 @@ function renderAnalysisDashboard() {
       icon: '🏆',
       name: 'Insider Opportunity Ranker',
       desc: 'The master score. Combines signals from every tool on this page — clusters, CAR scores, regime shifts, post-buy drift, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
-      count: _rankerCache ? _rankerCache.length : (_rankerRawRows ? _rankerRawRows.length : '…'),
+      count: _rankerCache ? _rankerCache.length : '…',
       countLabel: 'tickers ranked',
       loading: rankerLoading,
       top3: rankerTop3.map(r => ({
@@ -4053,47 +4054,67 @@ async function renderRankerSubpage() {
     <div id="rankerResults"><div class="loading-state"><div class="spinner"></div><span>Scoring all tickers…</span></div></div>
   </div>`;
 
-  // Use scored cache if already computed with prices
+  // Show scored cache immediately; re-score with price enrichment in background
   if (_rankerCache && _rankerCache.length > 0) {
     renderRankerResults(_rankerCache);
+    if (_rankerRawRows && _rankerRawRows.length) {
+      const rows = _rankerRawRows;
+      const symbols = rows.slice(0, 50).map(r => r.ticker).join(',');
+      apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(symbols)).then(priceMap => {
+        rows.slice(0, 50).forEach(r => {
+          const bars = priceMap[r.ticker];
+          if (Array.isArray(bars) && bars.length >= 50) {
+            const year = bars.slice(-252);
+            r._hi52 = Math.max(...year.map(b => b.high || b.close));
+            r._lo52 = Math.min(...year.map(b => b.low  || b.close));
+            r._last = bars[bars.length-1]?.close || 0;
+            r._pctFromLow  = r._lo52 > 0 ? ((r._last - r._lo52) / r._lo52 * 100) : null;
+            r._pctFromHigh = r._hi52 > 0 ? ((r._hi52 - r._last) / r._hi52 * 100) : null;
+          }
+        });
+        _rankerCache = scoreOpportunityRanker(rows);
+        _rankerRawRows = null;
+        renderRankerResults(_rankerCache);
+      }).catch(() => { _rankerRawRows = null; });
+    }
     return;
   }
 
   try {
-    // Use pre-fetched raw rows if available, otherwise fetch fresh
     const rows = _rankerRawRows && _rankerRawRows.length
       ? _rankerRawRows
       : await apiFetch('/api/ranker?days=30');
 
     if (!rows || !rows.length) {
       document.getElementById('rankerResults').innerHTML =
-        `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No tickers scored above threshold in current window.</div>`;
+        `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No tickers found in current window.</div>`;
       return;
     }
 
-    // Enrich top 50 with price data (52-week high/low proximity scoring)
-    const top50 = rows.slice(0, 50);
-    const symbols = top50.map(r => r.ticker).join(',');
-    let priceMap = {};
-    try {
-      priceMap = await apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(symbols));
-    } catch(e) { /* price enrichment optional — scores still valid without it */ }
-    top50.forEach(r => {
-      const bars = priceMap[r.ticker];
-      if (Array.isArray(bars) && bars.length >= 50) {
-        const year = bars.slice(-252);
-        const hi52 = Math.max(...year.map(b => b.high || b.close));
-        const lo52 = Math.min(...year.map(b => b.low  || b.close));
-        const last  = bars[bars.length - 1]?.close || 0;
-        r._hi52 = hi52; r._lo52 = lo52; r._last = last;
-        r._pctFromLow  = lo52 > 0 ? ((last - lo52)  / lo52  * 100) : null;
-        r._pctFromHigh = hi52 > 0 ? ((hi52 - last)  / hi52  * 100) : null;
-      }
-    });
+    // Score without prices first for instant display
     _rankerCache = scoreOpportunityRanker(rows);
-    _rankerRawRows = null;
-    console.log('[Ranker] scored', rows.length, 'raw →', _rankerCache.length, 'above threshold. Top 5:', _rankerCache.slice(0,5).map(r=>r.ticker+':'+r.score).join(', '));
+    _rankerRawRows = rows;
     renderRankerResults(_rankerCache);
+
+    // Then enrich top 50 with prices and re-score
+    const symbols = rows.slice(0, 50).map(r => r.ticker).join(',');
+    apiFetch('/api/prices-bulk?symbols=' + encodeURIComponent(symbols)).then(priceMap => {
+      rows.slice(0, 50).forEach(r => {
+        const bars = priceMap[r.ticker];
+        if (Array.isArray(bars) && bars.length >= 50) {
+          const year = bars.slice(-252);
+          r._hi52 = Math.max(...year.map(b => b.high || b.close));
+          r._lo52 = Math.min(...year.map(b => b.low  || b.close));
+          r._last = bars[bars.length-1]?.close || 0;
+          r._pctFromLow  = r._lo52 > 0 ? ((r._last - r._lo52) / r._lo52 * 100) : null;
+          r._pctFromHigh = r._hi52 > 0 ? ((r._hi52 - r._last) / r._hi52 * 100) : null;
+        }
+      });
+      _rankerCache = scoreOpportunityRanker(rows);
+      _rankerRawRows = null;
+      renderRankerResults(_rankerCache);
+    }).catch(() => { _rankerRawRows = null; });
+
   } catch(e) {
     const el = document.getElementById('rankerResults');
     if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px">${e.message}</div>`;
