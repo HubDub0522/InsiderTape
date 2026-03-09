@@ -897,8 +897,8 @@ function getTickerSector(ticker) {
   return TICKER_SECTOR_MAP[ticker] || null;
 }
 
-let _sectorResultCache = {};
-let _sectorResultCacheTime = 0;
+// Per-window cache: { 7: {result, time}, 30: {result, time}, 90: {result, time} }
+const _sectorResultCache = {};
 const SECTOR_RESULT_TTL = 30 * 60 * 1000;
 
 function buildSectorResult(days) {
@@ -965,13 +965,13 @@ function buildSectorResult(days) {
 app.get('/api/sectors', (req, res) => {
   try {
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 30;
-    const now = Date.now();
-    if (_sectorResultCache[days] && now - _sectorResultCacheTime < SECTOR_RESULT_TTL) {
-      return res.json(_sectorResultCache[days]);
+    const now  = Date.now();
+    const entry = _sectorResultCache[days];
+    if (entry && now - entry.time < SECTOR_RESULT_TTL) {
+      return res.json(entry.result);
     }
     const result = buildSectorResult(days);
-    _sectorResultCache[days] = result;
-    _sectorResultCacheTime = now;
+    _sectorResultCache[days] = { result, time: now };
     res.json(result);
   } catch(e) {
     slog('sectors error: ' + e.message);
@@ -993,6 +993,564 @@ app.get('/api/debug', (req, res) => {
     res.json({ total, byType, dates, p30_trade, p30_filing, p3yr_trade, ranker30_tickers: ranker30, history1095_buys: history1095 });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
+// ── PRICE FETCH HELPER ──────────────────────────────────────────────────────
+// In-memory LRU-style price cache: ticker → { bars, fetchedAt }
+// bars = [{time:'YYYY-MM-DD', open, high, low, close, volume}, ...]
+const _priceCache = {};
+const PRICE_TTL   = 12 * 60 * 60 * 1000; // 12h
+
+function getPC(sym) {
+  const e = _priceCache[sym];
+  if (!e || Date.now() - e.fetchedAt > PRICE_TTL) return null;
+  return e.bars;
+}
+function setPC(sym, bars) {
+  _priceCache[sym] = { bars, fetchedAt: Date.now() };
+}
+
+// Fetch 2 years of daily OHLCV bars. Try Stooq → FMP → Yahoo in order.
+async function fetchPriceBars(sym) {
+  const cached = getPC(sym);
+  if (cached) return cached;
+
+  // --- Stooq ---
+  try {
+    const url = `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d`;
+    const { status, body } = await get(url, 8000);
+    if (status === 200) {
+      const text = body.toString();
+      const lines = text.trim().split('\n').slice(1);
+      if (lines.length > 30) {
+        const bars = lines.map(l => {
+          const [date, open, high, low, close, volume] = l.split(',');
+          return { time: date, open: +open, high: +high, low: +low, close: +close, volume: +volume||0 };
+        }).filter(b => b.time && b.close > 0);
+        if (bars.length > 30) { setPC(sym, bars); return bars; }
+      }
+    }
+  } catch(_) {}
+
+  // --- FMP ---
+  try {
+    if (FMP) {
+      const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${sym}?serietype=line&timeseries=504&apikey=${FMP}`;
+      const { status, body } = await get(url, 8000);
+      if (status === 200) {
+        const data = JSON.parse(body.toString());
+        const hist = (data.historical || []).map(d => ({
+          time: d.date, open: d.open||d.close, high: d.high||d.close,
+          low: d.low||d.close, close: d.close, volume: d.volume||0
+        })).filter(b => b.close > 0).reverse();
+        if (hist.length > 30) { setPC(sym, hist); return hist; }
+      }
+    }
+  } catch(_) {}
+
+  // --- Yahoo Finance ---
+  try {
+    const end   = Math.floor(Date.now() / 1000);
+    const start = end - 2 * 365 * 86400;
+    const url   = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${start}&period2=${end}`;
+    const { status, body } = await get(url, 8000);
+    if (status === 200) {
+      const data = JSON.parse(body.toString());
+      const result = data?.chart?.result?.[0];
+      const ts     = result?.timestamp || [];
+      const q      = result?.indicators?.quote?.[0] || {};
+      const bars   = ts.map((t, i) => ({
+        time: new Date(t * 1000).toISOString().slice(0, 10),
+        open: q.open?.[i]||0, high: q.high?.[i]||0, low: q.low?.[i]||0,
+        close: q.close?.[i]||0, volume: q.volume?.[i]||0
+      })).filter(b => b.close > 0);
+      if (bars.length > 30) { setPC(sym, bars); return bars; }
+    }
+  } catch(_) {}
+
+  return null;
+}
+
+// Warm price cache for the most-active tickers at startup
+async function warmPriceCache() {
+  try {
+    const rows = db.prepare(`
+      SELECT ticker, COUNT(*) AS n FROM trades
+      WHERE TRIM(type)='P' AND trade_date >= date('now','-365 days')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      GROUP BY ticker ORDER BY n DESC LIMIT 180
+    `).all();
+    slog(`Warming price cache for ${rows.length} tickers...`);
+    // Batch in groups of 10, 300ms delay between batches
+    for (let i = 0; i < rows.length; i += 10) {
+      const batch = rows.slice(i, i + 10).map(r => r.ticker);
+      await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
+      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 300));
+    }
+    slog('Price cache warm-up complete');
+  } catch(e) { slog('warmPriceCache error: ' + e.message); }
+}
+
+app.get('/api/price', async (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'symbol required' });
+  const bars = await fetchPriceBars(sym);
+  if (res.headersSent) return;
+  bars ? res.json(bars) : res.status(404).json({ error: `No price data for ${sym}` });
+});
+
+// Returns {TICKER: bars[], ...} for up to 20 tickers in one call
+app.get('/api/prices-bulk', async (req, res) => {
+  const raw  = (req.query.symbols || '').toUpperCase().trim();
+  if (!raw) return res.status(400).json({ error: 'symbols required' });
+  const syms = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 20);
+  const cold = syms.filter(s => !getPC(s));
+  if (cold.length) await Promise.allSettled(cold.map(s => fetchPriceBars(s)));
+  const result = {};
+  syms.forEach(s => { const b = getPC(s); if (b) result[s] = b; });
+  res.json(result);
+});
+
+// ── POST-BUY DRIFT ───────────────────────────────────────────────────────────
+// Measures average D+30 / D+90 / D+180 returns after every insider buy.
+// Uses the price already stored in each trade row (SEC-reported price) plus
+// the warm price-bar cache for forward price lookup — no extra API calls.
+let _driftServerCache     = null;
+let _driftServerCacheTime = 0;
+const DRIFT_TTL = 6 * 60 * 60 * 1000;
+
+async function preComputeDrift() {
+  try {
+    slog('Pre-computing drift...');
+    const rows = db.prepare(`
+      SELECT ticker, MAX(company) AS company,
+        GROUP_CONCAT(trade_date || '|' || COALESCE(price,0), ';;') AS trade_series,
+        COUNT(*) AS buy_count,
+        MAX(trade_date) AS last_buy
+      FROM trades
+      WHERE TRIM(type)='P'
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND trade_date <= date('now','-95 days')
+        AND price > 0
+      GROUP BY ticker
+      HAVING buy_count >= 2
+      ORDER BY buy_count DESC
+      LIMIT 80
+    `).all();
+
+    if (!rows.length) { slog('Drift pre-compute: no rows'); return; }
+
+    // Fetch price bars for all tickers
+    await Promise.allSettled(rows.map(r => fetchPriceBars(r.ticker)));
+
+    const results = [];
+    rows.forEach(r => {
+      try {
+        const bars = getPC(r.ticker);
+        if (!bars || bars.length < 30) return;
+
+        const trades = (r.trade_series || '').split(';;').map(s => {
+          const [dt, prStr] = s.split('|');
+          return { date: dt?.slice(0, 10), price: parseFloat(prStr) || 0 };
+        }).filter(t => t.date && t.price > 0);
+
+        if (trades.length < 2) return;
+
+        const fwd = (buyDate, buyPrice, days) => {
+          const fd = new Date(buyDate + 'T12:00:00Z');
+          fd.setUTCDate(fd.getUTCDate() + days);
+          const fs = fd.toISOString().slice(0, 10);
+          const bar = bars.find(b => b.time >= fs);
+          return bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+        };
+
+        const scored = trades.map(t => ({
+          ret1:   fwd(t.date, t.price, 30),   // ~D+30 calendar = ~D+1 trading name
+          ret5:   fwd(t.date, t.price, 90),   // ~D+90
+          ret20:  fwd(t.date, t.price, 180),  // ~D+180
+          ret60:  fwd(t.date, t.price, 365),  // ~D+365
+        }));
+
+        const avg = (cp) => {
+          const vals = scored.map(s => s[cp]).filter(v => v !== null);
+          return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+        };
+
+        const avgObj = { 1: avg('ret1'), 5: avg('ret5'), 20: avg('ret20'), 60: avg('ret60') };
+        const wins = scored.filter(s => s.ret5 !== null && s.ret5 > 0).length;
+        const total = scored.filter(s => s.ret5 !== null).length;
+        const winRate = total > 0 ? Math.round(wins / total * 100) : 0;
+
+        // Weighted drift score
+        const weights = { 1: 0.10, 5: 0.20, 20: 0.30, 60: 0.40 };
+        let wscore = 0, wsum = 0;
+        Object.entries(weights).forEach(([cp, w]) => {
+          const v = avgObj[parseInt(cp)];
+          if (v !== null) { wscore += v * w; wsum += w; }
+        });
+        const weightedAvg = wsum > 0 ? +(wscore / wsum).toFixed(1) : 0;
+
+        // Score 0-100: base from weighted avg + win rate bonus + acceleration bonus
+        const accelerates = avgObj[5] !== null && avgObj[20] !== null && avgObj[20] > avgObj[5];
+        const base  = Math.min(60, Math.max(0, weightedAvg * 3 + 30));
+        const wrBonus = Math.min(25, winRate * 0.25);
+        const accBonus = accelerates ? 15 : 0;
+        const score = Math.min(100, Math.round(base + wrBonus + accBonus));
+
+        if (score < 10) return;
+
+        results.push({
+          ticker: r.ticker, company: r.company || r.ticker,
+          avg: avgObj, score, winRate, weightedAvg,
+          buyCount: trades.length, lastBuy: r.last_buy,
+          accelerates
+        });
+      } catch(e) {}
+    });
+
+    results.sort((a, b) => b.score - a.score);
+    _driftServerCache     = results;
+    _driftServerCacheTime = Date.now();
+    slog(`Drift pre-computed: ${results.length} tickers`);
+  } catch(e) { slog('preComputeDrift error: ' + e.message); }
+}
+
+app.get('/api/drift', async (req, res) => {
+  if (_driftServerCache && Date.now() - _driftServerCacheTime < DRIFT_TTL) {
+    return res.json(_driftServerCache);
+  }
+  await preComputeDrift();
+  res.json(_driftServerCache || []);
+});
+
+// ── INSIDER EVENT PROXIMITY ──────────────────────────────────────────────────
+// Finds insider buys within 120 days before a known upcoming event (earnings,
+// 8-K, regulatory) and scores them by proximity.
+let _proximityServerCache     = null;
+let _proximityServerCacheTime = 0;
+const PROXIMITY_TTL = 3 * 60 * 60 * 1000; // 3h
+
+// Predict next quarterly earnings date based on trailing pattern
+function predictNextEarnings(ticker, today) {
+  // Pull last 4 earnings-like 8-K filing dates (form type ARS or 10-Q/10-K adjacent filings)
+  // Fallback: estimate based on fiscal quarter pattern (every ~91 days)
+  // Simple model: look at the last known filing date and add 91 days
+  try {
+    const rows = db.prepare(`
+      SELECT filing_date FROM trades
+      WHERE ticker = ? AND filing_date IS NOT NULL
+      ORDER BY filing_date DESC LIMIT 8
+    `).all(ticker);
+    if (!rows.length) return null;
+    const dates = [...new Set(rows.map(r => r.filing_date.slice(0, 10)))].sort().reverse();
+    // Estimate next by adding ~91 days to the latest known filing
+    const latest = new Date(dates[0] + 'T12:00:00Z');
+    latest.setUTCDate(latest.getUTCDate() + 91);
+    const predicted = latest.toISOString().slice(0, 10);
+    return predicted > today ? { date: predicted, type: 'EARNINGS', label: 'Predicted Earnings', predicted: true } : null;
+  } catch(_) { return null; }
+}
+
+async function preComputeProximity() {
+  try {
+    slog('Pre-computing proximity...');
+    const today = new Date().toISOString().slice(0, 10);
+    const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+    const future = new Date(Date.now() + 120 * 86400000).toISOString().slice(0, 10);
+
+    const rows = db.prepare(`
+      SELECT
+        t.ticker, t.company, t.insider, t.title,
+        t.trade_date AS buyDate,
+        t.value AS buyVal,
+        t.filing_date
+      FROM trades t
+      WHERE TRIM(t.type) = 'P'
+        AND t.trade_date >= ?
+        AND t.trade_date <= ?
+        AND t.ticker GLOB '[A-Z]*' AND LENGTH(t.ticker) BETWEEN 1 AND 6
+        AND t.value > 0
+      ORDER BY t.trade_date DESC
+      LIMIT 400
+    `).all(since, today);
+
+    const results = [];
+    const seenPairs = new Set(); // deduplicate ticker+insider
+
+    rows.forEach(row => {
+      try {
+        const pairKey = `${row.ticker}|${row.insider}`;
+        if (seenPairs.has(pairKey)) return;
+        seenPairs.add(pairKey);
+
+        // Predict next event
+        const event = predictNextEarnings(row.ticker, row.buyDate);
+        if (!event) return;
+
+        const buyDt  = new Date(row.buyDate + 'T12:00:00Z');
+        const evtDt  = new Date(event.date + 'T12:00:00Z');
+        const daysTo = Math.round((evtDt - buyDt) / 86400000);
+
+        if (daysTo < 0 || daysTo > 120) return;
+
+        // Score
+        let score = 0;
+        if (daysTo <= 7)       score += 40;
+        else if (daysTo <= 14) score += 28;
+        else if (daysTo <= 21) score += 18;
+        else if (daysTo <= 30) score += 10;
+        else                   score += 5;
+
+        if (event.type === 'EARNINGS')       score += 10;
+        else if (event.type === 'REGULATORY') score += 8;
+        else                                  score += 5;
+
+        const titleL = (row.title || '').toLowerCase();
+        const isCsuite = /\b(ceo|cfo|coo|cto|president|chairman|chief)\b/.test(titleL);
+        const isDir    = /\bdirector\b/.test(titleL);
+        if (isCsuite) score += 8;
+        else if (isDir) score += 4;
+
+        if (row.buyVal >= 5000000) score += 12;
+        else if (row.buyVal >= 1000000) score += 8;
+        else if (row.buyVal >= 500000) score += 5;
+
+        // Check repeat pattern: did this insider buy before prior predicted events?
+        const priorBuys = db.prepare(`
+          SELECT COUNT(*) AS n FROM trades
+          WHERE insider = ? AND ticker = ? AND TRIM(type) = 'P'
+            AND trade_date < ? AND trade_date >= date(?,' -365 days')
+        `).get(row.insider, row.ticker, row.buyDate, row.buyDate);
+        const repeatPattern = (priorBuys?.n || 0) >= 2;
+        if (repeatPattern) score += 12;
+
+        score = Math.min(100, score);
+
+        const isAbnormal = (isCsuite || isDir) && daysTo <= 14 && event.type === 'EARNINGS';
+        const proximityColor = daysTo <= 7 ? 'var(--sell)' : daysTo <= 14 ? 'var(--option)' : daysTo <= 30 ? 'var(--accent)' : 'var(--muted)';
+
+        results.push({
+          ticker: row.ticker,
+          company: row.company || row.ticker,
+          insider: row.insider || '—',
+          title: row.title || '—',
+          buyDate: row.buyDate,
+          buyVal: row.buyVal || 0,
+          buyValue: row.buyVal || 0,
+          nextEvent: event,
+          allUpcoming: [event],
+          daysTo,
+          score,
+          isAbnormal,
+          repeatPattern,
+          proximityColor,
+        });
+      } catch(_) {}
+    });
+
+    results.sort((a, b) => b.score - a.score);
+    _proximityServerCache     = results;
+    _proximityServerCacheTime = Date.now();
+    slog(`Proximity pre-computed: ${results.length} results`);
+  } catch(e) { slog('preComputeProximity error: ' + e.message); }
+}
+
+app.get('/api/proximity', async (req, res) => {
+  if (_proximityServerCache && Date.now() - _proximityServerCacheTime < PROXIMITY_TTL) {
+    return res.json(_proximityServerCache);
+  }
+  await preComputeProximity();
+  res.json(_proximityServerCache || []);
+});
+
+// ── INSIDER SCOREBOARD ───────────────────────────────────────────────────────
+// Scores every insider with 4+ completed buy trades against actual forward
+// price returns at D+30 / D+90 / D+180. Uses the warm price cache.
+let _scoreboardCache     = null;
+let _scoreboardCacheTime = 0;
+const SCOREBOARD_TTL = 6 * 60 * 60 * 1000;
+
+async function preComputeScoreboard() {
+  if (_scoreboardCache) return;
+  try {
+    slog('Pre-computing scoreboard...');
+    const minBuys = 4, limit = 30;
+    const rows = db.prepare(`
+      SELECT
+        insider, MAX(title) AS title, COUNT(*) AS buy_count,
+        GROUP_CONCAT(ticker || '|' || trade_date || '|' || COALESCE(price,0) || '|' || COALESCE(value,0), ';;') AS trade_data,
+        GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
+        CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
+      FROM trades
+      WHERE TRIM(type) = 'P'
+        AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
+        AND trade_date <= date('now', '-95 days')
+      GROUP BY insider
+      HAVING buy_count >= ? AND span_days >= 90
+      ORDER BY buy_count DESC, span_days DESC LIMIT ?
+    `).all(minBuys, limit);
+
+    if (!rows.length) { slog('Scoreboard pre-compute: no qualifying rows'); return; }
+
+    const allTickers = [...new Set(
+      rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
+    )].slice(0, 40);
+
+    const priceEntries = await Promise.allSettled(
+      allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
+    );
+    const priceCache = Object.fromEntries(
+      priceEntries.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
+    );
+
+    const accuracyResults = [], timingResults = [];
+
+    rows.forEach(leader => {
+      try {
+        const rawTrades = (leader.trade_data || '').split(';;').map(s => {
+          const [ticker, trade_date, priceStr, valueStr] = s.split('|');
+          return { ticker, trade: trade_date, price: parseFloat(priceStr) || 0, value: parseFloat(valueStr) || 0 };
+        }).filter(t => t.ticker && t.trade);
+
+        if (rawTrades.length < 4) return;
+
+        const scored = rawTrades.map(t => {
+          const bars = priceCache[t.ticker] || [];
+          if (!bars.length) return null;
+          const buyDate  = t.trade.slice(0, 10);
+          const entryBar = bars.find(b => b.time >= buyDate);
+          const buyPrice = t.price > 0 ? t.price : (entryBar?.close || 0);
+          if (!buyPrice || buyPrice <= 0) return null;
+          const fwd = days => {
+            const fd = new Date(buyDate + 'T12:00:00Z');
+            fd.setUTCDate(fd.getUTCDate() + days);
+            const fs  = fd.toISOString().slice(0, 10);
+            const bar = bars.find(b => b.time >= fs);
+            return bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+          };
+          return { ticker: t.ticker, tradeDate: buyDate, buyPrice,
+            ret30: fwd(30), ret90: fwd(90), ret180: fwd(180) };
+        }).filter(Boolean);
+
+        const completed = scored.filter(s => s.ret90 !== null);
+        if (completed.length < 3) return;
+
+        const rets90   = completed.map(s => s.ret90);
+        const avgRet90 = +(rets90.reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
+        const rets30   = completed.filter(s => s.ret30 !== null).map(s => s.ret30);
+        const avgRet30 = rets30.length ? +(rets30.reduce((a, b) => a + b, 0) / rets30.length).toFixed(1) : null;
+        const winRate  = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
+        const avgMag   = +(rets90.map(Math.abs).reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
+        const sortedR  = [...rets90].sort((a, b) => a - b);
+        const median   = sortedR[Math.floor(sortedR.length / 2)];
+        const consist  = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag, 1) + 1) * 50)));
+        const accScore = Math.round(Math.min(100, Math.max(0,
+          winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35))
+          + consist * 0.15 + Math.min(10, completed.length * 1.2)
+        )));
+        const tier     = accScore >= 75 ? 'ELITE' : accScore >= 55 ? 'STRONG' : accScore >= 35 ? 'AVERAGE' : 'WEAK';
+        const tickers3 = [...new Set(rawTrades.map(t => t.ticker))].slice(0, 3).join(', ');
+
+        accuracyResults.push({ name: leader.insider, title: leader.title || '',
+          accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
+          tradeCount: completed.length, tickers: tickers3 });
+
+        // Timing alpha — measures quality of entry price relative to 12M range
+        let nearLowCount = 0, ret90sum = 0, ret180sum = 0, retN = 0;
+        scored.forEach(s => {
+          const bars = priceCache[s.ticker] || [];
+          if (!bars.length || !s.buyPrice) return;
+          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
+          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
+          const yr1Bars = bars.filter(b =>
+            b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate
+          );
+          if (yr1Bars.length < 20) return;
+          const yr1Lo = Math.min(...yr1Bars.map(b => b.low || b.close));
+          if ((s.buyPrice - yr1Lo) / yr1Lo * 100 <= 20) nearLowCount++;
+          if (s.ret90  !== null) { ret90sum  += s.ret90;  retN++; }
+          if (s.ret180 !== null)   ret180sum += s.ret180;
+        });
+
+        const n         = scored.length;
+        const nearLowPct = n > 0 ? Math.round(nearLowCount / n * 100) : 0;
+        const avgFwd90  = retN > 0 ? +(ret90sum  / retN).toFixed(1) : null;
+        const avgFwd180 = retN > 0 ? +(ret180sum / retN).toFixed(1) : null;
+
+        // Compute avg position in annual range
+        const avgPos = scored.reduce((acc, s) => {
+          const bars = priceCache[s.ticker] || [];
+          if (!bars.length || !s.buyPrice) return acc;
+          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
+          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
+          const yr1Bars = bars.filter(b =>
+            b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate
+          );
+          if (yr1Bars.length < 20) return acc;
+          const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
+          const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
+          const rng = yr1Hi - yr1Lo;
+          return rng > 0.01 ? { sum: acc.sum + (s.buyPrice - yr1Lo) / rng, n: acc.n + 1 } : acc;
+        }, { sum: 0, n: 0 });
+        const avgPosVal = avgPos.n > 0 ? avgPos.sum / avgPos.n : 0.5;
+
+        const compLow  = Math.round(Math.min(25, (nearLowPct / 100) * 50));
+        const compPos  = Math.round(Math.min(25, Math.max(0, (0.7 - avgPosVal) / 0.4 * 25)));
+        const compFwd  = avgFwd90 !== null ? Math.round(Math.min(25, Math.max(0, avgFwd90 / 10 * 25))) : 12;
+        const compSell = 12;
+        const timingAlpha = Math.min(100, Math.max(0, compLow + compPos + compFwd + compSell));
+
+        let verdict;
+        if      (timingAlpha >= 80 && nearLowPct >= 50) verdict = 'Buys near bottoms';
+        else if (timingAlpha >= 80)                     verdict = 'Elite forward returns';
+        else if (timingAlpha >= 60)                     verdict = 'Above-average timing';
+        else if (timingAlpha >= 40)                     verdict = 'Mixed timing signals';
+        else                                            verdict = 'Tends to buy high';
+
+        if (timingAlpha >= 35) {
+          timingResults.push({ name: leader.insider, title: leader.title || '',
+            timingAlpha, nearLowPct, avgRet90: avgFwd90, avgRet180: avgFwd180,
+            verdict, tradeCount: completed.length, tickers: tickers3 });
+        }
+      } catch(e) { slog('scoreboard insider err: ' + e.message); }
+    });
+
+    accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
+    timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
+
+    const result = { accuracy: accuracyResults, timing: timingResults };
+    _scoreboardCache     = result;
+    _scoreboardCacheTime = Date.now();
+    slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
+  } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
+}
+
+app.get('/api/scoreboard', async (req, res) => {
+  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
+    return res.json(_scoreboardCache);
+  }
+  await preComputeScoreboard();
+  res.json(_scoreboardCache || { accuracy: [], timing: [] });
+});
+
+// ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
+// Stagger: price warm (60s) → drift + proximity (120s) → scoreboard (130s)
+setTimeout(() => {
+  warmPriceCache().then(() => {
+    setTimeout(() => preComputeDrift().catch(e => slog('drift startup err: ' + e.message)), 10000);
+    setTimeout(() => preComputeProximity().catch(e => slog('proximity startup err: ' + e.message)), 12000);
+    setTimeout(() => preComputeScoreboard().catch(e => slog('scoreboard startup err: ' + e.message)), 20000);
+  }).catch(e => slog('warmPriceCache startup err: ' + e.message));
+}, 60000);
+
+// Refresh every 12h
+setInterval(() => {
+  _scoreboardCache = null;
+  warmPriceCache()
+    .then(() => preComputeDrift())
+    .then(() => preComputeProximity())
+    .then(() => preComputeScoreboard())
+    .catch(e => slog('refresh err: ' + e.message));
+}, 12 * 60 * 60 * 1000);
 
 // Sources: Capitol Trades public API + House/Senate STOCK Act disclosures via Quiver
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
