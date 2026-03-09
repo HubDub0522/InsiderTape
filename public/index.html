@@ -5180,7 +5180,7 @@ async function loadSectorsPage() {
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
 
-  if (_sectorCache && _sectorCache._days === _sectorDays) {
+  if (_sectorCache && _sectorCache._days === _sectorDays && (_sectorCache.sectors || []).length > 0) {
     renderSectorsPage(_sectorCache);
     return;
   }
@@ -5194,6 +5194,28 @@ async function loadSectorsPage() {
     const data = await apiFetch('/api/sectors?days=' + _sectorDays);
     data._days = _sectorDays;
     _sectorCache = data;
+
+    if (!data.sectors || data.sectors.length === 0) {
+      // Precompute is still running on the server — show waiting state and poll
+      body.innerHTML = `
+        <div style="max-width:1300px;margin:0 auto;padding:48px 20px;text-align:center">
+          <div style="font-size:28px;margin-bottom:12px">🗺️</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:8px">BUILDING SECTOR MAP</div>
+          <div style="font-size:12px;color:var(--muted);max-width:400px;margin:0 auto;line-height:1.8">
+            Fetching sector classifications for active tickers.<br>
+            This runs once at startup and takes ~2 minutes.<br>
+            The page will refresh automatically.
+          </div>
+          <div class="loading-state" style="margin-top:24px"><div class="spinner"></div><span>Precomputing…</span></div>
+        </div>`;
+      // Poll every 20 seconds until data arrives
+      setTimeout(() => {
+        _sectorCache = null;
+        if (document.getElementById('sectorsViewBody')) loadSectorsPage();
+      }, 20000);
+      return;
+    }
+
     renderSectorsPage(data);
   } catch(e) {
     body.innerHTML = `<div style="max-width:1300px;margin:0 auto;padding:24px 20px;color:var(--sell)">${e.message}</div>`;
