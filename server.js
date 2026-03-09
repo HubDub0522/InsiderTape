@@ -494,7 +494,6 @@ async function getSectorsForTickers(tickers) {
   const result = {};
   const toFetch = [];
 
-  // Check cache first
   for (const t of tickers) {
     if (_sectorTickerCache[t] && now - _sectorTickerCache[t].cached_at < SECTOR_TTL) {
       result[t] = _sectorTickerCache[t];
@@ -505,15 +504,15 @@ async function getSectorsForTickers(tickers) {
 
   if (!toFetch.length) return result;
 
-  // FMP bulk profile — up to 50 symbols per call, comma-separated
+  // FMP bulk profile — up to 50 symbols per call
   const BATCH = 50;
   for (let i = 0; i < toFetch.length; i += BATCH) {
     const batch = toFetch.slice(i, i + BATCH);
     try {
       const url = `https://financialmodelingprep.com/api/v3/profile/${batch.join(',')}?apikey=${FMP}`;
-      const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!resp.ok) continue;
-      const data = await resp.json();
+      const { status, body } = await get(url, 12000);
+      if (status !== 200) continue;
+      const data = JSON.parse(body.toString());
       const arr = Array.isArray(data) ? data : [data];
       for (const p of arr) {
         if (!p?.symbol || !p?.sector) continue;
@@ -521,7 +520,7 @@ async function getSectorsForTickers(tickers) {
         _sectorTickerCache[p.symbol] = entry;
         result[p.symbol] = entry;
       }
-    } catch(e) { /* batch failed, skip */ }
+    } catch(e) { slog('sector FMP batch error: ' + e.message); }
   }
 
   return result;
