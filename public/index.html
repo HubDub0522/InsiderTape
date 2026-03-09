@@ -5531,49 +5531,48 @@ async function runMonitorWindow(tab, body) {
   window.scrollTo(0, 0);
   const label = tab === 'today' ? 'today' : tab === 'week' ? 'this week' : 'this month';
 
+  // Invalidate today-tab cache if it's a new trading day
+  if (tab === 'today' && _monitorCache['today']) {
+    const cachedDate = _monitorCache['_todayDate'];
+    const currentDate = lastTradingDate();
+    if (cachedDate !== currentDate) {
+      delete _monitorCache['today'];
+      delete _monitorCache['_todayDate'];
+    }
+  }
+
   if (_monitorCache[tab]) {
     renderMonitorAlerts(_monitorCache[tab], label, body);
     return;
   }
 
   try {
-    // Fetch enough data for signal engines to work with
     const fetchDays = tab === 'today' ? 14 : tab === 'week' ? 14 : 30;
     const resp = await apiFetch('/api/screener?days=' + fetchDays);
     const allTrades = Array.isArray(resp) ? resp : (resp.trades || []);
 
-    // Determine the display cutoff:
-    // today → last trading day date (from server data, not client clock)
-    // week/month → calendar cutoff
     let displayCutStr;
     if (tab === 'today') {
-      // Use the most recent trade_date found in the server response as the anchor.
-      // This is reliable regardless of weekends/holidays/timezones.
-      const tradeDates = allTrades
-        .map(t => (t.trade || t.filing || '').slice(0, 10))
-        .filter(Boolean)
-        .sort();
-      const latestInDb = tradeDates[tradeDates.length - 1] || '';
-
-      // If market is currently open, prefer today's calendar date so live filings show up.
-      // Otherwise always use the last date actually present in the DB.
-      if (isMarketOpen()) {
-        const todayET = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-        displayCutStr = new Date(todayET).toISOString().slice(0, 10);
-        // Fall back to latestInDb if today has no data yet (pre-9:30 filings may not exist)
-        if (!tradeDates.includes(displayCutStr)) displayCutStr = latestInDb;
-      } else {
-        displayCutStr = latestInDb;
-      }
+      // Use lastTradingDate() — correctly returns today on weekdays at/after open
+      displayCutStr = lastTradingDate();
+      // Store which date this cache is for so we can invalidate it tomorrow
+      _monitorCache['_todayDate'] = displayCutStr;
+    } else if (tab === 'week') {
+      // "This week" = Monday of the current week (so Mon morning shows the full new week's data)
+      const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const dayOfWeek = et.getDay(); // 0=Sun, 1=Mon...6=Sat
+      // Days since last Monday (treat Sunday as day 7, so go back 6 days)
+      const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const monday = new Date(et);
+      monday.setDate(et.getDate() - daysSinceMonday);
+      monday.setHours(0, 0, 0, 0);
+      displayCutStr = monday.toISOString().slice(0, 10);
     } else {
-      const now = new Date();
-      const cutoff = new Date(now);
-      cutoff.setDate(now.getDate() - (tab === 'week' ? 7 : 30));
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
       displayCutStr = cutoff.toISOString().slice(0, 10);
     }
 
-    // Pass ALL fetched trades to signal engines (so cluster detection etc. has enough context),
-    // but pass displayCutStr so buildMonitorAlerts filters alerts to the right window.
     let firstBuys = [];
     try {
       const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${fetchDays}&limit=50`);
@@ -5586,9 +5585,10 @@ async function runMonitorWindow(tab, body) {
     const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, drift, displayCutStr);
     _monitorCache[tab] = alerts;
 
-    // Annotate today label with actual trading day shown
     const displayLabel = tab === 'today'
       ? `on ${fmtDate(displayCutStr)}${isMarketOpen() ? ' (live)' : ''}`
+      : tab === 'week'
+      ? `week of ${fmtDate(displayCutStr)}`
       : label;
     renderMonitorAlerts(alerts, displayLabel, body);
   } catch(e) {
