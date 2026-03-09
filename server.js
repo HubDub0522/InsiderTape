@@ -485,26 +485,46 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // SECTORS — aggregates insider buy/sell activity by sector using FMP profile data
-// Caches sector mappings in memory to avoid hammering FMP
+// Uses FMP bulk profile endpoint to get sectors for many tickers in one call
 const _sectorTickerCache = {};   // ticker → { sector, industry, cached_at }
-const SECTOR_TTL = 24 * 60 * 60 * 1000; // 24hr per ticker
+const SECTOR_TTL = 48 * 60 * 60 * 1000; // 48hr per ticker
 
-async function getSectorForTicker(ticker) {
+async function getSectorsForTickers(tickers) {
   const now = Date.now();
-  if (_sectorTickerCache[ticker] && now - _sectorTickerCache[ticker].cached_at < SECTOR_TTL) {
-    return _sectorTickerCache[ticker];
+  const result = {};
+  const toFetch = [];
+
+  // Check cache first
+  for (const t of tickers) {
+    if (_sectorTickerCache[t] && now - _sectorTickerCache[t].cached_at < SECTOR_TTL) {
+      result[t] = _sectorTickerCache[t];
+    } else {
+      toFetch.push(t);
+    }
   }
-  try {
-    const url = `https://financialmodelingprep.com/api/v3/profile/${ticker}?apikey=${FMP}`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const p = Array.isArray(data) ? data[0] : data;
-    if (!p || !p.sector) return null;
-    const entry = { sector: p.sector, industry: p.industry || '', mktCap: p.mktCap || 0, cached_at: now };
-    _sectorTickerCache[ticker] = entry;
-    return entry;
-  } catch(e) { return null; }
+
+  if (!toFetch.length) return result;
+
+  // FMP bulk profile — up to 50 symbols per call, comma-separated
+  const BATCH = 50;
+  for (let i = 0; i < toFetch.length; i += BATCH) {
+    const batch = toFetch.slice(i, i + BATCH);
+    try {
+      const url = `https://financialmodelingprep.com/api/v3/profile/${batch.join(',')}?apikey=${FMP}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const arr = Array.isArray(data) ? data : [data];
+      for (const p of arr) {
+        if (!p?.symbol || !p?.sector) continue;
+        const entry = { sector: p.sector, industry: p.industry || '', cached_at: now };
+        _sectorTickerCache[p.symbol] = entry;
+        result[p.symbol] = entry;
+      }
+    } catch(e) { /* batch failed, skip */ }
+  }
+
+  return result;
 }
 
 let _sectorCache = null;
@@ -518,16 +538,16 @@ app.get('/api/sectors', async (req, res) => {
   try {
     const days = Math.min(parseInt(req.query.days || '30'), 90);
 
-    // Pull top tickers by activity in window
+    // Pull top tickers by activity in window — limit to 100 for manageable FMP calls
     const rows = db.prepare(`
       SELECT
         ticker, MAX(company) AS company,
-        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)       AS buy_val,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)           AS buy_val,
         SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
-        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                             AS buy_count,
-        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END)                  AS sell_count,
-        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END)              AS buyer_count,
-        MAX(CASE WHEN TRIM(type)='P' THEN trade_date END)                      AS latest_buy
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                                 AS buy_count,
+        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END)                       AS sell_count,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END)                  AS buyer_count,
+        MAX(CASE WHEN TRIM(type)='P' THEN trade_date END)                          AS latest_buy
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
         AND TRIM(type) IN ('P','S','S-')
@@ -535,23 +555,22 @@ app.get('/api/sectors', async (req, res) => {
       GROUP BY ticker
       HAVING buy_count > 0 OR sell_count > 0
       ORDER BY (buy_val + sell_val) DESC
-      LIMIT 300
+      LIMIT 100
     `).all(days);
 
     if (!rows.length) return res.json({ sectors: [], days });
 
-    // Fetch sector for each ticker (uses cache, fires in parallel batches of 10)
-    const BATCH = 10;
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const batch = rows.slice(i, i + BATCH);
-      await Promise.all(batch.map(r => getSectorForTicker(r.ticker).then(s => { r._sector = s; })));
-    }
+    // Fetch all sectors in 2 bulk FMP calls (50 tickers each)
+    const tickers = rows.map(r => r.ticker);
+    const sectorMap_lookup = await getSectorsForTickers(tickers);
 
-    // Aggregate by sector
+    // Aggregate by sector — skip Unknown entirely
     const sectorMap = {};
     rows.forEach(r => {
-      const sector = r._sector?.sector || 'Unknown';
-      const industry = r._sector?.industry || '';
+      const info = sectorMap_lookup[r.ticker];
+      if (!info?.sector) return; // skip tickers with no sector data
+      const sector = info.sector;
+      const industry = info.industry || '';
       if (!sectorMap[sector]) {
         sectorMap[sector] = {
           sector, buy_val: 0, sell_val: 0, buy_count: 0, sell_count: 0,
@@ -559,19 +578,18 @@ app.get('/api/sectors', async (req, res) => {
         };
       }
       const s = sectorMap[sector];
-      s.buy_val    += r.buy_val || 0;
-      s.sell_val   += r.sell_val || 0;
-      s.buy_count  += r.buy_count || 0;
-      s.sell_count += r.sell_count || 0;
+      s.buy_val     += r.buy_val || 0;
+      s.sell_val    += r.sell_val || 0;
+      s.buy_count   += r.buy_count || 0;
+      s.sell_count  += r.sell_count || 0;
       s.buyer_count += r.buyer_count || 0;
       s.ticker_count++;
       if (r.buy_val > 0) s.tickers.push({ ticker: r.ticker, company: r.company, buy_val: r.buy_val, buyer_count: r.buyer_count, latest_buy: r.latest_buy });
       if (industry) s.industries[industry] = (s.industries[industry] || 0) + (r.buy_val || 0);
     });
 
-    // Sort sectors by buy_val desc, tickers within each sector too
     const sectors = Object.values(sectorMap)
-      .filter(s => s.sector !== 'Unknown' || s.buy_val > 0)
+      .filter(s => s.buy_val > 0 || s.sell_val > 0)
       .map(s => ({
         ...s,
         tickers: s.tickers.sort((a,b) => b.buy_val - a.buy_val).slice(0, 10),
