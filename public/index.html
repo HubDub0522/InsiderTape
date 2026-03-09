@@ -412,6 +412,7 @@
     <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
     <button class="nav-tab" id="analysisTab" onclick="switchView('analysis', this)">ANALYSIS</button>
     <button class="nav-tab" id="monitorTab" onclick="switchView('monitor', this)">MONITOR</button>
+    <button class="nav-tab" id="sectorsTab" onclick="switchView('sectors', this)">SECTORS</button>
   </nav>
 </header>
 
@@ -525,6 +526,9 @@
 <div id="view-monitor" class="view">
   <div id="monitorViewBody"></div>
 </div>
+<div id="view-sectors" class="view">
+  <div id="sectorsViewBody"></div>
+</div>
 
 
 </main>
@@ -605,7 +609,7 @@ function switchView(view, btn, opts={}) {
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
-    const idx = {screener:0, stock:1, insider:2, analysis:3, monitor:4}[view];
+    const idx = {screener:0, stock:1, insider:2, analysis:3, monitor:4, sectors:5}[view];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
   }
   if (view === 'insider') {
@@ -633,6 +637,9 @@ function switchView(view, btn, opts={}) {
   if (view === 'monitor') {
     loadMonitorPage();
   }
+  if (view === 'sectors') {
+    loadSectorsPage();
+  }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
     history.pushState({view, subview: null}, '', url);
@@ -641,7 +648,7 @@ function switchView(view, btn, opts={}) {
 }
 
 function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis', monitor:'INSIDERTAPE — Monitor'};
+  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis', monitor:'INSIDERTAPE — Monitor', sectors:'INSIDERTAPE — Sectors'};
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function searchTicker() {
@@ -5121,6 +5128,255 @@ function renderClusterCard(c) {
 // Pulls signals from all Analysis tools across 3 time windows (today, week, month)
 // and presents them as a unified alert feed.
 
+// ════════════════════════════════════════════════════════════════
+// SECTOR VIEW
+// ════════════════════════════════════════════════════════════════
+
+let _sectorCache = null;
+let _sectorDays = 30;
+
+const SECTOR_ICONS = {
+  'Technology': '💻', 'Healthcare': '🏥', 'Financial Services': '🏦',
+  'Consumer Cyclical': '🛍️', 'Industrials': '⚙️', 'Communication Services': '📡',
+  'Energy': '⚡', 'Consumer Defensive': '🛒', 'Real Estate': '🏢',
+  'Basic Materials': '⛏️', 'Utilities': '💡', 'Unknown': '📊',
+};
+
+function sectorIcon(s) { return SECTOR_ICONS[s] || '📊'; }
+
+function fmtSector(n) {
+  if (!n && n !== 0) return '—';
+  if (n >= 1e9) return '$' + (n/1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
+  return '$' + n;
+}
+
+async function loadSectorsPage() {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('sectorsViewBody');
+  if (!body) return;
+
+  if (_sectorCache && _sectorCache._days === _sectorDays) {
+    renderSectorsPage(_sectorCache);
+    return;
+  }
+
+  body.innerHTML = `
+    <div style="max-width:1300px;margin:0 auto;padding:24px 20px">
+      <div class="loading-state"><div class="spinner"></div><span>Mapping sectors… fetching profiles for active tickers</span></div>
+    </div>`;
+
+  try {
+    const data = await apiFetch('/api/sectors?days=' + _sectorDays);
+    data._days = _sectorDays;
+    _sectorCache = data;
+    renderSectorsPage(data);
+  } catch(e) {
+    body.innerHTML = `<div style="max-width:1300px;margin:0 auto;padding:24px 20px;color:var(--sell)">${e.message}</div>`;
+  }
+}
+
+function renderSectorsPage(data) {
+  const body = document.getElementById('sectorsViewBody');
+  if (!body) return;
+  const { sectors = [], total_buy_val = 0, days = 30 } = data;
+  const totalBuyVal = total_buy_val || sectors.reduce((s,x) => s + x.buy_val, 0) || 1;
+
+  // Time tab buttons
+  const tabBtn = (d, label) => `
+    <button onclick="switchSectorDays(${d})" style="
+      padding:6px 16px;font-family:'Space Mono',monospace;font-size:11px;
+      border-radius:6px;cursor:pointer;transition:all .15s;
+      background:${_sectorDays===d?'var(--accent)':'transparent'};
+      color:${_sectorDays===d?'#000':'var(--muted)'};
+      border:1px solid ${_sectorDays===d?'var(--accent)':'var(--border)'};
+    ">${label}</button>`;
+
+  // Sort options
+  const sortedByBuy   = [...sectors].sort((a,b) => b.buy_val - a.buy_val);
+  const sortedByFlow  = [...sectors].sort((a,b) => (b.buy_val - b.sell_val) - (a.buy_val - a.sell_val));
+  const sortedByCount = [...sectors].sort((a,b) => b.buyer_count - a.buyer_count);
+
+  // Find max buy_val for heat scaling
+  const maxBuy = Math.max(...sectors.map(s => s.buy_val), 1);
+
+  body.innerHTML = `
+    <div style="max-width:1300px;margin:0 auto;padding:24px 20px">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:28px">
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">🗺️ SECTOR HEAT MAP</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">Where insider capital is flowing · ${days}d window · ${sectors.length} sectors mapped</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${tabBtn(7,'7D')} ${tabBtn(30,'30D')} ${tabBtn(90,'90D')}
+        </div>
+      </div>
+
+      <!-- Summary bar -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:32px">
+        ${[
+          { label:'Total Buy Flow', val: fmtSector(totalBuyVal), color:'var(--buy)' },
+          { label:'Total Sell Flow', val: fmtSector(sectors.reduce((s,x)=>s+x.sell_val,0)), color:'var(--sell)' },
+          { label:'Active Sectors', val: sectors.filter(s=>s.buy_val>0).length, color:'var(--accent)' },
+          { label:'Unique Buyers', val: [...new Set(sectors.flatMap(s=>s.tickers.map(t=>t.ticker)))].length + '+ tickers', color:'var(--option)' },
+        ].map(s => `
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px">${s.label}</div>
+            <div style="font-size:18px;font-family:'Bebas Neue',sans-serif;letter-spacing:1px;color:${s.color}">${s.val}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- Heat map grid -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px;margin-bottom:40px">
+        ${sortedByBuy.map((s,i) => renderSectorCard(s, maxBuy, i)).join('')}
+      </div>
+
+      <!-- Net flow bar chart -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:40px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);margin-bottom:18px">NET BUY/SELL FLOW BY SECTOR</div>
+        ${sortedByFlow.filter(s=>s.buy_val>0||s.sell_val>0).map(s => {
+          const net = s.buy_val - s.sell_val;
+          const maxNet = Math.max(...sortedByFlow.map(x => Math.abs(x.buy_val - x.sell_val)), 1);
+          const barW = Math.round(Math.abs(net) / maxNet * 100);
+          const isBuy = net >= 0;
+          return `
+            <div style="display:grid;grid-template-columns:140px 1fr 90px;align-items:center;gap:12px;margin-bottom:10px">
+              <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sectorIcon(s.sector)} ${s.sector}</div>
+              <div style="background:var(--bg3);border-radius:3px;height:8px;overflow:hidden">
+                <div style="width:${barW}%;height:100%;background:${isBuy?'var(--buy)':'var(--sell)'};border-radius:3px;transition:width .4s"></div>
+              </div>
+              <div style="font-size:11px;font-family:'Space Mono',monospace;color:${isBuy?'var(--buy)':'var(--sell)'};text-align:right">${isBuy?'+':''}${fmtSector(net)}</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Top tickers by sector table -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);margin-bottom:18px">MOST ACTIVE TICKERS BY SECTOR</div>
+        ${sortedByBuy.filter(s=>s.tickers.length>0).map(s => `
+          <div style="margin-bottom:24px">
+            <div style="font-size:12px;color:var(--accent);font-family:'Space Mono',monospace;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+              <span>${sectorIcon(s.sector)} ${s.sector.toUpperCase()}</span>
+              <span style="color:var(--muted)">·</span>
+              <span style="color:var(--buy)">${fmtSector(s.buy_val)} bought</span>
+              ${s.top_industry ? `<span style="color:var(--muted)">· ${s.top_industry}</span>` : ''}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              ${s.tickers.slice(0,8).map(t => `
+                <div onclick="openTickerFromScreener('${t.ticker}')" style="
+                  background:var(--bg3);border:1px solid var(--border);border-radius:6px;
+                  padding:8px 12px;cursor:pointer;transition:all .15s;
+                  display:flex;flex-direction:column;gap:3px;min-width:100px
+                " onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                  <div style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent)">${t.ticker}</div>
+                  <div style="font-size:10px;color:var(--buy)">${fmtSector(t.buy_val)}</div>
+                  <div style="font-size:10px;color:var(--muted)">${t.buyer_count} buyer${t.buyer_count!==1?'s':''}</div>
+                </div>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>
+
+      <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:24px;padding-bottom:40px">
+        Sector classification via FMP · Includes only P/S/S- open-market transactions · Cache refreshes every 4 hours
+      </div>
+    </div>`;
+}
+
+function renderSectorCard(s, maxBuy, rank) {
+  const heatPct  = Math.round(s.buy_val / maxBuy * 100);
+  const sentiment = parseInt(s.sentiment) || 0;
+  // Heat color: low = dim blue, high = bright green
+  const heatR = Math.round(0   + heatPct * 0);
+  const heatG = Math.round(100 + heatPct * 1.55);
+  const heatB = Math.round(180 - heatPct * 1.3);
+  const heatColor = `rgb(${heatR},${Math.min(255,heatG)},${Math.max(0,heatB)})`;
+  const heatAlpha = 0.04 + heatPct / 100 * 0.18;
+
+  const net = s.buy_val - s.sell_val;
+  const isBullish = net > 0;
+
+  return `
+    <div style="
+      background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+      overflow:hidden;transition:border-color .15s;position:relative;cursor:default
+    " onmouseover="this.style.borderColor='${heatColor}'" onmouseout="this.style.borderColor='var(--border)'">
+
+      <!-- Heat bar at top -->
+      <div style="height:3px;background:linear-gradient(90deg, ${heatColor} ${heatPct}%, var(--border) ${heatPct}%)"></div>
+
+      <!-- Heat bg glow -->
+      <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at top left, rgba(${heatR},${Math.min(255,heatG)},${Math.max(0,heatB)},${heatAlpha}) 0%, transparent 70%);pointer-events:none"></div>
+
+      <div style="padding:16px 18px;position:relative">
+        <!-- Sector header -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px">
+          <div>
+            <div style="font-size:22px;margin-bottom:4px">${sectorIcon(s.sector)}</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px;color:var(--text);line-height:1">${s.sector}</div>
+            ${s.top_industry ? `<div style="font-size:10px;color:var(--muted);margin-top:3px">${s.top_industry}</div>` : ''}
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace">HEAT</div>
+            <div style="font-size:20px;font-family:'Bebas Neue',sans-serif;color:${heatColor}">${heatPct}</div>
+          </div>
+        </div>
+
+        <!-- Buy value big number -->
+        <div style="margin-bottom:12px">
+          <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:2px">BUY FLOW</div>
+          <div style="font-size:22px;font-family:'Bebas Neue',sans-serif;letter-spacing:1px;color:var(--buy)">${fmtSector(s.buy_val)}</div>
+        </div>
+
+        <!-- Sentiment bar -->
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:5px">
+            <span>BUY</span><span>SELL</span>
+          </div>
+          <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden">
+            <div style="width:${sentiment}%;height:100%;background:linear-gradient(90deg,var(--buy),var(--accent));border-radius:4px;transition:width .6s"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;margin-top:4px">
+            <span style="color:var(--buy)">${fmtSector(s.buy_val)}</span>
+            <span style="color:var(--sell)">${fmtSector(s.sell_val)}</span>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+          ${[
+            { label:'TICKERS', val: s.ticker_count },
+            { label:'BUYERS', val: s.buyer_count },
+            { label:'NET', val: (net>=0?'+':'')+fmtSector(net), color: net>=0?'var(--buy)':'var(--sell)' },
+          ].map(x => `
+            <div style="text-align:center;background:var(--bg3);border-radius:6px;padding:6px 4px">
+              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">${x.label}</div>
+              <div style="font-size:13px;font-family:'Bebas Neue',sans-serif;color:${x.color||'var(--text)'};margin-top:2px">${x.val}</div>
+            </div>`).join('')}
+        </div>
+
+        <!-- Top tickers chips -->
+        <div style="display:flex;flex-wrap:wrap;gap:5px">
+          ${s.tickers.slice(0,5).map(t => `
+            <span onclick="openTickerFromScreener('${t.ticker}')" style="
+              background:var(--bg3);border:1px solid var(--border);border-radius:4px;
+              padding:3px 8px;font-family:'Space Mono',monospace;font-size:10px;
+              color:var(--accent);cursor:pointer;transition:all .12s
+            " onmouseover="this.style.background='rgba(0,212,255,0.1)'" onmouseout="this.style.background='var(--bg3)'">${t.ticker}</span>`).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+async function switchSectorDays(days) {
+  _sectorDays = days;
+  _sectorCache = null;
+  await loadSectorsPage();
+}
+
+// ════════════════════════════════════════════════════════════════
 let _monitorTab = 'today';
 let _monitorCache = {};
 let _monitorTypeFilters = new Set(); // empty = show all
