@@ -485,82 +485,422 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // ── SECTORS ─────────────────────────────────────────────────────────────────
-// Sector data is precomputed at startup via a background worker that looks up
-// each active ticker's sector/industry from Yahoo Finance quoteSummary.
-// The /api/sectors route just does a fast DB aggregation + in-memory lookup.
+// Static sector/industry map. Zero external calls — instant lookups.
+// Covers S&P 500 + Russell 1000 + high-insider-activity names (~750 tickers).
+const TICKER_SECTOR_MAP = {
+  'AAPL':['Technology','Consumer Electronics'],'MSFT':['Technology','Software—Infrastructure'],
+  'NVDA':['Technology','Semiconductors'],'AVGO':['Technology','Semiconductors'],
+  'ORCL':['Technology','Software—Infrastructure'],'CSCO':['Technology','Communication Equipment'],
+  'ADBE':['Technology','Software—Application'],'CRM':['Technology','Software—Application'],
+  'AMD':['Technology','Semiconductors'],'QCOM':['Technology','Semiconductors'],
+  'TXN':['Technology','Semiconductors'],'INTC':['Technology','Semiconductors'],
+  'IBM':['Technology','Information Technology Services'],'NOW':['Technology','Software—Application'],
+  'INTU':['Technology','Software—Application'],'AMAT':['Technology','Semiconductor Equipment & Materials'],
+  'MU':['Technology','Semiconductors'],'LRCX':['Technology','Semiconductor Equipment & Materials'],
+  'KLAC':['Technology','Semiconductor Equipment & Materials'],'ADI':['Technology','Semiconductors'],
+  'MRVL':['Technology','Semiconductors'],'PANW':['Technology','Software—Infrastructure'],
+  'SNPS':['Technology','Software—Application'],'CDNS':['Technology','Software—Application'],
+  'FTNT':['Technology','Software—Infrastructure'],'HPQ':['Technology','Computer Hardware'],
+  'HPE':['Technology','Computer Hardware'],'DELL':['Technology','Computer Hardware'],
+  'STX':['Technology','Computer Hardware'],'WDC':['Technology','Computer Hardware'],
+  'NTAP':['Technology','Computer Hardware'],'GLW':['Technology','Electronic Components'],
+  'TEL':['Technology','Electronic Components'],'KEYS':['Technology','Scientific & Technical Instruments'],
+  'ANSS':['Technology','Software—Application'],'PTC':['Technology','Software—Application'],
+  'CTSH':['Technology','Information Technology Services'],'ACN':['Technology','Information Technology Services'],
+  'IT':['Technology','Information Technology Services'],'GPN':['Technology','Software—Infrastructure'],
+  'FISV':['Technology','Software—Infrastructure'],'FIS':['Technology','Software—Infrastructure'],
+  'FI':['Technology','Software—Infrastructure'],'PYPL':['Technology','Software—Infrastructure'],
+  'ADSK':['Technology','Software—Application'],'WDAY':['Technology','Software—Application'],
+  'ZS':['Technology','Software—Infrastructure'],'CRWD':['Technology','Software—Infrastructure'],
+  'OKTA':['Technology','Software—Infrastructure'],'DDOG':['Technology','Software—Application'],
+  'NET':['Technology','Software—Infrastructure'],'MDB':['Technology','Software—Application'],
+  'SNOW':['Technology','Software—Application'],'HUBS':['Technology','Software—Application'],
+  'GTLB':['Technology','Software—Application'],'APP':['Technology','Software—Application'],
+  'RBLX':['Technology','Software—Application'],'FFIV':['Technology','Software—Infrastructure'],
+  'JNPR':['Technology','Communication Equipment'],'MSCI':['Technology','Information Technology Services'],
+  'BR':['Technology','Information Technology Services'],'NXPI':['Technology','Semiconductors'],
+  'ON':['Technology','Semiconductors'],'MPWR':['Technology','Semiconductors'],
+  'SWKS':['Technology','Semiconductors'],'MCHP':['Technology','Semiconductors'],
+  'SMCI':['Technology','Computer Hardware'],'PSTG':['Technology','Computer Hardware'],
+  'TWLO':['Technology','Software—Application'],'ZM':['Technology','Software—Application'],
+  'DOCU':['Technology','Software—Application'],'BOX':['Technology','Software—Infrastructure'],
+  'DBX':['Technology','Software—Infrastructure'],'PCOR':['Technology','Software—Application'],
+  'SPSC':['Technology','Software—Application'],'BRZE':['Technology','Software—Application'],
+  'BILL':['Technology','Software—Application'],'DT':['Technology','Software—Application'],
+  'AI':['Technology','Software—Application'],'NCNO':['Technology','Software—Application'],
+  'TOST':['Technology','Software—Application'],'AMBA':['Technology','Semiconductors'],
+  'SLAB':['Technology','Semiconductors'],'ONTO':['Technology','Semiconductor Equipment & Materials'],
+  'IPGP':['Technology','Electronic Components'],'VIAV':['Technology','Communication Equipment'],
+  'CIEN':['Technology','Communication Equipment'],'CALX':['Technology','Communication Equipment'],
+  'EPAM':['Technology','Information Technology Services'],'GDDY':['Technology','Software—Infrastructure'],
+  'AKAM':['Technology','Software—Infrastructure'],'CDW':['Technology','Information Technology Services'],
+  'NTDOY':['Technology','Electronic Gaming & Multimedia'],'ACLS':['Technology','Semiconductor Equipment & Materials'],
 
-const _sectorTickerCache = {};  // ticker → { sector, industry, fetchedAt }
+  'JPM':['Financial Services','Banks—Diversified'],'BAC':['Financial Services','Banks—Diversified'],
+  'WFC':['Financial Services','Banks—Diversified'],'GS':['Financial Services','Capital Markets'],
+  'MS':['Financial Services','Capital Markets'],'BLK':['Financial Services','Asset Management'],
+  'C':['Financial Services','Banks—Diversified'],'AXP':['Financial Services','Credit Services'],
+  'V':['Financial Services','Credit Services'],'MA':['Financial Services','Credit Services'],
+  'COF':['Financial Services','Credit Services'],'DFS':['Financial Services','Credit Services'],
+  'SYF':['Financial Services','Credit Services'],'USB':['Financial Services','Banks—Regional'],
+  'PNC':['Financial Services','Banks—Regional'],'TFC':['Financial Services','Banks—Regional'],
+  'MTB':['Financial Services','Banks—Regional'],'KEY':['Financial Services','Banks—Regional'],
+  'RF':['Financial Services','Banks—Regional'],'CFG':['Financial Services','Banks—Regional'],
+  'HBAN':['Financial Services','Banks—Regional'],'FITB':['Financial Services','Banks—Regional'],
+  'WBS':['Financial Services','Banks—Regional'],'BOKF':['Financial Services','Banks—Regional'],
+  'SNV':['Financial Services','Banks—Regional'],'FHN':['Financial Services','Banks—Regional'],
+  'WAL':['Financial Services','Banks—Regional'],'COLB':['Financial Services','Banks—Regional'],
+  'EWBC':['Financial Services','Banks—Regional'],'FFIN':['Financial Services','Banks—Regional'],
+  'CVBF':['Financial Services','Banks—Regional'],'FULT':['Financial Services','Banks—Regional'],
+  'INDB':['Financial Services','Banks—Regional'],'NTRS':['Financial Services','Asset Management'],
+  'STT':['Financial Services','Asset Management'],'BK':['Financial Services','Asset Management'],
+  'SCHW':['Financial Services','Capital Markets'],'RJF':['Financial Services','Capital Markets'],
+  'LPLA':['Financial Services','Capital Markets'],'PFG':['Financial Services','Insurance—Diversified'],
+  'LNC':['Financial Services','Insurance—Life'],'UNM':['Financial Services','Insurance—Life'],
+  'GL':['Financial Services','Insurance—Life'],'MET':['Financial Services','Insurance—Life'],
+  'PRU':['Financial Services','Insurance—Life'],'AIG':['Financial Services','Insurance—Diversified'],
+  'CB':['Financial Services','Insurance—Property & Casualty'],'PGR':['Financial Services','Insurance—Property & Casualty'],
+  'ALL':['Financial Services','Insurance—Property & Casualty'],'HIG':['Financial Services','Insurance—Property & Casualty'],
+  'TRV':['Financial Services','Insurance—Property & Casualty'],'CNA':['Financial Services','Insurance—Property & Casualty'],
+  'WRB':['Financial Services','Insurance—Property & Casualty'],'CINF':['Financial Services','Insurance—Property & Casualty'],
+  'MKL':['Financial Services','Insurance—Property & Casualty'],'ERIE':['Financial Services','Insurance—Property & Casualty'],
+  'ICE':['Financial Services','Financial Data & Stock Exchanges'],'CME':['Financial Services','Financial Data & Stock Exchanges'],
+  'CBOE':['Financial Services','Financial Data & Stock Exchanges'],'MCO':['Financial Services','Financial Data & Stock Exchanges'],
+  'SPGI':['Financial Services','Financial Data & Stock Exchanges'],'FDS':['Financial Services','Financial Data & Stock Exchanges'],
+  'NDAQ':['Financial Services','Financial Data & Stock Exchanges'],'ALLY':['Financial Services','Credit Services'],
+  'CACC':['Financial Services','Credit Services'],'OMF':['Financial Services','Credit Services'],
+  'ENVA':['Financial Services','Credit Services'],'SLM':['Financial Services','Credit Services'],
+  'NAVI':['Financial Services','Credit Services'],'UWMC':['Financial Services','Mortgage Finance'],
+  'AMG':['Financial Services','Asset Management'],'IVZ':['Financial Services','Asset Management'],
+  'AMP':['Financial Services','Asset Management'],'BEN':['Financial Services','Asset Management'],
+  'TROW':['Financial Services','Asset Management'],'WTW':['Financial Services','Insurance Brokers'],
+  'AON':['Financial Services','Insurance Brokers'],'MMC':['Financial Services','Insurance Brokers'],
+  'AJG':['Financial Services','Insurance Brokers'],'RYAN':['Financial Services','Insurance Brokers'],
+  'BRP':['Financial Services','Insurance Brokers'],'NMIH':['Financial Services','Insurance—Property & Casualty'],
+  'ESNT':['Financial Services','Insurance—Property & Casualty'],'RDN':['Financial Services','Insurance—Property & Casualty'],
+  'MTG':['Financial Services','Insurance—Property & Casualty'],'ORI':['Financial Services','Insurance—Diversified'],
+  'HOOD':['Financial Services','Capital Markets'],'COIN':['Financial Services','Capital Markets'],
+  'MSTR':['Financial Services','Capital Markets'],'WEX':['Financial Services','Credit Services'],
+  'ARCC':['Financial Services','Asset Management'],'MAIN':['Financial Services','Asset Management'],
+  'HTGC':['Financial Services','Asset Management'],'CSWC':['Financial Services','Asset Management'],
+  'OBDC':['Financial Services','Asset Management'],'BXSL':['Financial Services','Asset Management'],
+  'OPBK':['Financial Services','Banks—Regional'],'FFBC':['Financial Services','Banks—Regional'],
+  'HOMB':['Financial Services','Banks—Regional'],'TOWN':['Financial Services','Banks—Regional'],
+  'SMBC':['Financial Services','Banks—Regional'],'HOPE':['Financial Services','Banks—Regional'],
+  'BANF':['Financial Services','Banks—Regional'],'SFNC':['Financial Services','Banks—Regional'],
+  'HTLF':['Financial Services','Banks—Regional'],'WSFS':['Financial Services','Banks—Regional'],
+  'HAFC':['Financial Services','Banks—Regional'],'NBTB':['Financial Services','Banks—Regional'],
+  'NWBI':['Financial Services','Banks—Regional'],'KMPR':['Financial Services','Insurance—Life'],
+  'FG':['Financial Services','Insurance—Life'],'SIGI':['Financial Services','Insurance—Property & Casualty'],
+  'ROOT':['Financial Services','Insurance—Property & Casualty'],'PRAA':['Financial Services','Credit Services'],
+  'ECPG':['Financial Services','Credit Services'],'ATLC':['Financial Services','Credit Services'],
+  'PMTS':['Financial Services','Credit Services'],'PSFE':['Financial Services','Credit Services'],
 
-// Fetch sector/industry for one ticker from Yahoo Finance quoteSummary
-async function fetchTickerSector(ticker) {
-  try {
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=assetProfile`;
-    const { status, body } = await get(url, 8000);
-    if (status !== 200) throw new Error(`status ${status}`);
-    const data = JSON.parse(body.toString());
-    const profile = data?.quoteSummary?.result?.[0]?.assetProfile;
-    if (!profile) return null;
-    const sector   = profile.sector   || null;
-    const industry = profile.industry || '';
-    if (!sector) return null;
-    return { sector, industry, fetchedAt: Date.now() };
-  } catch(e) {
-    return null;
-  }
+  'LLY':['Healthcare','Drug Manufacturers—General'],'JNJ':['Healthcare','Drug Manufacturers—General'],
+  'ABBV':['Healthcare','Drug Manufacturers—General'],'MRK':['Healthcare','Drug Manufacturers—General'],
+  'PFE':['Healthcare','Drug Manufacturers—General'],'BMY':['Healthcare','Drug Manufacturers—General'],
+  'AMGN':['Healthcare','Drug Manufacturers—General'],'GILD':['Healthcare','Drug Manufacturers—General'],
+  'BIIB':['Healthcare','Drug Manufacturers—General'],'REGN':['Healthcare','Drug Manufacturers—General'],
+  'VRTX':['Healthcare','Drug Manufacturers—General'],'MRNA':['Healthcare','Drug Manufacturers—General'],
+  'BNTX':['Healthcare','Drug Manufacturers—General'],'ALNY':['Healthcare','Biotechnology'],
+  'IDXX':['Healthcare','Diagnostics & Research'],'ILMN':['Healthcare','Diagnostics & Research'],
+  'TMO':['Healthcare','Diagnostics & Research'],'DHR':['Healthcare','Diagnostics & Research'],
+  'A':['Healthcare','Diagnostics & Research'],'BIO':['Healthcare','Diagnostics & Research'],
+  'HOLX':['Healthcare','Medical Devices'],'MDT':['Healthcare','Medical Devices'],
+  'ABT':['Healthcare','Medical Devices'],'SYK':['Healthcare','Medical Devices'],
+  'BSX':['Healthcare','Medical Devices'],'EW':['Healthcare','Medical Devices'],
+  'ZBH':['Healthcare','Medical Devices'],'ISRG':['Healthcare','Medical Devices'],
+  'DXCM':['Healthcare','Medical Devices'],'PODD':['Healthcare','Medical Devices'],
+  'INSP':['Healthcare','Medical Devices'],'SWAV':['Healthcare','Medical Devices'],
+  'NVCR':['Healthcare','Medical Devices'],'RMD':['Healthcare','Medical Devices'],
+  'ALGN':['Healthcare','Medical Devices'],'BDX':['Healthcare','Medical Devices'],
+  'BAX':['Healthcare','Medical Devices'],'XRAY':['Healthcare','Medical Devices'],
+  'GKOS':['Healthcare','Medical Devices'],'LMAT':['Healthcare','Medical Devices'],
+  'IRTC':['Healthcare','Medical Devices'],'NARI':['Healthcare','Medical Devices'],
+  'TMDX':['Healthcare','Medical Devices'],'VCEL':['Healthcare','Medical Devices'],
+  'CNMD':['Healthcare','Medical Devices'],'MMSI':['Healthcare','Medical Devices'],
+  'ATRC':['Healthcare','Medical Devices'],'AMED':['Healthcare','Medical Care Facilities'],
+  'HCA':['Healthcare','Medical Care Facilities'],'THC':['Healthcare','Medical Care Facilities'],
+  'CYH':['Healthcare','Medical Care Facilities'],'UHS':['Healthcare','Medical Care Facilities'],
+  'ENSG':['Healthcare','Medical Care Facilities'],'PGNY':['Healthcare','Medical Care Facilities'],
+  'ACHC':['Healthcare','Medical Care Facilities'],'CERT':['Healthcare','Medical Care Facilities'],
+  'UNH':['Healthcare','Healthcare Plans'],'CVS':['Healthcare','Healthcare Plans'],
+  'CI':['Healthcare','Healthcare Plans'],'HUM':['Healthcare','Healthcare Plans'],
+  'MOH':['Healthcare','Healthcare Plans'],'CNC':['Healthcare','Healthcare Plans'],
+  'ELV':['Healthcare','Healthcare Plans'],'MCK':['Healthcare','Medical Distribution'],
+  'CAH':['Healthcare','Medical Distribution'],'ABC':['Healthcare','Medical Distribution'],
+  'PDCO':['Healthcare','Medical Distribution'],'AMPH':['Healthcare','Drug Manufacturers—Specialty & Generic'],
+  'PRGO':['Healthcare','Drug Manufacturers—Specialty & Generic'],'TEVA':['Healthcare','Drug Manufacturers—Specialty & Generic'],
+  'VTRS':['Healthcare','Drug Manufacturers—Specialty & Generic'],'JAZZ':['Healthcare','Drug Manufacturers—Specialty & Generic'],
+  'SUPN':['Healthcare','Drug Manufacturers—Specialty & Generic'],'HIMS':['Healthcare','Drug Manufacturers—Specialty & Generic'],
+  'IOVA':['Healthcare','Biotechnology'],'NTLA':['Healthcare','Biotechnology'],
+  'BEAM':['Healthcare','Biotechnology'],'CRSP':['Healthcare','Biotechnology'],
+  'EDIT':['Healthcare','Biotechnology'],'RCKT':['Healthcare','Biotechnology'],
+  'BLUE':['Healthcare','Biotechnology'],'ACAD':['Healthcare','Biotechnology'],
+  'AXSM':['Healthcare','Biotechnology'],'APLS':['Healthcare','Biotechnology'],
+  'IMVT':['Healthcare','Biotechnology'],'PRAX':['Healthcare','Biotechnology'],
+  'KRYS':['Healthcare','Biotechnology'],'TGTX':['Healthcare','Biotechnology'],
+  'RXRX':['Healthcare','Biotechnology'],'RVMD':['Healthcare','Biotechnology'],
+  'IONS':['Healthcare','Biotechnology'],'SRPT':['Healthcare','Biotechnology'],
+  'BMRN':['Healthcare','Biotechnology'],'PTCT':['Healthcare','Biotechnology'],
+  'RARE':['Healthcare','Biotechnology'],'FOLD':['Healthcare','Biotechnology'],
+  'KYMR':['Healthcare','Biotechnology'],'RCUS':['Healthcare','Biotechnology'],
+  'IMCR':['Healthcare','Biotechnology'],'KRTX':['Healthcare','Biotechnology'],
+  'NUVL':['Healthcare','Biotechnology'],'VRNA':['Healthcare','Biotechnology'],
+  'ARCT':['Healthcare','Biotechnology'],'SAVA':['Healthcare','Biotechnology'],
+  'NVAX':['Healthcare','Drug Manufacturers—General'],'NTRA':['Healthcare','Diagnostics & Research'],
+  'EXAS':['Healthcare','Diagnostics & Research'],'PACB':['Healthcare','Diagnostics & Research'],
+  'NKTR':['Healthcare','Drug Manufacturers—Specialty & Generic'],'MNKD':['Healthcare','Drug Manufacturers—Specialty & Generic'],
+  'ACCD':['Healthcare','Healthcare Plans'],'CLOV':['Healthcare','Healthcare Plans'],
+  'OSCR':['Healthcare','Healthcare Plans'],'OPRX':['Healthcare','Healthcare Plans'],
+
+  'AMZN':['Consumer Cyclical','Internet Retail'],'TSLA':['Consumer Cyclical','Auto Manufacturers'],
+  'HD':['Consumer Cyclical','Home Improvement Retail'],'LOW':['Consumer Cyclical','Home Improvement Retail'],
+  'MCD':['Consumer Cyclical','Restaurants'],'SBUX':['Consumer Cyclical','Restaurants'],
+  'NKE':['Consumer Cyclical','Footwear & Accessories'],'TGT':['Consumer Cyclical','Discount Stores'],
+  'BKNG':['Consumer Cyclical','Travel Services'],'ABNB':['Consumer Cyclical','Travel Services'],
+  'EXPE':['Consumer Cyclical','Travel Services'],'MAR':['Consumer Cyclical','Lodging'],
+  'HLT':['Consumer Cyclical','Lodging'],'H':['Consumer Cyclical','Lodging'],
+  'MGM':['Consumer Cyclical','Resorts & Casinos'],'WYNN':['Consumer Cyclical','Resorts & Casinos'],
+  'LVS':['Consumer Cyclical','Resorts & Casinos'],'CZR':['Consumer Cyclical','Resorts & Casinos'],
+  'DKNG':['Consumer Cyclical','Gambling'],'F':['Consumer Cyclical','Auto Manufacturers'],
+  'GM':['Consumer Cyclical','Auto Manufacturers'],'RIVN':['Consumer Cyclical','Auto Manufacturers'],
+  'LCID':['Consumer Cyclical','Auto Manufacturers'],'AZO':['Consumer Cyclical','Auto Parts'],
+  'ORLY':['Consumer Cyclical','Auto Parts'],'AAP':['Consumer Cyclical','Auto Parts'],
+  'AN':['Consumer Cyclical','Auto & Truck Dealerships'],'KMX':['Consumer Cyclical','Auto & Truck Dealerships'],
+  'PAG':['Consumer Cyclical','Auto & Truck Dealerships'],'LAD':['Consumer Cyclical','Auto & Truck Dealerships'],
+  'ABG':['Consumer Cyclical','Auto & Truck Dealerships'],'GPI':['Consumer Cyclical','Auto & Truck Dealerships'],
+  'SAH':['Consumer Cyclical','Auto & Truck Dealerships'],'CVNA':['Consumer Cyclical','Auto & Truck Dealerships'],
+  'EBAY':['Consumer Cyclical','Internet Retail'],'ETSY':['Consumer Cyclical','Internet Retail'],
+  'W':['Consumer Cyclical','Internet Retail'],'BBY':['Consumer Cyclical','Specialty Retail'],
+  'FIVE':['Consumer Cyclical','Specialty Retail'],'DLTR':['Consumer Cyclical','Discount Stores'],
+  'DG':['Consumer Cyclical','Discount Stores'],'ULTA':['Consumer Cyclical','Specialty Retail'],
+  'RL':['Consumer Cyclical','Apparel Retail'],'PVH':['Consumer Cyclical','Apparel Manufacturing'],
+  'HBI':['Consumer Cyclical','Apparel Manufacturing'],'UAA':['Consumer Cyclical','Athletic & Outdoor Clothing'],
+  'VFC':['Consumer Cyclical','Apparel Manufacturing'],'TPR':['Consumer Cyclical','Luxury Goods'],
+  'CPRI':['Consumer Cyclical','Luxury Goods'],'TJX':['Consumer Cyclical','Apparel Retail'],
+  'ROST':['Consumer Cyclical','Apparel Retail'],'GPS':['Consumer Cyclical','Apparel Retail'],
+  'M':['Consumer Cyclical','Department Stores'],'JWN':['Consumer Cyclical','Department Stores'],
+  'KSS':['Consumer Cyclical','Department Stores'],'DKS':['Consumer Cyclical','Specialty Retail'],
+  'BOOT':['Consumer Cyclical','Specialty Retail'],'YUM':['Consumer Cyclical','Restaurants'],
+  'QSR':['Consumer Cyclical','Restaurants'],'DPZ':['Consumer Cyclical','Restaurants'],
+  'CMG':['Consumer Cyclical','Restaurants'],'TXRH':['Consumer Cyclical','Restaurants'],
+  'SHAK':['Consumer Cyclical','Restaurants'],'WEN':['Consumer Cyclical','Restaurants'],
+  'JACK':['Consumer Cyclical','Restaurants'],'CAKE':['Consumer Cyclical','Restaurants'],
+  'CCL':['Consumer Cyclical','Travel Services'],'RCL':['Consumer Cyclical','Travel Services'],
+  'NCLH':['Consumer Cyclical','Travel Services'],'LUV':['Consumer Cyclical','Airlines'],
+  'DAL':['Consumer Cyclical','Airlines'],'UAL':['Consumer Cyclical','Airlines'],
+  'AAL':['Consumer Cyclical','Airlines'],'ALK':['Consumer Cyclical','Airlines'],
+  'JBLU':['Consumer Cyclical','Airlines'],'PLNT':['Consumer Cyclical','Leisure'],
+  'PENN':['Consumer Cyclical','Resorts & Casinos'],'RRR':['Consumer Cyclical','Resorts & Casinos'],
+  'CHDN':['Consumer Cyclical','Gambling'],'AEO':['Consumer Cyclical','Apparel Retail'],
+  'ANF':['Consumer Cyclical','Apparel Retail'],'URBN':['Consumer Cyclical','Apparel Retail'],
+  'VSCO':['Consumer Cyclical','Apparel Retail'],'BURL':['Consumer Cyclical','Apparel Retail'],
+  'CROX':['Consumer Cyclical','Footwear & Accessories'],'DECK':['Consumer Cyclical','Footwear & Accessories'],
+  'SKX':['Consumer Cyclical','Footwear & Accessories'],'ONON':['Consumer Cyclical','Footwear & Accessories'],
+  'POOL':['Consumer Cyclical','Specialty Retail'],'OLLI':['Consumer Cyclical','Discount Stores'],
+  'CHH':['Consumer Cyclical','Lodging'],'WH':['Consumer Cyclical','Lodging'],
+  'IHG':['Consumer Cyclical','Lodging'],
+
+  'WMT':['Consumer Defensive','Discount Stores'],'COST':['Consumer Defensive','Discount Stores'],
+  'KR':['Consumer Defensive','Grocery Stores'],'SFM':['Consumer Defensive','Grocery Stores'],
+  'ACI':['Consumer Defensive','Grocery Stores'],'GO':['Consumer Defensive','Grocery Stores'],
+  'PG':['Consumer Defensive','Household & Personal Products'],'CL':['Consumer Defensive','Household & Personal Products'],
+  'CHD':['Consumer Defensive','Household & Personal Products'],'EL':['Consumer Defensive','Household & Personal Products'],
+  'KMB':['Consumer Defensive','Household & Personal Products'],'CLX':['Consumer Defensive','Household & Personal Products'],
+  'ELF':['Consumer Defensive','Household & Personal Products'],'COTY':['Consumer Defensive','Household & Personal Products'],
+  'KO':['Consumer Defensive','Beverages—Non-Alcoholic'],'PEP':['Consumer Defensive','Beverages—Non-Alcoholic'],
+  'MNST':['Consumer Defensive','Beverages—Non-Alcoholic'],'CELH':['Consumer Defensive','Beverages—Non-Alcoholic'],
+  'FIZZ':['Consumer Defensive','Beverages—Non-Alcoholic'],'TAP':['Consumer Defensive','Beverages—Brewers'],
+  'SAM':['Consumer Defensive','Beverages—Brewers'],'STZ':['Consumer Defensive','Beverages—Wineries & Distilleries'],
+  'MO':['Consumer Defensive','Tobacco'],'PM':['Consumer Defensive','Tobacco'],'BTI':['Consumer Defensive','Tobacco'],
+  'MKC':['Consumer Defensive','Packaged Foods'],'GIS':['Consumer Defensive','Packaged Foods'],
+  'CPB':['Consumer Defensive','Packaged Foods'],'HRL':['Consumer Defensive','Packaged Foods'],
+  'SJM':['Consumer Defensive','Packaged Foods'],'MDLZ':['Consumer Defensive','Confectioners'],
+  'HSY':['Consumer Defensive','Confectioners'],'POST':['Consumer Defensive','Packaged Foods'],
+  'TSN':['Consumer Defensive','Packaged Foods'],'CAG':['Consumer Defensive','Packaged Foods'],
+  'PPC':['Consumer Defensive','Packaged Foods'],'USFD':['Consumer Defensive','Food Distribution'],
+  'SYY':['Consumer Defensive','Food Distribution'],'PFGC':['Consumer Defensive','Food Distribution'],
+  'HAIN':['Consumer Defensive','Packaged Foods'],'SMPL':['Consumer Defensive','Packaged Foods'],
+  'FRPT':['Consumer Defensive','Packaged Foods'],'WBA':['Consumer Defensive','Pharmaceutical Retailers'],
+
+  'CAT':['Industrials','Farm & Heavy Construction Machinery'],'DE':['Industrials','Farm & Heavy Construction Machinery'],
+  'HON':['Industrials','Conglomerates'],'MMM':['Industrials','Conglomerates'],
+  'GE':['Industrials','Specialty Industrial Machinery'],'GEV':['Industrials','Specialty Industrial Machinery'],
+  'EMR':['Industrials','Specialty Industrial Machinery'],'ETN':['Industrials','Specialty Industrial Machinery'],
+  'PH':['Industrials','Specialty Industrial Machinery'],'ROK':['Industrials','Specialty Industrial Machinery'],
+  'IR':['Industrials','Specialty Industrial Machinery'],'AME':['Industrials','Specialty Industrial Machinery'],
+  'ROP':['Industrials','Specialty Industrial Machinery'],'ITW':['Industrials','Specialty Industrial Machinery'],
+  'DOV':['Industrials','Specialty Industrial Machinery'],'IEX':['Industrials','Specialty Industrial Machinery'],
+  'GNRC':['Industrials','Specialty Industrial Machinery'],'AOS':['Industrials','Specialty Industrial Machinery'],
+  'NDSN':['Industrials','Specialty Industrial Machinery'],'CSWI':['Industrials','Specialty Industrial Machinery'],
+  'XYL':['Industrials','Specialty Industrial Machinery'],'MAS':['Industrials','Specialty Industrial Machinery'],
+  'FTV':['Industrials','Specialty Industrial Machinery'],'AAON':['Industrials','Building Products & Equipment'],
+  'AWI':['Industrials','Building Products & Equipment'],'MHK':['Industrials','Building Products & Equipment'],
+  'OC':['Industrials','Building Products & Equipment'],'CARR':['Industrials','Building Products & Equipment'],
+  'TT':['Industrials','Building Products & Equipment'],'JCI':['Industrials','Building Products & Equipment'],
+  'WMS':['Industrials','Building Products & Equipment'],'TREX':['Industrials','Building Products & Equipment'],
+  'AZEK':['Industrials','Building Products & Equipment'],'BLDR':['Industrials','Building Products & Equipment'],
+  'IBP':['Industrials','Building Products & Equipment'],'NVR':['Industrials','Residential Construction'],
+  'PHM':['Industrials','Residential Construction'],'DHI':['Industrials','Residential Construction'],
+  'LEN':['Industrials','Residential Construction'],'TOL':['Industrials','Residential Construction'],
+  'MDC':['Industrials','Residential Construction'],'TMHC':['Industrials','Residential Construction'],
+  'MHO':['Industrials','Residential Construction'],'GRBK':['Industrials','Residential Construction'],
+  'LGIH':['Industrials','Residential Construction'],'SKY':['Industrials','Residential Construction'],
+  'CVCO':['Industrials','Residential Construction'],'BA':['Industrials','Aerospace & Defense'],
+  'RTX':['Industrials','Aerospace & Defense'],'LMT':['Industrials','Aerospace & Defense'],
+  'NOC':['Industrials','Aerospace & Defense'],'GD':['Industrials','Aerospace & Defense'],
+  'HII':['Industrials','Aerospace & Defense'],'TDG':['Industrials','Aerospace & Defense'],
+  'HEI':['Industrials','Aerospace & Defense'],'LDOS':['Industrials','Aerospace & Defense'],
+  'SAIC':['Industrials','Aerospace & Defense'],'BAH':['Industrials','Aerospace & Defense'],
+  'CACI':['Industrials','Aerospace & Defense'],'MANT':['Industrials','Aerospace & Defense'],
+  'AXON':['Industrials','Aerospace & Defense'],'CW':['Industrials','Aerospace & Defense'],
+  'KTOS':['Industrials','Aerospace & Defense'],'DRS':['Industrials','Aerospace & Defense'],
+  'TDY':['Industrials','Aerospace & Defense'],'MRCY':['Industrials','Aerospace & Defense'],
+  'UPS':['Industrials','Integrated Freight & Logistics'],'FDX':['Industrials','Integrated Freight & Logistics'],
+  'XPO':['Industrials','Trucking'],'ODFL':['Industrials','Trucking'],'SAIA':['Industrials','Trucking'],
+  'ARCB':['Industrials','Trucking'],'JBHT':['Industrials','Trucking'],'KNX':['Industrials','Trucking'],
+  'WERN':['Industrials','Trucking'],'CHRW':['Industrials','Integrated Freight & Logistics'],
+  'EXPD':['Industrials','Integrated Freight & Logistics'],'GXO':['Industrials','Integrated Freight & Logistics'],
+  'NSC':['Industrials','Railroads'],'CSX':['Industrials','Railroads'],'UNP':['Industrials','Railroads'],
+  'CP':['Industrials','Railroads'],'CNI':['Industrials','Railroads'],'WAB':['Industrials','Railroads'],
+  'URI':['Industrials','Rental & Leasing Services'],'AL':['Industrials','Rental & Leasing Services'],
+  'R':['Industrials','Rental & Leasing Services'],'WCC':['Industrials','Industrial Distribution'],
+  'MSM':['Industrials','Industrial Distribution'],'GWW':['Industrials','Industrial Distribution'],
+  'FAST':['Industrials','Industrial Distribution'],'SITE':['Industrials','Industrial Distribution'],
+  'BECN':['Industrials','Industrial Distribution'],'VMC':['Industrials','Building Materials'],
+  'MLM':['Industrials','Building Materials'],'SUM':['Industrials','Building Materials'],
+  'EXP':['Industrials','Building Materials'],'FELE':['Industrials','Specialty Industrial Machinery'],
+
+  'XOM':['Energy','Oil & Gas Integrated'],'CVX':['Energy','Oil & Gas Integrated'],
+  'COP':['Energy','Oil & Gas E&P'],'EOG':['Energy','Oil & Gas E&P'],
+  'DVN':['Energy','Oil & Gas E&P'],'FANG':['Energy','Oil & Gas E&P'],
+  'MPC':['Energy','Oil & Gas Refining & Marketing'],'VLO':['Energy','Oil & Gas Refining & Marketing'],
+  'PSX':['Energy','Oil & Gas Refining & Marketing'],'HES':['Energy','Oil & Gas E&P'],
+  'OXY':['Energy','Oil & Gas E&P'],'APA':['Energy','Oil & Gas E&P'],
+  'MRO':['Energy','Oil & Gas E&P'],'OVV':['Energy','Oil & Gas E&P'],
+  'SM':['Energy','Oil & Gas E&P'],'CIVI':['Energy','Oil & Gas E&P'],
+  'MTDR':['Energy','Oil & Gas E&P'],'CPE':['Energy','Oil & Gas E&P'],
+  'MGY':['Energy','Oil & Gas E&P'],'CRGY':['Energy','Oil & Gas E&P'],
+  'NOG':['Energy','Oil & Gas E&P'],'VTLE':['Energy','Oil & Gas E&P'],
+  'PR':['Energy','Oil & Gas E&P'],'TALO':['Energy','Oil & Gas E&P'],
+  'HAL':['Energy','Oil & Gas Equipment & Services'],'SLB':['Energy','Oil & Gas Equipment & Services'],
+  'BKR':['Energy','Oil & Gas Equipment & Services'],'OII':['Energy','Oil & Gas Equipment & Services'],
+  'CHX':['Energy','Oil & Gas Equipment & Services'],'LBRT':['Energy','Oil & Gas Equipment & Services'],
+  'KMI':['Energy','Oil & Gas Midstream'],'WMB':['Energy','Oil & Gas Midstream'],
+  'OKE':['Energy','Oil & Gas Midstream'],'TRGP':['Energy','Oil & Gas Midstream'],
+  'ET':['Energy','Oil & Gas Midstream'],'MPLX':['Energy','Oil & Gas Midstream'],
+  'LNG':['Energy','Oil & Gas Midstream'],'CTRA':['Energy','Oil & Gas E&P'],
+  'AR':['Energy','Oil & Gas E&P'],'RRC':['Energy','Oil & Gas E&P'],
+  'EQT':['Energy','Oil & Gas E&P'],'CHK':['Energy','Oil & Gas E&P'],
+  'FSLR':['Energy','Solar'],'ENPH':['Energy','Solar'],'ARRY':['Energy','Solar'],
+  'NOVA':['Energy','Solar'],'MAXN':['Energy','Solar'],'SHLS':['Energy','Solar'],
+  'BE':['Energy','Electrical Equipment & Parts'],'PLUG':['Energy','Electrical Equipment & Parts'],
+
+  'META':['Communication Services','Internet Content & Information'],
+  'GOOGL':['Communication Services','Internet Content & Information'],
+  'GOOG':['Communication Services','Internet Content & Information'],
+  'NFLX':['Communication Services','Entertainment'],'DIS':['Communication Services','Entertainment'],
+  'CMCSA':['Communication Services','Telecom Services'],'CHTR':['Communication Services','Telecom Services'],
+  'T':['Communication Services','Telecom Services'],'VZ':['Communication Services','Telecom Services'],
+  'TMUS':['Communication Services','Telecom Services'],'LUMN':['Communication Services','Telecom Services'],
+  'DISH':['Communication Services','Telecom Services'],'SIRI':['Communication Services','Entertainment'],
+  'LYV':['Communication Services','Entertainment'],'WMG':['Communication Services','Entertainment'],
+  'PARA':['Communication Services','Entertainment'],'WBD':['Communication Services','Entertainment'],
+  'FOX':['Communication Services','Entertainment'],'FOXA':['Communication Services','Entertainment'],
+  'NYT':['Communication Services','Publishing'],'NWSA':['Communication Services','Publishing'],
+  'IAC':['Communication Services','Internet Content & Information'],
+  'PINS':['Communication Services','Internet Content & Information'],
+  'SNAP':['Communication Services','Internet Content & Information'],
+  'RDDT':['Communication Services','Internet Content & Information'],
+  'MTCH':['Communication Services','Internet Content & Information'],
+  'TTD':['Communication Services','Advertising Agencies'],'DV':['Communication Services','Advertising Agencies'],
+  'MGNI':['Communication Services','Advertising Agencies'],'YELP':['Communication Services','Internet Content & Information'],
+  'Z':['Communication Services','Internet Content & Information'],'ZG':['Communication Services','Internet Content & Information'],
+  'TRIP':['Communication Services','Internet Content & Information'],
+  'IDT':['Communication Services','Telecom Services'],
+
+  'AMT':['Real Estate','REIT—Specialty'],'PLD':['Real Estate','REIT—Industrial'],
+  'EQIX':['Real Estate','REIT—Specialty'],'CCI':['Real Estate','REIT—Specialty'],
+  'SBAC':['Real Estate','REIT—Specialty'],'SPG':['Real Estate','REIT—Retail'],
+  'O':['Real Estate','REIT—Retail'],'WPC':['Real Estate','REIT—Diversified'],
+  'VICI':['Real Estate','REIT—Diversified'],'GLPI':['Real Estate','REIT—Diversified'],
+  'EQR':['Real Estate','REIT—Residential'],'AVB':['Real Estate','REIT—Residential'],
+  'ESS':['Real Estate','REIT—Residential'],'UDR':['Real Estate','REIT—Residential'],
+  'CPT':['Real Estate','REIT—Residential'],'MAA':['Real Estate','REIT—Residential'],
+  'NNN':['Real Estate','REIT—Retail'],'EPRT':['Real Estate','REIT—Retail'],
+  'ADC':['Real Estate','REIT—Retail'],'KIM':['Real Estate','REIT—Retail'],
+  'REG':['Real Estate','REIT—Retail'],'FRT':['Real Estate','REIT—Retail'],
+  'BXP':['Real Estate','REIT—Office'],'VNO':['Real Estate','REIT—Office'],
+  'SLG':['Real Estate','REIT—Office'],'HIW':['Real Estate','REIT—Office'],
+  'ARE':['Real Estate','REIT—Office'],'EXR':['Real Estate','REIT—Industrial'],
+  'PSA':['Real Estate','REIT—Industrial'],'CUBE':['Real Estate','REIT—Industrial'],
+  'STAG':['Real Estate','REIT—Industrial'],'REXR':['Real Estate','REIT—Industrial'],
+  'EGP':['Real Estate','REIT—Industrial'],'FR':['Real Estate','REIT—Industrial'],
+  'TRNO':['Real Estate','REIT—Industrial'],'COLD':['Real Estate','REIT—Industrial'],
+  'DRH':['Real Estate','REIT—Hotel & Motel'],'PK':['Real Estate','REIT—Hotel & Motel'],
+  'HST':['Real Estate','REIT—Hotel & Motel'],'RHP':['Real Estate','REIT—Hotel & Motel'],
+  'WELL':['Real Estate','REIT—Healthcare Facilities'],'VTR':['Real Estate','REIT—Healthcare Facilities'],
+  'PEAK':['Real Estate','REIT—Healthcare Facilities'],'OHI':['Real Estate','REIT—Healthcare Facilities'],
+  'NHI':['Real Estate','REIT—Healthcare Facilities'],'CTRE':['Real Estate','REIT—Healthcare Facilities'],
+  'MPW':['Real Estate','REIT—Healthcare Facilities'],'HR':['Real Estate','REIT—Healthcare Facilities'],
+  'INVH':['Real Estate','REIT—Residential'],'AMH':['Real Estate','REIT—Residential'],
+  'AIRC':['Real Estate','REIT—Residential'],'IRM':['Real Estate','REIT—Specialty'],
+  'DLR':['Real Estate','REIT—Specialty'],'WY':['Real Estate','REIT—Specialty'],
+  'RYN':['Real Estate','REIT—Specialty'],'IIPR':['Real Estate','REIT—Industrial'],
+  'NTST':['Real Estate','REIT—Retail'],'PINE':['Real Estate','REIT—Retail'],
+  'GNL':['Real Estate','REIT—Diversified'],'PDM':['Real Estate','REIT—Office'],
+  'SBRA':['Real Estate','REIT—Healthcare Facilities'],'CHCT':['Real Estate','REIT—Healthcare Facilities'],
+  'DHC':['Real Estate','REIT—Healthcare Facilities'],'GMRE':['Real Estate','REIT—Healthcare Facilities'],
+
+  'NEE':['Utilities','Utilities—Regulated Electric'],'DUK':['Utilities','Utilities—Regulated Electric'],
+  'SO':['Utilities','Utilities—Regulated Electric'],'D':['Utilities','Utilities—Regulated Electric'],
+  'AEP':['Utilities','Utilities—Regulated Electric'],'EXC':['Utilities','Utilities—Regulated Electric'],
+  'XEL':['Utilities','Utilities—Regulated Electric'],'ED':['Utilities','Utilities—Regulated Electric'],
+  'WEC':['Utilities','Utilities—Regulated Electric'],'ETR':['Utilities','Utilities—Regulated Electric'],
+  'PPL':['Utilities','Utilities—Regulated Electric'],'CNP':['Utilities','Utilities—Regulated Electric'],
+  'AES':['Utilities','Utilities—Diversified'],'ES':['Utilities','Utilities—Regulated Electric'],
+  'FE':['Utilities','Utilities—Regulated Electric'],'NRG':['Utilities','Utilities—Independent Power Producers'],
+  'VST':['Utilities','Utilities—Independent Power Producers'],'CEG':['Utilities','Utilities—Independent Power Producers'],
+  'PCG':['Utilities','Utilities—Regulated Electric'],'SRE':['Utilities','Utilities—Diversified'],
+  'CMS':['Utilities','Utilities—Regulated Electric'],'LNT':['Utilities','Utilities—Regulated Electric'],
+  'EVRG':['Utilities','Utilities—Regulated Electric'],'OGE':['Utilities','Utilities—Regulated Electric'],
+  'POR':['Utilities','Utilities—Regulated Electric'],'OTTR':['Utilities','Utilities—Regulated Electric'],
+  'MGEE':['Utilities','Utilities—Regulated Electric'],'IDA':['Utilities','Utilities—Regulated Electric'],
+  'AWK':['Utilities','Utilities—Regulated Water'],'NI':['Utilities','Utilities—Regulated Gas'],
+  'ATO':['Utilities','Utilities—Regulated Gas'],'NWN':['Utilities','Utilities—Regulated Gas'],
+  'CWEN':['Utilities','Utilities—Renewable'],'BEP':['Utilities','Utilities—Renewable'],
+
+  'LIN':['Basic Materials','Specialty Chemicals'],'APD':['Basic Materials','Specialty Chemicals'],
+  'SHW':['Basic Materials','Specialty Chemicals'],'ECL':['Basic Materials','Specialty Chemicals'],
+  'PPG':['Basic Materials','Specialty Chemicals'],'DD':['Basic Materials','Specialty Chemicals'],
+  'DOW':['Basic Materials','Specialty Chemicals'],'EMN':['Basic Materials','Specialty Chemicals'],
+  'CE':['Basic Materials','Specialty Chemicals'],'RPM':['Basic Materials','Specialty Chemicals'],
+  'HUN':['Basic Materials','Specialty Chemicals'],'OLN':['Basic Materials','Specialty Chemicals'],
+  'WLK':['Basic Materials','Specialty Chemicals'],'AXTA':['Basic Materials','Specialty Chemicals'],
+  'FMC':['Basic Materials','Agricultural Inputs'],'MOS':['Basic Materials','Agricultural Inputs'],
+  'CF':['Basic Materials','Agricultural Inputs'],'NTR':['Basic Materials','Agricultural Inputs'],
+  'CTVA':['Basic Materials','Agricultural Inputs'],'NEM':['Basic Materials','Gold'],
+  'GOLD':['Basic Materials','Gold'],'AEM':['Basic Materials','Gold'],'KGC':['Basic Materials','Gold'],
+  'PAAS':['Basic Materials','Silver'],'FCX':['Basic Materials','Copper'],'SCCO':['Basic Materials','Copper'],
+  'AA':['Basic Materials','Aluminum'],'CENX':['Basic Materials','Aluminum'],
+  'X':['Basic Materials','Steel'],'NUE':['Basic Materials','Steel'],'STLD':['Basic Materials','Steel'],
+  'CLF':['Basic Materials','Steel'],'CMC':['Basic Materials','Steel'],'RS':['Basic Materials','Steel'],
+  'ATI':['Basic Materials','Steel'],'ZEUS':['Basic Materials','Steel'],
+  'IP':['Basic Materials','Paper & Paper Products'],'GPK':['Basic Materials','Packaging & Containers'],
+  'PKG':['Basic Materials','Packaging & Containers'],'SEE':['Basic Materials','Packaging & Containers'],
+  'SON':['Basic Materials','Packaging & Containers'],'BERY':['Basic Materials','Packaging & Containers'],
+  'AMCR':['Basic Materials','Packaging & Containers'],'WRK':['Basic Materials','Packaging & Containers'],
+};
+
+function getTickerSector(ticker) {
+  return TICKER_SECTOR_MAP[ticker] || null;
 }
 
-// Background precomputation — called at startup and refreshed every 12 hours.
-// Looks up sectors for all tickers active in the last 90 days.
-// Runs serially with small delays to avoid hammering Yahoo.
-let _sectorPrecomputeRunning = false;
-async function precomputeSectorCache() {
-  if (_sectorPrecomputeRunning) return;
-  _sectorPrecomputeRunning = true;
-  try {
-    slog('Sectors: starting ticker sector precompute...');
-    const rows = db.prepare(`
-      SELECT DISTINCT ticker FROM trades
-      WHERE trade_date >= date('now','-90 days')
-        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-        AND TRIM(type) IN ('P','S','S-')
-      ORDER BY ticker
-    `).all();
+let _sectorResultCache = {};
+let _sectorResultCacheTime = 0;
+const SECTOR_RESULT_TTL = 30 * 60 * 1000;
 
-    const tickers = rows.map(r => r.ticker);
-    const now = Date.now();
-    const TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const toFetch = tickers.filter(t => {
-      const c = _sectorTickerCache[t];
-      return !c || (now - c.fetchedAt > TTL);
-    });
-
-    slog(`Sectors: ${tickers.length} active tickers, ${toFetch.length} need lookup`);
-    let fetched = 0, failed = 0;
-
-    for (const ticker of toFetch) {
-      const info = await fetchTickerSector(ticker);
-      if (info) {
-        _sectorTickerCache[ticker] = info;
-        fetched++;
-      } else {
-        // Cache a null sentinel so we don't retry until TTL expires
-        _sectorTickerCache[ticker] = { sector: null, industry: '', fetchedAt: now };
-        failed++;
-      }
-      // Small delay between calls to be polite to Yahoo
-      await new Promise(r => setTimeout(r, 120));
-    }
-    // Invalidate the sectors result cache so next request rebuilds
-    _sectorResultCache = null;
-    slog(`Sectors: precompute done — ${fetched} sectors fetched, ${failed} not found`);
-  } catch(e) {
-    slog('Sectors precompute error: ' + e.message);
-  } finally {
-    _sectorPrecomputeRunning = false;
-  }
-}
-
-// Aggregates DB activity into sector buckets using the precomputed ticker cache
 function buildSectorResult(days) {
   const rows = db.prepare(`
     SELECT
@@ -578,16 +918,16 @@ function buildSectorResult(days) {
     GROUP BY ticker
     HAVING buy_count > 0 OR sell_count > 0
     ORDER BY (buy_val + sell_val) DESC
-    LIMIT 300
+    LIMIT 500
   `).all(days);
 
   const sectorMap = {};
   let mapped = 0, skipped = 0;
   rows.forEach(r => {
-    const info = _sectorTickerCache[r.ticker];
-    if (!info?.sector) { skipped++; return; }
+    const info = getTickerSector(r.ticker);
+    if (!info) { skipped++; return; }
     mapped++;
-    const { sector, industry } = info;
+    const [sector, industry] = info;
     if (!sectorMap[sector]) {
       sectorMap[sector] = {
         sector, buy_val: 0, sell_val: 0, buy_count: 0, sell_count: 0,
@@ -605,7 +945,7 @@ function buildSectorResult(days) {
     if (industry) s.industries[industry] = (s.industries[industry] || 0) + (r.buy_val || 0);
   });
 
-  slog(`Sectors buildResult(${days}d): ${rows.length} tickers, ${mapped} mapped, ${skipped} skipped`);
+  slog(`Sectors(${days}d): ${rows.length} tickers, ${mapped} mapped, ${skipped} no-sector`);
 
   const sectors = Object.values(sectorMap)
     .filter(s => s.buy_val > 0 || s.sell_val > 0)
@@ -622,1322 +962,22 @@ function buildSectorResult(days) {
   return { sectors, days, total_buy_val: sectors.reduce((s, x) => s + x.buy_val, 0) };
 }
 
-// Per-days result cache (rebuilt after sector precompute runs)
-let _sectorResultCache = null;   // { 7: {...}, 30: {...}, 90: {...} }
-let _sectorResultCacheTime = 0;
-const SECTOR_RESULT_TTL = 30 * 60 * 1000; // 30 min
-
 app.get('/api/sectors', (req, res) => {
   try {
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 30;
-
-    // Return cached if fresh
-    if (_sectorResultCache?.[days] && Date.now() - _sectorResultCacheTime < SECTOR_RESULT_TTL) {
+    const now = Date.now();
+    if (_sectorResultCache[days] && now - _sectorResultCacheTime < SECTOR_RESULT_TTL) {
       return res.json(_sectorResultCache[days]);
     }
-
     const result = buildSectorResult(days);
-    if (!_sectorResultCache) _sectorResultCache = {};
     _sectorResultCache[days] = result;
-    _sectorResultCacheTime = Date.now();
-
-    // If no sectors mapped yet, trigger precompute in background (non-blocking)
-    if (result.sectors.length === 0 && !_sectorPrecomputeRunning) {
-      slog('Sectors: no cache yet, triggering background precompute');
-      precomputeSectorCache().catch(e => slog('Sectors bg error: ' + e.message));
-    }
-
+    _sectorResultCacheTime = now;
     res.json(result);
   } catch(e) {
     slog('sectors error: ' + e.message);
     res.status(500).json({ error: e.message });
   }
 });
-
-// SCOREBOARD — pre-computes per-insider buy stats + unique tickers needed for pricing
-// Frontend only needs to fetch price data (deduplicated across insiders), not individual trade histories
-// SCOREBOARD — fully server-side: fetches prices, scores every insider, returns results
-// Browser makes ONE request and receives ranked leaderboards ready to render
-let _scoreboardCache = null;
-let _scoreboardCacheTime = 0;
-const SCOREBOARD_TTL = 6 * 60 * 60 * 1000; // 6 hours
-
-app.get('/api/scoreboard', (req, res) => {
-  // Return cached result if fresh
-  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
-    return res.json(_scoreboardCache);
-  }
-  try {
-    const minBuys = parseInt(req.query.minbuys || '4');
-    const limit   = Math.min(parseInt(req.query.limit || '30'), 60);
-
-    // Pull insiders with enough buy history
-    const rows = db.prepare(`
-      SELECT
-        insider,
-        MAX(title) AS title,
-        COUNT(*) AS buy_count,
-        GROUP_CONCAT(ticker || '|' || trade_date || '|' || COALESCE(price,0) || '|' || COALESCE(value,0), ';;') AS trade_data,
-        GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
-        CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
-      FROM trades
-      WHERE TRIM(type) = 'P'
-        AND insider IS NOT NULL AND ticker IS NOT NULL
-        AND price > 0
-        AND trade_date <= date('now', '-95 days')
-      GROUP BY insider
-      HAVING buy_count >= ? AND span_days >= 90
-      ORDER BY buy_count DESC, span_days DESC
-      LIMIT ?
-    `).all(minBuys, limit);
-
-    if (!rows.length) {
-      const empty = { accuracy: [], timing: [] };
-      _scoreboardCache = empty; _scoreboardCacheTime = Date.now();
-      return res.json(empty);
-    }
-
-    // Build a DB-only price series per ticker using indexed per-ticker queries.
-    // Capped at 60 tickers to avoid blocking the SQLite event loop.
-    // Each query uses the idx_ticker_date_price covering index — fast range scan.
-    const allTickers = [...new Set(rows.flatMap(r => (r.tickers_csv||'').split(',').filter(Boolean)))].slice(0, 60);
-    const priceCache = {};
-    const priceStmt = db.prepare(`
-      SELECT trade_date, AVG(price) AS price
-      FROM trades
-      WHERE ticker = ? AND price > 0
-      GROUP BY trade_date
-      ORDER BY trade_date
-    `);
-    allTickers.forEach(sym => {
-      const warmBars = getPC(sym);
-      if (warmBars && warmBars.length > 10) {
-        priceCache[sym] = warmBars; // prefer full OHLC from warm cache
-      } else {
-        const rows2 = priceStmt.all(sym);
-        if (rows2.length) {
-          priceCache[sym] = rows2.map(r => ({ time: r.trade_date, close: r.price, high: r.price, low: r.price }));
-        }
-      }
-    });
-
-    // Score every insider
-    const accuracyResults = [], timingResults = [];
-    rows.forEach(leader => {
-      try {
-        const rawTrades = (leader.trade_data||'').split(';;').map(s => {
-          const [ticker, trade_date, priceStr, valueStr] = s.split('|');
-          return { ticker, trade: trade_date, price: parseFloat(priceStr)||0, value: parseFloat(valueStr)||0 };
-        }).filter(t => t.ticker && t.trade && parseFloat(t.price)>0);
-        if (rawTrades.length < 4) return;
-
-        const scored = rawTrades.map(t => {
-          const bars = priceCache[t.ticker] || [];
-          if (!bars.length) return null;
-          const buyDate = t.trade.slice(0, 10);
-          const buyPrice = t.price;
-          if (!buyPrice || buyPrice <= 0) return null;
-          const fwd = days => {
-            const fd = new Date(buyDate + 'T12:00:00Z'); fd.setUTCDate(fd.getUTCDate() + days);
-            const fs = fd.toISOString().slice(0, 10);
-            // Find nearest price observation within ±45 days
-            let best = null, bestDiff = Infinity;
-            bars.forEach(b => {
-              if (b.time <= buyDate) return;
-              const diff = Math.abs(new Date(b.time+'T00:00:00Z') - new Date(fs+'T00:00:00Z')) / 86400000;
-              if (diff < bestDiff && diff <= 45) { best = b; bestDiff = diff; }
-            });
-            return best ? +((best.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
-          };
-          return { ticker: t.ticker, tradeDate: buyDate, buyPrice, ret30: fwd(30), ret90: fwd(90), ret180: fwd(180) };
-        }).filter(Boolean);
-
-        const completed = scored.filter(s => s.ret90 !== null);
-        if (completed.length < 3) return;
-
-        const rets90   = completed.map(s => s.ret90);
-        const avgRet90 = +(rets90.reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
-        const rets30   = completed.filter(s=>s.ret30!==null).map(s=>s.ret30);
-        const avgRet30 = rets30.length ? +(rets30.reduce((a,b)=>a+b,0)/rets30.length).toFixed(1) : null;
-        const winRate  = Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
-        const avgMag   = +(rets90.map(Math.abs).reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
-        const sorted   = [...rets90].sort((a,b)=>a-b);
-        const median   = sorted[Math.floor(sorted.length/2)];
-        const consist  = Math.round(Math.min(100,Math.max(0,(median/Math.max(avgMag,1)+1)*50)));
-        const accScore = Math.round(Math.min(100,Math.max(0,winRate*0.40+Math.min(35,Math.max(0,avgRet90/20*35))+consist*0.15+Math.min(10,completed.length*1.2))));
-        const tier = accScore>=75?'ELITE':accScore>=55?'STRONG':accScore>=35?'AVERAGE':'WEAK';
-        const tickers3 = [...new Set(rawTrades.map(t=>t.ticker))].slice(0,3).join(', ');
-        accuracyResults.push({ name:leader.insider, title:leader.title||'', accuracyScore:accScore, tier, winRate, avgRet90, avgRet30, tradeCount:completed.length, tickers:tickers3 });
-
-        // Timing alpha
-        const yr1Bars = (sym) => {
-          const b = priceCache[sym] || [];
-          const cutoff = new Date(); cutoff.setFullYear(cutoff.getFullYear()-1);
-          return b.filter(x => new Date(x.time+'T00:00:00Z') >= cutoff);
-        };
-        let nearLowCount = 0;
-        let ret90sum = 0, retN = 0, ret180sum = 0;
-        const tickers = [...new Set(rawTrades.map(t=>t.ticker))].slice(0,3);
-        completed.forEach(s => {
-          const bars1 = yr1Bars(s.ticker);
-          if (bars1.length >= 10) {
-            const lo = Math.min(...bars1.map(b=>b.low||b.close));
-            if ((s.buyPrice - lo) / lo * 100 <= 20) nearLowCount++;
-          }
-          if (s.ret90 !== null) { ret90sum += s.ret90; retN++; }
-          if (s.ret180 !== null) ret180sum += s.ret180;
-        });
-        const nearLowPct = completed.length > 0 ? Math.round(nearLowCount/completed.length*100) : 0;
-        const avgFwd90  = retN > 0 ? +(ret90sum/retN).toFixed(1) : null;
-        const avgFwd180 = retN > 0 ? +(ret180sum/retN).toFixed(1) : null;
-        const timingAlpha = Math.min(100,Math.max(0,Math.round(
-          Math.min(25,(nearLowPct/100)*50) +
-          Math.min(25,Math.max(0,(avgFwd90||0)/10*25)) + 25
-        )));
-        let verdict, verdictColor;
-        if (timingAlpha>=75&&nearLowPct>=50){verdict='Buys near bottoms';verdictColor='buy';}
-        else if (timingAlpha>=75){verdict='Elite forward returns';verdictColor='buy';}
-        else if (timingAlpha>=55){verdict='Above-average timing';verdictColor='accent';}
-        else if (timingAlpha>=35){verdict='Mixed timing signals';verdictColor='option';}
-        else{verdict='Tends to buy high';verdictColor='sell';}
-        if (timingAlpha>=30) timingResults.push({ name:leader.insider, title:leader.title||'', timingAlpha, nearLowPct, avgRet90:avgFwd90, avgRet180:avgFwd180, verdict, verdictColor, tradeCount:completed.length, tickers:tickers3 });
-      } catch(e) { /* skip insider on error */ }
-    });
-
-    accuracyResults.sort((a,b)=>b.accuracyScore-a.accuracyScore);
-    timingResults.sort((a,b)=>b.timingAlpha-a.timingAlpha);
-    const result = { accuracy: accuracyResults, timing: timingResults };
-    _scoreboardCache = result;
-    _scoreboardCacheTime = Date.now();
-    res.json(result);
-  } catch(e) {
-    slog('scoreboard error: ' + e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-
-// PRICE — warm in-memory cache + external fallback
-const FAILED_SYM    = new Map();  // sym → last-fail timestamp (5-min cooldown)
-const PRICE_INFLIGHT = new Map(); // dedup concurrent requests for same symbol
-
-async function fetchPriceBars(sym) {
-  const cached = getPC(sym);
-  if (cached) return cached;
-
-  const lastFail = FAILED_SYM.get(sym);
-  if (lastFail && Date.now() - lastFail < 5 * 60 * 1000) return null;
-
-  // Dedup: if a fetch is already in-flight for this symbol, reuse it
-  if (PRICE_INFLIGHT.has(sym)) return PRICE_INFLIGHT.get(sym);
-  const p = _doFetch(sym).finally(() => PRICE_INFLIGHT.delete(sym));
-  PRICE_INFLIGHT.set(sym, p);
-  return p;
-}
-
-async function _doFetch(sym) {
-  function norm(bars) {
-    return (bars || []).filter(d => d.close > 0 && d.time && /^\d{4}-\d{2}-\d{2}$/.test(d.time));
-  }
-
-  // ── Source 1: Stooq (reliable, no auth, global coverage) ─────
-  try {
-    const { status, body } = await get(
-      `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d`, 8000
-    );
-    if (status === 200) {
-      const text = body.toString();
-      const lines = text.trim().split('\n');
-      // CSV: Date,Open,High,Low,Close,Volume
-      if (lines.length > 2 && lines[0].toLowerCase().includes('date')) {
-        const bars = norm(lines.slice(1).map(line => {
-          const [date, open, high, low, close, volume] = line.split(',');
-          return { time: (date||'').trim(), open: +(+open).toFixed(2), high: +(+high).toFixed(2), low: +(+low).toFixed(2), close: +(+close).toFixed(2), volume: +(volume||0) };
-        }).filter(b => b.time && b.close > 0));
-        if (bars.length >= 5) { setPC(sym, bars, 60*60*1000); return bars; }
-      }
-    }
-  } catch(e) { /* try next */ }
-
-  // ── Source 2: FMP ─────────────────────────────────────────────
-  try {
-    const { status, body } = await get(
-      `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${sym}&apikey=${FMP}`, 8000
-    );
-    if (status === 200) {
-      const data = JSON.parse(body.toString());
-      const raw  = Array.isArray(data) ? data : (data?.historical || []);
-      if (raw.length >= 5) {
-        const bars = norm(raw.slice().reverse().map(d => ({
-          time: d.date, open: +(+d.open).toFixed(2), high: +(+d.high).toFixed(2),
-          low: +(+d.low).toFixed(2), close: +(+d.close).toFixed(2), volume: d.volume||0
-        })));
-        if (bars.length >= 5) { setPC(sym, bars, 60*60*1000); return bars; }
-      }
-    }
-  } catch(e) { slog(`FMP ${sym}: ${e.message}`); }
-
-  // ── Source 3: Yahoo Finance query1 ───────────────────────────
-  try {
-    const now = Math.floor(Date.now()/1000), from = now - 6*365*86400;
-    const { status, body } = await get(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d&events=history`, 8000
-    );
-    if (status === 200) {
-      const json = JSON.parse(body.toString()), r = json?.chart?.result?.[0];
-      const times = r?.timestamp || [], q = r?.indicators?.quote?.[0] || {};
-      if (times.length >= 5 && q.close?.length) {
-        const bars = norm(times.map((t,i) => ({
-          time:   new Date(t*1000).toISOString().slice(0,10),
-          open:   +(+(q.open?.[i]  ||0)).toFixed(2), high: +(+(q.high?.[i] ||0)).toFixed(2),
-          low:    +(+(q.low?.[i]   ||0)).toFixed(2), close:+(+(q.close?.[i]||0)).toFixed(2),
-          volume: q.volume?.[i]||0
-        })));
-        if (bars.length >= 5) { setPC(sym, bars, 60*60*1000); return bars; }
-      }
-    }
-  } catch(e) { slog(`Yahoo q1 ${sym}: ${e.message}`); }
-
-  // ── Source 4: Yahoo Finance query2 (different CDN) ───────────
-  try {
-    const now = Math.floor(Date.now()/1000), from = now - 6*365*86400;
-    const { status, body } = await get(
-      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${from}&period2=${now}&interval=1d`, 8000
-    );
-    if (status === 200) {
-      const json = JSON.parse(body.toString()), r = json?.chart?.result?.[0];
-      const times = r?.timestamp || [], q = r?.indicators?.quote?.[0] || {};
-      if (times.length >= 5 && q.close?.length) {
-        const bars = norm(times.map((t,i) => ({
-          time:   new Date(t*1000).toISOString().slice(0,10),
-          open:   +(+(q.open?.[i]  ||0)).toFixed(2), high: +(+(q.high?.[i] ||0)).toFixed(2),
-          low:    +(+(q.low?.[i]   ||0)).toFixed(2), close:+(+(q.close?.[i]||0)).toFixed(2),
-          volume: q.volume?.[i]||0
-        })));
-        if (bars.length >= 5) { setPC(sym, bars, 60*60*1000); return bars; }
-      }
-    }
-  } catch(e) { slog(`Yahoo q2 ${sym}: ${e.message}`); }
-
-  FAILED_SYM.set(sym, Date.now());
-  return null;
-}
-
-app.get('/api/price', async (req, res) => {
-  const sym = (req.query.symbol || '').toUpperCase().trim();
-  if (!sym) return res.status(400).json({ error: 'symbol required' });
-  const bars = await fetchPriceBars(sym);
-  if (res.headersSent) return;
-  if (bars) return res.json(bars);
-  res.status(404).json({ error: `No price data for ${sym}` });
-});
-
-// PRICES-BULK — returns price bars for multiple tickers in one request.
-// Serves from warm in-memory cache; fetches cold misses in parallel (capped at 20 tickers).
-// Used by Post-Buy Drift Analyzer to avoid 150 individual round-trips.
-app.get('/api/prices-bulk', (req, res) => {
-  const raw = (req.query.symbols || '').toUpperCase().trim();
-  if (!raw) return res.status(400).json({ error: 'symbols required' });
-  const syms = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 50);
-
-  // Respond IMMEDIATELY with whatever is in warm cache — never block on external fetches.
-  // Fire cold-miss fetches in background so they'll be warm on the next request.
-  const result = {};
-  const coldMisses = [];
-  syms.forEach(s => {
-    const bars = getPC(s);
-    if (bars) result[s] = bars;
-    else coldMisses.push(s);
-  });
-  res.json(result); // instant response
-
-  // Warm up cold misses in background (don't await)
-  if (coldMisses.length) {
-    Promise.allSettled(coldMisses.map(s => fetchPriceBars(s))).catch(() => {});
-  }
-});
-
-// POST-BUY DRIFT — computed entirely from the DB's own trade price records.
-// No external price API needed. Uses price observations already in the DB
-// (every trade has a price + date) to build a sparse price series per ticker,
-// then measures D+30, D+90, D+180 returns relative to each buy price.
-let _driftServerCache = null;
-let _driftServerCacheTime = 0;
-const DRIFT_TTL = 60 * 60 * 1000; // 1 hour
-
-app.get('/api/drift', (req, res) => {
-  if (_driftServerCache && Date.now() - _driftServerCacheTime < DRIFT_TTL) {
-    return res.json(_driftServerCache);
-  }
-  try {
-    // Fast query: only buy trades (type='P') with a price, last 4 years
-    // Two-pass: first get all buys per ticker, then get all price observations
-    const buyRows = db.prepare(`
-      SELECT ticker, MAX(company) AS company,
-        trade_date, AVG(price) AS price, SUM(COALESCE(value,0)) AS val
-      FROM trades
-      WHERE TRIM(type) = 'P' AND price > 0 AND ticker IS NOT NULL
-        AND trade_date >= date('now','-4 years')
-      GROUP BY ticker, trade_date
-      ORDER BY ticker, trade_date
-    `).all();
-
-    // Get all price observations (any type) per ticker for forward price lookups
-    const priceRows = db.prepare(`
-      SELECT ticker, trade_date, AVG(price) AS price
-      FROM trades
-      WHERE price > 0 AND ticker IS NOT NULL
-        AND trade_date >= date('now','-4 years')
-      GROUP BY ticker, trade_date
-      ORDER BY ticker, trade_date
-    `).all();
-
-    // Build price series per ticker
-    const priceSeriesByTicker = {};
-    priceRows.forEach(r => {
-      if (!priceSeriesByTicker[r.ticker]) priceSeriesByTicker[r.ticker] = [];
-      priceSeriesByTicker[r.ticker].push({ date: r.trade_date, price: r.price });
-    });
-
-    // Group buys by ticker
-    const buysByTicker = {};
-    const companyByTicker = {};
-    buyRows.forEach(r => {
-      if (!buysByTicker[r.ticker]) { buysByTicker[r.ticker] = []; companyByTicker[r.ticker] = r.company; }
-      buysByTicker[r.ticker].push({ date: r.trade_date, price: r.price, val: r.val });
-    });
-
-    const results = [];
-    const cutoff = new Date(Date.now() - 180 * 86400000);
-
-    for (const [ticker, buys] of Object.entries(buysByTicker)) {
-      if (buys.length < 3) continue;
-
-      const priceSeries = priceSeriesByTicker[ticker] || [];
-      const TARGETS = [30, 90, 180];
-      const retsByTarget = { 30: [], 90: [], 180: [] };
-      let measured = 0;
-
-      buys.forEach(buy => {
-        const buyDt = new Date(buy.date + 'T00:00:00Z');
-        if (buyDt > cutoff) return; // need 180 days of forward data
-
-        let gotAny = false;
-        TARGETS.forEach(days => {
-          const targetDt = new Date(buyDt.getTime() + days * 86400000);
-          let best = null, bestDiff = Infinity;
-          priceSeries.forEach(obs => {
-            if (obs.date <= buy.date) return;
-            const diff = Math.abs(new Date(obs.date + 'T00:00:00Z') - targetDt) / 86400000;
-            if (diff < bestDiff && diff <= 45) { best = obs; bestDiff = diff; }
-          });
-          if (best && best.price > 0) {
-            retsByTarget[days].push((best.price - buy.price) / buy.price * 100);
-            gotAny = true;
-          }
-        });
-        if (gotAny) measured++;
-      });
-
-      if (measured < 2 || !retsByTarget[90].length) continue;
-
-      const avg = {};
-      TARGETS.forEach(d => {
-        avg[d] = retsByTarget[d].length ? retsByTarget[d].reduce((a, b) => a + b, 0) / retsByTarget[d].length : null;
-      });
-
-      const rets90 = retsByTarget[90];
-      const winRate = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
-      const wAvg = ((avg[30] || 0) * 0.25 + (avg[90] || 0) * 0.45 + (avg[180] || 0) * 0.30);
-
-      let score = Math.max(0, Math.min(70, 35 + wAvg * 2.5));
-      if (winRate >= 75) score += 15; else if (winRate >= 60) score += 8; else if (winRate < 40) score -= 8;
-      const accelerates = avg[30] !== null && avg[90] !== null && avg[180] !== null && avg[90] > avg[30] && avg[180] > avg[90];
-      if (accelerates) score += 10;
-      else if (avg[180] !== null && avg[90] !== null && avg[180] > avg[90]) score += 5;
-      if (measured >= 8) score += 5; else if (measured >= 5) score += 3; else if (measured >= 3) score += 1;
-      score = Math.min(100, Math.max(0, Math.round(score)));
-      if (score < 15) continue;
-
-      const vals = buys.map(b => b.val).filter(v => v > 0).sort((a, b) => a - b);
-      results.push({
-        ticker, company: companyByTicker[ticker] || ticker,
-        buyCount: measured,
-        avg: { 1: avg[30], 5: avg[90], 20: avg[180], 60: avg[180] },
-        winRate, accelerates,
-        weightedAvg: +wAvg.toFixed(2), score,
-        medianBuyVal: vals.length ? vals[Math.floor(vals.length / 2)] : 0,
-        lastBuy: buys[buys.length - 1].date,
-        d60sample: rets90.length,
-      });
-    }
-
-    results.sort((a, b) => b.score - a.score);
-    _driftServerCache = results.slice(0, 50);
-    _driftServerCacheTime = Date.now();
-    res.json(_driftServerCache);
-  } catch(e) {
-    slog('drift error: ' + e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// EVENT PROXIMITY — computed fully server-side.
-// Uses DB-predicted earnings dates (no external API needed) and recent buys.
-let _proximityServerCache = null;
-let _proximityServerCacheTime = 0;
-const PROXIMITY_TTL = 30 * 60 * 1000;
-const PROXIMITY_WINDOW = 120; // days after buy — covers full quarterly cycle
-
-app.get('/api/proximity', async (req, res) => {
-  if (_proximityServerCache && Date.now() - _proximityServerCacheTime < PROXIMITY_TTL) {
-    return res.json(_proximityServerCache);
-  }
-  try {
-    // Candidate buys: last 30 days
-    const buys = db.prepare(`
-      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
-             trade_date, COALESCE(AVG(price),0) AS price, SUM(COALESCE(value,0)) AS value,
-             MAX(filing_date) AS filing_date
-      FROM trades
-      WHERE TRIM(type) = 'P'
-        AND ticker IS NOT NULL
-        AND insider IS NOT NULL
-        AND trade_date >= date('now', '-30 days')
-      GROUP BY ticker, insider, trade_date
-      ORDER BY trade_date DESC
-    `).all();
-
-    if (!buys.length) return res.json([]);
-
-    // For each unique ticker, compute predicted next earnings dates using historical
-    // trade patterns from the DB (quarterly cadence ~91 days)
-    const tickers = [...new Set(buys.map(b => b.ticker))];
-    const today = new Date().toISOString().slice(0, 10);
-
-    // Get historical buy cadence per ticker to predict earnings windows
-    const tickerHistory = {};
-    tickers.forEach(tk => {
-      const hist = db.prepare(`
-        SELECT trade_date FROM trades
-        WHERE ticker = ? AND TRIM(type) = 'P' AND trade_date < date('now', '-30 days')
-        ORDER BY trade_date DESC LIMIT 8
-      `).all(tk);
-      tickerHistory[tk] = hist.map(r => r.trade_date);
-    });
-
-    const results = [];
-
-    buys.forEach(buy => {
-      const buyDate = buy.trade_date;
-      if (!buyDate) return;
-
-      // Build predicted upcoming earnings for this ticker
-      const hist = tickerHistory[buy.ticker] || [];
-      const predicted = [];
-
-      // Strategy 1: extrapolate from most recent historical buy clusters (quarterly ~91 days)
-      if (hist.length >= 2) {
-        // Find average gap between buy clusters — proxy for earnings cycle
-        const gaps = [];
-        for (let i = 0; i < Math.min(hist.length - 1, 4); i++) {
-          const d1 = new Date(hist[i] + 'T00:00:00Z');
-          const d2 = new Date(hist[i+1] + 'T00:00:00Z');
-          const gap = Math.abs((d1 - d2) / 86400000);
-          if (gap >= 30 && gap <= 150) gaps.push(gap);
-        }
-        const avgGap = gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 91;
-        const mostRecent = new Date(hist[0] + 'T00:00:00Z');
-        // Project next 4 quarters forward from most recent
-        for (let q = 1; q <= 4; q++) {
-          const nextDt = new Date(mostRecent);
-          nextDt.setUTCDate(nextDt.getUTCDate() + Math.round(avgGap * q));
-          const nextStr = nextDt.toISOString().slice(0, 10);
-          if (nextStr > buyDate && nextStr <= new Date(Date.now() + 180*86400000).toISOString().slice(0,10)) {
-            predicted.push({ date: nextStr, type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
-          }
-        }
-      } else {
-        // Fallback: project quarterly from the buy date itself
-        for (let q = 1; q <= 4; q++) {
-          const nextDt = new Date(buyDate + 'T00:00:00Z');
-          nextDt.setUTCDate(nextDt.getUTCDate() + q * 91);
-          predicted.push({ date: nextDt.toISOString().slice(0, 10), type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
-        }
-      }
-
-      // Also add events from warm EVENT_CACHE if available
-      const cachedEvts = EVENT_CACHE.get(buy.ticker);
-      if (cachedEvts) {
-        const future = cachedEvts.data.filter(e => e.date > buyDate);
-        predicted.push(...future);
-      }
-
-      // Deduplicate and sort
-      const seen = new Set();
-      const upcoming = predicted.filter(e => {
-        if (seen.has(e.date)) return false;
-        seen.add(e.date); return true;
-      }).sort((a, b) => a.date.localeCompare(b.date));
-
-      if (!upcoming.length) return;
-
-      // Window: look up to 120 days out for events (full quarter + buffer)
-      const windowEnd = new Date(buyDate + 'T00:00:00Z');
-      windowEnd.setUTCDate(windowEnd.getUTCDate() + 120);
-      const windowEndStr = windowEnd.toISOString().slice(0, 10);
-      const inWindow = upcoming.filter(e => e.date > buyDate && e.date <= windowEndStr);
-      if (!inWindow.length) return;
-
-      const nextEvent = inWindow[0];
-      const buyDt = new Date(buyDate + 'T00:00:00Z');
-      const evtDt = new Date(nextEvent.date + 'T00:00:00Z');
-      const daysTo = Math.max(0, Math.round((evtDt - buyDt) / 86400000));
-
-      // Score: closer = higher urgency (scale over 120-day window)
-      let score = Math.round(Math.max(0, (1 - daysTo / 120)) * 60);
-      const buyValue = buy.value || 0;
-      if (buyValue > 1000000) score += 20;
-      else if (buyValue > 500000) score += 12;
-      else if (buyValue > 100000) score += 6;
-      if (hist.length >= 4) score += 10; // active insider
-      score = Math.min(100, score);
-
-      const proximityColor = daysTo <= 14 ? 'var(--sell)' : daysTo <= 30 ? 'var(--option)' : daysTo <= 60 ? 'var(--accent)' : 'var(--muted)';
-      const isAbnormal = score >= 55 || daysTo <= 21;
-
-      results.push({
-        ticker: buy.ticker, company: buy.company || buy.ticker,
-        insider: buy.insider, title: buy.title || '',
-        buyDate, buyVal: buyValue, buyValue, daysTo, score, isAbnormal, proximityColor,
-        repeatPattern: hist.length >= 3, // insider has repeated buying pattern
-        nextEvent, allUpcoming: inWindow.slice(0, 4),
-      });
-    });
-
-    // Deduplicate by ticker+insider, keep highest score
-    const deduped = Object.values(
-      results.reduce((acc, r) => {
-        const k = `${r.ticker}::${r.insider}`;
-        if (!acc[k] || r.score > acc[k].score) acc[k] = r;
-        return acc;
-      }, {})
-    ).sort((a, b) => b.score - a.score);
-
-    _proximityServerCache = deduped;
-    _proximityServerCacheTime = Date.now();
-    res.json(deduped);
-  } catch(e) {
-    slog('proximity error: ' + e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-
-// STATUS
-app.get('/api/status', (req, res) => {
-  const n      = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-  const latest = db.prepare('SELECT MAX(trade_date) AS d FROM trades').get().d;
-  const synced = db.prepare('SELECT * FROM sync_log ORDER BY synced_at').all();
-  res.json({ running: syncRunning, trades: n, latestTrade: latest, quarters: synced, log: syncLog.slice(-40) });
-});
-
-app.get('/api/daily-status', (req, res) => {
-  try {
-    const logs    = db.prepare('SELECT * FROM daily_log ORDER BY date DESC LIMIT 14').all();
-    const recent  = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-7 days')").get().n;
-    const maxFile = db.prepare('SELECT MAX(filing_date) AS d FROM trades').get().d;
-    res.json({ running: dailyRunning, recentDays: logs, tradesLast7d: recent, maxFilingDate: maxFile });
-  } catch(e) { res.json({ running: dailyRunning, error: e.message }); }
-});
-
-app.get('/api/debug-form4', async (req, res) => {
-  const https = require('https');
-  const steps = [];
-
-  function debugGet(url) {
-    return new Promise((resolve) => {
-      steps.push({ step: 'GET', url: url.slice(0,120) });
-      const req = https.get(url, {
-        headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
-        timeout: 15000,
-      }, r => {
-        const chunks = [];
-        r.on('data', c => chunks.push(c));
-        r.on('end', () => {
-          const body = Buffer.concat(chunks).toString('utf8').slice(0, 300);
-          steps.push({ status: r.statusCode, preview: body });
-          resolve({ status: r.statusCode, body: Buffer.concat(chunks).toString('utf8') });
-        });
-      });
-      req.on('error', e => { steps.push({ error: e.message }); resolve({ status: 0, body: '' }); });
-      req.on('timeout', () => { req.destroy(); steps.push({ error: 'timeout' }); resolve({ status: 0, body: '' }); });
-    });
-  }
-
-  try {
-    const eftsUrl = 'https://efts.sec.gov/LATEST/search-index?forms=4&from=0&size=1';
-    const { status: es, body: eb } = await debugGet(eftsUrl);
-    let accession = '', filerCik = '', filingDate = '';
-    if (es === 200) {
-      const data = JSON.parse(eb);
-      const hit  = data.hits?.hits?.[0];
-      if (hit) {
-        accession  = (hit._id || '').replace(/\//g, '-');
-        filingDate = hit._source?.file_date || '';
-        steps.push({ parsed: { accession, filingDate, raw_id: hit._id, source_keys: Object.keys(hit._source || {}) } });
-      }
-    }
-
-    if (accession) {
-      const acc = accession.replace(/-/g, '');
-      filerCik = parseInt(acc.slice(0,10), 10).toString();
-      steps.push({ derived: { filerCik, acc, accDash: accession } });
-
-      const idxUrl = `https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${accession}-index.json`;
-      const { status: is, body: ib } = await debugGet(idxUrl);
-      if (is === 200) {
-        const idx = JSON.parse(ib);
-        steps.push({ indexDocs: (idx.documents || []).map(d => ({ type: d.type, document: d.document })) });
-      }
-    }
-  } catch(e) {
-    steps.push({ fatalError: e.message });
-  }
-
-  res.json({ steps });
-});
-
-app.get('/api/run-daily', (req, res) => {
-  const days = parseInt(req.query.days || '10');
-  if (req.query.force === '1') {
-    db.prepare("DELETE FROM daily_log WHERE date >= date('now', ? || ' days')").run(`-${days}`);
-    slog(`Cleared daily_log for last ${days} days`);
-  }
-  res.json({ started: !dailyRunning });
-  if (!dailyRunning) runDaily(days);
-});
-
-let backfillRunning = false;
-app.get('/api/backfill', (req, res) => {
-  const days = Math.min(parseInt(req.query.days || '60'), 365);
-  if (backfillRunning) return res.json({ started: false, reason: 'backfill already running' });
-  backfillRunning = true;
-  slog(`=== spawning one-shot backfill (${days} days) ===`);
-  const worker = spawn(
-    process.execPath,
-    ['--max-old-space-size=400', path.join(__dirname, 'daily-worker.js'), String(days), 'backfill'],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  );
-  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(`[backfill] ${l}`)));
-  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog(`[backfill] ERR: ${l}`)));
-  worker.on('exit', code => {
-    backfillRunning = false;
-    slog(`=== backfill worker exited (code ${code}) ===`);
-  });
-  res.json({ started: true, days });
-});
-
-app.get('/api/sync', (req, res) => {
-  const numQ = parseInt(req.query.quarters || '4');
-  res.json({ started: !syncRunning });
-  if (!syncRunning) runSync(numQ);
-});
-
-app.get('/api/diag', async (req, res) => {
-  const n      = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-  const latest = db.prepare('SELECT MAX(trade_date) AS d FROM trades').get().d;
-  const oldest = db.prepare('SELECT MIN(trade_date) AS d FROM trades').get().d;
-  const synced = db.prepare('SELECT * FROM sync_log').all();
-  const byFiling = db.prepare(`SELECT filing_date AS d, COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-14 days') GROUP BY filing_date ORDER BY filing_date DESC`).all();
-  const byTrade  = db.prepare(`SELECT trade_date  AS d, COUNT(*) AS n FROM trades WHERE filing_date >= date('now','-14 days') GROUP BY trade_date  ORDER BY trade_date  DESC LIMIT 20`).all();
-  let price = {};
-  try {
-    const { status, body } = await get(`https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=AAPL&apikey=${FMP}`);
-    const data = JSON.parse(body.toString());
-    const raw  = Array.isArray(data) ? data : (data?.historical || []);
-    price = { ok: status===200 && raw.length>0, bars: raw.length, latest: raw[0]?.date };
-  } catch(e) { price = { ok: false, error: e.message }; }
-  res.json({ db: { trades: n, latest, oldest, synced }, byFiling, byTrade, price, sync: { running: syncRunning, log: syncLog.slice(-10) } });
-});
-
-app.get('/api/health', (req, res) =>
-  res.json({ ok: true, trades: db.prepare('SELECT COUNT(*) AS n FROM trades').get().n }));
-
-app.get('/api/cleanup-dates', (req, res) => {
-  const r = db.prepare(`
-    DELETE FROM trades WHERE trade_date < '2000-01-01' OR trade_date > date('now') OR filing_date < '2000-01-01' OR filing_date > date('now')
-  `).run();
-  slog(`Date cleanup: removed ${r.changes} bad rows`);
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM trades').get();
-  res.json({ removed: r.changes, remaining: n });
-});
-
-
-
-
-
-
-// ─── EVENTS: Earnings + catalysts per symbol ─────────────────────────────────
-// Returns earnings dates (historical + upcoming) from FMP.
-// Also returns recent 8-K filing dates from SEC EDGAR EFTS as catalyst proxy.
-// Frontend uses this to detect insider buys in the window before known events.
-const EVENT_CACHE = new Map(); // sym → { expires, data }
-
-app.get('/api/events', async (req, res) => {
-  const sym = (req.query.symbol || '').toUpperCase().trim();
-  if (!sym) return res.status(400).json({ error: 'symbol required' });
-
-  const cached = EVENT_CACHE.get(sym);
-  if (cached && Date.now() < cached.expires) return res.json(cached.data);
-
-  const events = [];
-  const today  = new Date().toISOString().slice(0, 10);
-
-  // ── Source 1: FMP historical + upcoming earnings ──────────────
-  let fmpGotData = false;
-  for (const url of [
-    `https://financialmodelingprep.com/api/v3/historical/earning_calendar/${sym}?apikey=${FMP}`,
-    `https://financialmodelingprep.com/stable/historical-earning-calendar?symbol=${sym}&apikey=${FMP}`,
-    `https://financialmodelingprep.com/api/v3/earning_calendar?symbol=${sym}&apikey=${FMP}`,
-  ]) {
-    if (fmpGotData) break;
-    try {
-      const { status, body } = await get(url, 6000);
-      if (status === 200) {
-        const data = JSON.parse(body.toString());
-        const arr  = Array.isArray(data) ? data : (data?.historical || data?.earningCalendar || []);
-        if (arr.length > 0) {
-          fmpGotData = true;
-          arr.forEach(e => {
-            const d = (e.date || e.reportDate || '').slice(0, 10);
-            if (!d) return;
-            events.push({ date: d, type: 'EARNINGS', label: `Earnings${e.eps !== undefined ? ` (EPS: ${e.eps ?? 'est'})` : ''}`, source: 'FMP' });
-          });
-        }
-      }
-    } catch(e) { /* try next */ }
-  }
-
-  // ── Source 2: FMP upcoming date-range calendar ────────────────
-  if (!fmpGotData) {
-    try {
-      const future = new Date(Date.now() + 90*86400000).toISOString().slice(0,10);
-      const url = `https://financialmodelingprep.com/api/v3/earning_calendar?symbol=${sym}&from=${today}&to=${future}&apikey=${FMP}`;
-      const { status, body } = await get(url, 6000);
-      if (status === 200) {
-        const arr = JSON.parse(body.toString());
-        if (Array.isArray(arr)) {
-          arr.forEach(e => {
-            const d = (e.date || '').slice(0, 10);
-            if (d) events.push({ date: d, type: 'EARNINGS', label: 'Upcoming Earnings', source: 'FMP' });
-          });
-          if (arr.length) fmpGotData = true;
-        }
-      }
-    } catch(e) { /* silent */ }
-  }
-
-  // ── Source 3: Nasdaq free earnings calendar (no key required) ──
-  if (!fmpGotData) {
-    try {
-      const url = `https://api.nasdaq.com/api/calendar/earnings?date=${today}&symbol=${sym}`;
-      const { status, body } = await get(url, 6000);
-      if (status === 200) {
-        const json = JSON.parse(body.toString());
-        const rows = json?.data?.rows || [];
-        rows.forEach(r => {
-          const d = (r.priceEarningsDate || r.reportDate || r.date || '').slice(0, 10);
-          if (d) events.push({ date: d, type: 'EARNINGS', label: 'Upcoming Earnings', source: 'NASDAQ' });
-        });
-        if (rows.length) fmpGotData = true;
-      }
-    } catch(e) { /* silent */ }
-  }
-
-  // ── Source 4: DB-based earnings prediction from historical filing patterns ──
-  // If no external earnings data found, predict next earnings from insider filing history.
-  // Public companies typically report earnings quarterly every ~91 days.
-  if (!fmpGotData) {
-    try {
-      // Find the most recent earnings-proximate filing dates from 8-K filings in the DB
-      // Use the last known trade dates for this ticker to infer the earnings cycle
-      const rows = db.prepare(`
-        SELECT MAX(filing_date) AS last_filing, MAX(trade_date) AS last_trade
-        FROM trades WHERE ticker = ? AND insider IS NOT NULL
-      `).get(sym);
-
-      if (rows && (rows.last_filing || rows.last_trade)) {
-        // Predict quarterly earnings: ~91 days after last known activity cycle
-        const base = rows.last_filing || rows.last_trade;
-        const baseDt = new Date(base + 'T12:00:00Z');
-        for (let q = 1; q <= 4; q++) {
-          const predDt = new Date(baseDt);
-          predDt.setUTCDate(predDt.getUTCDate() + q * 91);
-          const predStr = predDt.toISOString().slice(0, 10);
-          if (predStr > today) {
-            events.push({ date: predStr, type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
-          }
-        }
-      }
-    } catch(e) { /* silent */ }
-  }
-
-  // ── Source 5: SEC EFTS — recent 8-K filings as material events ─
-  try {
-    const startDate = new Date(Date.now() - 730*86400000).toISOString().slice(0,10);
-    const url = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(sym)}%22&forms=8-K&dateRange=custom&startDate=${startDate}&endDate=${today}&hits.hits.total.value=1&hits.hits._source.period_of_report=1`;
-    const { status, body } = await get(url, 5000);
-    if (status === 200) {
-      const json = JSON.parse(body.toString());
-      const hits = json?.hits?.hits || [];
-      hits.forEach(h => {
-        const d = (h._source?.period_of_report || h._source?.file_date || '').slice(0, 10);
-        const items = (h._source?.items || '').toString();
-        if (!d) return;
-        let type = 'MATERIAL_EVENT', label = '8-K Filing';
-        if (items.includes('2.02') || items.includes('Results')) { type = 'EARNINGS'; label = '8-K: Earnings Results'; }
-        else if (items.includes('1.01')) { label = '8-K: Material Agreement'; }
-        else if (items.includes('8.01')) { label = '8-K: Other Material Event'; }
-        else if (items.includes('1.05') || items.includes('FDA') || items.includes('regulatory')) { type = 'REGULATORY'; label = '8-K: Regulatory Update'; }
-        events.push({ date: d, type, label, source: 'SEC_8K' });
-      });
-    }
-  } catch(e) { /* silent */ }
-
-  // Deduplicate by date+type, sort descending
-  const seen = new Set();
-  const deduped = events.filter(e => {
-    const k = `${e.date}::${e.type}`;
-    if (seen.has(k)) return false;
-    seen.add(k); return true;
-  }).sort((a, b) => b.date.localeCompare(a.date));
-
-  EVENT_CACHE.set(sym, { expires: Date.now() + 6 * 60 * 60 * 1000, data: deduped });
-  res.json(deduped);
-});
-
-// STOCK LISTS — for stock view landing page
-// Returns multiple ranked lists in one call: most active, recent buys, recent sells, cluster buys
-app.get('/api/stock-lists', (req, res) => {
-  try {
-    // All queries use a dedup subquery to prevent double-counting trades that appear
-    // in both the quarterly bulk sync and the daily worker (different accession formats)
-    const DEDUP = (filter, days, dateField='trade_date') => `
-      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
-             trade_date, type, MAX(COALESCE(value,0)) AS value, MAX(COALESCE(qty,0)) AS qty
-      FROM trades
-      WHERE ${filter} AND ${dateField} >= date('now','-${days} days')
-        AND TRIM(type) IN ('P','S','S-')
-        AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
-        AND ticker GLOB '[A-Z]*'
-        AND LENGTH(ticker) BETWEEN 1 AND 10
-        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
-      GROUP BY ticker, insider, trade_date, type
-    `;
-
-    const hotBuys = db.prepare(`
-      SELECT ticker, MAX(company) AS company,
-        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
-        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,
-        SUM(CASE WHEN TRIM(type)='P' THEN value ELSE 0 END) AS buy_val,
-        MAX(CASE WHEN TRIM(type)='P' THEN trade_date END) AS latest,
-        MAX(CASE WHEN TRIM(type)='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%'
-          OR UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%') THEN 1 ELSE 0 END) AS exec_buy
-      FROM (${DEDUP("type='P'", 30)})
-      GROUP BY ticker HAVING buys > 0
-      ORDER BY buy_val DESC LIMIT 20
-    `).all();
-
-    const clusterBuys = db.prepare(`
-      SELECT ticker, MAX(company) AS company,
-        COUNT(DISTINCT insider) AS buyer_count,
-        COUNT(*) AS trade_count,
-        SUM(value) AS total_val,
-        MAX(trade_date) AS latest
-      FROM (${DEDUP("type='P'", 14)})
-      GROUP BY ticker HAVING buyer_count >= 2
-      ORDER BY buyer_count DESC, total_val DESC LIMIT 15
-    `).all();
-
-    const freshBuys = db.prepare(`
-      SELECT d.ticker, MAX(d.company) AS company,
-        d.insider, MAX(d.title) AS title,
-        MAX(d.trade_date) AS latest, MAX(d.value) AS val
-      FROM (${DEDUP("type='P'", 14)}) d
-      WHERE NOT EXISTS (
-        SELECT 1 FROM trades t2
-        WHERE t2.ticker=d.ticker AND t2.insider=d.insider AND t2.type='P'
-          AND t2.trade_date < d.trade_date
-          AND t2.trade_date >= date(d.trade_date,'-730 days')
-      )
-      GROUP BY d.ticker, d.insider
-      ORDER BY val DESC LIMIT 15
-    `).all();
-
-    const heavySells = db.prepare(`
-      SELECT ticker, MAX(company) AS company,
-        COUNT(DISTINCT insider) AS seller_count,
-        SUM(value) AS sell_val,
-        MAX(trade_date) AS latest
-      FROM (${DEDUP("type IN ('S','S-')", 14)})
-      GROUP BY ticker
-      ORDER BY sell_val DESC LIMIT 15
-    `).all();
-
-    const mostActive = db.prepare(`
-      SELECT ticker, MAX(company) AS company,
-        COUNT(*) AS total_trades,
-        COUNT(DISTINCT insider) AS insiders,
-        SUM(CASE WHEN TRIM(type)='P' THEN 1 ELSE 0 END) AS buys,
-        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 ELSE 0 END) AS sells,
-        MAX(trade_date) AS latest
-      FROM (${DEDUP("1=1", 7)})
-      GROUP BY ticker
-      ORDER BY total_trades DESC, insiders DESC LIMIT 20
-    `).all();
-
-    res.json({ hotBuys, clusterBuys, freshBuys, heavySells, mostActive });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// ─── SPA CATCH-ALL ────────────────────────────────────────────
-// Must be last — serves index.html for all non-API, non-static routes
-// so that /stock/AAPL, /insider, /insider/Name etc. work on direct load/refresh
-app.get('*', (req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'index.html')));
-
-// ─── STARTUP ──────────────────────────────────────────────────
-
-// Add source column if not present (migration for existing DBs)
-try {
-  db.exec(`ALTER TABLE trades ADD COLUMN source TEXT DEFAULT 'sec'`);
-  db.exec(`UPDATE trades SET source='sec' WHERE source IS NULL`);
-} catch(e) {} // column already exists — fine
-
-
-
-const existing  = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-const syncedQ   = db.prepare('SELECT COUNT(*) AS n FROM sync_log').get().n;
-console.log(`DB: ${existing} trades, ${syncedQ} quarters synced`);
-
-const TARGET_QUARTERS = 12;
-if (syncedQ < TARGET_QUARTERS) {
-  const needed = TARGET_QUARTERS - syncedQ;
-  console.log(`Only ${syncedQ} quarters in DB — syncing ${needed} more to reach ${TARGET_QUARTERS}...`);
-  runSync(TARGET_QUARTERS);
-} else {
-  const now = new Date();
-  const yr  = now.getFullYear();
-  const q   = Math.ceil((now.getMonth() + 1) / 3);
-  let tq = q - 1; let ty = yr;
-  if (tq < 1) { tq = 4; ty--; }
-  const key = `${ty}Q${tq}`;
-  db.prepare('DELETE FROM sync_log WHERE quarter=?').run(key);
-  slog(`Re-syncing ${key} for latest filings...`);
-  runSync(1);
-}
-
-setInterval(() => {
-  const now = new Date();
-  const yr  = now.getFullYear();
-  const q   = Math.ceil((now.getMonth() + 1) / 3);
-  let tq = q - 1; let ty = yr;
-  if (tq < 1) { tq = 4; ty--; }
-  db.prepare('DELETE FROM sync_log WHERE quarter=?').run(`${ty}Q${tq}`);
-  runSync(1);
-}, 24 * 60 * 60 * 1000);
-
-setTimeout(() => runDaily(3), 5000);
-
-// ─── PRICE CACHE WARMER ───────────────────────────────────────
-// Pre-fetch prices for all active tickers so scoreboard/stock views are instant
-async function warmPriceCache() {
-  try {
-    const tickers = db.prepare(`
-      SELECT DISTINCT ticker FROM trades
-      WHERE TRIM(type)='P' AND price>0 AND ticker IS NOT NULL
-        AND trade_date >= date('now','-3 years')
-      ORDER BY trade_date DESC
-    `).all().map(r => r.ticker).slice(0, 180); // top 180 most recently active (covers drift tickers)
-
-    slog(`Warming price cache for ${tickers.length} tickers...`);
-    // Batch of 15 at a time — fast without hammering sources
-    for (let i = 0; i < tickers.length; i += 15) {
-      const batch = tickers.slice(i, i + 15);
-      await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      await new Promise(r => setTimeout(r, 200)); // small gap between batches
-    }
-    slog('Price cache warm-up complete');
-  } catch(e) { slog('Price cache warmer error: ' + e.message); }
-}
-
-// Pre-compute and cache the scoreboard after price cache is warm.
-// Runs the scoring logic directly — no localhost HTTP round-trip.
-async function preComputeScoreboard() {
-  if (_scoreboardCache) return;
-  try {
-    slog('Pre-computing scoreboard...');
-    const minBuys = 4, limit = 30;
-    const rows = db.prepare(`
-      SELECT insider, MAX(title) AS title, COUNT(*) AS buy_count,
-        GROUP_CONCAT(ticker || '|' || trade_date || '|' || COALESCE(price,0) || '|' || COALESCE(value,0), ';;') AS trade_data,
-        GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
-        CAST(julianday(MAX(trade_date)) - julianday(MIN(trade_date)) AS INTEGER) AS span_days
-      FROM trades
-      WHERE TRIM(type) = 'P' AND insider IS NOT NULL AND ticker IS NOT NULL
-        AND trade_date <= date('now', '-95 days')
-      GROUP BY insider HAVING buy_count >= ? AND span_days >= 90
-      ORDER BY buy_count DESC, span_days DESC LIMIT ?
-    `).all(minBuys, limit);
-    if (!rows.length) { slog('Scoreboard pre-compute: no qualifying rows'); return; }
-
-    const allTickers = [...new Set(rows.flatMap(r => (r.tickers_csv||'').split(',').filter(Boolean)))].slice(0,40);
-    const priceEntries = await Promise.allSettled(allTickers.map(async sym => [sym, await fetchPriceBars(sym)]));
-    const priceCache = Object.fromEntries(priceEntries.filter(r=>r.status==='fulfilled'&&r.value[1]).map(r=>r.value));
-
-    const accuracyResults = [], timingResults = [];
-    rows.forEach(leader => {
-      try {
-        const rawTrades = (leader.trade_data||'').split(';;').map(s => {
-          const [ticker,trade_date,priceStr,valueStr] = s.split('|');
-          return { ticker, trade: trade_date, price: parseFloat(priceStr)||0, value: parseFloat(valueStr)||0 };
-        }).filter(t => t.ticker && t.trade);
-        if (rawTrades.length < 4) return;
-        const scored = rawTrades.map(t => {
-          const bars = priceCache[t.ticker]||[]; if (!bars.length) return null;
-          const buyDate = t.trade.slice(0,10);
-          const entryBar = bars.find(b=>b.time>=buyDate);
-          const buyPrice = t.price>0 ? t.price : (entryBar?.close||0);
-          if (!buyPrice||buyPrice<=0) return null;
-          const fwd = d => { const fd=new Date(buyDate+'T12:00:00Z'); fd.setUTCDate(fd.getUTCDate()+d); const b=bars.find(x=>x.time>=fd.toISOString().slice(0,10)); return b?+((b.close-buyPrice)/buyPrice*100).toFixed(2):null; };
-          return { ticker:t.ticker, tradeDate:buyDate, buyPrice, ret30:fwd(30), ret90:fwd(90), ret180:fwd(180) };
-        }).filter(Boolean);
-        const completed = scored.filter(s=>s.ret90!==null); if (completed.length<3) return;
-        const rets90=completed.map(s=>s.ret90), avgRet90=+(rets90.reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
-        const rets30=completed.filter(s=>s.ret30!==null).map(s=>s.ret30);
-        const avgRet30=rets30.length?+(rets30.reduce((a,b)=>a+b,0)/rets30.length).toFixed(1):null;
-        const winRate=Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
-        const avgMag=+(rets90.map(Math.abs).reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
-        const sorted=[...rets90].sort((a,b)=>a-b), median=sorted[Math.floor(sorted.length/2)];
-        const consist=Math.round(Math.min(100,Math.max(0,(median/Math.max(avgMag,1)+1)*50)));
-        const accScore=Math.round(Math.min(100,Math.max(0,winRate*0.40+Math.min(35,Math.max(0,avgRet90/20*35))+consist*0.15+Math.min(10,completed.length*1.2))));
-        const tier=accScore>=75?'ELITE':accScore>=55?'STRONG':accScore>=35?'AVERAGE':'WEAK';
-        const tickers3=[...new Set(rawTrades.map(t=>t.ticker))].slice(0,3).join(', ');
-        accuracyResults.push({name:leader.insider,title:leader.title||'',accuracyScore:accScore,tier,winRate,avgRet90,avgRet30,tradeCount:completed.length,tickers:tickers3});
-
-        let nearLowCount=0,ret90sum=0,ret180sum=0,retN=0;
-        scored.forEach(s => {
-          const bars=priceCache[s.ticker]||[]; if(!bars.length||!s.buyPrice) return;
-          const yr1Start=new Date(s.tradeDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
-          const yr1Bars=bars.filter(b=>b.time>=yr1Start.toISOString().slice(0,10)&&b.time<=s.tradeDate);
-          if(yr1Bars.length<20) return;
-          const yr1Lo=Math.min(...yr1Bars.map(b=>b.low||b.close));
-          if((s.buyPrice-yr1Lo)/yr1Lo*100<=20) nearLowCount++;
-          if(s.ret90!==null){ret90sum+=s.ret90;retN++;} if(s.ret180!==null) ret180sum+=s.ret180;
-        });
-        const n=scored.length, nearLowPct=n>0?Math.round(nearLowCount/n*100):0;
-        const avgFwd90=retN>0?+(ret90sum/retN).toFixed(1):null, avgFwd180=retN>0?+(ret180sum/retN).toFixed(1):null;
-        const avgPos=scored.reduce((acc,s)=>{
-          const bars=priceCache[s.ticker]||[]; if(!bars.length||!s.buyPrice) return acc;
-          const yr1Start=new Date(s.tradeDate+'T12:00:00Z'); yr1Start.setUTCFullYear(yr1Start.getUTCFullYear()-1);
-          const yr1Bars=bars.filter(b=>b.time>=yr1Start.toISOString().slice(0,10)&&b.time<=s.tradeDate);
-          if(yr1Bars.length<20) return acc;
-          const yr1Lo=Math.min(...yr1Bars.map(b=>b.low||b.close)),yr1Hi=Math.max(...yr1Bars.map(b=>b.high||b.close)),rng=yr1Hi-yr1Lo;
-          return rng>0.01?{sum:acc.sum+(s.buyPrice-yr1Lo)/rng,n:acc.n+1}:acc;
-        },{sum:0,n:0});
-        const avgPosVal=avgPos.n>0?avgPos.sum/avgPos.n:0.5;
-        const timingAlpha=Math.min(100,Math.max(0,Math.round(Math.min(25,(nearLowPct/100)*50)+Math.min(25,Math.max(0,(0.7-avgPosVal)/0.4*25))+(avgFwd90!==null?Math.min(25,Math.max(0,avgFwd90/10*25)):12)+12)));
-        let verdict,verdictColor;
-        if(timingAlpha>=80&&nearLowPct>=50){verdict='Buys near bottoms';verdictColor='buy';}
-        else if(timingAlpha>=80){verdict='Elite forward returns';verdictColor='buy';}
-        else if(timingAlpha>=60){verdict='Above-average timing';verdictColor='accent';}
-        else if(timingAlpha>=40){verdict='Mixed timing signals';verdictColor='option';}
-        else{verdict='Tends to buy high';verdictColor='sell';}
-        if(timingAlpha>=35) timingResults.push({name:leader.insider,title:leader.title||'',timingAlpha,nearLowPct,nearHighSellPct:null,avgRet90:avgFwd90,avgRet180:avgFwd180,verdict,verdictColor,tradeCount:completed.length,tickers:tickers3});
-      } catch(e) { /* skip */ }
-    });
-    accuracyResults.sort((a,b)=>b.accuracyScore-a.accuracyScore);
-    timingResults.sort((a,b)=>b.timingAlpha-a.timingAlpha);
-    _scoreboardCache = { accuracy:accuracyResults, timing:timingResults };
-    _scoreboardCacheTime = Date.now();
-    slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
-  } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
-}
-
-// Warm price cache 60s after boot so first requests are fast
-setTimeout(async () => {
-  await warmPriceCache();
-  // Pre-compute scoreboard immediately after price cache is warm
-  await preComputeScoreboard();
-}, 60000);
-// Re-warm every 2 hours to keep cache fresh
-setInterval(() => warmPriceCache(), 2 * 60 * 60 * 1000);
-
-// Pre-compute drift at startup (pure DB query, no external calls needed)
-// Run after 10s to let the DB settle after initial sync
-setTimeout(() => {
-  try {
-    slog('Pre-computing drift...');
-    // Trigger the drift endpoint logic inline
-    const rows = db.prepare(`
-      SELECT ticker, MAX(company) AS company,
-        trade_date, TRIM(type) AS type,
-        AVG(price) AS price, SUM(COALESCE(value,0)) AS val
-      FROM trades
-      WHERE price > 0 AND ticker IS NOT NULL AND trade_date >= date('now','-4 years')
-      GROUP BY ticker, trade_date, TRIM(type)
-      ORDER BY ticker, trade_date
-    `).all();
-    const seriesByTicker = {}, companyByTicker = {};
-    rows.forEach(r => {
-      if (!seriesByTicker[r.ticker]) { seriesByTicker[r.ticker] = []; companyByTicker[r.ticker] = r.company; }
-      seriesByTicker[r.ticker].push({ date: r.trade_date, price: r.price, type: r.type, val: r.val });
-    });
-    const results = [];
-    for (const [ticker, series] of Object.entries(seriesByTicker)) {
-      const buys = series.filter(s => s.type === 'P');
-      if (buys.length < 3) continue;
-      const retsByTarget = { 30: [], 90: [], 180: [] };
-      let measured = 0;
-      buys.forEach(buy => {
-        const buyDt = new Date(buy.date + 'T00:00:00Z');
-        if (buyDt > new Date(Date.now() - 180 * 86400000)) return;
-        let gotAny = false;
-        [30, 90, 180].forEach(days => {
-          const targetDt = new Date(buyDt.getTime() + days * 86400000);
-          let best = null, bestDiff = Infinity;
-          series.forEach(obs => {
-            if (obs.date <= buy.date) return;
-            const diff = Math.abs(new Date(obs.date + 'T00:00:00Z') - targetDt) / 86400000;
-            if (diff < bestDiff && diff <= 45) { best = obs; bestDiff = diff; }
-          });
-          if (best && best.price > 0) { retsByTarget[days].push((best.price - buy.price) / buy.price * 100); gotAny = true; }
-        });
-        if (gotAny) measured++;
-      });
-      if (measured < 2 || !retsByTarget[90].length) continue;
-      const avg = {};
-      [30, 90, 180].forEach(d => { avg[d] = retsByTarget[d].length ? retsByTarget[d].reduce((a,b)=>a+b,0)/retsByTarget[d].length : null; });
-      const rets90 = retsByTarget[90];
-      const winRate = Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
-      const wAvg = ((avg[30]||0)*0.25 + (avg[90]||0)*0.45 + (avg[180]||0)*0.30);
-      let score = Math.max(0, Math.min(70, 35 + wAvg*2.5));
-      if (winRate>=75) score+=15; else if (winRate>=60) score+=8; else if (winRate<40) score-=8;
-      const accelerates = avg[30]!==null&&avg[90]!==null&&avg[180]!==null&&avg[90]>avg[30]&&avg[180]>avg[90];
-      if (accelerates) score+=10; else if (avg[180]!==null&&avg[90]!==null&&avg[180]>avg[90]) score+=5;
-      if (measured>=8) score+=5; else if (measured>=5) score+=3; else if (measured>=3) score+=1;
-      score = Math.min(100, Math.max(0, Math.round(score)));
-      if (score < 15) continue;
-      const vals = buys.map(b=>b.val).filter(v=>v>0).sort((a,b)=>a-b);
-      results.push({ ticker, company: companyByTicker[ticker]||ticker, buyCount: measured,
-        avg: { 1: avg[30], 5: avg[90], 20: avg[180], 60: avg[180] },
-        winRate, accelerates, weightedAvg: +wAvg.toFixed(2), score,
-        medianBuyVal: vals.length ? vals[Math.floor(vals.length/2)] : 0,
-        lastBuy: buys[buys.length-1].date, d60sample: rets90.length });
-    }
-    results.sort((a,b)=>b.score-a.score);
-    _driftServerCache = results.slice(0, 50);
-    _driftServerCacheTime = Date.now();
-    slog(`Drift pre-computed: ${_driftServerCache.length} tickers`);
-  } catch(e) { slog('Drift pre-compute error: ' + e.message); }
-}, 10000);
-
-// Pre-compute proximity at startup (pure DB query)
-setTimeout(() => {
-  try {
-    slog('Pre-computing proximity...');
-    const buys = db.prepare(`
-      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
-             trade_date, COALESCE(AVG(price),0) AS price, SUM(COALESCE(value,0)) AS value,
-             MAX(filing_date) AS filing_date
-      FROM trades
-      WHERE TRIM(type) = 'P' AND ticker IS NOT NULL AND insider IS NOT NULL
-        AND trade_date >= date('now', '-30 days')
-      GROUP BY ticker, insider, trade_date
-      ORDER BY trade_date DESC
-    `).all();
-    if (!buys.length) { slog('Proximity: no recent buys'); return; }
-
-    const tickers = [...new Set(buys.map(b => b.ticker))];
-    const tickerHistory = {};
-    tickers.forEach(tk => {
-      const hist = db.prepare(`
-        SELECT trade_date FROM trades
-        WHERE ticker = ? AND TRIM(type) = 'P' AND trade_date < date('now', '-30 days')
-        ORDER BY trade_date DESC LIMIT 8
-      `).all(tk);
-      tickerHistory[tk] = hist.map(r => r.trade_date);
-    });
-
-    const results = [];
-    buys.forEach(buy => {
-      const buyDate = buy.trade_date; if (!buyDate) return;
-      const hist = tickerHistory[buy.ticker] || [];
-      const predicted = [];
-      if (hist.length >= 2) {
-        const gaps = [];
-        for (let i = 0; i < Math.min(hist.length-1,4); i++) {
-          const gap = Math.abs((new Date(hist[i]+'T00:00:00Z') - new Date(hist[i+1]+'T00:00:00Z')) / 86400000);
-          if (gap >= 30 && gap <= 150) gaps.push(gap);
-        }
-        const avgGap = gaps.length ? gaps.reduce((a,b)=>a+b,0)/gaps.length : 91;
-        const mostRecent = new Date(hist[0]+'T00:00:00Z');
-        for (let q = 1; q <= 6; q++) {
-          const nd = new Date(mostRecent); nd.setUTCDate(nd.getUTCDate() + Math.round(avgGap*q));
-          const ns = nd.toISOString().slice(0,10);
-          if (ns > buyDate) predicted.push({ date: ns, type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
-        }
-      } else {
-        for (let q = 1; q <= 4; q++) {
-          const nd = new Date(buyDate+'T00:00:00Z'); nd.setUTCDate(nd.getUTCDate() + q*91);
-          predicted.push({ date: nd.toISOString().slice(0,10), type: 'EARNINGS', label: 'Predicted Earnings (est.)', source: 'DB_PREDICT' });
-        }
-      }
-      const cachedEvts = EVENT_CACHE.get(buy.ticker);
-      if (cachedEvts) predicted.push(...cachedEvts.data.filter(e => e.date > buyDate));
-      const seen = new Set();
-      const upcoming = predicted.filter(e => { if (seen.has(e.date)) return false; seen.add(e.date); return true; }).sort((a,b) => a.date.localeCompare(b.date));
-      if (!upcoming.length) return;
-      const windowEnd = new Date(buyDate+'T00:00:00Z'); windowEnd.setUTCDate(windowEnd.getUTCDate()+120);
-      const inWindow = upcoming.filter(e => e.date > buyDate && e.date <= windowEnd.toISOString().slice(0,10));
-      if (!inWindow.length) return;
-      const nextEvent = inWindow[0];
-      const daysTo = Math.max(0, Math.round((new Date(nextEvent.date+'T00:00:00Z') - new Date(buyDate+'T00:00:00Z')) / 86400000));
-      let score = Math.round(Math.max(0,(1-daysTo/120))*60);
-      const bv = buy.value||0;
-      if (bv>1000000) score+=20; else if (bv>500000) score+=12; else if (bv>100000) score+=6;
-      if (hist.length>=4) score+=10;
-      score = Math.min(100,score);
-      const proximityColor = daysTo<=14?'var(--sell)':daysTo<=30?'var(--option)':daysTo<=60?'var(--accent)':'var(--muted)';
-      results.push({ ticker:buy.ticker, company:buy.company||buy.ticker, insider:buy.insider, title:buy.title||'',
-        buyDate, buyVal:bv, buyValue:bv, daysTo, score, isAbnormal:score>=55||daysTo<=21, proximityColor,
-        repeatPattern:hist.length>=3, nextEvent, allUpcoming:inWindow.slice(0,4) });
-    });
-    const deduped = Object.values(results.reduce((acc,r)=>{
-      const k=`${r.ticker}::${r.insider}`; if (!acc[k]||r.score>acc[k].score) acc[k]=r; return acc;
-    },{})).sort((a,b)=>b.score-a.score);
-    _proximityServerCache = deduped;
-    _proximityServerCacheTime = Date.now();
-    slog(`Proximity pre-computed: ${deduped.length} results`);
-  } catch(e) { slog('Proximity pre-compute error: ' + e.message); }
-}, 12000);
-
-
-
-// Pre-compute sector cache at startup — runs 60s after boot to let price/drift settle first.
-// Iterates all active tickers and fetches sector/industry from Yahoo Finance.
-// Results live in _sectorTickerCache and survive for 7 days each.
-// Refreshes every 12 hours in case tickers change.
-setTimeout(() => {
-  precomputeSectorCache().catch(e => slog('Sector precompute startup error: ' + e.message));
-}, 60000);
-
-setInterval(() => {
-  precomputeSectorCache().catch(e => slog('Sector precompute refresh error: ' + e.message));
-}, 12 * 60 * 60 * 1000);
 
 // ─── DEBUG ENDPOINT — shows DB stats for diagnosing data issues ───────────
 app.get('/api/debug', (req, res) => {
