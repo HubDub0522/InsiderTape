@@ -3500,8 +3500,10 @@ async function loadNotableLeaderboard() {
   el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div><span style="font-size:12px;color:var(--muted)">Loading Notable Insiders leaderboard…</span></div>`;
   try {
     const data = await apiFetch('/api/scoreboard');
-    const accuracy = (data.accuracy || []).slice(0, 20);
-    const timing   = (data.timing   || []).slice(0, 10);
+    // Apply score floors so only meaningful results show — server already filters at 35,
+    // but guard here too in case of stale cache
+    const accuracy = (data.accuracy || []).filter(r => (r.accuracyScore || 0) >= 35).slice(0, 20);
+    const timing   = (data.timing   || []).filter(r => (r.timingAlpha  || 0) >= 40).slice(0, 10);
     if (!accuracy.length && !timing.length) { el.innerHTML = ''; return; }
 
     const tierColor = s => s >= 80 ? '#ffd700' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
@@ -3568,33 +3570,33 @@ async function loadNotableLeaderboard() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
         <!-- Accuracy leaderboard -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden${!accuracy.length ? ';display:none' : ''}">
           <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
             <span style="font-size:18px">🏆</span>
             <div>
               <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">NOTABLE INSIDERS</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:1px">Ranked by accuracy score · top ${accuracy.length} across all time</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:1px">${accuracy.length} insider${accuracy.length !== 1 ? 's' : ''} with accuracy score ≥ 35 · ranked by forward returns</div>
             </div>
           </div>
           <div style="background:rgba(0,212,255,0.03);padding:10px 16px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5">
-            Requires 4+ completed trades. Scored against actual forward returns at D+30 / D+90.
+            Requires 4+ completed trades scored against actual price data at D+30 / D+90. Click any row for the full profile.
           </div>
-          ${accuracyRows || '<div style="padding:20px;color:var(--muted);font-size:12px">Insufficient data yet. Check back after more trades complete.</div>'}
+          ${accuracyRows}
         </div>
 
         <!-- Timing alpha leaderboard -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden${!timing.length ? ';display:none' : ''}">
           <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
             <span style="font-size:18px">⏱️</span>
             <div>
               <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">BEST TIMERS</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:1px">Ranked by timing alpha · buys near 52-week lows</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:1px">${timing.length} insider${timing.length !== 1 ? 's' : ''} with timing alpha ≥ 40 · ranked by entry quality</div>
             </div>
           </div>
           <div style="background:rgba(0,255,136,0.03);padding:10px 16px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5">
-            % of buys within 20% of 12-month low, weighted by subsequent returns.
+            % of buys within 20% of 12-month low, weighted by subsequent forward returns.
           </div>
-          ${timingRows || '<div style="padding:20px;color:var(--muted);font-size:12px">Insufficient data yet.</div>'}
+          ${timingRows}
         </div>
       </div>`;
   } catch(e) {
@@ -6009,7 +6011,7 @@ function renderCompareResults() {
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
         <div style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${m.color};width:60px;flex-shrink:0">${m.ticker}</div>
         <div style="flex:1;background:var(--bg3);border-radius:4px;height:20px;overflow:hidden">
-          <div style="width:${pct}%;min-width:${pct > 0 ? '2px' : '0'};height:100%;background:linear-gradient(90deg,${m.color}cc,${m.color}66);border-radius:4px;transition:width .6s ease"></div>
+          <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,${m.colorHex},${m.colorHex}88);border-radius:4px;transition:width .6s ease"></div>
         </div>
         <div style="font-family:'Space Mono',monospace;font-size:11px;color:${m.color};width:68px;text-align:right;flex-shrink:0">${fmt(m.buyVal)}</div>
       </div>`;
