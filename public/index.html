@@ -570,7 +570,9 @@ function fmtShares(n) {
 }
 function fmtDate(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'2-digit'});
+  // Append noon UTC to avoid midnight-UTC → prev-day-local parse bug for YYYY-MM-DD strings
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + 'T12:00:00Z') : new Date(d);
+  return parsed.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'2-digit'});
 }
 function tradeClass(type) {
   if (!type) return '';
@@ -2002,7 +2004,7 @@ function renderProximitySubpage() {
       <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
         <div style="height:100%;width:60%;background:var(--sell);border-radius:4px;animation:pulse 1.5s ease-in-out infinite"></div>
       </div>
-      <div style="font-size:11px;color:var(--muted)">Checking earnings · 8-K filings · regulatory events</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Checking quarterly period proximity · recent insider buying patterns</div>
     </div>
   </div>`;
 
@@ -2034,8 +2036,8 @@ function _renderProximityResults(body, backBtn, results) {
   const abnormal = results.filter(r => r.isAbnormal);
   const normal   = results.filter(r => !r.isAbnormal);
 
-  const typeIcon  = { EARNINGS: '📊', REGULATORY: '⚖️', MATERIAL_EVENT: '📋' };
-  const typeLabel = { EARNINGS: 'Earnings', REGULATORY: 'Regulatory', MATERIAL_EVENT: 'Material Event' };
+  const typeIcon  = { EARNINGS: '📊', QUARTERLY: '📊', REGULATORY: '⚖️', MATERIAL_EVENT: '📋' };
+  const typeLabel = { EARNINGS: 'Earnings', QUARTERLY: 'Est. Quarter-End', REGULATORY: 'Regulatory', MATERIAL_EVENT: 'Material Event' };
 
   const renderCard = r => {
     const scoreColor  = r.score >= 75 ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : r.score >= 35 ? 'var(--accent)' : 'var(--muted)';
@@ -2154,7 +2156,7 @@ function _renderProximityResults(body, backBtn, results) {
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider buys scored by proximity to upcoming earnings · 8-K catalysts · regulatory events · Last 90D</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider buys scored by proximity to estimated quarterly periods · Last 90D</div>
     </div>
 
     <!-- Summary strip -->
@@ -2179,7 +2181,7 @@ function _renderProximityResults(body, backBtn, results) {
 
     <div style="background:rgba(255,68,102,0.04);border:1px solid rgba(255,68,102,0.12);border-radius:7px;padding:11px 15px;margin-bottom:24px;font-size:11px;color:var(--muted);line-height:1.7">
       Scores insider buys by <span style="color:var(--text)">how many days before the next known event</span> they occurred.
-      <span style="color:var(--sell)">Abnormal</span> = C-suite or Director buying within 14 days of earnings or a material 8-K.
+      <span style="color:var(--sell)">Abnormal</span> = C-suite or Director buying within 14 days of an estimated quarter-end.
       <span style="color:var(--option)">Repeat pattern</span> = same insider has done this before prior events.
       Event data: FMP earnings calendar + SEC 8-K filings.
     </div>
@@ -2912,7 +2914,7 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades) {
   function addDays(dateStr, n) {
     const d = new Date(dateStr+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10);
   }
-  const today = new Date().toISOString().slice(0,10);
+  const today = lastTradingDate(); // use ET-aware date, not UTC
   const scored = scoreable.map(t => {
     const tradeDate = (t.trade||t.filing).slice(0,10);
     const base = t.price;
@@ -3885,13 +3887,13 @@ function renderAnalysisDashboard() {
     id: 'proximity',
     icon: '🎯',
     name: 'Event Proximity Scanner',
-    desc: 'Detects insider buying before earnings, FDA approvals, regulatory rulings, and material 8-K events. Scores timing abnormality — buying 5 days before earnings by a CEO is a very different signal than buying 28 days out.',
+    desc: 'Detects insider buying relative to estimated quarterly reporting periods. Scores timing signals — buying close to a quarter-end by a CEO is a stronger signal than buying earlier in the quarter.',
     count: _proximityCache ? _proximityCache.length : '…',
     countLabel: 'proximity signals',
     top3: proxTop3.map(r => ({
       ticker: r.ticker,
       label: `Score ${r.score}`,
-      sub: `${r.daysTo}d before ${r.nextEvent?.type === 'EARNINGS' ? 'earnings' : 'event'} · ${r.insider ? r.insider.split(' ').slice(-1)[0] : r.ticker}`,
+      sub: `${r.daysTo}d before ${(r.nextEvent?.type === 'EARNINGS' || r.nextEvent?.type === 'QUARTERLY') ? 'est. quarter-end' : 'event'} · ${r.insider ? r.insider.split(' ').slice(-1)[0] : r.ticker}`,
       color: r.isAbnormal ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : 'var(--accent)',
     })),
     accentColor: 'var(--sell)',
@@ -4709,12 +4711,17 @@ function detectExitWarnings(trades) {
 
     // ── FACTOR 4: Selling acceleration — more sells in recent 7d vs prior 23d (up to 20pts) ──
     const now = new Date();
-    const cutoff7 = new Date(now); cutoff7.setDate(now.getDate() - 7);
-    const cutoff30 = new Date(now); cutoff30.setDate(now.getDate() - 30);
-    const recent7  = tickerSells.filter(t => new Date(t.trade||t.filing) >= cutoff7);
+    const cutoff7ms  = now.getTime() - 7  * 86400000;
+    const cutoff30ms = now.getTime() - 30 * 86400000;
+    const recent7  = tickerSells.filter(t => {
+      const ds = (t.trade||t.filing||'').slice(0,10);
+      return ds && new Date(ds+'T12:00:00Z').getTime() >= cutoff7ms;
+    });
     const prior23  = tickerSells.filter(t => {
-      const d = new Date(t.trade||t.filing);
-      return d >= cutoff30 && d < cutoff7;
+      const ds = (t.trade||t.filing||'').slice(0,10);
+      if (!ds) return false;
+      const ms = new Date(ds+'T12:00:00Z').getTime();
+      return ms >= cutoff30ms && ms < cutoff7ms;
     });
     const recent7Val = recent7.reduce((s,t) => s+(t.value||0), 0);
     const prior23Val = prior23.reduce((s,t) => s+(t.value||0), 0);
@@ -5009,16 +5016,17 @@ function detectFirstBuys(trades) {
     byPair[key].push(t);
   });
   const now = new Date();
-  const recentCutoff = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - 90);
+  const recentCutoffMs = now.getTime() - 90 * 86400000;
   const signals = [];
   Object.entries(byPair).forEach(([key, buys]) => {
-    const sorted = buys.sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
+    const sorted = buys.sort((a,b) => (a.trade||a.filing||'').localeCompare(b.trade||b.filing||''));
     if (sorted.length < 2) return;
     const latest = sorted[sorted.length - 1];
     const prev   = sorted[sorted.length - 2];
-    const latestDate = new Date(latest.trade || latest.filing);
-    if (latestDate < recentCutoff) return;
-    const gapDays  = (latestDate - new Date(prev.trade || prev.filing)) / 86400000;
+    const latestDs = (latest.trade || latest.filing || '').slice(0,10);
+    const prevDs   = (prev.trade   || prev.filing   || '').slice(0,10);
+    if (!latestDs || new Date(latestDs+'T12:00:00Z').getTime() < recentCutoffMs) return;
+    const gapDays  = (new Date(latestDs+'T12:00:00Z') - new Date(prevDs+'T12:00:00Z')) / 86400000;
     const gapYears = +(gapDays / 365).toFixed(1);
     if (gapDays < 180) return;
     signals.push({ ticker: latest.ticker, insider: latest.insider, title: latest.title, gapYears, gapMonths: Math.round(gapDays/30.4) });
@@ -5128,7 +5136,7 @@ function detectAdvancedClusters(trades) {
   const STALENESS_DAYS = 30;        // entire cluster must have a trade within last 30 days
 
   const now = new Date();
-  const stalenessCutoff = new Date(now); stalenessCutoff.setDate(now.getDate() - STALENESS_DAYS);
+  const stalenessCutoff = new Date(now.getTime() - STALENESS_DAYS * 86400000);
   const staleStr = stalenessCutoff.toISOString().slice(0,10);
 
   // Group by ticker
@@ -5238,7 +5246,9 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   }
 
   // ── FACTOR 5: No offsetting sells (up to 15 pts) ──────────────
-  const earliestClusterDate = new Date(Math.min(...clusterBuys.map(t => new Date(t.trade||t.filing)))).toISOString().slice(0,10);
+  const clusterDateStrs = clusterBuys.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean).sort();
+  const earliestClusterDate = clusterDateStrs[0] || '';
+  const latestClusterDate   = clusterDateStrs[clusterDateStrs.length - 1] || '';
   const concurrentSells = allTicker.filter(t =>
     (t.type === 'S' || t.type === 'S-') &&
     (t.trade||t.filing) >= earliestClusterDate &&
@@ -5283,7 +5293,7 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
     avgPrice: +avgClusterPrice.toFixed(2),
     totalVal,
     earliestDate: earliestClusterDate,
-    latestDate: new Date(Math.max(...clusterBuys.map(t => new Date(t.trade||t.filing)))).toISOString().slice(0,10),
+    latestDate: latestClusterDate,
     trades: clusterBuys,
     concurrentSells: concurrentSells.length,
   };
@@ -5955,7 +5965,9 @@ function renderCompareResults() {
     const uniqueBuyers  = new Set(buys.map(t => t.insider)).size;
     const uniqueSellers = new Set(sells.map(t => t.insider)).size;
     const recentBuys30  = buys.filter(t => {
-      const d = new Date(t.trade || t.filing);
+      const ds = (t.trade || t.filing || '').slice(0, 10);
+      if (!ds) return false;
+      const d = new Date(ds + 'T12:00:00Z');
       return (Date.now() - d) < 30 * 86400000;
     });
     const lastBuy  = buys[0]?.trade || buys[0]?.filing || '—';
