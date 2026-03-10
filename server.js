@@ -1450,9 +1450,11 @@ async function preComputeScoreboard() {
         const tier     = accScore >= 75 ? 'ELITE' : accScore >= 55 ? 'STRONG' : accScore >= 35 ? 'AVERAGE' : 'WEAK';
         const tickers3 = [...new Set(rawTrades.map(t => t.ticker))].slice(0, 3).join(', ');
 
-        accuracyResults.push({ name: leader.insider, title: leader.title || '',
-          accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
-          tradeCount: completed.length, tickers: tickers3 });
+        if (accScore >= 35) {  // only include insiders with a meaningful accuracy score
+          accuracyResults.push({ name: leader.insider, title: leader.title || '',
+            accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
+            tradeCount: completed.length, tickers: tickers3 });
+        }
 
         // Timing alpha — measures quality of entry price relative to 12M range
         let nearLowCount = 0, ret90sum = 0, ret180sum = 0, retN = 0;
