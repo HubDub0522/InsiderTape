@@ -401,10 +401,11 @@
 
 <header>
   <div class="logo" onclick="switchView('screener', document.querySelectorAll('.nav-tab')[0])" style="cursor:pointer">INSIDER<span>TAPE</span></div>
-  <div class="search-wrap">
+  <div class="search-wrap" style="position:relative">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    <input type="text" id="tickerInput" placeholder="Search ticker  (e.g. AAPL)" maxlength="10">
-    <button class="search-btn" onclick="searchTicker()">GO</button>
+    <input type="text" id="tickerInput" placeholder="Search ticker or insider name…" maxlength="60" autocomplete="off">
+    <button class="search-btn" onclick="globalSearch()">GO</button>
+    <div id="globalSuggest" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-radius:8px;z-index:200;box-shadow:0 8px 28px rgba(0,0,0,0.5);overflow:hidden;max-height:320px;overflow-y:auto"></div>
   </div>
   <nav class="nav-tabs">
     <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
@@ -667,12 +668,86 @@ function updateTitle(view, extra) {
   const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis', monitor:'INSIDERTAPE — Monitor', sectors:'INSIDERTAPE — Sectors', compare:'INSIDERTAPE — Compare', watchlist:'INSIDERTAPE — Watchlist'};
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
-function searchTicker() {
-  const val = document.getElementById('tickerInput').value.trim().toUpperCase();
-  if (!val) return showToast('Please enter a ticker symbol', true);
-  loadStockView(val);
+function globalSearch() {
+  const raw = document.getElementById('tickerInput').value.trim();
+  if (!raw) return showToast('Enter a ticker or insider name', true);
+  hideGlobalSuggest();
+  // Pure ticker pattern: 1-6 uppercase letters (optionally with . or -)
+  const tickerPat = /^[A-Za-z]{1,6}([.\-][A-Za-z]{1,4})?$/;
+  if (tickerPat.test(raw.trim())) {
+    loadStockView(raw.trim().toUpperCase());
+  } else {
+    // Treat as insider name — go to Insider tab and search
+    switchView('insider', document.getElementById('insiderTab'));
+    setTimeout(() => {
+      const input = document.getElementById('insiderSearchInput');
+      if (input) { input.value = raw; runInsiderSearch(); }
+    }, 80);
+  }
 }
-document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.key==='Enter') searchTicker(); });
+
+let _globalSuggestTimer = null;
+function onGlobalInput(val) {
+  clearTimeout(_globalSuggestTimer);
+  const box = document.getElementById('globalSuggest');
+  if (!val || val.length < 2) { if (box) box.style.display = 'none'; return; }
+  _globalSuggestTimer = setTimeout(async () => {
+    // Show ticker suggestion if it looks like a ticker
+    const tickerPat = /^[A-Za-z]{1,6}$/;
+    const suggestions = [];
+    const upper = val.toUpperCase().replace(/[^A-Z]/g,'');
+    if (tickerPat.test(upper) && upper.length >= 1) {
+      suggestions.push({ type:'ticker', label: upper, sub: 'Go to Stock View', icon:'📈' });
+    }
+    // Always offer insider name search
+    suggestions.push({ type:'insider', label: val, sub: 'Search insiders by name', icon:'👤' });
+    // Try autocomplete from insider API
+    try {
+      const rows = await apiFetch('/api/insider?name=' + encodeURIComponent(val));
+      const names = [...new Set((Array.isArray(rows) ? rows : []).map(r => r.insider).filter(Boolean))].slice(0, 5);
+      names.forEach(n => suggestions.push({ type:'insider', label: n, sub: 'Insider profile', icon:'👤' }));
+    } catch(_) {}
+    if (!box) return;
+    if (!suggestions.length) { box.style.display = 'none'; return; }
+    box.innerHTML = suggestions.slice(0, 8).map(s => `
+      <div onclick="selectGlobalSuggest(${JSON.stringify(s.type)}, ${JSON.stringify(s.label)})"
+           style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04);transition:background .1s"
+           onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background=''">
+        <span style="font-size:14px;flex-shrink:0">${s.icon}</span>
+        <div style="min-width:0">
+          <div style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${s.type==='ticker'?'var(--accent)':'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.label}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px">${s.sub}</div>
+        </div>
+      </div>`).join('');
+    box.style.display = 'block';
+  }, 180);
+}
+
+function selectGlobalSuggest(type, label) {
+  document.getElementById('tickerInput').value = label;
+  hideGlobalSuggest();
+  if (type === 'ticker') {
+    loadStockView(label.toUpperCase());
+  } else {
+    switchView('insider', document.getElementById('insiderTab'));
+    setTimeout(() => {
+      const input = document.getElementById('insiderSearchInput');
+      if (input) { input.value = label; runInsiderSearch(); }
+    }, 80);
+  }
+}
+
+function hideGlobalSuggest() {
+  const box = document.getElementById('globalSuggest');
+  if (box) box.style.display = 'none';
+}
+
+// Keep old searchTicker as alias
+function searchTicker() { globalSearch(); }
+
+document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.key==='Enter') globalSearch(); });
+document.getElementById('tickerInput').addEventListener('input', e => onGlobalInput(e.target.value));
+document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) hideGlobalSuggest(); });
 
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
@@ -2382,9 +2457,9 @@ function buildChart(priceData, trades) {
   volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
   state.chart=chart; state.candleSeries=candles;
 
-  // Watermark — centered in chart
+  // Watermark — near top, centered
   const wm = document.createElement('div');
-  wm.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:"Bebas Neue",sans-serif;font-size:42px;letter-spacing:6px;color:rgba(255,255,255,0.07);pointer-events:none;user-select:none;z-index:2;white-space:nowrap';
+  wm.style.cssText = 'position:absolute;top:14px;left:50%;transform:translateX(-50%);font-family:"Bebas Neue",sans-serif;font-size:42px;letter-spacing:6px;color:rgba(255,255,255,0.07);pointer-events:none;user-select:none;z-index:2;white-space:nowrap';
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
   const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
@@ -3360,8 +3435,10 @@ function insiderLanding(opts={}) {
         </div>
       </div>
       <div id="insiderDashboard"><div class="loading-state"><div class="spinner"></div><span>Loading insider activity...</span></div></div>
+      <div id="notableLeaderboard" style="margin-top:28px"></div>
     </div>`;
   loadInsiderDashboard();
+  loadNotableLeaderboard();
 }
 
 async function loadInsiderDashboard() {
@@ -3415,6 +3492,114 @@ async function loadInsiderDashboard() {
         </div>
       </div>`;
   } catch(e) { dash.innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`; }
+}
+
+async function loadNotableLeaderboard() {
+  const el = document.getElementById('notableLeaderboard');
+  if (!el) return;
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div><span style="font-size:12px;color:var(--muted)">Loading Notable Insiders leaderboard…</span></div>`;
+  try {
+    const data = await apiFetch('/api/scoreboard');
+    const accuracy = (data.accuracy || []).slice(0, 20);
+    const timing   = (data.timing   || []).slice(0, 10);
+    if (!accuracy.length && !timing.length) { el.innerHTML = ''; return; }
+
+    const tierColor = s => s >= 80 ? '#ffd700' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
+    const tierLabel = s => s >= 80 ? '🏆 ELITE' : s >= 65 ? '⭐ SHARP' : s >= 50 ? '🔵 SOLID' : '📊 NOTABLE';
+    const rc = v => v == null ? 'var(--muted)' : v >= 5 ? 'var(--buy)' : v >= 0 ? 'var(--accent)' : 'var(--sell)';
+    const rs = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+
+    const accuracyRows = accuracy.map((r, i) => {
+      const sc = r.accuracyScore || 0;
+      const color = tierColor(sc);
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="font-family:'Bebas Neue',sans-serif;color:var(--muted);font-size:15px">#${i+1}</span>`;
+      return `
+        <div onclick="openInsiderProfileFull(${JSON.stringify(r.name)}, ${JSON.stringify(r.title||'')})"
+             style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
+             onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+          <div style="width:28px;text-align:center;flex-shrink:0;font-size:16px">${medal}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title || '—'} · ${r.tickers || ''}</div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
+            <div style="text-align:center;min-width:44px">
+              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">WIN%</div>
+              <div style="font-family:'Space Mono',monospace;font-size:12px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}%</div>
+            </div>
+            <div style="text-align:center;min-width:48px">
+              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">AVG 90D</div>
+              <div style="font-family:'Space Mono',monospace;font-size:12px;color:${rc(r.avgRet90)}">${rs(r.avgRet90)}</div>
+            </div>
+            <div style="background:rgba(${color==='#ffd700'?'255,215,0':color==='var(--buy)'?'0,255,136':color==='var(--accent)'?'0,212,255':'255,170,0'},0.08);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:64px">
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};line-height:1">${sc}</div>
+              <div style="font-size:8px;font-family:'Space Mono',monospace;color:${color};margin-top:1px">${tierLabel(sc).split(' ')[1]}</div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    const timingRows = timing.map((r, i) => {
+      const ta = Math.round(r.timingAlpha || 0);
+      const color = ta >= 70 ? 'var(--buy)' : ta >= 50 ? 'var(--accent)' : 'var(--option)';
+      return `
+        <div onclick="openInsiderProfileFull(${JSON.stringify(r.name)}, ${JSON.stringify(r.title||'')})"
+             style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
+             onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--muted);width:28px;text-align:center;flex-shrink:0">#${i+1}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title || '—'}</div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
+            <div style="text-align:center;min-width:52px">
+              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">NEAR LOW</div>
+              <div style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${r.nearLowPct}%</div>
+            </div>
+            <div style="background:rgba(0,255,136,0.06);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:58px">
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};line-height:1">${ta}</div>
+              <div style="font-size:8px;font-family:'Space Mono',monospace;color:${color};margin-top:1px">TIMING α</div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+        <!-- Accuracy leaderboard -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px">🏆</span>
+            <div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">NOTABLE INSIDERS</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:1px">Ranked by accuracy score · top ${accuracy.length} across all time</div>
+            </div>
+          </div>
+          <div style="background:rgba(0,212,255,0.03);padding:10px 16px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5">
+            Requires 4+ completed trades. Scored against actual forward returns at D+30 / D+90.
+          </div>
+          ${accuracyRows || '<div style="padding:20px;color:var(--muted);font-size:12px">Insufficient data yet. Check back after more trades complete.</div>'}
+        </div>
+
+        <!-- Timing alpha leaderboard -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px">⏱️</span>
+            <div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">BEST TIMERS</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:1px">Ranked by timing alpha · buys near 52-week lows</div>
+            </div>
+          </div>
+          <div style="background:rgba(0,255,136,0.03);padding:10px 16px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5">
+            % of buys within 20% of 12-month low, weighted by subsequent returns.
+          </div>
+          ${timingRows || '<div style="padding:20px;color:var(--muted);font-size:12px">Insufficient data yet.</div>'}
+        </div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">Leaderboard unavailable: ${e.message}</div>`;
+  }
 }
 
 async function runInsiderSearch() {
