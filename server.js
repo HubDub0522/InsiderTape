@@ -346,6 +346,47 @@ app.get('/api/insider', (req, res) => {
 });
 
 // PRICE — FMP with Yahoo Finance fallback
+// SEARCH AUTOCOMPLETE — ticker prefix + company name + insider name
+app.get('/api/search', (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q || q.length < 1) return res.json({ tickers: [], insiders: [] });
+  try {
+    const upper = q.toUpperCase();
+    // Ticker prefix match
+    const tickerRows = db.prepare(`
+      SELECT ticker, MAX(company) AS company, COUNT(*) AS n
+      FROM trades
+      WHERE ticker GLOB ? AND LENGTH(ticker) BETWEEN 1 AND 6
+      GROUP BY ticker ORDER BY n DESC LIMIT 8
+    `).all(upper + '*');
+    // Company name match (case-insensitive contains)
+    const companyRows = db.prepare(`
+      SELECT ticker, MAX(company) AS company, COUNT(*) AS n
+      FROM trades
+      WHERE UPPER(company) LIKE ? AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND ticker GLOB '[A-Z]*'
+      GROUP BY ticker ORDER BY n DESC LIMIT 4
+    `).all('%' + upper + '%');
+    // Insider name match
+    const insiderRows = db.prepare(`
+      SELECT insider, MAX(title) AS title, COUNT(*) AS n
+      FROM trades
+      WHERE UPPER(insider) LIKE ? AND insider IS NOT NULL
+      GROUP BY insider ORDER BY n DESC LIMIT 6
+    `).all('%' + q.toUpperCase() + '%');
+
+    // Merge ticker results (prefix first, then company matches not already in prefix)
+    const seenTickers = new Set(tickerRows.map(r => r.ticker));
+    const allTickers = [...tickerRows];
+    companyRows.forEach(r => { if (!seenTickers.has(r.ticker)) allTickers.push(r); });
+
+    res.json({
+      tickers: allTickers.slice(0, 8).map(r => ({ ticker: r.ticker, company: r.company || r.ticker })),
+      insiders: insiderRows.slice(0, 6).map(r => ({ name: r.insider, title: r.title || '' })),
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // FIRST BUY IN YEARS — scans entire DB history, no date filter
 // Uses window functions to find insiders whose most recent buy on a ticker
 // came after a long gap since their previous buy on that same ticker.
@@ -1375,7 +1416,7 @@ async function preComputeScoreboard() {
   if (_scoreboardCache) return;
   try {
     slog('Pre-computing scoreboard...');
-    const minBuys = 4, limit = 30;
+    const minBuys = 3, limit = 300;
     const rows = db.prepare(`
       SELECT
         insider, MAX(title) AS title, COUNT(*) AS buy_count,
@@ -1387,7 +1428,7 @@ async function preComputeScoreboard() {
         AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
         AND trade_date <= date('now', '-95 days')
       GROUP BY insider
-      HAVING buy_count >= ? AND span_days >= 90
+      HAVING buy_count >= ? AND span_days >= 60
       ORDER BY buy_count DESC, span_days DESC LIMIT ?
     `).all(minBuys, limit);
 
@@ -1395,7 +1436,7 @@ async function preComputeScoreboard() {
 
     const allTickers = [...new Set(
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )].slice(0, 40);
+    )].slice(0, 120);
 
     const priceEntries = await Promise.allSettled(
       allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
