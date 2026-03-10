@@ -1235,18 +1235,20 @@ function predictNextEarnings(ticker, today) {
   // Fallback: estimate based on fiscal quarter pattern (every ~91 days)
   // Simple model: look at the last known filing date and add 91 days
   try {
+    // Form 4 filing dates are NOT earnings dates — they're SEC filing deadlines.
+    // Best we can do without an earnings calendar: estimate next quarter based on
+    // the latest trade_date seen (not filing_date), which at least correlates with
+    // fiscal activity. Label honestly as an estimate.
     const rows = db.prepare(`
-      SELECT filing_date FROM trades
-      WHERE ticker = ? AND filing_date IS NOT NULL
-      ORDER BY filing_date DESC LIMIT 8
-    `).all(ticker);
-    if (!rows.length) return null;
-    const dates = [...new Set(rows.map(r => r.filing_date.slice(0, 10)))].sort().reverse();
-    // Estimate next by adding ~91 days to the latest known filing
-    const latest = new Date(dates[0] + 'T12:00:00Z');
+      SELECT MAX(trade_date) AS latest_trade FROM trades
+      WHERE ticker = ? AND trade_date IS NOT NULL AND TRIM(type) = 'P'
+    `).get(ticker);
+    if (!rows?.latest_trade) return null;
+    const latest = new Date(rows.latest_trade + 'T12:00:00Z');
+    // Find the next ~quarter boundary after the latest known buy
     latest.setUTCDate(latest.getUTCDate() + 91);
     const predicted = latest.toISOString().slice(0, 10);
-    return predicted > today ? { date: predicted, type: 'EARNINGS', label: 'Predicted Earnings', predicted: true } : null;
+    return predicted > today ? { date: predicted, type: 'QUARTERLY', label: 'Est. Next Quarter', predicted: true } : null;
   } catch(_) { return null; }
 }
 
@@ -1300,7 +1302,7 @@ async function preComputeProximity() {
         else if (daysTo <= 30) score += 10;
         else                   score += 5;
 
-        if (event.type === 'EARNINGS')       score += 10;
+        if (event.type === 'QUARTERLY')      score += 10;
         else if (event.type === 'REGULATORY') score += 8;
         else                                  score += 5;
 
@@ -1325,7 +1327,7 @@ async function preComputeProximity() {
 
         score = Math.min(100, score);
 
-        const isAbnormal = (isCsuite || isDir) && daysTo <= 14 && event.type === 'EARNINGS';
+        const isAbnormal = (isCsuite || isDir) && daysTo <= 14 && event.type === 'QUARTERLY';
         const proximityColor = daysTo <= 7 ? 'var(--sell)' : daysTo <= 14 ? 'var(--option)' : daysTo <= 30 ? 'var(--accent)' : 'var(--muted)';
 
         results.push({
@@ -1555,4 +1557,12 @@ setInterval(() => {
 }, 12 * 60 * 60 * 1000);
 
 // Sources: Capitol Trades public API + House/Senate STOCK Act disclosures via Quiver
+
+// SPA catch-all: serve index.html for any non-API route so that client-side
+// routing (history.pushState) works correctly on hard refresh or direct URL navigation.
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
