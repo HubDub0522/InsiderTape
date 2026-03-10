@@ -5425,6 +5425,7 @@ async function loadSectorsPage() {
 }
 
 function renderSectorsPage(data) {
+  window.scrollTo(0, 0);
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
   const { sectors = [], total_buy_val = 0, days = 30 } = data;
@@ -5636,6 +5637,7 @@ function closeSectorSubpage() {
 }
 
 function renderSectorSubpage(s, data) {
+  window.scrollTo(0, 0);
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
 
@@ -5862,6 +5864,7 @@ function loadComparePage() {
 }
 
 function renderComparePage() {
+  window.scrollTo(0, 0);
   const body = document.getElementById('compareViewBody');
   if (!body) return;
 
@@ -6005,11 +6008,10 @@ function renderCompareResults() {
     return `
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
         <div style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${m.color};width:60px;flex-shrink:0">${m.ticker}</div>
-        <div style="flex:1;background:var(--bg3);border-radius:4px;height:24px;overflow:hidden;position:relative">
-          <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,${m.color},${m.color}88);border-radius:4px;transition:width .6s"></div>
-          <div style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-family:'Space Mono',monospace;font-size:10px;color:#000;font-weight:700;mix-blend-mode:difference">${fmt(m.buyVal)}</div>
+        <div style="flex:1;background:var(--bg3);border-radius:4px;height:20px;overflow:hidden">
+          <div style="width:${pct}%;min-width:${pct > 0 ? '2px' : '0'};height:100%;background:linear-gradient(90deg,${m.color}cc,${m.color}66);border-radius:4px;transition:width .6s ease"></div>
         </div>
-        <div style="font-size:11px;color:var(--muted);width:30px;text-align:right">${pct}%</div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;color:${m.color};width:68px;text-align:right;flex-shrink:0">${fmt(m.buyVal)}</div>
       </div>`;
   }).join('');
 
@@ -6093,13 +6095,15 @@ function renderCompareResults() {
 
       <!-- Buy flow chart -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--text);margin-bottom:18px">BUY FLOW COMPARISON</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--text);margin-bottom:4px">BUY FLOW COMPARISON</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Total dollar value of insider open-market purchases</div>
         ${buyFlowBars}
       </div>
 
       <!-- Sentiment bars -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--text);margin-bottom:18px">BUY/SELL SENTIMENT</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--text);margin-bottom:4px">BUY/SELL SENTIMENT</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Buy flow as % of total insider activity (buys + sells)</div>
         ${sentBars}
       </div>
     </div>
@@ -6255,6 +6259,7 @@ function watchlistHeader() {
 }
 
 function renderWatchlistPage(data) {
+  window.scrollTo(0, 0);
   const body = document.getElementById('watchlistViewBody');
   if (!body) return;
   const list = wlLoad();
@@ -6465,20 +6470,38 @@ function isMarketOpen() {
 // Returns ISO date of most recent trading day (today if market open or after close on weekday, else prior Friday/weekday)
 function lastTradingDate() {
   const now = new Date();
-  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = et.getDay();
+  // Get ET wall-clock time
+  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
+  const et = new Date(etStr);
+  const day  = et.getDay();   // 0=Sun, 1=Mon … 6=Sat
   const mins = et.getHours() * 60 + et.getMinutes();
-  // If before market open on a weekday, use previous trading day
   const isWeekday = day >= 1 && day <= 5;
-  const beforeOpen = mins < 570;
-  if (isWeekday && !beforeOpen) {
-    // Today is a valid trading day (during or after market hours)
-    return et.toISOString().slice(0, 10);
+  const afterOpen = mins >= 570; // 9:30am ET
+
+  // Helper: format a Date (local) as YYYY-MM-DD without UTC conversion
+  function localISO(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
   }
-  // Roll back to last weekday
+
+  if (isWeekday && afterOpen) {
+    // During or after market hours on a weekday — today is valid
+    return localISO(et);
+  }
+  // Before open, or weekend — roll back to last weekday
   const d = new Date(et);
   do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6);
-  return d.toISOString().slice(0, 10);
+  return localISO(d);
+}
+
+// Same helper used in runMonitorWindow
+function etLocalISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
 }
 
 async function loadMonitorPage() {
@@ -6585,35 +6608,33 @@ async function runMonitorWindow(tab, body) {
   }
 
   try {
-    const fetchDays = tab === 'today' ? 14 : tab === 'week' ? 14 : 30;
+    const fetchDays = tab === 'month' ? 45 : 21;
     const resp = await apiFetch('/api/screener?days=' + fetchDays);
     const allTrades = Array.isArray(resp) ? resp : (resp.trades || []);
 
     let displayCutStr;
     if (tab === 'today') {
-      // Use lastTradingDate() — correctly returns today on weekdays at/after open
       displayCutStr = lastTradingDate();
-      // Store which date this cache is for so we can invalidate it tomorrow
       _monitorCache['_todayDate'] = displayCutStr;
     } else if (tab === 'week') {
-      // "This week" = Monday of the current week (so Mon morning shows the full new week's data)
-      const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const dayOfWeek = et.getDay(); // 0=Sun, 1=Mon...6=Sat
-      // Days since last Monday (treat Sunday as day 7, so go back 6 days)
+      const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+      const et = new Date(etStr);
+      const dayOfWeek = et.getDay();
       const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       const monday = new Date(et);
       monday.setDate(et.getDate() - daysSinceMonday);
-      monday.setHours(0, 0, 0, 0);
-      displayCutStr = monday.toISOString().slice(0, 10);
+      displayCutStr = etLocalISO(monday);
     } else {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 30);
-      displayCutStr = cutoff.toISOString().slice(0, 10);
+      const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+      const et = new Date(etStr);
+      et.setDate(et.getDate() - 30);
+      displayCutStr = etLocalISO(et);
     }
 
     let firstBuys = [];
     try {
-      const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${fetchDays}&limit=50`);
+      const lookback = tab === 'today' ? 3 : tab === 'week' ? 14 : 45;
+      const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${lookback}&limit=50`);
       firstBuys = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
     } catch(e) {}
 
