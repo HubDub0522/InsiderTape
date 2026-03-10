@@ -691,37 +691,40 @@ let _globalSuggestTimer = null;
 function onGlobalInput(val) {
   clearTimeout(_globalSuggestTimer);
   const box = document.getElementById('globalSuggest');
-  if (!val || val.length < 2) { if (box) box.style.display = 'none'; return; }
+  if (!val || val.length < 1) { if (box) box.style.display = 'none'; return; }
   _globalSuggestTimer = setTimeout(async () => {
-    // Show ticker suggestion if it looks like a ticker
-    const tickerPat = /^[A-Za-z]{1,6}$/;
     const suggestions = [];
-    const upper = val.toUpperCase().replace(/[^A-Z]/g,'');
-    if (tickerPat.test(upper) && upper.length >= 1) {
-      suggestions.push({ type:'ticker', label: upper, sub: 'Go to Stock View', icon:'📈' });
-    }
-    // Always offer insider name search
-    suggestions.push({ type:'insider', label: val, sub: 'Search insiders by name', icon:'👤' });
-    // Try autocomplete from insider API
     try {
-      const rows = await apiFetch('/api/insider?name=' + encodeURIComponent(val));
-      const names = [...new Set((Array.isArray(rows) ? rows : []).map(r => r.insider).filter(Boolean))].slice(0, 5);
-      names.forEach(n => suggestions.push({ type:'insider', label: n, sub: 'Insider profile', icon:'👤' }));
-    } catch(_) {}
+      const res = await apiFetch('/api/search?q=' + encodeURIComponent(val));
+      // Ticker matches first
+      (res.tickers || []).forEach(t => {
+        suggestions.push({ type: 'ticker', label: t.ticker, sub: t.company || t.ticker, icon: '📈' });
+      });
+      // Then insider name matches
+      (res.insiders || []).forEach(i => {
+        suggestions.push({ type: 'insider', label: i.name, sub: i.title || 'Insider profile', icon: '👤' });
+      });
+    } catch(_) {
+      // Fallback: just offer the typed value as ticker or name
+      const upper = val.toUpperCase().replace(/[^A-Z]/g, '');
+      if (upper.length >= 1) suggestions.push({ type: 'ticker', label: upper, sub: 'Go to Stock View', icon: '📈' });
+      suggestions.push({ type: 'insider', label: val, sub: 'Search insiders by name', icon: '👤' });
+    }
     if (!box) return;
     if (!suggestions.length) { box.style.display = 'none'; return; }
-    box.innerHTML = suggestions.slice(0, 8).map(s => `
-      <div onclick="selectGlobalSuggest(${JSON.stringify(s.type)}, ${JSON.stringify(s.label)})"
+    box.innerHTML = suggestions.slice(0, 10).map((s, idx) => `
+      <div data-sidx="${idx}"
            style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04);transition:background .1s"
            onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background=''">
         <span style="font-size:14px;flex-shrink:0">${s.icon}</span>
         <div style="min-width:0">
           <div style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${s.type==='ticker'?'var(--accent)':'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.label}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px">${s.sub}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.sub}</div>
         </div>
       </div>`).join('');
+    box._suggestions = suggestions.slice(0, 10);
     box.style.display = 'block';
-  }, 180);
+  }, 160);
 }
 
 function selectGlobalSuggest(type, label) {
@@ -742,6 +745,20 @@ function hideGlobalSuggest() {
   const box = document.getElementById('globalSuggest');
   if (box) box.style.display = 'none';
 }
+
+// Delegated mousedown handler on the suggest box — fires before blur, safe with any chars
+document.getElementById('globalSuggest').addEventListener('mousedown', e => {
+  e.preventDefault(); // prevent input blur
+  const row = e.target.closest('[data-sidx]');
+  if (!row) return;
+  const box = document.getElementById('globalSuggest');
+  const sug = box._suggestions;
+  if (!sug) return;
+  const idx = parseInt(row.dataset.sidx, 10);
+  const s = sug[idx];
+  if (!s) return;
+  selectGlobalSuggest(s.type, s.label);
+});
 
 // Keep old searchTicker as alias
 function searchTicker() { globalSearch(); }
@@ -952,7 +969,7 @@ function renderScreener() {
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${isGovOfficial(t.title||t.insider)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 5px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛</span>':''}</td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${isGovOfficial(t.title||t.insider)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
@@ -2360,11 +2377,11 @@ async function loadStockView(ticker, opts={}) {
           <div class="stock-change" style="color:${chgColor}">${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today</div>
         </div>
         <div class="stat-grid">
-          <div class="stat-item"><div class="stat-label">52W High</div><div class="stat-val">$${h52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">52W Low</div><div class="stat-val">${l52===Infinity?'—':'$'+l52.toFixed(2)}</div></div>
-          <div class="stat-item"><div class="stat-label">Buys</div><div class="stat-val" style="color:var(--buy)" id="statBuys">${buys}</div></div>
-          <div class="stat-item"><div class="stat-label">Sells</div><div class="stat-val" style="color:var(--sell)" id="statSells">${sells}</div></div>
-          <div class="stat-item"><div class="stat-label">Insider Value</div><div class="stat-val" id="statVal">${fmt(totalVal)}</div></div>
+          <div class="stat-item"><div class="stat-label" id="statHighLabel">1Y High</div><div class="stat-val" id="statHigh">$${h52.toFixed(2)}</div></div>
+          <div class="stat-item"><div class="stat-label" id="statLowLabel">1Y Low</div><div class="stat-val" id="statLow">${l52===Infinity?'—':'$'+l52.toFixed(2)}</div></div>
+          <div class="stat-item"><div class="stat-label" id="statBuysLabel">Buys (1Y)</div><div class="stat-val" style="color:var(--buy)" id="statBuys">${buys}</div></div>
+          <div class="stat-item"><div class="stat-label" id="statSellsLabel">Sells (1Y)</div><div class="stat-val" style="color:var(--sell)" id="statSells">${sells}</div></div>
+          <div class="stat-item"><div class="stat-label" id="statValLabel">Insider Value (1Y)</div><div class="stat-val" id="statVal">${fmt(totalVal)}</div></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
           <button id="watchlistBtn" onclick="toggleWatchlist('${ticker}', this)" style="
@@ -2480,6 +2497,8 @@ function buildChart(priceData, trades) {
   else chart.timeScale().fitContent();
   buildCircleOverlay(container,chart,candles,trades,priceData);
   buildPressureChart(chart,trades,priceData);
+  // Initialise stat bar to match the active 1Y range button
+  setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
   new ResizeObserver(()=>{
     const w=container.clientWidth;
     if(w>0&&state.chart){state.chart.applyOptions({width:w});const cv=document.getElementById('markerCanvas');if(cv){cv.width=w;if(state.drawCircles)state.drawCircles();}}
@@ -2637,20 +2656,64 @@ function buildPressureChart(mainChart,trades,priceData) {
 
 
 function setRange(days,btn) {
-  document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active')); if(btn)btn.classList.add('active');
-  if(!state.chart||!state.currentPriceData?.length)return;
-  const all=state.currentPriceData;
-  if(days>=9999){state.chart.timeScale().fitContent();}
-  else{
-    const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-days);
-    const cutStr=cutoff.toISOString().split('T')[0];
-    const visible=all.filter(d=>d.time>=cutStr);
-    if(visible.length>0)state.chart.timeScale().setVisibleRange({from:visible[0].time,to:all[all.length-1].time});
+  _activeRangeDays = days;
+  // Update active button — but only for the RANGE row, not the SHOW row (cf-btns)
+  document.querySelectorAll('.tf-btn:not(.cf-btn)').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+
+  if(!state.chart||!state.currentPriceData?.length) return;
+  const all = state.currentPriceData;
+
+  // Determine the visible slice of price data
+  let visible;
+  if (days >= 9999) {
+    state.chart.timeScale().fitContent();
+    visible = all;
+  } else {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const cutStr = cutoff.toISOString().split('T')[0];
+    visible = all.filter(d => d.time >= cutStr);
+    if (visible.length > 0) state.chart.timeScale().setVisibleRange({from: visible[0].time, to: all[all.length-1].time});
   }
-  setTimeout(()=>{if(state.drawCircles)state.drawCircles();},50);
+  setTimeout(() => { if(state.drawCircles) state.drawCircles(); }, 50);
+
+  // ── Update stat labels & values to match the timeframe ──
+  const periodLabel = days >= 9999 ? 'All' : days === 30 ? '1M' : days === 90 ? '3M' : days === 180 ? '6M' : days === 365 ? '1Y' : days === 730 ? '2Y' : days + 'D';
+
+  // Price high / low for the visible window
+  const hi = visible.reduce((m, d) => d.high > m ? d.high : m, 0);
+  const lo = visible.reduce((m, d) => d.low  < m ? d.low  : m, Infinity);
+  const elHL = document.getElementById('statHighLabel'), elHV = document.getElementById('statHigh');
+  const elLL = document.getElementById('statLowLabel'),  elLV = document.getElementById('statLow');
+  if (elHL) elHL.textContent = periodLabel + ' High';
+  if (elHV) elHV.textContent = hi > 0 ? '$' + hi.toFixed(2) : '—';
+  if (elLL) elLL.textContent = periodLabel + ' Low';
+  if (elLV) elLV.textContent = lo < Infinity ? '$' + lo.toFixed(2) : '—';
+
+  // Trade counts & value — filtered to visible date range
+  const trades = state.tickerTrades || [];
+  const cutDate = visible.length ? visible[0].time : '0000-00-00';
+  const inWindow = trades.filter(t => {
+    const d = (t.trade || t.filing || '').slice(0, 10);
+    return d >= cutDate;
+  });
+  const windowBuys  = inWindow.filter(t => t.type === 'P');
+  const windowSells = inWindow.filter(t => t.type === 'S' || t.type === 'S-');
+  const windowVal   = inWindow.reduce((s, t) => s + (t.value || 0), 0);
+
+  const elBL = document.getElementById('statBuysLabel'),  elBV = document.getElementById('statBuys');
+  const elSL = document.getElementById('statSellsLabel'), elSV = document.getElementById('statSells');
+  const elVL = document.getElementById('statValLabel'),   elVV = document.getElementById('statVal');
+  if (elBL) elBL.textContent = 'Buys (' + periodLabel + ')';
+  if (elBV) elBV.textContent = windowBuys.length;
+  if (elSL) elSL.textContent = 'Sells (' + periodLabel + ')';
+  if (elSV) elSV.textContent = windowSells.length;
+  if (elVL) elVL.textContent = 'Insider Value (' + periodLabel + ')';
+  if (elVV) elVV.textContent = fmt(windowVal);
 }
 
 const chartActiveFilters=new Set(['P','S','O','X']);
+let _activeRangeDays = 365; // tracks current chart range for stat updates
 const OPTION_TYPES=new Set(['C','X','M','A']),BUY_TYPES=new Set(['P']),SELL_TYPES=new Set(['S','D']);
 function tradeFilterGroup(type){if(BUY_TYPES.has(type))return'P';if(SELL_TYPES.has(type))return'S';if(OPTION_TYPES.has(type))return'O';return'X';}
 function toggleChartFilter(group,btn) {
@@ -2658,10 +2721,19 @@ function toggleChartFilter(group,btn) {
   else{chartActiveFilters.add(group);btn.classList.add('active');btn.style.color=btn.dataset.color||'var(--accent)';btn.style.borderColor=btn.dataset.color||'var(--accent)';}
   if(!state.tickerTrades||!state.currentPriceData)return;
   const filtered=state.tickerTrades.filter(t=>chartActiveFilters.has(tradeFilterGroup(t.type)));
+  // Update stats respecting active date range
+  const days = _activeRangeDays;
+  const all = state.currentPriceData;
+  let cutDate = '0000-00-00';
+  if (days < 9999) {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    cutDate = cutoff.toISOString().split('T')[0];
+  }
+  const inWindow = filtered.filter(t => (t.trade||t.filing||'').slice(0,10) >= cutDate);
   const sb=document.getElementById('statBuys'),ss=document.getElementById('statSells'),sv=document.getElementById('statVal');
-  if(sb)sb.textContent=filtered.filter(t=>t.type==='P').length;
-  if(ss)ss.textContent=filtered.filter(t=>t.type==='S'||t.type==='S-').length;
-  if(sv)sv.textContent=fmt(filtered.reduce((s,t)=>s+(t.value||0),0));
+  if(sb)sb.textContent=inWindow.filter(t=>t.type==='P').length;
+  if(ss)ss.textContent=inWindow.filter(t=>t.type==='S'||t.type==='S-').length;
+  if(sv)sv.textContent=fmt(inWindow.reduce((s,t)=>s+(t.value||0),0));
   if(state.currentPriceData){
     const pm={};state.currentPriceData.forEach(d=>{pm[d.time]=true;});
     function snapDay(ds){if(pm[ds])return ds;for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}return null;}
@@ -2786,7 +2858,7 @@ async function renderInsiderProfile(name, title, trades) {
       <div class="insider-hero">
         <div class="insider-avatar">${initials}</div>
         <div class="insider-hero-info">
-          <div class="insider-hero-name">${name}${isGovOfficial(latestTitle||name)?'<span title="Government Official" style="margin-left:8px;padding:2px 7px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:10px;color:#6ca0ff;font-family:\'Space Mono\',monospace;vertical-align:middle">🏛 GOV</span>':''}</div>
+          <div class="insider-hero-name">${name}${isGovOfficial(latestTitle||name)?'<span title="Government Official — STOCK Act filer" style="margin-left:8px;padding:2px 8px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:10px;color:#6ca0ff;font-family:\'Space Mono\',monospace;vertical-align:middle;letter-spacing:0.5px">🏛 GOV OFFICIAL</span>':''}</div>
           <div class="insider-hero-title">${latestTitle}</div>
           <div class="insider-hero-companies">
             ${tickerList.map(t=>`<span class="company-tag" onclick="openTickerFromScreener('${t.ticker}')">${t.ticker}</span>`).join('')}
@@ -3513,8 +3585,8 @@ async function loadNotableLeaderboard() {
     const data = await apiFetch('/api/scoreboard');
     // Apply score floors so only meaningful results show — server already filters at 35,
     // but guard here too in case of stale cache
-    const accuracy = (data.accuracy || []).filter(r => (r.accuracyScore || 0) >= 35).slice(0, 20);
-    const timing   = (data.timing   || []).filter(r => (r.timingAlpha  || 0) >= 40).slice(0, 10);
+    const accuracy = (data.accuracy || []).filter(r => (r.accuracyScore || 0) >= 35).slice(0, 50);
+    const timing   = (data.timing   || []).filter(r => (r.timingAlpha  || 0) >= 35).slice(0, 30);
     if (!accuracy.length && !timing.length) { el.innerHTML = ''; return; }
 
     const tierColor = s => s >= 80 ? '#ffd700' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
