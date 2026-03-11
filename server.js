@@ -244,7 +244,7 @@ app.get('/api/screener', (req, res) => {
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned,
-             COALESCE(MAX(source), 'sec') AS source, MAX(accession) AS accession
+             MAX(accession) AS accession
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
         AND TRIM(type) IN ('P','S','S-')
@@ -266,7 +266,7 @@ app.get('/api/screener', (req, res) => {
                  trade_date AS trade, MAX(filing_date) AS filing,
                  TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
                  MAX(value) AS value, MAX(owned) AS owned,
-                 COALESCE(MAX(source), 'sec') AS source, MAX(accession) AS accession
+                 MAX(accession) AS accession
           FROM trades
           WHERE trade_date >= date(?, '-' || ? || ' days')
             AND TRIM(type) IN ('P','S','S-')
