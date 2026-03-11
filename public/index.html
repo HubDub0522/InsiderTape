@@ -479,7 +479,7 @@
           <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
-          <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+          <div class="live-badge" title="Screener refreshes automatically every 5 minutes"><div class="live-dot"></div>UPDATES DAILY</div>
         </div>
       </div>
       <div class="summary-bar" id="summaryBar"></div>
@@ -824,20 +824,68 @@ async function fetchInsiderByName(name) {
   return fuzzy || [];
 }
 
+// ── SCREENER FILTER PERSISTENCE ──────────────────────────────────
+const FILTER_KEY = 'it_screener_filters_v1';
+function saveFilters() {
+  try {
+    localStorage.setItem(FILTER_KEY, JSON.stringify({
+      days: state.days,
+      activeTypes: [...state.activeTypes],
+      activeRole: state.activeRole,
+      minVal: state.minVal,
+      sortCol: state.sortCol,
+      sortDir: state.sortDir,
+    }));
+  } catch(_) {}
+}
+function restoreFilters() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || 'null');
+    if (!saved) return;
+    if (saved.days) {
+      state.days = saved.days;
+      document.querySelectorAll('[data-days]').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.days) === saved.days);
+      });
+    }
+    if (saved.activeTypes?.length) {
+      state.activeTypes = new Set(saved.activeTypes);
+      document.querySelectorAll('[data-type]').forEach(el => {
+        el.classList.toggle('active', state.activeTypes.has(el.dataset.type));
+      });
+    }
+    if (saved.activeRole) {
+      state.activeRole = saved.activeRole;
+      document.querySelectorAll('[data-role]').forEach(el => {
+        el.classList.toggle('active', el.dataset.role === saved.activeRole);
+      });
+    }
+    if (saved.minVal) {
+      state.minVal = saved.minVal;
+      const mv = document.getElementById('minVal');
+      if (mv) mv.value = saved.minVal;
+    }
+    if (saved.sortCol) { state.sortCol = saved.sortCol; state.sortDir = saved.sortDir ?? -1; }
+  } catch(_) {}
+}
+
 // ── SCREENER ──────────────────────────────────────────────────────
 function toggleChip(el) {
   el.classList.toggle('active');
   const type = el.dataset.type;
   if (el.classList.contains('active')) state.activeTypes.add(type);
   else state.activeTypes.delete(type);
+  saveFilters();
 }
 function toggleRole(el) {
   document.querySelectorAll('[data-role]').forEach(c => c.classList.remove('active'));
   el.classList.add('active'); state.activeRole = el.dataset.role;
+  saveFilters();
 }
 function toggleDays(el) {
   document.querySelectorAll('[data-days]').forEach(c => c.classList.remove('active'));
   el.classList.add('active'); state.days = parseInt(el.dataset.days);
+  saveFilters();
 }
 
 async function loadScreener() {
@@ -877,7 +925,7 @@ async function loadScreener() {
     renderScreener();
     computeConvictionScores(trades);
   } catch(e) {
-    document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load data: ${e.message}</div></div></td></tr>`;
+    document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load data: ${e.message}</div><button onclick="loadScreener()" style="margin-top:10px;padding:6px 16px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:4px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ RETRY</button></div></td></tr>`;
   }
 }
 
@@ -986,7 +1034,9 @@ function renderScreener() {
       <div class="summary-card"><div class="summary-card-label">Buy/Sell Ratio</div><div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length?(buys.length/sells.length).toFixed(2):'∞'}x</div></div>
       <div class="summary-card"><div class="summary-card-label">Unique Tickers</div><div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div></div>`;
   }
-  document.getElementById('screenerMeta').textContent = `${data.length} filings · Last updated ${new Date().toLocaleTimeString()}`;
+  const latestTrade = data.reduce((best, t) => { const d = t.trade || t.filing || ''; return d > best ? d : best; }, '');
+  const latestLabel = latestTrade ? `latest filing ${fmtDate(latestTrade)}` : `refreshed ${new Date().toLocaleTimeString()}`;
+  document.getElementById('screenerMeta').textContent = `${data.length} filings · ${latestLabel}`;
   const SORT_FIELD = { date:'trade',trade:'trade',filing:'filing',ticker:'ticker',insider:'insider',type:'type',shares:'qty',price:'price',value:'value',owned:'owned' };
   const field = SORT_FIELD[state.sortCol] || state.sortCol;
   const sorted = [...data].sort((a,b) => {
@@ -1000,9 +1050,13 @@ function renderScreener() {
   const pages = Math.ceil(sorted.length/state.pageSize);
   const tbody = document.getElementById('screenerBody');
   if (!page.length) { tbody.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
-  tbody.innerHTML = page.map(t => `
+  tbody.innerHTML = page.map(t => {
+    const edgarLink = t.accession
+      ? `<a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=&owner=include&count=10&search_text=&accession=${encodeURIComponent(t.accession.replace(/-/g,''))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
+      : '';
+    return `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span></td>
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${edgarLink}</td>
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale — lower signal value" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
@@ -1010,7 +1064,8 @@ function renderScreener() {
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
       <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
   let pgHtml = `<button class="page-btn" onclick="changePage(${state.currentPage-1})" ${state.currentPage===1?'disabled':''}>← Prev</button>`;
@@ -7153,12 +7208,15 @@ function routeFromPath(path, fromPopstate) {
 
 // Init: route based on current URL, then load screener data
 (function init() {
+  // Restore persisted filters before routing/loading
+  restoreFilters();
+
   // Set initial history state so popstate works on first back
   const path = location.pathname;
   history.replaceState({view: _viewFromPath(path), ticker: _tickerFromPath(path), name: _nameFromPath(path)}, '', path);
   routeFromPath(path, true);
   // Always silently pre-load screener data (needed for all analysis tools)
-  apiFetch('/api/screener?days=7').then(resp => {
+  apiFetch('/api/screener?days=' + (state.days || 7)).then(resp => {
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
     if (!trades.length) return;
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
@@ -7171,6 +7229,10 @@ function routeFromPath(path, fromPopstate) {
     !path.startsWith('/sectors') && !path.startsWith('/compare') && !path.startsWith('/watchlist');
   if (isScreenerView) {
     loadScreener();
+    // Auto-refresh screener every 5 minutes while on the screener page
+    setInterval(() => {
+      if (state.view === 0) loadScreener();
+    }, 5 * 60 * 1000);
   }
 })();
 
