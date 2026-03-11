@@ -3493,6 +3493,7 @@ function goBack() {
 
 // ── INSIDER SEARCH / DASHBOARD ────────────────────────────────────
 function insiderLanding(opts={}) {
+  window.scrollTo(0, 0);
   const body=document.getElementById('insiderViewBody'); if(!body)return;
   body.dataset.showing = 'dashboard';
   if (!opts.fromPopstate) {
@@ -3577,114 +3578,188 @@ async function loadInsiderDashboard() {
   } catch(e) { dash.innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`; }
 }
 
+// Cached scoreboard data so full-list view doesn't re-fetch
+let _scoreboardData = null;
+
 async function loadNotableLeaderboard() {
   const el = document.getElementById('notableLeaderboard');
   if (!el) return;
   el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div><span style="font-size:12px;color:var(--muted)">Loading Notable Insiders leaderboard…</span></div>`;
   try {
     const data = await apiFetch('/api/scoreboard');
-    // Apply score floors so only meaningful results show — server already filters at 35,
-    // but guard here too in case of stale cache
-    const accuracy = (data.accuracy || []).filter(r => (r.accuracyScore || 0) >= 35).slice(0, 50);
-    const timing   = (data.timing   || []).filter(r => (r.timingAlpha  || 0) >= 35).slice(0, 30);
-    if (!accuracy.length && !timing.length) { el.innerHTML = ''; return; }
-
-    const tierColor = s => s >= 80 ? '#ffd700' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
-    const tierLabel = s => s >= 80 ? '🏆 ELITE' : s >= 65 ? '⭐ SHARP' : s >= 50 ? '🔵 SOLID' : '📊 NOTABLE';
-    const rc = v => v == null ? 'var(--muted)' : v >= 5 ? 'var(--buy)' : v >= 0 ? 'var(--accent)' : 'var(--sell)';
-    const rs = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
-
-    const accuracyRows = accuracy.map((r, i) => {
-      const sc = r.accuracyScore || 0;
-      const color = tierColor(sc);
-      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="font-family:'Bebas Neue',sans-serif;color:var(--muted);font-size:15px">#${i+1}</span>`;
-      return `
-        <div onclick="openInsiderProfileFull(${JSON.stringify(r.name)}, ${JSON.stringify(r.title||'')})"
-             style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
-             onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-          <div style="width:28px;text-align:center;flex-shrink:0;font-size:16px">${medal}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title || '—'} · ${r.tickers || ''}</div>
-          </div>
-          <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
-            <div style="text-align:center;min-width:44px">
-              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">WIN%</div>
-              <div style="font-family:'Space Mono',monospace;font-size:12px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}%</div>
-            </div>
-            <div style="text-align:center;min-width:48px">
-              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">AVG 90D</div>
-              <div style="font-family:'Space Mono',monospace;font-size:12px;color:${rc(r.avgRet90)}">${rs(r.avgRet90)}</div>
-            </div>
-            <div style="background:rgba(${color==='#ffd700'?'255,215,0':color==='var(--buy)'?'0,255,136':color==='var(--accent)'?'0,212,255':'255,170,0'},0.08);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:64px">
-              <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};line-height:1">${sc}</div>
-              <div style="font-size:8px;font-family:'Space Mono',monospace;color:${color};margin-top:1px">${tierLabel(sc).split(' ')[1]}</div>
-            </div>
-          </div>
-        </div>`;
-    }).join('');
-
-    const timingRows = timing.map((r, i) => {
-      const ta = Math.round(r.timingAlpha || 0);
-      const color = ta >= 70 ? 'var(--buy)' : ta >= 50 ? 'var(--accent)' : 'var(--option)';
-      return `
-        <div onclick="openInsiderProfileFull(${JSON.stringify(r.name)}, ${JSON.stringify(r.title||'')})"
-             style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
-             onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--muted);width:28px;text-align:center;flex-shrink:0">#${i+1}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title || '—'}</div>
-          </div>
-          <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
-            <div style="text-align:center;min-width:52px">
-              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">NEAR LOW</div>
-              <div style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${r.nearLowPct}%</div>
-            </div>
-            <div style="background:rgba(0,255,136,0.06);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:58px">
-              <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};line-height:1">${ta}</div>
-              <div style="font-size:8px;font-family:'Space Mono',monospace;color:${color};margin-top:1px">TIMING α</div>
-            </div>
-          </div>
-        </div>`;
-    }).join('');
-
-    el.innerHTML = `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-
-        <!-- Accuracy leaderboard -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden${!accuracy.length ? ';display:none' : ''}">
-          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="font-size:18px">🏆</span>
-            <div>
-              <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">NOTABLE INSIDERS</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:1px">${accuracy.length} insider${accuracy.length !== 1 ? 's' : ''} with accuracy score ≥ 35 · ranked by forward returns</div>
-            </div>
-          </div>
-          <div style="background:rgba(0,212,255,0.03);padding:10px 16px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5">
-            Requires 4+ completed trades scored against actual price data at D+30 / D+90. Click any row for the full profile.
-          </div>
-          ${accuracyRows}
-        </div>
-
-        <!-- Timing alpha leaderboard -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden${!timing.length ? ';display:none' : ''}">
-          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
-            <span style="font-size:18px">⏱️</span>
-            <div>
-              <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">BEST TIMERS</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:1px">${timing.length} insider${timing.length !== 1 ? 's' : ''} with timing alpha ≥ 40 · ranked by entry quality</div>
-            </div>
-          </div>
-          <div style="background:rgba(0,255,136,0.03);padding:10px 16px;border-bottom:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.5">
-            % of buys within 20% of 12-month low, weighted by subsequent forward returns.
-          </div>
-          ${timingRows}
-        </div>
-      </div>`;
+    _scoreboardData = data;
+    renderLeaderboardTiles(el, data);
   } catch(e) {
     el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">Leaderboard unavailable: ${e.message}</div>`;
   }
+}
+
+function buildLeaderboardRow(r, i, type) {
+  const tierColor = s => s >= 80 ? '#ffd700' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
+  const tierLabel = s => s >= 80 ? 'ELITE' : s >= 65 ? 'SHARP' : s >= 50 ? 'SOLID' : 'NOTABLE';
+  const rc = v => v == null ? 'var(--muted)' : v >= 5 ? 'var(--buy)' : v >= 0 ? 'var(--accent)' : 'var(--sell)';
+  const rs = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+  const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<span style="font-family:'Bebas Neue',sans-serif;color:var(--muted);font-size:15px">#${i+1}</span>`;
+
+  // Safe onclick using data attributes — avoids JSON quote escaping in HTML attrs
+  const safeN = (r.name||'').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+  const safeT = (r.title||'').replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+
+  if (type === 'accuracy') {
+    const sc = r.accuracyScore || 0;
+    const color = tierColor(sc);
+    return `
+      <div data-iname="${safeN}" data-ititle="${safeT}" class="lb-row"
+           style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
+           onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+        <div style="width:28px;text-align:center;flex-shrink:0;font-size:16px">${medal}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers||''}</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
+          <div style="text-align:center;min-width:44px">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">WIN%</div>
+            <div style="font-family:'Space Mono',monospace;font-size:12px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}%</div>
+          </div>
+          <div style="text-align:center;min-width:48px">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">AVG 90D</div>
+            <div style="font-family:'Space Mono',monospace;font-size:12px;color:${rc(r.avgRet90)}">${rs(r.avgRet90)}</div>
+          </div>
+          <div style="background:rgba(${color==='#ffd700'?'255,215,0':color==='var(--buy)'?'0,255,136':color==='var(--accent)'?'0,212,255':'255,170,0'},0.08);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:64px">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};line-height:1">${sc}</div>
+            <div style="font-size:8px;font-family:'Space Mono',monospace;color:${color};margin-top:1px">${tierLabel(sc)}</div>
+          </div>
+        </div>
+      </div>`;
+  } else {
+    const ta = Math.round(r.timingAlpha || 0);
+    const color = ta >= 70 ? 'var(--buy)' : ta >= 50 ? 'var(--accent)' : 'var(--option)';
+    return `
+      <div data-iname="${safeN}" data-ititle="${safeT}" class="lb-row"
+           style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
+           onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--muted);width:28px;text-align:center;flex-shrink:0">#${i+1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'}</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
+          <div style="text-align:center;min-width:52px">
+            <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">NEAR LOW</div>
+            <div style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${r.nearLowPct}%</div>
+          </div>
+          <div style="background:rgba(0,255,136,0.06);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:58px">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${color};line-height:1">${ta}</div>
+            <div style="font-size:8px;font-family:'Space Mono',monospace;color:${color};margin-top:1px">TIMING α</div>
+          </div>
+        </div>
+      </div>`;
+  }
+}
+
+function renderLeaderboardTiles(el, data, opts={}) {
+  const accuracy = (data.accuracy || []).filter(r => (r.accuracyScore || 0) >= 35).slice(0, 50);
+  const timing   = (data.timing   || []).filter(r => (r.timingAlpha  || 0) >= 35).slice(0, 30);
+  if (!accuracy.length && !timing.length) { el.innerHTML = ''; return; }
+
+  // Show top 5 in dashboard tile; clicking header opens full list subpage
+  const TOP = 5;
+  const accPreview = accuracy.slice(0, TOP).map((r,i) => buildLeaderboardRow(r, i, 'accuracy')).join('');
+  const timPreview = timing.slice(0, TOP).map((r,i) => buildLeaderboardRow(r, i, 'timing')).join('');
+
+  const viewAllBtn = (type, total) => total <= TOP ? '' : `
+    <div onclick="openLeaderboardFull('${type}')" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:13px 16px;cursor:pointer;border-top:1px solid var(--border);transition:background .12s;color:var(--accent);font-family:'Space Mono',monospace;font-size:11px;font-weight:700;letter-spacing:0.5px"
+         onmouseover="this.style.background='rgba(0,212,255,0.04)'" onmouseout="this.style.background=''">
+      VIEW ALL ${total} INSIDERS →
+    </div>`;
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden${!accuracy.length?';display:none':''}">
+        <div onclick="openLeaderboardFull('accuracy')" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .12s"
+             onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
+          <span style="font-size:18px">🏆</span>
+          <div style="flex:1">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">NOTABLE INSIDERS</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px">Top ${Math.min(TOP, accuracy.length)} of ${accuracy.length} · ranked by forward returns · click to see all</div>
+          </div>
+          <span style="font-size:18px;color:var(--muted)">›</span>
+        </div>
+        <div style="background:rgba(0,212,255,0.03);padding:8px 16px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted)">
+          Scored against real price data at D+30 / D+90. Click any row for full profile.
+        </div>
+        ${accPreview}
+        ${viewAllBtn('accuracy', accuracy.length)}
+      </div>
+
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden${!timing.length?';display:none':''}">
+        <div onclick="openLeaderboardFull('timing')" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer;transition:background .12s"
+             onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background=''">
+          <span style="font-size:18px">⏱️</span>
+          <div style="flex:1">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">BEST TIMERS</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px">Top ${Math.min(TOP, timing.length)} of ${timing.length} · ranked by entry quality · click to see all</div>
+          </div>
+          <span style="font-size:18px;color:var(--muted)">›</span>
+        </div>
+        <div style="background:rgba(0,255,136,0.03);padding:8px 16px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted)">
+          % of buys within 20% of 12-month low, weighted by subsequent forward returns.
+        </div>
+        ${timPreview}
+        ${viewAllBtn('timing', timing.length)}
+      </div>
+    </div>`;
+
+  // Delegate row clicks via mousedown (avoids quoting issues with names)
+  el.addEventListener('mousedown', e => {
+    const row = e.target.closest('.lb-row');
+    if (!row) return;
+    e.preventDefault();
+    openInsiderProfileFull(row.dataset.iname, row.dataset.ititle);
+  });
+}
+
+function openLeaderboardFull(type) {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('insiderViewBody');
+  if (!body) return;
+  const data = _scoreboardData;
+  if (!data) return;
+
+  const accuracy = (data.accuracy || []).filter(r => (r.accuracyScore || 0) >= 35).slice(0, 50);
+  const timing   = (data.timing   || []).filter(r => (r.timingAlpha  || 0) >= 35).slice(0, 30);
+  const list     = type === 'accuracy' ? accuracy : timing;
+  const title    = type === 'accuracy' ? '🏆 NOTABLE INSIDERS — FULL LIST' : '⏱️ BEST TIMERS — FULL LIST';
+  const subtitle = type === 'accuracy'
+    ? `${list.length} insiders · ranked by accuracy score · scored against real D+30/D+90 returns`
+    : `${list.length} insiders · ranked by timing alpha · % of buys near 12-month lows`;
+
+  const rows = list.map((r, i) => buildLeaderboardRow(r, i, type)).join('');
+
+  body.innerHTML = `
+    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+        <button onclick="insiderLanding()" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:8px 14px;color:var(--muted);font-family:'Space Mono',monospace;font-size:11px;cursor:pointer;transition:all .15s"
+                onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">← BACK</button>
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--text)">${title}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${subtitle}</div>
+        </div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+        <div id="lb-full-list">${rows}</div>
+      </div>
+    </div>`;
+
+  // Delegate clicks
+  document.getElementById('lb-full-list').addEventListener('mousedown', e => {
+    const row = e.target.closest('.lb-row');
+    if (!row) return;
+    e.preventDefault();
+    openInsiderProfileFull(row.dataset.iname, row.dataset.ititle);
+  });
 }
 
 async function runInsiderSearch() {
@@ -3771,6 +3846,7 @@ let _insiderScoreCache = null;  // top insider accuracy scores cache
 let _timingAlphaCache = null;   // top timing alpha scores cache
 
 async function loadAnalysisPage(subpage) {
+  window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
 
