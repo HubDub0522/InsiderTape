@@ -1040,13 +1040,48 @@ app.get('/api/debug', (req, res) => {
     const total = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     const byType = db.prepare("SELECT COALESCE(TRIM(type),'NULL') AS type, COUNT(*) AS n FROM trades GROUP BY TRIM(type) ORDER BY n DESC LIMIT 20").all();
     const dates = db.prepare("SELECT MAX(trade_date) AS td_latest, MIN(trade_date) AS td_earliest, MAX(filing_date) AS fd_latest, MIN(filing_date) AS fd_earliest FROM trades WHERE trade_date IS NOT NULL").get();
+    const p7_trade   = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date  >= date('now','-7 days')").get().n;
     const p30_trade  = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date  >= date('now','-30 days')").get().n;
     const p30_filing = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND filing_date >= date('now','-30 days')").get().n;
     const p3yr_trade = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date  >= date('now','-1095 days')").get().n;
     const ranker30   = db.prepare("SELECT COUNT(DISTINCT ticker) AS n FROM trades WHERE filing_date >= date('now','-30 days')").get().n;
     const history1095 = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE TRIM(type)='P' AND trade_date >= date('now','-1095 days')").get().n;
-    res.json({ total, byType, dates, p30_trade, p30_filing, p3yr_trade, ranker30_tickers: ranker30, history1095_buys: history1095 });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+
+    // Test the exact screener query to confirm it works
+    let screenerTest = null, screenerError = null;
+    try {
+      const rows = db.prepare(`
+        SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+               trade_date AS trade, MAX(filing_date) AS filing,
+               TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
+               MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
+        FROM trades
+        WHERE trade_date >= date('now', '-7 days')
+          AND TRIM(type) IN ('P','S','S-')
+          AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+        GROUP BY ticker, insider, trade_date, type
+        ORDER BY trade_date DESC LIMIT 5
+      `).all();
+      screenerTest = { ok: true, rows: rows.length };
+    } catch(e) { screenerError = e.message; }
+
+    res.json({
+      db_path: DB_PATH,
+      total_rows: total,
+      by_type: byType,
+      dates,
+      buys_last_7d_by_trade_date: p7_trade,
+      buys_last_30d_by_trade_date: p30_trade,
+      buys_last_30d_by_filing_date: p30_filing,
+      buys_3yr: p3yr_trade,
+      tickers_filed_30d: ranker30,
+      history_3yr_buys: history1095,
+      screener_query_test: screenerTest || { ok: false, error: screenerError },
+      server_version: '2026-03-11',
+      sync_running: syncRunning,
+      daily_running: dailyRunning,
+    });
+  } catch(e) { res.status(500).json({ error: e.message, db_path: DB_PATH }); }
 });
 
 // ── PRICE FETCH HELPER ──────────────────────────────────────────────────────
@@ -1592,6 +1627,9 @@ app.get('/api/scoreboard', async (req, res) => {
 });
 
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
+// Start daily ingestion immediately on boot (handles market-hours check internally)
+runDaily(3);
+
 // Stagger: price warm (60s) → drift + proximity (120s) → scoreboard (130s)
 setTimeout(() => {
   warmPriceCache().then(() => {
@@ -1611,7 +1649,26 @@ setInterval(() => {
     .catch(e => slog('refresh err: ' + e.message));
 }, 12 * 60 * 60 * 1000);
 
-// Sources: Capitol Trades public API + House/Senate STOCK Act disclosures via Quiver
+// ── ADMIN TRIGGER ROUTES (no auth needed — internal use only) ───────────────
+// POST /api/admin/sync — trigger a full historical sync (4 quarters)
+app.get('/api/admin/sync', (req, res) => {
+  runSync(parseInt(req.query.q || '4'));
+  res.json({ ok: true, message: 'Sync triggered' });
+});
+// POST /api/admin/daily — trigger daily ingestion now regardless of market hours
+app.get('/api/admin/daily', (req, res) => {
+  if (dailyRunning) return res.json({ ok: false, message: 'Daily worker already running' });
+  dailyRunning = true;
+  const worker = require('child_process').spawn(
+    process.execPath,
+    ['--max-old-space-size=200', require('path').join(__dirname, 'daily-worker.js'), '7', 'poll'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ' + l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ERR: ' + l)));
+  worker.on('exit', code => { dailyRunning = false; slog(`manual-daily exited (${code})`); });
+  res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
+});
 
 // SPA catch-all: serve index.html for any non-API route so that client-side
 // routing (history.pushState) works correctly on hard refresh or direct URL navigation.
