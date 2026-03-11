@@ -38,7 +38,17 @@ const DB_PATH = path.join(DATA_DIR, 'trades.db');
 console.log(`DB path: ${DB_PATH} (disk ok: ${DISK_OK})`);
 
 app.use(cors());
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files — cache JS/CSS/images aggressively, but never cache HTML
+// so users always get the latest version on page load
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // ─── DISK DIAGNOSTIC (call /api/disk to see exactly what's wrong) ────────────
 app.get('/api/disk', (req, res) => {
@@ -143,6 +153,7 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
 } catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── Clean up bad/invalid trade records ──────────────────────
@@ -492,62 +503,60 @@ app.get('/api/search', (req, res) => {
 // came after a long gap since their previous buy on that same ticker.
 app.get('/api/firstbuys', (req, res) => {
   try {
-    const minGapDays  = parseInt(req.query.mingap  || '180');  // default 6 months
-    const lookbackDays = parseInt(req.query.lookback || '90'); // how recent must the new buy be
-    const limit        = parseInt(req.query.limit   || '100');
+    const minGapDays   = parseInt(req.query.mingap   || '180');  // default 6 months
+    const lookbackDays = parseInt(req.query.lookback || '90');   // how recent must new buy be
+    const limit        = parseInt(req.query.limit    || '100');
 
-    // Step 1: get all open-market buys, ordered per insider+ticker
-    // Step 2: self-join to get each buy paired with the previous buy
-    //         for the same insider on the same ticker
-    // Step 3: filter to pairs where:
-    //   - the newer buy is within lookbackDays
-    //   - the gap between the two buys is >= minGapDays
+    // Optimised approach: only consider insiders who have a buy in the lookback window.
+    // Then for each such (insider, ticker) pair find the previous buy date.
+    // This avoids scanning the entire trades table with ROW_NUMBER().
     const rows = db.prepare(`
-      WITH deduped AS (
-        -- Deduplicate: one row per insider+ticker+trade_date (pick latest filing)
-        SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
-               trade_date, MAX(filing_date) AS filing_date,
-               MAX(price) AS price, MAX(qty) AS qty,
-               MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
+      WITH recent_buys AS (
+        -- Only insiders with a buy inside the lookback window (uses idx_trade_date)
+        SELECT DISTINCT insider, ticker
         FROM trades
         WHERE TRIM(type) = 'P'
-          AND insider IS NOT NULL
-          AND ticker  IS NOT NULL
-        GROUP BY insider, ticker, trade_date
+          AND trade_date >= date('now', '-' || ? || ' days')
+          AND insider IS NOT NULL AND ticker IS NOT NULL
       ),
-      buys AS (
-        SELECT *,
-               ROW_NUMBER() OVER (
-                 PARTITION BY insider, ticker
-                 ORDER BY trade_date DESC
-               ) AS rn
-        FROM deduped
+      latest AS (
+        -- Latest buy per insider+ticker from the recent window
+        SELECT t.ticker, MAX(t.company) AS company, t.insider, MAX(t.title) AS title,
+               MAX(t.trade_date) AS latest_trade,
+               MAX(t.filing_date) AS latest_filing,
+               MAX(t.price) AS latest_price,
+               MAX(t.qty) AS latest_qty,
+               MAX(t.value) AS latest_value,
+               MAX(t.owned) AS latest_owned
+        FROM trades t
+        JOIN recent_buys rb ON t.insider = rb.insider AND t.ticker = rb.ticker
+        WHERE TRIM(t.type) = 'P'
+          AND t.trade_date >= date('now', '-' || ? || ' days')
+        GROUP BY t.insider, t.ticker
       ),
-      latest AS (SELECT * FROM buys WHERE rn = 1),
-      prev   AS (SELECT * FROM buys WHERE rn = 2)
+      prev AS (
+        -- Most recent buy BEFORE the lookback window for each (insider, ticker) pair
+        SELECT t.insider, t.ticker,
+               MAX(t.trade_date) AS prev_trade,
+               MAX(t.owned)      AS prev_owned
+        FROM trades t
+        JOIN recent_buys rb ON t.insider = rb.insider AND t.ticker = rb.ticker
+        WHERE TRIM(t.type) = 'P'
+          AND t.trade_date < date('now', '-' || ? || ' days')
+        GROUP BY t.insider, t.ticker
+      )
       SELECT
-        l.ticker,
-        l.company,
-        l.insider,
-        l.title,
-        l.trade_date    AS latest_trade,
-        l.filing_date   AS latest_filing,
-        l.price         AS latest_price,
-        l.qty           AS latest_qty,
-        l.value         AS latest_value,
-        l.owned         AS latest_owned,
-        p.trade_date    AS prev_trade,
-        p.owned         AS prev_owned,
-        CAST(
-          julianday(l.trade_date) - julianday(p.trade_date)
-        AS INTEGER)     AS gap_days
+        l.ticker, l.company, l.insider, l.title,
+        l.latest_trade, l.latest_filing,
+        l.latest_price, l.latest_qty, l.latest_value, l.latest_owned,
+        p.prev_trade, p.prev_owned,
+        CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) AS gap_days
       FROM latest l
       JOIN prev p ON l.insider = p.insider AND l.ticker = p.ticker
-      WHERE l.trade_date >= date('now', '-' || ? || ' days')
-        AND (julianday(l.trade_date) - julianday(p.trade_date)) >= ?
+      WHERE CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) >= ?
       ORDER BY gap_days DESC
       LIMIT ?
-    `).all(lookbackDays, minGapDays, limit);
+    `).all(lookbackDays, lookbackDays, lookbackDays, minGapDays, limit);
 
     res.json(rows);
   } catch(e) {
@@ -1791,6 +1800,9 @@ app.get('/api/admin/free-disk', (req, res) => {
 // routing (history.pushState) works correctly on hard refresh or direct URL navigation.
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
