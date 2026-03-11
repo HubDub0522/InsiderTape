@@ -37,25 +37,37 @@ app.use((req, res, next) => {
 });
 
 // ─── DB ───────────────────────────────────────────────────────
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+let db;
+try {
+  db = new Database(DB_PATH);
+} catch (e) {
+  console.error('FATAL: cannot open database at', DB_PATH, '-', e.message);
+  process.exit(1);
+}
+
+try { db.pragma('journal_mode = WAL'); } catch(e) { console.warn('WAL pragma failed (read-only disk?):', e.message); }
 
 // Each table/index created separately so existing DBs get new tables too
-db.exec(`CREATE TABLE IF NOT EXISTS trades (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
-  trade_date TEXT NOT NULL, filing_date TEXT,
-  type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER, accession TEXT,
-  UNIQUE(accession, insider, trade_date, type, qty)
-)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
+// All wrapped in try/catch — on Render the persistent disk can be briefly
+// unavailable during a new deploy; a write failure here must NOT crash the server.
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
+    trade_date TEXT NOT NULL, filing_date TEXT,
+    type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER, accession TEXT,
+    UNIQUE(accession, insider, trade_date, type, qty)
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
+} catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── Clean up bad/invalid trade records ──────────────────────
-{
+// These are idempotent maintenance tasks — safe to skip if the disk is busy.
+try {
   // Remove invalid tickers
   const r1 = db.prepare(`
     DELETE FROM trades
@@ -85,11 +97,13 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trad
        OR qty   > 50000000
   `).run();
   if (r3.changes > 0) console.log(`Removed ${r3.changes} records with implausible values (likely derivative artifacts)`);
-}
+} catch(e) { console.warn('Startup cleanup skipped (disk busy?):', e.message); }
 
-db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
-  quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
-)`);
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
+    quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
+  )`);
+} catch(e) { console.warn('sync_log table init warning:', e.message); }
 
 // ─── SYNC via child process ────────────────────────────────────
 let syncRunning = false;
