@@ -12,12 +12,82 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 const FMP  = process.env.FMP_KEY || 'OJfv9bPVEMrnwPX7noNpJLZCFLLFTmlu';
 
-const DATA_DIR = fs.existsSync('/var/data') ? '/var/data' : path.join(__dirname, 'data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
+// ─── DB PATH — prefer Render persistent disk, fall back to local ./data ──────
+// /var/data exists on Render but can throw disk I/O errors if the disk is
+// unhealthy, full, or not yet attached. We try it first, and if it fails we
+// fall back to a local directory so the server stays up rather than crash-looping.
+function resolveDiskState() {
+  const candidates = ['/var/data', path.join(__dirname, 'data')];
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      // Probe: try writing a tiny test file to confirm the disk is actually writable
+      const probe = path.join(dir, '.write_probe');
+      fs.writeFileSync(probe, String(Date.now()));
+      fs.unlinkSync(probe);
+      return { dir, ok: true };
+    } catch(e) {
+      console.warn(`Disk probe failed for ${dir}: ${e.message} — trying next`);
+    }
+  }
+  return { dir: path.join(__dirname, 'data'), ok: false };
+}
+const { dir: DATA_DIR, ok: DISK_OK } = resolveDiskState();
+if (!DISK_OK) console.error('WARNING: all disk probes failed — DB may not persist across restarts');
 const DB_PATH = path.join(DATA_DIR, 'trades.db');
+console.log(`DB path: ${DB_PATH} (disk ok: ${DISK_OK})`);
 
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ─── DISK DIAGNOSTIC (call /api/disk to see exactly what's wrong) ────────────
+app.get('/api/disk', (req, res) => {
+  const report = { db_path: DB_PATH, disk_ok: DISK_OK, checks: [] };
+  // Check /var/data
+  try {
+    const stat = fs.statSync('/var/data');
+    report.checks.push({ path: '/var/data', exists: true, isDir: stat.isDirectory() });
+    // Try write probe
+    try {
+      fs.writeFileSync('/var/data/.probe', 'test');
+      fs.unlinkSync('/var/data/.probe');
+      report.checks.push({ path: '/var/data write', ok: true });
+    } catch(e) {
+      report.checks.push({ path: '/var/data write', ok: false, error: e.message });
+    }
+    // Check DB file
+    try {
+      const dbs = fs.statSync(DB_PATH);
+      report.checks.push({ path: DB_PATH, exists: true, sizeBytes: dbs.size, sizeMB: +(dbs.size/1024/1024).toFixed(1) });
+    } catch(e) {
+      report.checks.push({ path: DB_PATH, exists: false, error: e.message });
+    }
+  } catch(e) {
+    report.checks.push({ path: '/var/data', exists: false, error: e.message });
+  }
+  // Check local data dir
+  try {
+    const localDir = path.join(__dirname, 'data');
+    fs.mkdirSync(localDir, { recursive: true });
+    fs.writeFileSync(path.join(localDir, '.probe'), 'test');
+    fs.unlinkSync(path.join(localDir, '.probe'));
+    report.checks.push({ path: localDir, writable: true });
+  } catch(e) {
+    report.checks.push({ path: path.join(__dirname, 'data'), writable: false, error: e.message });
+  }
+  // DB status
+  if (db) {
+    try {
+      const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+      report.db_status = { ok: true, total_trades: n, using_path: DB_PATH };
+    } catch(e) {
+      report.db_status = { ok: false, error: e.message };
+    }
+  } else {
+    report.db_status = { ok: false, error: 'db not initialized' };
+  }
+  res.json(report);
+});
 
 // Global safety net — log crashes but keep the process alive
 process.on('uncaughtException',  err => console.error('UNCAUGHT:', err.message));
@@ -40,9 +110,19 @@ app.use((req, res, next) => {
 let db;
 try {
   db = new Database(DB_PATH);
+  console.log(`Opened DB at ${DB_PATH}`);
 } catch (e) {
-  console.error('FATAL: cannot open database at', DB_PATH, '-', e.message);
-  process.exit(1);
+  console.error(`Cannot open DB at ${DB_PATH}: ${e.message}`);
+  // Last-resort fallback: try opening in the local directory
+  const fallbackPath = path.join(__dirname, 'data', 'trades.db');
+  try {
+    fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
+    db = new Database(fallbackPath);
+    console.warn(`Fallback: opened DB at ${fallbackPath} — data will NOT persist on Render`);
+  } catch(e2) {
+    console.error(`FATAL: cannot open DB anywhere. Last error: ${e2.message}`);
+    process.exit(1);
+  }
 }
 
 try { db.pragma('journal_mode = WAL'); } catch(e) { console.warn('WAL pragma failed (read-only disk?):', e.message); }
