@@ -310,8 +310,14 @@ function setPC(k,v,ms) { pc.set(k, { v, e: Date.now()+ms }); }
 app.get('/api/screener', (req, res) => {
   try {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
-    if (n === 0 && syncRunning)
-      return res.json({ building: true, message: 'Loading SEC data (~3 min)...', trades: [] });
+    if (n === 0) {
+      // DB is empty — auto-trigger daily ingestion if not already running
+      if (!syncRunning && !dailyRunning) {
+        slog('Screener hit empty DB — auto-triggering daily ingestion');
+        runDaily(7);
+      }
+      return res.json({ building: true, message: 'Loading SEC data — this takes 2–3 minutes on first run…', trades: [] });
+    }
 
     const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
     // Scale limit by window so every range returns a meaningfully different dataset.
@@ -1748,6 +1754,37 @@ app.get('/api/admin/daily', (req, res) => {
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ERR: ' + l)));
   worker.on('exit', code => { dailyRunning = false; slog(`manual-daily exited (${code})`); });
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
+});
+
+// GET /api/admin/free-disk — delete the bloated /var/data/trades.db to free disk space.
+// After calling this, redeploy so the server opens a fresh DB on the now-free persistent disk.
+app.get('/api/admin/free-disk', (req, res) => {
+  const varDb = '/var/data/trades.db';
+  const varWal = '/var/data/trades.db-wal';
+  const varShm = '/var/data/trades.db-shm';
+  const results = [];
+  for (const f of [varDb, varWal, varShm]) {
+    try {
+      if (fs.existsSync(f)) {
+        const size = fs.statSync(f).size;
+        fs.unlinkSync(f);
+        results.push({ file: f, deleted: true, freedBytes: size, freedMB: +(size/1024/1024).toFixed(1) });
+      } else {
+        results.push({ file: f, skipped: true, reason: 'does not exist' });
+      }
+    } catch(e) {
+      results.push({ file: f, deleted: false, error: e.message });
+    }
+  }
+  const freed = results.filter(r => r.deleted).reduce((s, r) => s + r.freedBytes, 0);
+  res.json({
+    ok: true,
+    freed_mb: +(freed/1024/1024).toFixed(1),
+    files: results,
+    next_step: freed > 0
+      ? 'Disk space freed. Redeploy the server — it will now open /var/data/trades.db fresh and re-sync from SEC EDGAR.'
+      : 'No files deleted. Check /api/disk for current disk state.'
+  });
 });
 
 // SPA catch-all: serve index.html for any non-API route so that client-side
