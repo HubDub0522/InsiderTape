@@ -264,7 +264,18 @@ function runDaily(daysBack = 3) {
   // Outside those hours, sleep until the next morning open
   const now = new Date();
   // Convert to US Eastern time
-  const etOffset = -5; // EST (UTC-5); DST handled approximately
+  // Detect DST: EDT=UTC-4 (Mar-Nov), EST=UTC-5 (Nov-Mar)
+  const etOffset = (() => {
+    const y = now.getUTCFullYear();
+    // DST starts 2nd Sunday of March, ends 1st Sunday of November
+    const dstStart = new Date(Date.UTC(y, 2, 8));  // March 8 (earliest possible 2nd Sun)
+    dstStart.setUTCDate(8 + (7 - dstStart.getUTCDay()) % 7);
+    dstStart.setUTCHours(7, 0, 0, 0); // 2am ET = 7am UTC in EST
+    const dstEnd = new Date(Date.UTC(y, 10, 1));   // November 1 (earliest possible 1st Sun)
+    dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7);
+    dstEnd.setUTCHours(6, 0, 0, 0);   // 2am ET = 6am UTC in EDT
+    return (now >= dstStart && now < dstEnd) ? -4 : -5;
+  })();
   const etHour = (now.getUTCHours() + 24 + etOffset) % 24;
   const etDay  = new Date(now.getTime() + etOffset * 3600000).getUTCDay(); // 0=Sun,6=Sat
   const isWeekday = etDay >= 1 && etDay <= 5;
@@ -310,10 +321,7 @@ function msUntilNextOpen(now, etOffset) {
   return Math.max(target - now, 60000); // at least 1 min
 }
 
-// ─── PRICE CACHE ──────────────────────────────────────────────
-const pc = new Map();
-function getPC(k)      { const c = pc.get(k); return c && Date.now()<c.e ? c.v : null; }
-function setPC(k,v,ms) { pc.set(k, { v, e: Date.now()+ms }); }
+// ─── PRICE CACHE (see full implementation near fetchPriceBars) ──────────────
 
 // ─── API ROUTES ───────────────────────────────────────────────
 
@@ -1744,14 +1752,27 @@ setInterval(() => {
     .catch(e => slog('refresh err: ' + e.message));
 }, 12 * 60 * 60 * 1000);
 
-// ── ADMIN TRIGGER ROUTES (no auth needed — internal use only) ───────────────
+// ── ADMIN TRIGGER ROUTES ─────────────────────────────────────────────────────
+// Protected by ADMIN_SECRET env var — set this in your Render environment variables.
+// Call as: /api/admin/sync?secret=YOUR_SECRET
+function requireAdminSecret(req, res) {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret) return false; // if not set, allow (backwards compat on first deploy)
+  if (req.query.secret !== secret) {
+    res.status(403).json({ error: 'Forbidden — set ?secret=YOUR_ADMIN_SECRET' });
+    return true;
+  }
+  return false;
+}
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 app.get('/api/admin/sync', (req, res) => {
+  if (requireAdminSecret(req, res)) return;
   runSync(parseInt(req.query.q || '4'));
   res.json({ ok: true, message: 'Sync triggered' });
 });
 // POST /api/admin/daily — trigger daily ingestion now regardless of market hours
 app.get('/api/admin/daily', (req, res) => {
+  if (requireAdminSecret(req, res)) return;
   if (dailyRunning) return res.json({ ok: false, message: 'Daily worker already running' });
   dailyRunning = true;
   const worker = require('child_process').spawn(
@@ -1766,8 +1787,8 @@ app.get('/api/admin/daily', (req, res) => {
 });
 
 // GET /api/admin/free-disk — delete the bloated /var/data/trades.db to free disk space.
-// After calling this, redeploy so the server opens a fresh DB on the now-free persistent disk.
 app.get('/api/admin/free-disk', (req, res) => {
+  if (requireAdminSecret(req, res)) return;
   const varDb = '/var/data/trades.db';
   const varWal = '/var/data/trades.db-wal';
   const varShm = '/var/data/trades.db-shm';
@@ -1796,8 +1817,292 @@ app.get('/api/admin/free-disk', (req, res) => {
   });
 });
 
-// SPA catch-all: serve index.html for any non-API route so that client-side
-// routing (history.pushState) works correctly on hard refresh or direct URL navigation.
+// ── RELATIVE ROTATION GRAPH (RRG) DATA ───────────────────────────────────────
+// Returns insider-activity-based RRG coordinates for sectors or tickers.
+// RS-Ratio  = relative strength of insider buying vs benchmark (all tickers)
+// RS-Momentum = rate of change in RS-Ratio over past N periods
+// Quadrants: Leading (high ratio, positive momentum), Weakening, Lagging, Improving
+app.get('/api/rrg', async (req, res) => {
+  try {
+    const mode   = req.query.mode === 'tickers' ? 'tickers' : 'sectors';
+    const weeks  = Math.min(parseInt(req.query.weeks || '12'), 26); // trail length
+    const minVal = parseInt(req.query.minval || '50000');
+
+    // Build weekly buy-value series per sector or ticker over last N weeks
+    // Week 0 = most recent completed week, week N-1 = oldest
+    const rows = db.prepare(`
+      SELECT
+        ticker, MAX(company) AS company,
+        trade_date,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,
+        SUM(COALESCE(value,0)) AS total_val
+      FROM trades
+      WHERE trade_date >= date('now', '-' || ? || ' days')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(value,0) >= ?
+        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
+      GROUP BY ticker, trade_date
+      ORDER BY trade_date ASC
+    `).all(weeks * 7 + 14, minVal);
+
+    if (!rows.length) return res.json({ points: [], trail: {}, weeks });
+
+    // Helper: get Monday of a date
+    function weekOf(dateStr) {
+      const d = new Date(dateStr + 'T12:00:00Z');
+      const dow = d.getUTCDay();
+      d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+      return d.toISOString().slice(0, 10);
+    }
+
+    // Build week list (last N weeks, most recent last)
+    const allWeeks = [];
+    for (let i = weeks - 1; i >= 0; i--) {
+      const d = new Date(); d.setUTCDate(d.getUTCDate() - i * 7);
+      const dow = d.getUTCDay();
+      d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+      allWeeks.push(d.toISOString().slice(0, 10));
+    }
+
+    // Map rows to weekly buckets per entity (sector or ticker)
+    const SECTOR_MAP_KEYS = Object.keys(TICKER_SECTOR_MAP);
+    const entityWeekly = {}; // entity → { weekStr → { buy_val, sell_val, buyers } }
+
+    rows.forEach(r => {
+      const wk = weekOf(r.trade_date);
+      if (!allWeeks.includes(wk)) return;
+
+      let entities = [];
+      if (mode === 'sectors') {
+        const info = getTickerSector(r.ticker);
+        if (!info) return;
+        entities = [info[0]]; // sector name
+      } else {
+        entities = [r.ticker];
+      }
+
+      entities.forEach(ent => {
+        if (!entityWeekly[ent]) entityWeekly[ent] = {};
+        if (!entityWeekly[ent][wk]) entityWeekly[ent][wk] = { buy_val: 0, sell_val: 0, buyers: 0, company: r.company };
+        entityWeekly[ent][wk].buy_val  += r.buy_val;
+        entityWeekly[ent][wk].sell_val += r.sell_val;
+        entityWeekly[ent][wk].buyers   += r.buyers;
+      });
+    });
+
+    // Compute benchmark: total market buy_val per week
+    const benchmarkByWeek = {};
+    allWeeks.forEach(wk => {
+      let total = 0;
+      Object.values(entityWeekly).forEach(ew => { total += (ew[wk]?.buy_val || 0); });
+      benchmarkByWeek[wk] = total || 1;
+    });
+
+    // Compute RS-Ratio and RS-Momentum series per entity
+    const SMA_PERIOD = 4; // 4-week smoothing
+    const MOM_LOOKBACK = 2; // compare to 2 periods ago
+
+    const trailData = {}; // entity → [{week, rsRatio, rsMomentum}]
+    const latestPoints = []; // current RRG coordinates
+
+    Object.entries(entityWeekly).forEach(([entity, weekMap]) => {
+      // Raw RS per week: entity_buy_val / benchmark_buy_val * 100
+      const rawRS = allWeeks.map(wk => {
+        const bv = weekMap[wk]?.buy_val || 0;
+        const bench = benchmarkByWeek[wk] || 1;
+        return (bv / bench) * 100;
+      });
+
+      // Smooth with SMA
+      const smoothRS = rawRS.map((_, i) => {
+        if (i < SMA_PERIOD - 1) return null;
+        const slice = rawRS.slice(i - SMA_PERIOD + 1, i + 1);
+        return slice.reduce((a, b) => a + b, 0) / SMA_PERIOD;
+      });
+
+      // Normalise RS-Ratio to 0-200 scale (100 = benchmark)
+      const validRS = smoothRS.filter(v => v !== null);
+      if (validRS.length < MOM_LOOKBACK + 1) return;
+
+      const rsMedian = [...validRS].sort((a, b) => a - b)[Math.floor(validRS.length / 2)] || 1;
+
+      const normalised = smoothRS.map(v =>
+        v === null ? null : 100 + ((v - rsMedian) / (rsMedian || 1)) * 100
+      );
+
+      // RS-Momentum: rate of change vs MOM_LOOKBACK periods ago
+      const momentum = normalised.map((v, i) => {
+        if (v === null || i < MOM_LOOKBACK) return null;
+        const prev = normalised[i - MOM_LOOKBACK];
+        if (prev === null || prev === 0) return null;
+        return 100 + ((v - prev) / Math.abs(prev)) * 100;
+      });
+
+      // Build trail: last N valid points
+      const TRAIL_LEN = 8;
+      const trail = [];
+      for (let i = allWeeks.length - 1; i >= 0 && trail.length < TRAIL_LEN; i--) {
+        const rs = normalised[i], mom = momentum[i];
+        if (rs !== null && mom !== null) {
+          trail.unshift({ week: allWeeks[i], x: rs, y: mom });
+        }
+      }
+      if (trail.length < 2) return;
+
+      trailData[entity] = trail;
+
+      // Current position = last point
+      const cur = trail[trail.length - 1];
+      const prev = trail[trail.length - 2];
+
+      // Total buy value for sizing
+      const totalBuyVal = Object.values(weekMap).reduce((s, w) => s + w.buy_val, 0);
+      const totalBuyers = Object.values(weekMap).reduce((s, w) => s + w.buyers, 0);
+
+      // Quadrant
+      let quadrant;
+      if (cur.x >= 100 && cur.y >= 100)      quadrant = 'LEADING';
+      else if (cur.x >= 100 && cur.y < 100)  quadrant = 'WEAKENING';
+      else if (cur.x < 100 && cur.y < 100)   quadrant = 'LAGGING';
+      else                                    quadrant = 'IMPROVING';
+
+      // Velocity (direction of movement)
+      const dx = cur.x - prev.x, dy = cur.y - prev.y;
+
+      const company = Object.values(weekMap)[0]?.company || entity;
+
+      latestPoints.push({
+        entity,
+        label: entity,
+        company: mode === 'sectors' ? entity : company,
+        x: +cur.x.toFixed(2),
+        y: +cur.y.toFixed(2),
+        dx: +dx.toFixed(2),
+        dy: +dy.toFixed(2),
+        quadrant,
+        totalBuyVal,
+        totalBuyers,
+        trail: trail.map(t => ({ week: t.week, x: +t.x.toFixed(2), y: +t.y.toFixed(2) })),
+      });
+    });
+
+    // Sort by total buy value
+    latestPoints.sort((a, b) => b.totalBuyVal - a.totalBuyVal);
+
+    res.json({ points: latestPoints.slice(0, mode === 'sectors' ? 30 : 40), weeks, mode });
+  } catch(e) {
+    slog('rrg error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// Returns curated lists: hotBuys, clusterBuys, freshBuys, heavySells, mostActive
+app.get('/api/stock-lists', (req, res) => {
+  try {
+    // Most-active tickers: unique insiders, buy + sell counts, last 7 days
+    const mostActive = db.prepare(`
+      SELECT
+        ticker, MAX(company) AS company,
+        COUNT(DISTINCT insider) AS insiders,
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells,
+        SUM(COALESCE(value,0)) AS total_val,
+        MAX(trade_date) AS latest_date
+      FROM trades
+      WHERE trade_date >= date('now','-7 days')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
+      GROUP BY ticker
+      HAVING insiders >= 2
+      ORDER BY total_val DESC
+      LIMIT 20
+    `).all();
+
+    // Top insider buying: last 30 days, sorted by total buy value
+    const hotBuys = db.prepare(`
+      SELECT
+        ticker, MAX(company) AS company,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+        MAX(CASE WHEN TRIM(type)='P' AND (
+          UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR
+          UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%'
+        ) THEN 1 ELSE 0 END) AS exec_buy
+      FROM trades
+      WHERE trade_date >= date('now','-30 days')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
+        AND TRIM(type) = 'P'
+      GROUP BY ticker
+      HAVING buyers >= 1 AND buy_val >= 50000
+      ORDER BY buy_val DESC
+      LIMIT 16
+    `).all();
+
+    // Cluster buys: 3+ distinct insiders buying same ticker in 10 days
+    const clusterBuys = db.prepare(`
+      SELECT
+        ticker, MAX(company) AS company,
+        COUNT(DISTINCT insider) AS buyer_count,
+        COUNT(*) AS trade_count,
+        SUM(COALESCE(value,0)) AS total_val,
+        MAX(trade_date) AS latest
+      FROM trades
+      WHERE trade_date >= date('now','-14 days')
+        AND TRIM(type) = 'P'
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
+      GROUP BY ticker
+      HAVING buyer_count >= 3
+      ORDER BY buyer_count DESC, total_val DESC
+      LIMIT 12
+    `).all();
+
+    // Fresh buys: brand-new insider buys filed today/yesterday
+    const freshBuys = db.prepare(`
+      SELECT ticker, MAX(company) AS company, MAX(insider) AS insider,
+             MAX(value) AS val, MAX(trade_date) AS date
+      FROM trades
+      WHERE filing_date >= date('now','-2 days')
+        AND TRIM(type) = 'P'
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
+        AND COALESCE(value,0) >= 25000
+      GROUP BY ticker
+      ORDER BY val DESC
+      LIMIT 16
+    `).all();
+
+    // Heavy sells: last 14 days
+    const heavySells = db.prepare(`
+      SELECT
+        ticker, MAX(company) AS company,
+        COUNT(DISTINCT insider) AS seller_count,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val
+      FROM trades
+      WHERE trade_date >= date('now','-14 days')
+        AND TRIM(type) IN ('S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
+      GROUP BY ticker
+      HAVING seller_count >= 2 AND sell_val >= 500000
+      ORDER BY sell_val DESC
+      LIMIT 12
+    `).all();
+
+    res.json({ hotBuys, clusterBuys, freshBuys, heavySells, mostActive });
+  } catch(e) {
+    slog('stock-lists error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
