@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>INSIDERTAPE — Follow the Smart Money</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -437,7 +440,6 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="10%"  onclick="toggleRole(this)">10%+ Owner</div>
         </div>
       </div>
       <div class="filter-section">
@@ -480,6 +482,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div class="live-badge" title="Screener refreshes automatically every 5 minutes"><div class="live-dot"></div>UPDATES DAILY</div>
+          <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v2026-03-11</div>
         </div>
       </div>
       <div class="summary-bar" id="summaryBar"></div>
@@ -801,8 +804,10 @@ const API_BASE = '';
 async function apiFetch(path, opts={}) {
   const controller = new AbortController();
   // Scoreboard does many parallel price fetches — give it extra time
+  // Monitor fetches screener + firstbuys (heavy CTE) — also needs extra time
   const ms = path.startsWith('/api/scoreboard') ? 55000
            : (path.startsWith('/api/drift') || path.startsWith('/api/proximity')) ? 45000
+           : path.startsWith('/api/firstbuys') ? 45000
            : 28000;
   const timer = setTimeout(() => controller.abort(), ms);
   try {
@@ -912,7 +917,6 @@ async function loadScreener() {
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
-        if (state.activeRole === '10%')  return title.includes('10%') || title.includes('OWNER') || title.includes('BENEFICIAL');
         return true;
       });
     }
@@ -6934,7 +6938,7 @@ async function runMonitorWindow(tab, body) {
     renderMonitorAlerts(alerts, displayLabel, body);
   } catch(e) {
     const el = document.getElementById('monitorAlerts');
-    if (el) el.innerHTML = `<div style="color:var(--sell);padding:20px;font-size:13px">Error: ${e.message}</div>`;
+    if (el) el.innerHTML = `<div style="text-align:center;padding:40px 20px"><div style="font-size:28px;margin-bottom:12px">⚠️</div><div style="color:var(--sell);font-size:13px;margin-bottom:16px">Could not load monitor data — ${e.message.includes('aborted') ? 'request timed out' : e.message}</div><button onclick="runMonitorWindow('${tab}', document.getElementById('monitorViewBody'))" style="padding:8px 20px;background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.35);border-radius:6px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ RETRY</button></div>`;
   }
 }
 
