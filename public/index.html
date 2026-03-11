@@ -495,9 +495,9 @@
               <th onclick="sortTable('insider')">INSIDER <span class="sort-arrow">↕</span></th>
               <th onclick="sortTable('type')">TYPE <span class="sort-arrow">↕</span></th>
               <th onclick="sortTable('shares')" class="hide-mobile">SHARES <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('price')" class="hide-mobile">PRICE <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('price')" class="hide-mobile" title="Price per share as reported on SEC Form 4 — reflects the actual execution price on the transaction date, not the current market price"><span style="border-bottom:1px dashed var(--muted);cursor:help">PRICE</span> <span class="sort-arrow">↕</span></th>
               <th onclick="sortTable('value')">VALUE <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('owned')" class="hide-mobile">OWNED AFTER <span class="sort-arrow">↕</span></th>
+              <th onclick="sortTable('owned')" class="hide-mobile" title="Shares owned after transaction as reported on Form 4 — may reflect direct holdings only; indirect holdings (trusts, family) are reported separately on the filing"><span style="border-bottom:1px dashed var(--muted);cursor:help">OWNED AFTER</span> <span class="sort-arrow">↕</span></th>
             </tr>
           </thead>
           <tbody id="screenerBody">
