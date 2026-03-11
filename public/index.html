@@ -582,7 +582,7 @@ function tradeClass(type) {
 }
 function tradeLabel(type) {
   if (!type) return 'Unknown';
-  const map = { P:'Open Buy', S:'Open Sell', 'S-':'Sell', A:'Option Ex.', M:'Transfer', C:'Conv.', F:'Tax Sale', G:'Gift', J:'Other', L:'Gift', W:'Will', Z:'Trust' };
+  const map = { P:'Open Buy', S:'Open Sell', 'S-':'Plan Sale', A:'Option Ex.', M:'Transfer', C:'Conv.', F:'Tax Sale', G:'Gift', J:'Other', L:'Gift', W:'Will', Z:'Trust' };
   return map[type.toUpperCase()] || type;
 }
 function badgeClass(type) {
@@ -590,6 +590,36 @@ function badgeClass(type) {
   if (c === 'buy') return 'badge-buy';
   if (c === 'sell') return 'badge-sell';
   return 'badge-option';
+}
+
+// Role badge — highlights C-suite (highest signal) vs Director (lower signal)
+function insiderRoleBadge(title) {
+  if (!title) return '';
+  const u = title.toUpperCase();
+  // C-suite / senior officers — highest signal value
+  if (/\b(CEO|C\.E\.O|CHIEF EXECUTIVE)\b/.test(u))
+    return '<span title="CEO — highest signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Space Mono,monospace;cursor:default">CEO</span>';
+  if (/\b(CFO|C\.F\.O|CHIEF FINANCIAL)\b/.test(u))
+    return '<span title="CFO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Space Mono,monospace;cursor:default">CFO</span>';
+  if (/\b(COO|C\.O\.O|CHIEF OPERATING)\b/.test(u))
+    return '<span title="COO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Space Mono,monospace;cursor:default">COO</span>';
+  if (/\b(CHAIRMAN|FOUNDER|PRESIDENT)\b/.test(u) && !/VICE PRESIDENT|VP/.test(u))
+    return '<span title="Senior executive — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Space Mono,monospace;cursor:default">EXEC</span>';
+  // Directors — moderate signal, noted but not highlighted
+  if (/\bDIRECTOR\b/.test(u))
+    return '<span title="Director — moderate signal (non-executive)" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(100,120,160,0.1);border:1px solid rgba(100,120,160,0.25);border-radius:3px;font-size:9px;color:#8899aa;font-family:Space Mono,monospace;cursor:default">DIR</span>';
+  return '';
+}
+
+// Ownership % change — shows trade as % of post-trade position
+// (qty / owned) × 100 = % of current holdings this trade represents
+function insiderOwnershipPct(t) {
+  if (!t.qty || !t.owned || t.owned <= 0) return '';
+  const pct = (t.qty / t.owned * 100);
+  if (pct < 0.5) return ''; // too small to be meaningful
+  const color = t.type === 'P' ? 'var(--buy)' : 'var(--sell)';
+  const label = pct >= 100 ? '>100' : pct.toFixed(pct >= 10 ? 0 : 1);
+  return `<span title="${t.type==='P'?'Buy':'Sale'} = ${label}% of position" style="display:block;font-size:9px;color:${color};font-family:Space Mono,monospace;margin-top:1px">${t.type==='P'?'+':'−'}${label}% pos</span>`;
 }
 function showToast(msg, isError=false) {
   const t = document.getElementById('toast');
@@ -969,12 +999,12 @@ function renderScreener() {
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${isGovOfficial(t.title||t.insider)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale — lower signal value" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}</td>
+      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</td>
     </tr>`).join('');
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
@@ -2571,14 +2601,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
 function buildPressureChart(mainChart,trades,priceData) {
   const pc=document.getElementById('pressureContainer'); if(!pc||!trades.length)return; pc.innerHTML='';
 
-  // Aggregate into weekly buckets (Mon–Sun) — sum buys and sells for the week
-  // Each week is represented by its Monday date; value held flat across entire week
+  // Aggregate net buy/sell value by week (Monday anchor).
+  // ONLY weeks with actual trades get a non-zero value.
+  // Weeks with no trades are explicitly set to 0 — no carry-forward smoothing.
   const byWeek={};
   trades.forEach(t=>{
     const d=(t.trade||t.filing||'').slice(0,10); if(!d)return;
-    // Find Monday of this trade's week
     const dt=new Date(d+'T12:00:00Z');
-    const dow=dt.getUTCDay(); // 0=Sun,1=Mon..6=Sat
+    const dow=dt.getUTCDay();
     const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
     const wk=monday.toISOString().slice(0,10);
     if(!byWeek[wk])byWeek[wk]={net:0,total:0};
@@ -2590,17 +2620,11 @@ function buildPressureChart(mainChart,trades,priceData) {
   const allDates=priceData.map(d=>d.time);
   const maxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
 
-  // For each price bar date, find which week it belongs to and use that week's value
-  // This creates the "flat step" look — line stays at weekly value until next week
-  const weekKeys=Object.keys(byWeek).sort();
+  // For each price bar date: find which week it belongs to.
+  // Only show a value if that exact week had trades — zero if no trades that week.
+  // This eliminates the artificial "declining pressure" after a single event.
   const valueByDate={};
   allDates.forEach(date=>{
-    // Find the most recent week that started on or before this date
-    let wkVal=0;
-    for(let i=weekKeys.length-1;i>=0;i--){
-      if(weekKeys[i]<=date){wkVal=+(byWeek[weekKeys[i]].net/maxTotal*100).toFixed(2);break;}
-    }
-    // Only set if that week had trades — otherwise 0
     const dt=new Date(date+'T12:00:00Z');
     const dow=dt.getUTCDay();
     const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
@@ -3541,18 +3565,30 @@ async function loadInsiderDashboard() {
     const topBuyers=Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const topSellers=Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const bigTrades=[...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
-    const clusterCutoff=new Date(); clusterCutoff.setDate(clusterCutoff.getDate()-30);
+    // Cluster detection — strict rules to reduce false positives:
+    // • Use TRADE date only (not filing date — filings can arrive weeks late)
+    // • Require ≥3 DISTINCT insiders (2 is too loose — could be coincidence)
+    // • Rolling 10-trading-day window (~2 calendar weeks)
+    // • Open-market purchases only (type P, already guaranteed by the filter above)
+    const CLUSTER_WINDOW_MS = 10 * 24 * 60 * 60 * 1000; // 10 days in ms
     const tickerPurchases={};
-    recent.filter(t=>t.type==='P'&&new Date(t.trade||t.filing)>=clusterCutoff).forEach(t=>{if(!tickerPurchases[t.ticker])tickerPurchases[t.ticker]=[];tickerPurchases[t.ticker].push(t);});
+    recent.filter(t=>t.type==='P'&&t.trade).forEach(t=>{
+      if(!tickerPurchases[t.ticker])tickerPurchases[t.ticker]=[];
+      tickerPurchases[t.ticker].push(t);
+    });
     const clusterMap={};
     Object.entries(tickerPurchases).forEach(([ticker,trades])=>{
-      if(trades.length<2)return;
-      const sorted=trades.slice().sort((a,b)=>(a.trade||a.filing)>(b.trade||b.filing)?1:-1);
+      if(trades.length<3)return; // need at least 3 trades before checking insiders
+      const sorted=trades.slice().sort((a,b)=>a.trade>b.trade?1:-1);
       for(let i=0;i<sorted.length;i++){
-        const anchor=new Date(sorted[i].trade||sorted[i].filing).getTime();
-        const window=sorted.filter(t=>{const d=new Date(t.trade||t.filing).getTime();return d>=anchor&&d<=anchor+3*86400000;});
+        const anchor=new Date(sorted[i].trade+'T12:00:00Z').getTime();
+        const window=sorted.filter(t=>{const d=new Date(t.trade+'T12:00:00Z').getTime();return d>=anchor&&d<=anchor+CLUSTER_WINDOW_MS;});
         const insiders=new Set(window.map(t=>t.insider));
-        if(insiders.size>=2){if(!clusterMap[ticker]||insiders.size>clusterMap[ticker].insiders.size)clusterMap[ticker]={insiders,trades:window};}
+        // Require ≥3 distinct insiders — materially stronger signal than ≥2
+        if(insiders.size>=3){
+          if(!clusterMap[ticker]||insiders.size>clusterMap[ticker].insiders.size)
+            clusterMap[ticker]={insiders,trades:window};
+        }
       }
     });
     const clusters=Object.entries(clusterMap).sort((a,b)=>b[1].insiders.size-a[1].insiders.size).slice(0,8);
@@ -3567,8 +3603,8 @@ async function loadInsiderDashboard() {
           <div>${topSellers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--option);font-size:14px">⚡</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span><span style="font-size:10px;color:var(--muted);margin-left:auto">2+ insiders buying same stock</span></div>
-          <div>${clusters.map(([ticker,{insiders,trades:clTrades}])=>{const totalVal=clTrades.reduce((s,t)=>s+(t.value||0),0);const dates=clTrades.map(t=>t.trade||t.filing).filter(Boolean).sort();const dateRange=dates.length>1?`${dates[0].slice(5)} – ${dates[dates.length-1].slice(5)}`:(dates[0]||'').slice(5);return`<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span><span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders · ${dateRange}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span></div>`;}).join('')}</div>
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--option);font-size:14px">⚡</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span><span style="font-size:10px;color:var(--muted);margin-left:auto">≥3 insiders · 10-day window</span></div>
+          <div>${clusters.length?clusters.map(([ticker,{insiders,trades:clTrades}])=>{const totalVal=clTrades.reduce((s,t)=>s+(t.value||0),0);const dates=clTrades.map(t=>t.trade).filter(Boolean).sort();const dateRange=dates.length>1?`${dates[0].slice(5)} – ${dates[dates.length-1].slice(5)}`:(dates[0]||'').slice(5);return`<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span><span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders · ${dateRange}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span></div>`;}).join(''):'<div style="padding:16px 18px;font-size:12px;color:var(--muted)">No clusters found matching ≥3 insiders within 10 days</div>'}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--accent);font-size:14px">💰</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span></div>
