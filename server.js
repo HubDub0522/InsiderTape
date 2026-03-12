@@ -268,7 +268,6 @@ function runSync(numQ = 4) {
 const http = require('http');
 
 function get(url, ms=30000, _hops=0) {
-  // BUG FIX: no redirect limit — a redirect loop would recurse until stack overflow.
   if (_hops > 5) return Promise.reject(new Error('Too many redirects'));
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('http://') ? http : https;
@@ -363,6 +362,30 @@ function msUntilNextOpen(now, etOffset) {
 
 // ─── PRICE CACHE (see full implementation near fetchPriceBars) ──────────────
 
+// ── ONE-SHOT BACKFILL (no market-hours gate) ─────────────────────────────────
+// Called when the DB is empty. Unlike runDaily() which checks market hours and
+// sleeps nights/weekends, this always runs immediately — EDGAR historical data
+// is available 24/7 and doesn't care whether the market is open.
+let backfillRunning = false;
+function runBackfillNow(daysBack = 7) {
+  if (backfillRunning || dailyRunning) return;
+  backfillRunning = true;
+  slog(`=== spawning daily-worker BACKFILL (${daysBack}d, no market-hours gate) ===`);
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack), 'backfill'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[backfill] ' + l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[backfill] ERR: ' + l)));
+  worker.on('exit', code => {
+    backfillRunning = false;
+    slog(`=== backfill-worker exited (code ${code}) — starting daily poll cycle ===`);
+    runDaily(2);
+  });
+}
+
+
 // ─── API ROUTES ───────────────────────────────────────────────
 
 // SCREENER
@@ -370,19 +393,22 @@ app.get('/api/screener', (req, res) => {
   try {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     if (n === 0) {
-      // DB is empty — auto-trigger daily ingestion if not already running
-      if (!syncRunning && !dailyRunning) {
-        slog('Screener hit empty DB — auto-triggering daily ingestion');
-        runDaily(7);
+      // DB is empty — trigger a market-hours-agnostic backfill.
+      // BUG FIX: the old runDaily() checks market hours and sleeps if called
+      // outside 7am-8pm ET on weekdays. On a weekend or evening first deploy
+      // this meant the DB never filled and the screener stayed stuck forever.
+      if (!syncRunning && !dailyRunning && !backfillRunning) {
+        slog('Screener hit empty DB — auto-triggering backfill (no market-hours gate)');
+        runBackfillNow(7);
       }
       return res.json({ building: true, message: 'Loading SEC data — this takes 2–3 minutes on first run…', trades: [] });
     }
 
-    const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
+    const days  = Math.min(Math.max(parseInt(req.query.days,  10) || 30,  1), 1095);
     // Scale limit by window so every range returns a meaningfully different dataset.
     // 7d → 1000, 30d → 2000, 90d → 5000, 365d → 15000
     const defaultLimit = days <= 7 ? 1000 : days <= 30 ? 2000 : days <= 90 ? 5000 : 15000;
-    const limit = Math.min(parseInt(req.query.limit || String(defaultLimit)), 20000);
+    const limit = Math.min(parseInt(req.query.limit, 10) || defaultLimit, 20000);
 
         let rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
@@ -433,8 +459,8 @@ app.get('/api/screener', (req, res) => {
 // Used by analysis tools that need historical data: drift, regime shift, first-buy
 app.get('/api/history', (req, res) => {
   try {
-    const days  = Math.min(Math.max(parseInt(req.query.days || '1095'), 1), 1825);
-    const limit = Math.min(parseInt(req.query.limit || '10000'), 25000);
+    const days  = Math.min(Math.max(parseInt(req.query.days,  10) || 1095, 1), 1825);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 10000, 25000);
 
     const rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
@@ -551,9 +577,9 @@ app.get('/api/search', (req, res) => {
 // came after a long gap since their previous buy on that same ticker.
 app.get('/api/firstbuys', (req, res) => {
   try {
-    const minGapDays   = parseInt(req.query.mingap   || '180');  // default 6 months
-    const lookbackDays = parseInt(req.query.lookback || '90');   // how recent must new buy be
-    const limit        = parseInt(req.query.limit    || '100');
+    const minGapDays   = parseInt(req.query.mingap,   10) || 180;
+    const lookbackDays = parseInt(req.query.lookback, 10) || 90;
+    const limit        = parseInt(req.query.limit,    10) || 100;
 
     // Optimised approach: only consider insiders who have a buy in the lookback window.
     // Then for each such (insider, ticker) pair find the previous buy date.
@@ -616,7 +642,7 @@ app.get('/api/firstbuys', (req, res) => {
 // OPPORTUNITY RANKER — per-ticker aggregates for frontend scoring
 app.get('/api/ranker', (req, res) => {
   try {
-    const days = Math.min(parseInt(req.query.days || '30'), 90);
+    const days = Math.min(parseInt(req.query.days, 10) || 30, 90);
     const rows = db.prepare(`
       SELECT
         ticker,
@@ -656,7 +682,7 @@ app.get('/api/ranker', (req, res) => {
 // LEADERBOARD — top insiders by open-market buy activity (enough history to score)
 app.get('/api/leaderboard', (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit || '40'), 80);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 40, 80);
     const rows = db.prepare(`
       SELECT
         insider,
@@ -1162,7 +1188,7 @@ function buildSectorResult(days) {
 
 app.get('/api/sectors', (req, res) => {
   try {
-    const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 30;
+    const days = [7, 30, 90].includes(parseInt(req.query.days, 10)) ? parseInt(req.query.days, 10) : 30;
     const now  = Date.now();
     const entry = _sectorResultCache[days];
     if (entry && now - entry.time < SECTOR_RESULT_TTL) {
@@ -1223,6 +1249,7 @@ app.get('/api/debug', (req, res) => {
       server_version: '2026-03-11',
       sync_running: syncRunning,
       daily_running: dailyRunning,
+      backfill_running: backfillRunning,
     });
   } catch(e) { res.status(500).json({ error: e.message, db_path: DB_PATH }); }
 });
@@ -1605,11 +1632,6 @@ let _scoreboardCacheTime = 0;
 const SCOREBOARD_TTL = 6 * 60 * 60 * 1000;
 
 async function preComputeScoreboard() {
-  // BUG FIX: previously only checked if cache existed at all (if (_scoreboardCache) return).
-  // This meant the scoreboard was computed once at startup and never refreshed, even though
-  // the 12h interval sets _scoreboardCache = null and calls this function again.
-  // The null-clear worked, but a direct call from the /api/scoreboard route would
-  // re-populate and then never expire. Now respects the TTL consistently.
   if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) return;
   try {
     slog('Pre-computing scoreboard...');
@@ -1802,15 +1824,12 @@ setInterval(() => {
 // Call as: /api/admin/sync?secret=YOUR_SECRET
 function requireAdminSecret(req, res) {
   const secret = process.env.ADMIN_SECRET;
-  // BUG FIX: previously allowed all access when ADMIN_SECRET was not set.
-  // Admin routes must always be protected — anyone could trigger a full sync
-  // or wipe the DB without this fix.
   if (!secret) {
     res.status(403).json({ error: 'Admin routes disabled — set ADMIN_SECRET env var to enable them.' });
     return true;
   }
   if (req.query.secret !== secret) {
-    res.status(403).json({ error: 'Forbidden' });
+    res.status(403).json({ error: 'Forbidden — set ?secret=YOUR_ADMIN_SECRET' });
     return true;
   }
   return false;
@@ -1818,7 +1837,7 @@ function requireAdminSecret(req, res) {
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 app.get('/api/admin/sync', (req, res) => {
   if (requireAdminSecret(req, res)) return;
-  runSync(parseInt(req.query.q || '4'));
+  runSync(parseInt(req.query.q, 10) || 4);
   res.json({ ok: true, message: 'Sync triggered' });
 });
 // POST /api/admin/daily — trigger daily ingestion now regardless of market hours
