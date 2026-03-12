@@ -483,7 +483,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div class="live-badge" title="Screener refreshes automatically every 5 minutes"><div class="live-dot"></div>UPDATES DAILY</div>
-          <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v2026-03-11</div>
+          <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v1.2</div>
         </div>
       </div>
       <div class="summary-bar" id="summaryBar"></div>
@@ -934,7 +934,7 @@ async function loadScreener(retryAttempt = 0) {
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
-        if (state.activeRole === 'Gov')  return isGovOfficial(t.title || '', t.company) || isGovOfficial(t.insider || '', t.company);
+        if (state.activeRole === 'Gov')  return isGovOfficial(t.title||t.insider, t.company);
         return true;
       });
     }
@@ -7369,7 +7369,7 @@ measureHeader(); window.addEventListener('resize',measureHeader);
       <span style="font-size:11px;color:#2e4055;font-family:'Space Mono',monospace">DATA: SEC EDGAR · STOCK ACT</span>
     </div>
     <div style="font-size:10px;color:#1e3040;font-family:'Space Mono',monospace">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
-    <div style="font-size:9px;color:#1a2535;font-family:'Space Mono',monospace;margin-top:6px">build 2026-03-11.1</div>
+    <div style="font-size:9px;color:#1a2535;font-family:'Space Mono',monospace;margin-top:6px">v1.2</div>
   </div>
 </footer>
 
