@@ -5920,11 +5920,34 @@ function drawRRG(data) {
   const ML=52, MR=20, MT=24, MB=36;
   const cW = W - ML - MR, cH = H - MT - MB;
 
-  // ── AXIS RANGE: fit to CURRENT point positions only ──────────
-  // Trails can extend outside the visible area — we don't let a single
-  // outlier tail blow up the scale and flatten everything else.
+  // ── OUTLIER FILTERING (IQR fence) ────────────────────────────
+  // Points that are extreme outliers on either axis blow up the scale and
+  // flatten everyone else. We exclude them from the *rendered* set using a
+  // 1.5× IQR fence on both axes.  They still appear in the side panel/table.
+  function iqrFence(vals, k = 1.5) {
+    if (vals.length < 4) return [null, null]; // too few to fence
+    const s = [...vals].sort((a, b) => a - b);
+    const q1 = s[Math.floor(s.length * 0.25)];
+    const q3 = s[Math.floor(s.length * 0.75)];
+    const iqr = q3 - q1;
+    return [q1 - k * iqr, q3 + k * iqr];
+  }
+
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const [xLo, xHi] = iqrFence(xs);
+  const [yLo, yHi] = iqrFence(ys);
+
+  // visiblePoints = those within the fence on BOTH axes
+  const visiblePoints = points.filter(p =>
+    (xLo === null || (p.x >= xLo && p.x <= xHi)) &&
+    (yLo === null || (p.y >= yLo && p.y <= yHi))
+  );
+  const hiddenCount = points.length - visiblePoints.length;
+
+  // ── AXIS RANGE: fit to visible (non-outlier) current positions ──
   let minX = 100, maxX = 100, minY = 100, maxY = 100;
-  points.forEach(p => {
+  visiblePoints.forEach(p => {
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
   });
@@ -6047,7 +6070,7 @@ function drawRRG(data) {
   ctx.clip();
 
   // ── Empty state ───────────────────────────────────────────────
-  if (!points.length) {
+  if (!visiblePoints.length) {
     ctx.restore();
     ctx.fillStyle = 'rgba(120,140,160,0.5)';
     ctx.font = '12px "Space Mono",monospace';
@@ -6058,14 +6081,12 @@ function drawRRG(data) {
   }
 
   // ── Bubble sizing ─────────────────────────────────────────────
-  const maxVal  = Math.max(...points.map(p => p.totalBuyVal), 1);
+  const maxVal  = Math.max(...visiblePoints.map(p => p.totalBuyVal), 1);
   const bubbleR = v => Math.max(8, Math.min(28, 8 + (v / maxVal) * 20));
   const hov = _rrgState.hovered;
 
   // ── Draw trails ───────────────────────────────────────────────
-  // Each tail is a smooth line from oldest trail point → current position.
-  // We draw the line first (thick, faded gradient), then small dot markers.
-  points.forEach(p => {
+  visiblePoints.forEach(p => {
     const trail = p.trail || [];
     if (trail.length < 2) return;
     const color = quadrantColor(p.quadrant);
@@ -6073,7 +6094,6 @@ function drawRRG(data) {
     const n     = trail.length;
     const BASE_ALPHA = isH ? 0.85 : 0.38;
 
-    // ── Draw smooth path through all trail points ──
     ctx.save();
     ctx.lineWidth   = isH ? 2.5 : 1.8;
     ctx.strokeStyle = color;
@@ -6091,19 +6111,15 @@ function drawRRG(data) {
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // ── Draw dot at each past trail position ──
     for (let i = 0; i < n - 1; i++) {
       const alpha = 0.30 + 0.55 * ((i + 1) / n);
       const tx = toX(trail[i].x), ty = toY(trail[i].y);
       const dotR = isH ? 3.5 : 2.2;
-
       ctx.globalAlpha = isH ? alpha : alpha * 0.7;
       ctx.beginPath();
       ctx.arc(tx, ty, dotR, 0, Math.PI * 2);
       ctx.fillStyle   = color;
       ctx.fill();
-
-      // Ring on dots for "week markers" look
       ctx.strokeStyle = isH ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.18)';
       ctx.lineWidth   = 0.8;
       ctx.stroke();
@@ -6112,9 +6128,8 @@ function drawRRG(data) {
   });
 
   // ── Draw current-position bubbles ─────────────────────────────
-  // Pass 1: glow rings (drawn under everything)
   const screenPts = [];
-  points.forEach(p => {
+  visiblePoints.forEach(p => {
     const sx = toX(p.x), sy = toY(p.y);
     const r  = bubbleR(p.totalBuyVal);
     const c  = quadrantColor(p.quadrant);
@@ -6132,11 +6147,8 @@ function drawRRG(data) {
     screenPts.push({ ...p, sx, sy, r, c });
   });
 
-  // Pass 2: bubble fill + stroke + direction arrow
   screenPts.forEach(({ sx, sy, r, c, dx, dy, x, y, entity }) => {
     const isH = hov === entity;
-
-    // Bubble fill
     const grd = ctx.createRadialGradient(sx - r * 0.3, sy - r * 0.3, 0, sx, sy, r);
     grd.addColorStop(0, c + (isH ? 'cc' : '66'));
     grd.addColorStop(1, c + (isH ? '88' : '22'));
@@ -6144,29 +6156,25 @@ function drawRRG(data) {
     ctx.arc(sx, sy, r, 0, Math.PI * 2);
     ctx.fillStyle = grd;
     ctx.fill();
-
-    // Bubble border
     ctx.strokeStyle = c + (isH ? 'ff' : 'aa');
     ctx.lineWidth   = isH ? 2.5 : 1.5;
     ctx.stroke();
 
-    // Direction arrow — solid triangle pointing in direction of travel
     const prevSx = toX(x - dx), prevSy = toY(y - dy);
     const mag = Math.hypot(sx - prevSx, sy - prevSy);
     if (mag > 1) {
       const ux = (sx - prevSx) / mag, uy = (sy - prevSy) / mag;
       const aBase = r + 5, aLen = 9, aW = 4.5;
       ctx.beginPath();
-      ctx.moveTo(sx + ux * (aBase + aLen),          sy + uy * (aBase + aLen));
-      ctx.lineTo(sx + ux * aBase - uy * aW,          sy + uy * aBase + ux * aW);
-      ctx.lineTo(sx + ux * aBase + uy * aW,          sy + uy * aBase - ux * aW);
+      ctx.moveTo(sx + ux * (aBase + aLen),  sy + uy * (aBase + aLen));
+      ctx.lineTo(sx + ux * aBase - uy * aW, sy + uy * aBase + ux * aW);
+      ctx.lineTo(sx + ux * aBase + uy * aW, sy + uy * aBase - ux * aW);
       ctx.closePath();
       ctx.fillStyle = c + (isH ? 'ff' : 'cc');
       ctx.fill();
     }
   });
 
-  // Pass 3: labels on top
   screenPts.forEach(({ sx, sy, r, c, label, entity }) => {
     const isH = hov === entity;
     ctx.shadowColor = 'rgba(0,0,0,0.98)';
@@ -6181,10 +6189,17 @@ function drawRRG(data) {
   // Release clip
   ctx.restore();
 
+  // ── "N outliers hidden" notice in bottom-right corner ─────────
+  if (hiddenCount > 0) {
+    ctx.font      = '9px "Space Mono",monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(120,140,160,0.55)';
+    ctx.fillText(`${hiddenCount} outlier${hiddenCount > 1 ? 's' : ''} hidden`, ML + cW - 4, MT + cH - 5);
+  }
+
   // Store screen coordinates for hit-testing
   canvas._rrgPoints = screenPts;
 
-  // Bind events once (canvas is recreated each render so check _rrgBound on state)
   if (!canvas._rrgBound) {
     canvas._rrgBound = true;
     canvas.addEventListener('mousemove',  rrgMouseMove);
