@@ -1948,10 +1948,14 @@ app.get('/api/rrg', async (req, res) => {
       // EMA(10) → JdK RS-Ratio
       const rsRatioFull = ema(rawRS, 10);
 
-      // 1-period rate of change, offset to 100 → RS-Momentum raw
+      // 4-period rate of change, offset to 100 → RS-Momentum raw
+      // Must use a longer lookback (4 weeks) so the ROC is large enough to
+      // spread entities meaningfully off y=100 after EMA smoothing.
+      // 1-period ROC of a slow EMA is near-zero → everything collapses to y=100.
+      const MOM_LB = 4;
       const rocRaw = rsRatioFull.map((v, i) => {
-        if (i === 0 || rsRatioFull[i - 1] <= 0) return 100;
-        return 100 + (v - rsRatioFull[i - 1]) / rsRatioFull[i - 1] * 100;
+        if (i < MOM_LB || rsRatioFull[i - MOM_LB] <= 0) return 100;
+        return 100 + (v - rsRatioFull[i - MOM_LB]) / rsRatioFull[i - MOM_LB] * 100;
       });
 
       // EMA(4) → JdK RS-Momentum
