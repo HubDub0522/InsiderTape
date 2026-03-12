@@ -1825,184 +1825,199 @@ app.get('/api/admin/free-disk', (req, res) => {
 app.get('/api/rrg', async (req, res) => {
   try {
     const mode   = req.query.mode === 'tickers' ? 'tickers' : 'sectors';
-    const weeks  = Math.min(parseInt(req.query.weeks || '12'), 26); // trail length
-    const minVal = parseInt(req.query.minval || '50000');
-    // Optional comma-separated list of tickers to restrict tickers mode to
+    const weeks  = Math.min(Math.max(parseInt(req.query.weeks) || 12, 8), 26);
     const customTickers = req.query.tickers
-      ? req.query.tickers.toUpperCase().split(',').map(t => t.trim()).filter(t => /^[A-Z]{1,6}$/.test(t)).slice(0, 40)
+      ? req.query.tickers.toUpperCase().split(',').map(t => t.trim())
+          .filter(t => /^[A-Z]{1,6}$/.test(t)).slice(0, 40)
       : [];
 
-    // Build weekly buy-value series per sector or ticker over last N weeks
-    // Week 0 = most recent completed week, week N-1 = oldest
+    // We need extra weeks for EMA warmup (14) + rolling window (4)
+    const WARMUP = 14;
+    const ROLL   = 4;   // 4-week rolling sum smooths sparse weekly data
+    const totalWeeks = weeks + WARMUP;
+
+    // Fetch all trades in the window — no minVal filter so sparse tickers still appear
     const rows = db.prepare(`
-      SELECT
-        ticker, MAX(company) AS company,
-        trade_date,
+      SELECT ticker, MAX(company) AS company, trade_date,
         SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
-        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
-        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,
-        SUM(COALESCE(value,0)) AS total_val
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
         AND TRIM(type) IN ('P','S','S-')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-        AND COALESCE(value,0) >= ?
+        AND COALESCE(value,0) > 0
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
       GROUP BY ticker, trade_date
       ORDER BY trade_date ASC
-    `).all(weeks * 7 + 14, minVal);
+    `).all(totalWeeks * 7 + 14);
 
-    if (!rows.length) return res.json({ points: [], trail: {}, weeks });
+    if (!rows.length) return res.json({ points: [], weeks, mode, debug: 'no_rows' });
 
-    // Helper: get Monday of a date
-    function weekOf(dateStr) {
-      const d = new Date(dateStr + 'T12:00:00Z');
+    // Get Monday of a date string (UTC)
+    function weekOf(ds) {
+      const d = new Date(ds + 'T12:00:00Z');
       const dow = d.getUTCDay();
       d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
       return d.toISOString().slice(0, 10);
     }
 
-    // Build week list (last N weeks, most recent last)
+    // Build chronological week list (oldest → newest)
     const allWeeks = [];
-    for (let i = weeks - 1; i >= 0; i--) {
-      const d = new Date(); d.setUTCDate(d.getUTCDate() - i * 7);
+    for (let i = totalWeeks - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - i * 7);
       const dow = d.getUTCDay();
       d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
       allWeeks.push(d.toISOString().slice(0, 10));
     }
+    const displayWeeks = allWeeks.slice(WARMUP);
+    const weekSet = new Set(allWeeks);
 
-    // Map rows to weekly buckets per entity (sector or ticker)
-    const entityWeekly = {}; // entity → { weekStr → { buy_val, sell_val, buyers } }
-
+    // Bucket raw trades into weekly entity bins
+    const entityWeekly = {}; // entity → { company, weeks: { wk → { buy_val, buyers } } }
     rows.forEach(r => {
       const wk = weekOf(r.trade_date);
-      if (!allWeeks.includes(wk)) return;
+      if (!weekSet.has(wk)) return;
 
-      let entities = [];
+      let entityKey;
       if (mode === 'sectors') {
         const info = getTickerSector(r.ticker);
         if (!info) return;
-        entities = [info[0]]; // sector name
+        entityKey = info[0];
       } else {
-        // In tickers mode: if caller specified a custom list, restrict to those tickers
         if (customTickers.length && !customTickers.includes(r.ticker)) return;
-        entities = [r.ticker];
+        entityKey = r.ticker;
       }
 
-      entities.forEach(ent => {
-        if (!entityWeekly[ent]) entityWeekly[ent] = {};
-        if (!entityWeekly[ent][wk]) entityWeekly[ent][wk] = { buy_val: 0, sell_val: 0, buyers: 0, company: r.company };
-        entityWeekly[ent][wk].buy_val  += r.buy_val;
-        entityWeekly[ent][wk].sell_val += r.sell_val;
-        entityWeekly[ent][wk].buyers   += r.buyers;
-      });
+      if (!entityWeekly[entityKey]) entityWeekly[entityKey] = { company: r.company, weeks: {} };
+      const ew = entityWeekly[entityKey];
+      if (!ew.weeks[wk]) ew.weeks[wk] = { buy_val: 0, buyers: 0 };
+      ew.weeks[wk].buy_val += r.buy_val;
+      ew.weeks[wk].buyers  += r.buyers;
+      if (!ew.company && r.company) ew.company = r.company;
     });
 
-    // Compute benchmark: total market buy_val per week
-    const benchmarkByWeek = {};
-    allWeeks.forEach(wk => {
-      let total = 0;
-      Object.values(entityWeekly).forEach(ew => { total += (ew[wk]?.buy_val || 0); });
-      benchmarkByWeek[wk] = total || 1;
+    const entityNames = Object.keys(entityWeekly);
+    if (!entityNames.length) return res.json({ points: [], weeks, mode, debug: 'no_entities' });
+
+
+    // Rolling sum helper
+    function rollingSum(vals, window) {
+      return vals.map((_, i) => {
+        let s = 0;
+        for (let j = Math.max(0, i - window + 1); j <= i; j++) s += vals[j];
+        return s;
+      });
+    }
+
+    function ema(vals, period) {
+      const k = 2.0 / (period + 1);
+      const out = [];
+      let prev = null;
+      for (const v of vals) {
+        prev = (prev === null) ? v : v * k + prev * (1 - k);
+        out.push(prev);
+      }
+      return out;
+    }
+
+    // Build weekly buy_val array for each entity (length = totalWeeks)
+    // Use 4-week rolling sum to smooth sparse insider data
+    const entityRolled = {};
+    entityNames.forEach(ent => {
+      const raw = allWeeks.map(wk => entityWeekly[ent].weeks[wk]?.buy_val || 0);
+      entityRolled[ent] = rollingSum(raw, ROLL);
     });
 
-    // Compute RS-Ratio and RS-Momentum series per entity
-    const SMA_PERIOD = 4; // 4-week smoothing
-    const MOM_LOOKBACK = 2; // compare to 2 periods ago
+    // Benchmark = sum of all entities' rolled values per week
+    const benchmark = allWeeks.map((_, wi) =>
+      entityNames.reduce((s, ent) => s + entityRolled[ent][wi], 0)
+    );
 
-    const latestPoints = []; // current RRG coordinates
+    const N = entityNames.length;
+    const latestPoints = [];
 
-    Object.entries(entityWeekly).forEach(([entity, weekMap]) => {
-      // Raw RS per week: entity_buy_val / benchmark_buy_val * 100
-      const rawRS = allWeeks.map(wk => {
-        const bv = weekMap[wk]?.buy_val || 0;
-        const bench = benchmarkByWeek[wk] || 1;
-        return (bv / bench) * 100;
-      });
+    entityNames.forEach(entity => {
+      const rolled = entityRolled[entity];
 
-      // Smooth with SMA
-      const smoothRS = rawRS.map((_, i) => {
-        if (i < SMA_PERIOD - 1) return null;
-        const slice = rawRS.slice(i - SMA_PERIOD + 1, i + 1);
-        return slice.reduce((a, b) => a + b, 0) / SMA_PERIOD;
-      });
-
-      // Normalise RS-Ratio to 0-200 scale (100 = benchmark)
-      const validRS = smoothRS.filter(v => v !== null);
-      if (validRS.length < MOM_LOOKBACK + 1) return;
-
-      const rsMedian = [...validRS].sort((a, b) => a - b)[Math.floor(validRS.length / 2)] || 1;
-
-      const normalised = smoothRS.map(v =>
-        v === null ? null : 100 + ((v - rsMedian) / (rsMedian || 1)) * 100
+      // Raw RS: entity share × N × 100  (100 = exactly average entity)
+      const rawRS = rolled.map((v, i) =>
+        benchmark[i] > 0 ? (v / benchmark[i]) * N * 100 : 100
       );
 
-      // RS-Momentum: rate of change vs MOM_LOOKBACK periods ago
-      const momentum = normalised.map((v, i) => {
-        if (v === null || i < MOM_LOOKBACK) return null;
-        const prev = normalised[i - MOM_LOOKBACK];
-        if (prev === null || prev === 0) return null;
-        return 100 + ((v - prev) / Math.abs(prev)) * 100;
+      // EMA(10) → JdK RS-Ratio
+      const rsRatioFull = ema(rawRS, 10);
+
+      // 1-period rate of change, offset to 100 → RS-Momentum raw
+      const rocRaw = rsRatioFull.map((v, i) => {
+        if (i === 0 || rsRatioFull[i - 1] <= 0) return 100;
+        return 100 + (v - rsRatioFull[i - 1]) / rsRatioFull[i - 1] * 100;
       });
 
-      // Build trail: last N valid points
-      const TRAIL_LEN = 8;
+      // EMA(4) → JdK RS-Momentum
+      const rsMomFull = ema(rocRaw, 4);
+
+      // Slice to display window only
+      const rsRatio = rsRatioFull.slice(WARMUP);
+      const rsMom   = rsMomFull.slice(WARMUP);
+
+      // Must have buy activity in display period to include
+      const displayBuy = displayWeeks.reduce((s, wk) => s + (entityWeekly[entity].weeks[wk]?.buy_val || 0), 0);
+      if (displayBuy === 0) return;
+
+      // Build trail (last 8 display-window points)
+      const TRAIL = Math.min(8, rsRatio.length);
       const trail = [];
-      for (let i = allWeeks.length - 1; i >= 0 && trail.length < TRAIL_LEN; i--) {
-        const rs = normalised[i], mom = momentum[i];
-        if (rs !== null && mom !== null) {
-          trail.unshift({ week: allWeeks[i], x: rs, y: mom });
-        }
+      for (let i = rsRatio.length - TRAIL; i < rsRatio.length; i++) {
+        trail.push({ week: displayWeeks[i], x: +rsRatio[i].toFixed(2), y: +rsMom[i].toFixed(2) });
       }
-      if (trail.length < 2) return;
+      if (!trail.length) return;
 
-      // Current position = last point
-      const cur = trail[trail.length - 1];
-      const prev = trail[trail.length - 2];
+      const cur  = trail[trail.length - 1];
+      const prev = trail.length > 1 ? trail[trail.length - 2] : cur;
 
-      // Total buy value for sizing
-      const totalBuyVal = Object.values(weekMap).reduce((s, w) => s + w.buy_val, 0);
-      const totalBuyers = Object.values(weekMap).reduce((s, w) => s + w.buyers, 0);
+      // Skip NaN/Infinity
+      if (!isFinite(cur.x) || !isFinite(cur.y)) return;
 
-      // Quadrant
-      let quadrant;
-      if (cur.x >= 100 && cur.y >= 100)      quadrant = 'LEADING';
-      else if (cur.x >= 100 && cur.y < 100)  quadrant = 'WEAKENING';
-      else if (cur.x < 100 && cur.y < 100)   quadrant = 'LAGGING';
-      else                                    quadrant = 'IMPROVING';
+      const quadrant =
+        cur.x >= 100 && cur.y >= 100 ? 'LEADING'   :
+        cur.x >= 100 && cur.y <  100 ? 'WEAKENING' :
+        cur.x <  100 && cur.y <  100 ? 'LAGGING'   : 'IMPROVING';
 
-      // Velocity (direction of movement)
-      const dx = cur.x - prev.x, dy = cur.y - prev.y;
-
-      const company = Object.values(weekMap)[0]?.company || entity;
+      const totalBuyVal = Object.values(entityWeekly[entity].weeks).reduce((s, w) => s + w.buy_val, 0);
+      const totalBuyers = Object.values(entityWeekly[entity].weeks).reduce((s, w) => s + w.buyers, 0);
 
       latestPoints.push({
         entity,
-        label: entity,
-        company: mode === 'sectors' ? entity : company,
-        x: +cur.x.toFixed(2),
-        y: +cur.y.toFixed(2),
-        dx: +dx.toFixed(2),
-        dy: +dy.toFixed(2),
+        label:       entity,
+        company:     mode === 'sectors' ? entity : (entityWeekly[entity].company || entity),
+        x:           cur.x,
+        y:           cur.y,
+        dx:          +(cur.x - prev.x).toFixed(2),
+        dy:          +(cur.y - prev.y).toFixed(2),
         quadrant,
         totalBuyVal,
         totalBuyers,
-        trail: trail.map(t => ({ week: t.week, x: +t.x.toFixed(2), y: +t.y.toFixed(2) })),
+        trail,
       });
     });
 
-    // Sort by total buy value
     latestPoints.sort((a, b) => b.totalBuyVal - a.totalBuyVal);
+    const limit = mode === 'sectors' ? 30 : (customTickers.length || 40);
 
-    res.json({ points: latestPoints.slice(0, mode === 'sectors' ? 30 : 40), weeks, mode });
+    res.json({
+      points: latestPoints.slice(0, limit),
+      weeks, mode,
+      debug: { total_entities: entityNames.length, plotted: latestPoints.length }
+    });
+
   } catch(e) {
-    slog('rrg error: ' + e.message);
+    slog('rrg error: ' + e.message + '\n' + e.stack);
     res.status(500).json({ error: e.message });
   }
 });
 
 
-// Returns curated lists: hotBuys, clusterBuys, freshBuys, heavySells, mostActive
 app.get('/api/stock-lists', (req, res) => {
   try {
     // Most-active tickers: unique insiders, buy + sell counts, last 7 days
