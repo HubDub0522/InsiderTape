@@ -234,6 +234,34 @@ try {
   )`);
 } catch(e) { console.warn('sync_log table init warning:', e.message); }
 
+// gov_trades — STOCK Act congressional disclosure data
+// Separate from `trades` because the data has different fields (amount ranges,
+// chamber, no SEC accession number) and is sourced from the community S3 feeds,
+// not EDGAR Form 4.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gov_trades (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      chamber           TEXT NOT NULL,
+      member            TEXT NOT NULL,
+      ticker            TEXT,
+      asset_description TEXT,
+      transaction_type  TEXT,
+      transaction_date  TEXT,
+      disclosure_date   TEXT,
+      amount_range      TEXT,
+      owner             TEXT,
+      filing_url        TEXT,
+      UNIQUE(chamber, member, ticker, transaction_date, transaction_type, amount_range)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_ticker  ON gov_trades(ticker)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_member  ON gov_trades(member)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_td      ON gov_trades(transaction_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_chamber ON gov_trades(chamber)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_dd      ON gov_trades(disclosure_date DESC)`);
+} catch(e) { console.warn('gov_trades table init warning:', e.message); }
+
 // ─── SYNC via child process ────────────────────────────────────
 let syncRunning = false;
 const syncLog   = [];
@@ -386,7 +414,56 @@ function runBackfillNow(daysBack = 7) {
 }
 
 
-// ─── API ROUTES ───────────────────────────────────────────────
+// ─── CONGRESS WORKER (STOCK Act) ─────────────────────────────────────────────
+// Polls community S3 feeds (senate-stock-watcher / house-stock-watcher) and
+// inserts congressional trades into gov_trades. Runs once at startup then once
+// per day at ~8am ET.
+let congressRunning = false;
+
+function runCongressSync() {
+  if (congressRunning) { slog('[congress] already running, skipping'); return; }
+  congressRunning = true;
+  slog('=== spawning congress-worker (STOCK Act sync) ===');
+
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=300', path.join(__dirname, 'congress-worker.js')],
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
+  );
+
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('ERR: ' + l)));
+  worker.on('exit', code => {
+    congressRunning = false;
+    slog(`=== congress-worker exited (code ${code}) ===`);
+  });
+}
+
+// Schedule daily at 8:05am ET
+function scheduleCongressDaily() {
+  const now = new Date();
+  const etOffset = (() => {
+    const y = now.getUTCFullYear();
+    const dstStart = new Date(Date.UTC(y, 2, 8));
+    dstStart.setUTCDate(8 + (7 - dstStart.getUTCDay()) % 7);
+    dstStart.setUTCHours(7, 0, 0, 0);
+    const dstEnd = new Date(Date.UTC(y, 10, 1));
+    dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7);
+    dstEnd.setUTCHours(6, 0, 0, 0);
+    return (now >= dstStart && now < dstEnd) ? -4 : -5;
+  })();
+
+  // Next 8:05am ET
+  const target = new Date(now);
+  target.setUTCHours(8 - etOffset, 5, 0, 0);
+  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+  const ms = Math.max(target - now, 60000);
+  slog(`=== congress-worker scheduled in ${Math.round(ms/3600000*10)/10}h ===`);
+  setTimeout(() => { runCongressSync(); scheduleCongressDaily(); }, ms);
+}
+
+// Initial run (5s delay to let server settle)
+setTimeout(() => { runCongressSync(); scheduleCongressDaily(); }, 5000);
 
 // SCREENER
 app.get('/api/screener', (req, res) => {
@@ -452,6 +529,53 @@ app.get('/api/screener', (req, res) => {
     }
 
     res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// CONGRESS — STOCK Act congressional trade disclosures
+// Queries gov_trades table which is populated by congress-worker.js
+// Params: days (default 90), limit (default 500), ticker, member, chamber (S|H), type (P|S)
+app.get('/api/congress', (req, res) => {
+  try {
+    const days    = Math.min(Math.max(parseInt(req.query.days,   10) || 90,   1), 1825);
+    const limit   = Math.min(Math.max(parseInt(req.query.limit,  10) || 500,  1), 5000);
+    const ticker  = (req.query.ticker  || '').toUpperCase().slice(0, 10) || null;
+    const member  = (req.query.member  || '').slice(0, 100) || null;
+    const chamber = (req.query.chamber || '').toUpperCase().slice(0, 1)  || null;
+    const type    = (req.query.type    || '').toUpperCase().slice(0, 1)  || null;
+
+    // Check if table is populated
+    let total = 0;
+    try { total = db.prepare('SELECT COUNT(*) AS n FROM gov_trades').get().n; } catch { total = 0; }
+
+    if (total === 0) {
+      return res.json({ syncing: true, message: 'Congressional data is loading — check back in a minute.', trades: [] });
+    }
+
+    const conditions = [`(transaction_date >= date('now', '-' || ? || ' days') OR disclosure_date >= date('now', '-' || ? || ' days'))`];
+    const params = [days, days];
+
+    if (ticker)  { conditions.push(`ticker = ?`);               params.push(ticker); }
+    if (member)  { conditions.push(`member LIKE ?`);            params.push(`%${member}%`); }
+    if (chamber) { conditions.push(`chamber = ?`);              params.push(chamber); }
+    if (type)    { conditions.push(`transaction_type = ?`);     params.push(type); }
+
+    // Only include known tickers unless explicitly filtering by member/ticker
+    if (!ticker && !member) {
+      conditions.push(`ticker != '--' AND ticker IS NOT NULL AND LENGTH(ticker) BETWEEN 1 AND 10`);
+    }
+
+    const where = conditions.join(' AND ');
+    const rows = db.prepare(`
+      SELECT chamber, member, ticker, asset_description, transaction_type,
+             transaction_date, disclosure_date, amount_range, owner, filing_url
+      FROM gov_trades
+      WHERE ${where}
+      ORDER BY COALESCE(transaction_date, disclosure_date) DESC
+      LIMIT ?
+    `).all(...params, limit);
+
+    res.json({ total, trades: rows });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1257,6 +1381,15 @@ app.get('/api/debug', (req, res) => {
       LIMIT 50
     `).all();
 
+    // gov_trades stats
+    let govStats = { total: 0, senate: 0, house: 0, latest: null };
+    try {
+      govStats.total   = db.prepare('SELECT COUNT(*) AS n FROM gov_trades').get().n;
+      govStats.senate  = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='S'").get().n;
+      govStats.house   = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='H'").get().n;
+      govStats.latest  = db.prepare('SELECT MAX(disclosure_date) AS d FROM gov_trades').get().d;
+    } catch { /* table may not exist yet */ }
+
     res.json({
       db_path: DB_PATH,
       total_rows: total,
@@ -1271,10 +1404,12 @@ app.get('/api/debug', (req, res) => {
       screener_query_test: screenerTest || { ok: false, error: screenerError },
       name_sample: nameSample.slice(0, 20),
       gov_search: govSearch,
+      gov_trades: govStats,
       server_version: 'v1.2',
       sync_running: syncRunning,
       daily_running: dailyRunning,
       backfill_running: backfillRunning,
+      congress_running: congressRunning,
     });
   } catch(e) { res.status(500).json({ error: e.message, db_path: DB_PATH }); }
 });
