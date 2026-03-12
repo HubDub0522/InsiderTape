@@ -440,6 +440,7 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
+          <div class="chip" data-role="Gov"  onclick="toggleRole(this)">🏛 Gov Official</div>
         </div>
       </div>
       <div class="filter-section">
@@ -933,6 +934,7 @@ async function loadScreener(retryAttempt = 0) {
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
+        if (state.activeRole === 'Gov')  return isGovOfficial(title) || isGovOfficial(t.insider || '');
         return true;
       });
     }
