@@ -903,6 +903,7 @@ function toggleRole(el) {
   document.querySelectorAll('[data-role]').forEach(c => c.classList.remove('active'));
   el.classList.add('active'); state.activeRole = el.dataset.role;
   saveFilters();
+  loadScreener(0); // reload on filter change
 }
 function toggleDays(el) {
   document.querySelectorAll('[data-days]').forEach(c => c.classList.remove('active'));
@@ -910,7 +911,66 @@ function toggleDays(el) {
   saveFilters();
 }
 
+// ── CONGRESS / STOCK ACT SCREENER ───────────────────────────────
+async function loadCongress() {
+  const days = Math.min(state.days * 10, 365); // map short windows to longer congress window (trades lag up to 45d)
+  document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading congressional STOCK Act filings...</span></div></td></tr>`;
+  document.getElementById('summaryBar').innerHTML = '';
+  try {
+    const resp = await apiFetch('/api/congress?days=' + days + '&limit=500&type=P');
+    if (resp && resp.syncing) {
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Congressional data is syncing — check back in ~1 minute.</span></div></td></tr>`;
+      setTimeout(loadCongress, 15000);
+      return;
+    }
+    const trades = (resp && resp.trades) ? resp.trades : [];
+    if (!trades.length) {
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🏛</div><div>No congressional stock purchases found for this window.</div></div></td></tr>`;
+      return;
+    }
+
+    // Amount-range to sortable midpoint (for ordering)
+    function amountMid(range) {
+      if (!range) return 0;
+      const m = range.replace(/[^0-9,]/g, ' ').trim().split(/\s+/).map(s => parseInt(s.replace(/,/g,''),10)).filter(n=>!isNaN(n));
+      return m.length ? m.reduce((a,b)=>a+b,0)/m.length : 0;
+    }
+
+    const sorted = [...trades].sort((a,b) => {
+      const da = a.transaction_date || a.disclosure_date || '';
+      const db_ = b.transaction_date || b.disclosure_date || '';
+      return da < db_ ? 1 : da > db_ ? -1 : 0;
+    });
+
+    const chamberLabel = c => c === 'S' ? '<span title="Senate" style="color:#6ca0ff;font-size:9px;font-family:\'Space Mono\',monospace">SEN</span>' : '<span title="House" style="color:#a0c8ff;font-size:9px;font-family:\'Space Mono\',monospace">REP</span>';
+    const typeLabel = t => t === 'P' ? '<span style="color:var(--buy);font-family:\'Space Mono\',monospace;font-size:10px">BUY</span>' : t === 'S' ? '<span style="color:var(--sell);font-family:\'Space Mono\',monospace;font-size:10px">SELL</span>' : `<span style="font-size:10px">${t}</span>`;
+
+    const rows = sorted.map(t => {
+      const ticker = t.ticker && t.ticker !== '--' ? `<span class="ticker-link" onclick="openTickerDetail('${t.ticker}')" style="cursor:pointer;color:var(--buy)">${t.ticker}</span>` : `<span style="color:var(--muted)">${t.asset_description ? t.asset_description.slice(0,25) : '--'}</span>`;
+      const filingLink = t.filing_url ? `<a href="${t.filing_url}" target="_blank" style="color:var(--muted);font-size:9px;font-family:'Space Mono',monospace;text-decoration:none" title="View filing">📄</a>` : '';
+      return `<tr>
+        <td>${chamberLabel(t.chamber)}</td>
+        <td>${ticker}</td>
+        <td><span style="font-size:11px">${t.member || '--'}</span> <span style="font-size:9px;color:var(--muted)">${t.owner && t.owner !== '--' ? '('+t.owner+')' : ''}</span></td>
+        <td>${typeLabel(t.transaction_type)}</td>
+        <td style="font-size:10px;color:var(--muted)">${t.amount_range || '--'}</td>
+        <td style="font-size:10px">${t.transaction_date || '--'}</td>
+        <td style="font-size:10px;color:var(--muted)">${t.disclosure_date || '--'}</td>
+        <td>${filingLink}</td>
+        <td></td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('screenerBody').innerHTML = rows;
+    document.getElementById('summaryBar').innerHTML = `<span style="color:var(--muted);font-size:11px;font-family:'Space Mono',monospace">🏛 ${sorted.length} congressional trades · last ${days}d window · source: STOCK Act disclosures</span>`;
+  } catch(e) {
+    document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load congressional data: ${e.message}</div><button onclick="loadCongress()" style="margin-top:10px;padding:6px 16px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:4px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ RETRY</button></div></td></tr>`;
+  }
+}
+
 async function loadScreener(retryAttempt = 0) {
+  // Gov Official filter uses a completely different data source (STOCK Act / congress-worker)
+  if (state.activeRole === 'Gov') { loadCongress(); return; }
   state.minVal = parseInt(document.getElementById('minVal').value) || 0;
   const days = state.days || 7;
   if (retryAttempt === 0) {
@@ -944,7 +1004,7 @@ async function loadScreener(retryAttempt = 0) {
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
-        if (state.activeRole === 'Gov')  return isGovOfficial(t.title||t.insider, t.company);
+        // 'Gov' is handled by loadCongress() before reaching here
         return true;
       });
     }
