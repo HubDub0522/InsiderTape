@@ -234,34 +234,6 @@ try {
   )`);
 } catch(e) { console.warn('sync_log table init warning:', e.message); }
 
-// gov_trades — STOCK Act congressional disclosure data
-// Separate from `trades` because the data has different fields (amount ranges,
-// chamber, no SEC accession number) and is sourced from the community S3 feeds,
-// not EDGAR Form 4.
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS gov_trades (
-      id                INTEGER PRIMARY KEY AUTOINCREMENT,
-      chamber           TEXT NOT NULL,
-      member            TEXT NOT NULL,
-      ticker            TEXT,
-      asset_description TEXT,
-      transaction_type  TEXT,
-      transaction_date  TEXT,
-      disclosure_date   TEXT,
-      amount_range      TEXT,
-      owner             TEXT,
-      filing_url        TEXT,
-      UNIQUE(chamber, member, ticker, transaction_date, transaction_type, amount_range)
-    )
-  `);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_ticker  ON gov_trades(ticker)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_member  ON gov_trades(member)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_td      ON gov_trades(transaction_date DESC)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_chamber ON gov_trades(chamber)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_dd      ON gov_trades(disclosure_date DESC)`);
-} catch(e) { console.warn('gov_trades table init warning:', e.message); }
-
 // ─── SYNC via child process ────────────────────────────────────
 let syncRunning = false;
 const syncLog   = [];
@@ -414,158 +386,6 @@ function runBackfillNow(daysBack = 7) {
 }
 
 
-// ─── CONGRESS SYNC (STOCK Act) ────────────────────────────────────────────────
-// Fetches Senate + House STOCK Act trade data from FMP's congressional trading
-// endpoints. Requires FMP_KEY to be set. If the key doesn't have access (402),
-// the sync logs a clear actionable message.
-let congressRunning = false;
-
-function normCongressDate(raw) {
-  if (!raw || raw === '--') return null;
-  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  return null;
-}
-function normCongressType(raw = '') {
-  const t = (raw || '').trim().toLowerCase();
-  if (t === 'buy' || t === 'purchase' || t === 'p') return 'P';
-  if (t === 'sell' || t === 'sale' || t === 'sold' || t === 's') return 'S';
-  return (raw || '').slice(0, 20);
-}
-function normCongressTicker(raw = '') {
-  const t = (raw || '').trim().toUpperCase().replace(/^[A-Z]+:\s*/, '').slice(0, 10);
-  if (!t || t === '--' || t === 'N/A' || t === 'NA') return '--';
-  return t;
-}
-
-const _congressInsert = db.prepare(`
-  INSERT OR IGNORE INTO gov_trades
-    (chamber, member, ticker, asset_description, transaction_type,
-     transaction_date, disclosure_date, amount_range, owner, filing_url)
-  VALUES
-    (@chamber, @member, @ticker, @asset_description, @transaction_type,
-     @transaction_date, @disclosure_date, @amount_range, @owner, @filing_url)
-`);
-const _congressInsertMany = db.transaction(rows => {
-  let n = 0;
-  for (const r of rows) n += _congressInsert.run(r).changes;
-  return n;
-});
-
-// Fetch multiple pages from an FMP endpoint until empty or maxPages reached
-async function fetchFMPCongress(endpoint, chamber, maxPages = 20) {
-  const key = FMP;
-  if (!key) throw new Error('FMP_KEY not set — cannot fetch congressional data');
-
-  const rows = [];
-  for (let page = 0; page < maxPages; page++) {
-    const url = `https://financialmodelingprep.com/stable/${endpoint}?page=${page}&apikey=${key}`;
-    const { status, body } = await get(url, 30000);
-
-    if (status === 401 || status === 403) throw new Error(`FMP API key rejected (HTTP ${status}) — check FMP_KEY is valid`);
-    if (status === 402) throw new Error(`FMP plan does not include congressional data (HTTP 402) — upgrade to FMP Premium at financialmodelingprep.com/pricing-plans`);
-    if (status !== 200) throw new Error(`FMP ${endpoint} HTTP ${status}`);
-
-    let data;
-    try { data = JSON.parse(body.toString('utf8')); } catch(e) { throw new Error(`FMP JSON parse failed: ${e.message}`); }
-
-    // FMP returns [] or { "Error Message": "..." } when exhausted
-    if (!Array.isArray(data) || data.length === 0) break;
-    if (data[0] && data[0]['Error Message']) throw new Error(`FMP error: ${data[0]['Error Message']}`);
-
-    for (const tx of data) {
-      // Senate fields: firstName, lastName, ticker, assetDescription, type,
-      //   transactionDate, disclosureDate, amount, owner, link
-      // House fields: representative, ticker, assetDescription, type,
-      //   transactionDate, disclosureDate, amount, owner, link, district
-      const member = chamber === 'S'
-        ? `${tx.firstName || ''} ${tx.lastName || ''}`.trim()
-        : (tx.representative || '').trim();
-
-      rows.push({
-        chamber,
-        member: member.slice(0, 100),
-        ticker: normCongressTicker(tx.ticker),
-        asset_description: (tx.assetDescription || tx.asset || '').slice(0, 200),
-        transaction_type: normCongressType(tx.type || tx.transactionType || ''),
-        transaction_date: normCongressDate(tx.transactionDate || tx.date || ''),
-        disclosure_date: normCongressDate(tx.disclosureDate || ''),
-        amount_range: (tx.amount || '').slice(0, 50),
-        owner: (tx.owner || '').slice(0, 30),
-        filing_url: (tx.link || tx.filingUrl || '').slice(0, 300),
-      });
-    }
-
-    slog(`[congress] ${chamber} page ${page}: +${data.length} (total so far: ${rows.length})`);
-    if (data.length < 100) break; // last page (FMP pages are 100 items)
-  }
-  return rows;
-}
-
-async function runCongressSync() {
-  if (congressRunning) { slog('[congress] already running, skipping'); return; }
-  if (!FMP) {
-    slog('[congress] No FMP key found — checked FMP_KEY, FMP_API_KEY, FMPCLOUD_KEY, FMP env vars. Set one in Render dashboard to enable congressional data.');
-    return { senate: 0, house: 0, errors: ['No FMP key found in environment'] };
-  }
-  congressRunning = true;
-  slog('[congress] === starting STOCK Act sync via FMP ===');
-
-  const results = { senate: 0, house: 0, errors: [] };
-
-  // ── Senate ──────────────────────────────────────────────────────
-  try {
-    slog('[congress] fetching Senate trades from FMP…');
-    const rows = await fetchFMPCongress('senate-trading', 'S');
-    results.senate = _congressInsertMany(rows);
-    slog(`[congress] Senate: ${rows.length} fetched, ${results.senate} new inserted`);
-  } catch(e) {
-    slog(`[congress] Senate ERROR: ${e.message}`);
-    results.errors.push('senate: ' + e.message);
-  }
-
-  // ── House ───────────────────────────────────────────────────────
-  try {
-    slog('[congress] fetching House trades from FMP…');
-    const rows = await fetchFMPCongress('house-trading', 'H');
-    results.house = _congressInsertMany(rows);
-    slog(`[congress] House: ${rows.length} fetched, ${results.house} new inserted`);
-  } catch(e) {
-    slog(`[congress] House ERROR: ${e.message}`);
-    results.errors.push('house: ' + e.message);
-  }
-
-  congressRunning = false;
-  slog(`[congress] === sync complete: +${results.senate} senate, +${results.house} house${results.errors.length ? ' | ERRORS: ' + results.errors.join('; ') : ''} ===`);
-  return results;
-}
-
-// Schedule daily at 8:05am ET
-function scheduleCongressDaily() {
-  const now = new Date();
-  const etOffset = (() => {
-    const y = now.getUTCFullYear();
-    const dstStart = new Date(Date.UTC(y, 2, 8));
-    dstStart.setUTCDate(8 + (7 - dstStart.getUTCDay()) % 7);
-    dstStart.setUTCHours(7, 0, 0, 0);
-    const dstEnd = new Date(Date.UTC(y, 10, 1));
-    dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7);
-    dstEnd.setUTCHours(6, 0, 0, 0);
-    return (now >= dstStart && now < dstEnd) ? -4 : -5;
-  })();
-  const target = new Date(now);
-  target.setUTCHours(8 - etOffset, 5, 0, 0);
-  if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-  const ms = Math.max(target - now, 60000);
-  slog(`[congress] next sync in ${Math.round(ms / 3600000 * 10) / 10}h`);
-  setTimeout(() => { runCongressSync(); scheduleCongressDaily(); }, ms);
-}
-
-// Initial run (10s delay to let server settle)
-setTimeout(() => { runCongressSync().catch(e => slog('[congress] startup sync failed: ' + e.message)); scheduleCongressDaily(); }, 10000);
-
-
 // SCREENER
 app.get('/api/screener', (req, res) => {
   try {
@@ -630,53 +450,6 @@ app.get('/api/screener', (req, res) => {
     }
 
     res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// CONGRESS — STOCK Act congressional trade disclosures
-// Queries gov_trades table which is populated by congress-worker.js
-// Params: days (default 90), limit (default 500), ticker, member, chamber (S|H), type (P|S)
-app.get('/api/congress', (req, res) => {
-  try {
-    const days    = Math.min(Math.max(parseInt(req.query.days,   10) || 90,   1), 1825);
-    const limit   = Math.min(Math.max(parseInt(req.query.limit,  10) || 500,  1), 5000);
-    const ticker  = (req.query.ticker  || '').toUpperCase().slice(0, 10) || null;
-    const member  = (req.query.member  || '').slice(0, 100) || null;
-    const chamber = (req.query.chamber || '').toUpperCase().slice(0, 1)  || null;
-    const type    = (req.query.type    || '').toUpperCase().slice(0, 1)  || null;
-
-    // Check if table is populated
-    let total = 0;
-    try { total = db.prepare('SELECT COUNT(*) AS n FROM gov_trades').get().n; } catch { total = 0; }
-
-    if (total === 0) {
-      return res.json({ syncing: true, message: 'Congressional data is loading — check back in a minute.', trades: [] });
-    }
-
-    const conditions = [`(transaction_date >= date('now', '-' || ? || ' days') OR disclosure_date >= date('now', '-' || ? || ' days'))`];
-    const params = [days, days];
-
-    if (ticker)  { conditions.push(`ticker = ?`);               params.push(ticker); }
-    if (member)  { conditions.push(`member LIKE ?`);            params.push(`%${member}%`); }
-    if (chamber) { conditions.push(`chamber = ?`);              params.push(chamber); }
-    if (type)    { conditions.push(`transaction_type = ?`);     params.push(type); }
-
-    // Only include known tickers unless explicitly filtering by member/ticker
-    if (!ticker && !member) {
-      conditions.push(`ticker != '--' AND ticker IS NOT NULL AND LENGTH(ticker) BETWEEN 1 AND 10`);
-    }
-
-    const where = conditions.join(' AND ');
-    const rows = db.prepare(`
-      SELECT chamber, member, ticker, asset_description, transaction_type,
-             transaction_date, disclosure_date, amount_range, owner, filing_url
-      FROM gov_trades
-      WHERE ${where}
-      ORDER BY COALESCE(transaction_date, disclosure_date) DESC
-      LIMIT ?
-    `).all(...params, limit);
-
-    res.json({ total, trades: rows });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1482,15 +1255,6 @@ app.get('/api/debug', (req, res) => {
       LIMIT 50
     `).all();
 
-    // gov_trades stats
-    let govStats = { total: 0, senate: 0, house: 0, latest: null };
-    try {
-      govStats.total   = db.prepare('SELECT COUNT(*) AS n FROM gov_trades').get().n;
-      govStats.senate  = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='S'").get().n;
-      govStats.house   = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='H'").get().n;
-      govStats.latest  = db.prepare('SELECT MAX(disclosure_date) AS d FROM gov_trades').get().d;
-    } catch { /* table may not exist yet */ }
-
     res.json({
       db_path: DB_PATH,
       total_rows: total,
@@ -1505,12 +1269,10 @@ app.get('/api/debug', (req, res) => {
       screener_query_test: screenerTest || { ok: false, error: screenerError },
       name_sample: nameSample.slice(0, 20),
       gov_search: govSearch,
-      gov_trades: govStats,
       server_version: 'v1.2',
       sync_running: syncRunning,
       daily_running: dailyRunning,
       backfill_running: backfillRunning,
-      congress_running: congressRunning,
     });
   } catch(e) { res.status(500).json({ error: e.message, db_path: DB_PATH }); }
 });
@@ -2115,42 +1877,6 @@ app.get('/api/admin/daily', (req, res) => {
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ERR: ' + l)));
   worker.on('exit', code => { dailyRunning = false; slog(`manual-daily exited (${code})`); });
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
-});
-
-// GET /api/admin/congress — trigger congress sync manually and wait for result
-app.get('/api/admin/congress', async (req, res) => {
-  if (requireAdminSecret(req, res)) return;
-  if (congressRunning) return res.json({ ok: false, message: 'Already running' });
-  try {
-    const results = await runCongressSync();
-    res.json({ ok: true, results });
-  } catch(e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// GET /api/congress-status — diagnostic: what's in gov_trades + recent sync log lines
-app.get('/api/congress-status', (req, res) => {
-  try {
-    let stats = { total: 0, senate: 0, house: 0, latest_td: null, latest_dd: null, sample: [] };
-    try {
-      stats.total    = db.prepare('SELECT COUNT(*) AS n FROM gov_trades').get().n;
-      stats.senate   = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='S'").get().n;
-      stats.house    = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='H'").get().n;
-      stats.latest_td = db.prepare('SELECT MAX(transaction_date) AS d FROM gov_trades').get().d;
-      stats.latest_dd = db.prepare('SELECT MAX(disclosure_date) AS d FROM gov_trades').get().d;
-      stats.sample   = db.prepare('SELECT * FROM gov_trades ORDER BY id DESC LIMIT 5').all();
-    } catch(e) { stats.error = e.message; }
-    const recentLogs = syncLog.filter(l => l.toLowerCase().includes('congress')).slice(-30);
-    const envCheck = {
-      FMP_KEY: !!process.env.FMP_KEY,
-      FMP_API_KEY: !!process.env.FMP_API_KEY,
-      FMPCLOUD_KEY: !!process.env.FMPCLOUD_KEY,
-      FMP: !!process.env.FMP,
-      fmp_resolved: !!FMP,
-    };
-    res.json({ congress_running: congressRunning, stats, recent_logs: recentLogs, env_check: envCheck });
-  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 
