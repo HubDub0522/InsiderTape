@@ -1085,10 +1085,10 @@ function renderScreener() {
   // Build the set of page numbers to show: always first, last, and window around current
   const pageNums = new Set([1, pages]);
   for (let i = Math.max(1, cur-2); i <= Math.min(pages, cur+2); i++) pageNums.add(i);
-  const sorted = [...pageNums].sort((a,b)=>a-b);
+  const pageList = [...pageNums].sort((a,b)=>a-b);
   let pgHtml = `<button class="page-btn" onclick="changePage(${cur-1})" ${cur===1?'disabled':''}>← Prev</button>`;
   let prev = 0;
-  sorted.forEach(p => {
+  pageList.forEach(p => {
     if (p - prev > 1) pgHtml += `<span style="color:var(--muted);padding:0 6px">…</span>`;
     pgHtml += `<button class="page-btn ${p===cur?'active':''}" onclick="changePage(${p})">${p}</button>`;
     prev = p;
