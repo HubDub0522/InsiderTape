@@ -635,19 +635,19 @@ function showToast(msg, isError=false) {
 function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
 // Detect government officials (Senators, Representatives, federal officers)
-// Government official detection.
-// IMPORTANT: We only match titles that are unambiguously governmental.
-// "President" and "Vice President" are intentionally EXCLUDED — they are extremely
-// common corporate titles (President & CEO, VP of Finance, etc.) and would produce
-// massive false positives. Government senators/reps/governors have those specific titles.
-const GOV_TITLES = /\b(senator|representative|congressman|congresswoman|attorney\s*general|governor|secretary\s+of\s+(state|treasury|defense|commerce|labor|energy|education|transportation)|comptroller\s+of\s+the\s+currency|member\s+of\s+congress)\b/i;
-
-// Verified current and recent government officials who trade under STOCK Act.
-// These are exact full names as they appear in STOCK Act disclosures.
-const GOV_NAMES = /^(nancy pelosi|paul pelosi|mitch mcconnell|kevin mccarthy|chuck schumer|elizabeth warren|bernie sanders|mark kelly|tommy tuberville|dan sullivan|sheldon whitehouse|ron wyden|pat roberts|richard burr|kelly loeffler|david perdue|jim inhofe|john boozman|marsha blackburn|bill hagerty|thom tillis|mike crapo|james risch|john barrasso|roger wicker|cindy hyde-smith|john kennedy|bill cassidy|john cornyn|ted cruz|mike rounds|john thune|jerry moran|rob portman|sherrod brown|tim scott|lindsey graham|dianne feinstein|alex padilla|mark warner|tim kaine|ben cardin|chris van hollen|chris coons|tom carper|joe manchin|shelley moore capito|patrick leahy|peter welch|angus king|susan collins|jack reed|bob casey|pat toomey|dick durbin|tammy duckworth|todd young|mike braun|chuck grassley|joni ernst|gary peters|debbie stabenow|amy klobuchar|tina smith|jon tester|steve daines|deb fischer|jeff merkley|bob menendez|cory booker|martin heinrich|ben ray lujan|kirsten gillibrand|richard blumenthal|chris murphy|michael bennet|john hickenlooper|brian schatz|mazie hirono|mike lee|mitt romney|rand paul|ro khanna|eric swalwell|brad sherman|virginia foxx|patrick mchenry|greg meeks|maxine waters)$/i;
-function isGovOfficial(titleOrName) {
+// Strategy (in priority order):
+// 1. Company/issuer name — STOCK Act filings use "U.S. Senate" / "U.S. House of Representatives"
+//    as the issuer. This is the most reliable signal and catches everyone automatically.
+// 2. Title field — covers cases where a title like "U.S. Senator" is explicitly set.
+//    "President" and "Vice President" are intentionally EXCLUDED — common corporate titles.
+// 3. Name list — fallback for well-known officials whose title/company may vary.
+const GOV_ISSUERS = /\b(u\.?s\.?\s+senate|u\.?s\.?\s+house\s+of\s+representatives?|united\s+states\s+senate|united\s+states\s+house|congress\s+of\s+the\s+united\s+states)\b/i;
+const GOV_TITLES  = /\b(senator|representative|congressman|congresswoman|attorney\s*general|secretary\s+of\s+(state|treasury|defense|commerce|labor|energy|education|transportation)|comptroller\s+of\s+the\s+currency|member\s+of\s+congress)\b/i;
+const GOV_NAMES = /^(nancy pelosi|paul pelosi|mitch mcconnell|kevin mccarthy|chuck schumer|elizabeth warren|bernie sanders|mark kelly|tommy tuberville|dan sullivan|sheldon whitehouse|ron wyden|richard burr|kelly loeffler|david perdue|jim inhofe|john boozman|marsha blackburn|bill hagerty|thom tillis|mike crapo|james risch|john barrasso|roger wicker|cindy hyde-smith|john kennedy|bill cassidy|john cornyn|ted cruz|mike rounds|john thune|jerry moran|rob portman|sherrod brown|tim scott|lindsey graham|dianne feinstein|alex padilla|mark warner|tim kaine|ben cardin|chris van hollen|chris coons|tom carper|joe manchin|shelley moore capito|patrick leahy|peter welch|angus king|susan collins|jack reed|dick durbin|tammy duckworth|todd young|mike braun|chuck grassley|joni ernst|gary peters|debbie stabenow|amy klobuchar|tina smith|jon tester|steve daines|deb fischer|jeff merkley|bob menendez|cory booker|martin heinrich|ben ray lujan|kirsten gillibrand|richard blumenthal|chris murphy|michael bennet|john hickenlooper|brian schatz|mazie hirono|mike lee|mitt romney|rand paul|ro khanna|eric swalwell|brad sherman|virginia foxx|patrick mchenry|greg meeks|maxine waters|josh gottheimer|michael mccaul|french hill|dean phillips|greg landsman|pat fallon|bill foster|donald beyer|pete sessions|maria cantwell|raphael warnock|jon ossoff|marco rubio|rick scott|katie porter|adam schiff|laphonza butler|jacky rosen|catherine cortez masto|ruben gallego|andy kim|barry moore|ralph norman|jeff van drew|scott perry|mike garcia|david valadao|tom emmer|jim banks|jim jordan|kevin hern|blaine luetkemeyer|bill huizenga|ann wagner|andy barr|roger williams|david kustoff|bryan steil|lance gooden|jim himes|carolyn maloney|bill pascrell|mikie sherrill|bonnie watson coleman|diana degette|jason crow|joe neguse|ed perlmutter|john garamendi|mike thompson|jared huffman|mike quigley|steny hoyer|dutch ruppersberger|jamie raskin|david trone|adam smith|rick larsen|suzan delbene|pramila jayapal|derek kilmer|kim schrier|marilyn strickland|brian higgins|claudia tenney|elise stefanik|tom reed|paul tonko|josh harder|jerry mcnerney|doris matsui|ami bera|mark desaulnier|jackie speier|anna eshoo|zoe lofgren|jimmy panetta|alan lowenthal|mike levin|darrell issa|scott peters|juan vargas|sara jacobs)$/i;
+function isGovOfficial(titleOrName, company) {
+  if (company && GOV_ISSUERS.test(company)) return true;
   if (!titleOrName) return false;
-  return GOV_TITLES.test(titleOrName) || GOV_NAMES.test(titleOrName);
+  return GOV_TITLES.test(titleOrName) || GOV_NAMES.test(titleOrName.trim());
 }
 
 function switchView(view, btn, opts={}) {
@@ -934,7 +934,7 @@ async function loadScreener(retryAttempt = 0) {
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
-        if (state.activeRole === 'Gov')  return isGovOfficial(title) || isGovOfficial(t.insider || '');
+        if (state.activeRole === 'Gov')  return isGovOfficial(t.title || '', t.company) || isGovOfficial(t.insider || '', t.company);
         return true;
       });
     }
@@ -1079,7 +1079,7 @@ function renderScreener() {
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${edgarLink}</td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider, t.company)?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale — lower signal value" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
