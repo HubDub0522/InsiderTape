@@ -617,12 +617,14 @@ function insiderRoleBadge(title) {
 // Ownership % change — shows trade as % of post-trade position
 // (qty / owned) × 100 = % of current holdings this trade represents
 function insiderOwnershipPct(t) {
-  if (!t.qty || !t.owned || t.owned <= 0) return '';
-  const pct = (t.qty / t.owned * 100);
-  if (pct < 0.5) return ''; // too small to be meaningful
-  const color = t.type === 'P' ? 'var(--buy)' : 'var(--sell)';
-  const label = pct >= 100 ? '>100' : pct.toFixed(pct >= 10 ? 0 : 1);
-  return `<span title="${t.type==='P'?'Buy':'Sale'} = ${label}% of position" style="display:block;font-size:9px;color:${color};font-family:Space Mono,monospace;margin-top:1px">${t.type==='P'?'+':'−'}${label}% pos</span>`;
+  try {
+    if (!t || !t.qty || !t.owned || t.owned <= 0) return '';
+    const pct = (t.qty / t.owned * 100);
+    if (pct < 0.5) return ''; // too small to be meaningful
+    const color = t.type === 'P' ? 'var(--buy)' : 'var(--sell)';
+    const label = pct >= 100 ? '>100' : pct.toFixed(pct >= 10 ? 0 : 1);
+    return `<span title="${t.type==='P'?'Buy':'Sale'} = ${label}% of position" style="display:block;font-size:9px;color:${color};font-family:Space Mono,monospace;margin-top:1px">${t.type==='P'?'+':'−'}${label}% pos</span>`;
+  } catch(_) { return ''; }
 }
 function showToast(msg, isError=false) {
   const t = document.getElementById('toast');
@@ -927,7 +929,6 @@ async function loadScreener() {
     state.screenerData = trades;
     state.currentPage = 1;
     renderScreener();
-    computeConvictionScores(trades);
   } catch(e) {
     document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load data: ${e.message}</div><button onclick="loadScreener()" style="margin-top:10px;padding:6px 16px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:4px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ RETRY</button></div></td></tr>`;
   }
@@ -1020,24 +1021,18 @@ function renderConvictionCards(trades) {
   }).join('');
 }
 
-function computeConvictionScores(trades) {
-  // No-op — conviction now lives on the Insider page dashboard
-}
 
 function renderScreener() {
   window.scrollTo(0, 0);
   const data = state.screenerData;
   const buys = data.filter(t => t.type==='P'), sells = data.filter(t => t.type==='S'||t.type==='S-');
   const totalBuyVal = buys.reduce((s,t)=>s+t.value,0), totalSellVal = sells.reduce((s,t)=>s+t.value,0);
-  const existingSummary = document.getElementById('summaryBar').innerHTML;
-  if (!existingSummary.includes('⚠')) {
-    document.getElementById('summaryBar').innerHTML = `
-      <div class="summary-card"><div class="summary-card-label">Total Trades</div><div class="summary-card-val" style="color:var(--text)">${data.length}</div></div>
-      <div class="summary-card"><div class="summary-card-label">Buy Volume</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div></div>
-      <div class="summary-card"><div class="summary-card-label">Sell Volume</div><div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div></div>
-      <div class="summary-card"><div class="summary-card-label">Buy/Sell Ratio</div><div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length?(buys.length/sells.length).toFixed(2):'∞'}x</div></div>
-      <div class="summary-card"><div class="summary-card-label">Unique Tickers</div><div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div></div>`;
-  }
+  document.getElementById('summaryBar').innerHTML = `
+    <div class="summary-card"><div class="summary-card-label">Total Trades</div><div class="summary-card-val" style="color:var(--text)">${data.length}</div></div>
+    <div class="summary-card"><div class="summary-card-label">Buy Volume</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div></div>
+    <div class="summary-card"><div class="summary-card-label">Sell Volume</div><div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div></div>
+    <div class="summary-card"><div class="summary-card-label">Buy/Sell Ratio</div><div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length?(buys.length/sells.length).toFixed(2):'∞'}x</div></div>
+    <div class="summary-card"><div class="summary-card-label">Unique Tickers</div><div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div></div>`;
   const latestTrade = data.reduce((best, t) => { const d = t.trade || t.filing || ''; return d > best ? d : best; }, '');
   const latestLabel = latestTrade ? `latest filing ${fmtDate(latestTrade)}` : `refreshed ${new Date().toLocaleTimeString()}`;
   document.getElementById('screenerMeta').textContent = `${data.length} filings · ${latestLabel}`;
@@ -1072,10 +1067,19 @@ function renderScreener() {
   }).join('');
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
-  let pgHtml = `<button class="page-btn" onclick="changePage(${state.currentPage-1})" ${state.currentPage===1?'disabled':''}>← Prev</button>`;
-  for (let i=1;i<=Math.min(pages,7);i++) pgHtml+=`<button class="page-btn ${i===state.currentPage?'active':''}" onclick="changePage(${i})">${i}</button>`;
-  if (pages>7) pgHtml+=`<span style="color:var(--muted);padding:0 8px">...</span>`;
-  pgHtml+=`<button class="page-btn" onclick="changePage(${state.currentPage+1})" ${state.currentPage===pages?'disabled':''}>Next →</button>`;
+  const cur = state.currentPage;
+  // Build the set of page numbers to show: always first, last, and window around current
+  const pageNums = new Set([1, pages]);
+  for (let i = Math.max(1, cur-2); i <= Math.min(pages, cur+2); i++) pageNums.add(i);
+  const sorted = [...pageNums].sort((a,b)=>a-b);
+  let pgHtml = `<button class="page-btn" onclick="changePage(${cur-1})" ${cur===1?'disabled':''}>← Prev</button>`;
+  let prev = 0;
+  sorted.forEach(p => {
+    if (p - prev > 1) pgHtml += `<span style="color:var(--muted);padding:0 6px">…</span>`;
+    pgHtml += `<button class="page-btn ${p===cur?'active':''}" onclick="changePage(${p})">${p}</button>`;
+    prev = p;
+  });
+  pgHtml+=`<button class="page-btn" onclick="changePage(${cur+1})" ${cur===pages?'disabled':''}>Next →</button>`;
   pg.innerHTML = pgHtml;
 }
 function changePage(p) { state.currentPage=p; renderScreener(); }
@@ -4877,7 +4881,7 @@ function renderRankerCard(r, idx) {
 
     <!-- Factors list -->
     <div style="padding:12px 18px;display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start">
-      ${r.factors.map(f => {
+      ${(r.factors||[]).map(f => {
         const isWarn = f.startsWith('⚠');
         return `<div style="display:flex;align-items:center;gap:5px;background:${isWarn ? 'rgba(255,68,102,0.06)' : 'rgba(255,255,255,0.03)'};border:1px solid ${isWarn ? 'rgba(255,68,102,0.2)' : 'var(--border)'};border-radius:4px;padding:4px 9px">
           <span style="font-size:10px;color:${isWarn ? 'var(--sell)' : 'var(--buy)'}">${isWarn ? '⚠' : '✓'}</span>
@@ -6137,12 +6141,6 @@ async function switchSectorDays(days) {
   await loadSectorsPage();
 }
 
-async function switchSectorDays(days) {
-  _sectorDays = days;
-  _sectorCache = null;
-  await loadSectorsPage();
-}
-
 // ════════════════════════════════════════════════════════════════
 // ── COMPARISON TOOL ─────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════
@@ -6152,6 +6150,7 @@ let _compareLoading  = new Set();
 
 const COMPARE_COLORS = ['var(--accent)', 'var(--buy)', 'var(--option)', 'var(--sell)'];
 const COMPARE_COLORS_HEX = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4466'];
+const COMPARE_COLORS_RGBA10 = ['rgba(0,212,255,0.1)', 'rgba(0,255,136,0.1)', 'rgba(255,170,0,0.1)', 'rgba(255,68,102,0.1)'];
 
 function loadComparePage() {
   window.scrollTo(0, 0);
@@ -6180,7 +6179,7 @@ function renderComparePage() {
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
           <!-- Existing ticker pills -->
           ${_compareTickers.map((t, i) => `
-            <div style="display:flex;align-items:center;gap:0;background:rgba(${COMPARE_COLORS_HEX[i].slice(1).match(/../g).map(h=>parseInt(h,16)).join(',')},0.1);
+            <div style="display:flex;align-items:center;gap:0;background:${COMPARE_COLORS_RGBA10[i]};
                         border:1px solid ${COMPARE_COLORS[i]};border-radius:8px;overflow:hidden">
               <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${COMPARE_COLORS[i]};padding:8px 14px">${t}</span>
               <button onclick="removeCompareTicker('${t}')" style="background:transparent;border:none;border-left:1px solid ${COMPARE_COLORS[i]}33;color:${COMPARE_COLORS[i]};cursor:pointer;padding:8px 10px;font-size:12px;opacity:0.7;transition:opacity .15s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">✕</button>
@@ -6596,7 +6595,7 @@ function renderWatchlistPage(data) {
     })();
     const uniqueBuyers = new Set(buys.map(t => t.insider)).size;
     const sentiment = buyVal + sellVal > 0 ? Math.round(buyVal / (buyVal + sellVal) * 100) : null;
-    const recentBuys = buys.filter(t => (now - new Date(t.trade || t.filing)) < 30 * 86400000);
+    const recentBuys = buys.filter(t => (now - new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z')) < 30 * 86400000);
 
     return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:border-color .15s"
@@ -6757,48 +6756,58 @@ const MONITOR_TYPES = [
 // Returns true if US markets are currently open (9:30–16:00 ET, Mon–Fri)
 function isMarketOpen() {
   const now = new Date();
-  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const day = et.getDay(); // 0=Sun, 6=Sat
-  if (day === 0 || day === 6) return false;
-  const mins = et.getHours() * 60 + et.getMinutes();
+  const etParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(now);
+  const p = {};
+  etParts.forEach(({ type, value }) => { p[type] = value; });
+  const wd = p.weekday; // 'Sun','Mon'…'Sat'
+  if (wd === 'Sun' || wd === 'Sat') return false;
+  const mins = parseInt(p.hour, 10) * 60 + parseInt(p.minute, 10);
   return mins >= 570 && mins < 960; // 9:30am–4:00pm ET
 }
 
 // Returns ISO date of most recent trading day (today if market open or after close on weekday, else prior Friday/weekday)
 function lastTradingDate() {
   const now = new Date();
-  // Get ET wall-clock time
-  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });
-  const et = new Date(etStr);
-  const day  = et.getDay();   // 0=Sun, 1=Mon … 6=Sat
-  const mins = et.getHours() * 60 + et.getMinutes();
-  const isWeekday = day >= 1 && day <= 5;
+  // Use Intl.DateTimeFormat to extract ET date parts directly — avoids the
+  // new Date(localeString) trap which parses into local timezone, not ET.
+  const etParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(now);
+  const p = {};
+  etParts.forEach(({ type, value }) => { p[type] = value; });
+  const year  = parseInt(p.year,  10);
+  const month = parseInt(p.month, 10);
+  const day   = parseInt(p.day,   10);
+  const hour  = parseInt(p.hour,  10); // 0–23
+  const min   = parseInt(p.minute,10);
+  // day-of-week: build a Date at noon ET to avoid DST edge cases
+  const etNoon = new Date(Date.UTC(year, month - 1, day, 17, 0, 0)); // noon ET ≈ UTC+5 EST
+  const dow    = etNoon.getUTCDay(); // 0=Sun, 6=Sat
+  const isWeekday = dow >= 1 && dow <= 5;
+  const mins      = hour * 60 + min;
   const afterOpen = mins >= 570; // 9:30am ET
 
-  // Helper: format a Date (local) as YYYY-MM-DD without UTC conversion
-  function localISO(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${dd}`;
+  function isoStr(y, mo, d) {
+    return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   }
 
-  if (isWeekday && afterOpen) {
-    // During or after market hours on a weekday — today is valid
-    return localISO(et);
-  }
-  // Before open, or weekend — roll back to last weekday
-  const d = new Date(et);
-  do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6);
-  return localISO(d);
+  if (isWeekday && afterOpen) return isoStr(year, month, day);
+
+  // Roll back to last weekday
+  const d = new Date(Date.UTC(year, month - 1, day));
+  do { d.setUTCDate(d.getUTCDate() - 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return isoStr(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
 }
 
-// Same helper used in runMonitorWindow
+// Helper: format a UTC Date as YYYY-MM-DD (used in runMonitorWindow)
 function etLocalISO(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
+  return d.toISOString().slice(0, 10);
 }
 
 async function loadMonitorPage() {
@@ -6889,6 +6898,29 @@ async function runMonitorWindow(tab, body) {
   window.scrollTo(0, 0);
   const label = tab === 'today' ? 'today' : tab === 'week' ? 'this week' : 'this month';
 
+  // Helper: get current week start (Monday) as ISO string
+  function currentWeekStart() {
+    const etParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
+    }).formatToParts(new Date());
+    const ep = {};
+    etParts.forEach(({ type, value }) => { ep[type] = value; });
+    const etUTC = new Date(Date.UTC(parseInt(ep.year), parseInt(ep.month)-1, parseInt(ep.day)));
+    const dow = etUTC.getUTCDay();
+    const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+    etUTC.setUTCDate(etUTC.getUTCDate() - daysSinceMonday);
+    return etLocalISO(etUTC);
+  }
+  // Helper: get current month-30d window key
+  function currentMonthKey() {
+    const etParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
+    }).formatToParts(new Date());
+    const ep = {};
+    etParts.forEach(({ type, value }) => { ep[type] = value; });
+    return `${ep.year}-${ep.month}`; // YYYY-MM, changes at month boundary
+  }
+
   // Invalidate today-tab cache if it's a new trading day
   if (tab === 'today' && _monitorCache['today']) {
     const cachedDate = _monitorCache['_todayDate'];
@@ -6896,6 +6928,22 @@ async function runMonitorWindow(tab, body) {
     if (cachedDate !== currentDate) {
       delete _monitorCache['today'];
       delete _monitorCache['_todayDate'];
+    }
+  }
+
+  // Invalidate week-tab cache if the week has rolled over
+  if (tab === 'week' && _monitorCache['week']) {
+    if (_monitorCache['_weekKey'] !== currentWeekStart()) {
+      delete _monitorCache['week'];
+      delete _monitorCache['_weekKey'];
+    }
+  }
+
+  // Invalidate month-tab cache if the calendar month has changed
+  if (tab === 'month' && _monitorCache['month']) {
+    if (_monitorCache['_monthKey'] !== currentMonthKey()) {
+      delete _monitorCache['month'];
+      delete _monitorCache['_monthKey'];
     }
   }
 
@@ -6914,18 +6962,27 @@ async function runMonitorWindow(tab, body) {
       displayCutStr = lastTradingDate();
       _monitorCache['_todayDate'] = displayCutStr;
     } else if (tab === 'week') {
-      const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-      const et = new Date(etStr);
-      const dayOfWeek = et.getDay();
-      const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      const monday = new Date(et);
-      monday.setDate(et.getDate() - daysSinceMonday);
+      // Get current ET date via Intl — same approach as lastTradingDate()
+      const etParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
+      }).formatToParts(new Date());
+      const ep = {};
+      etParts.forEach(({ type, value }) => { ep[type] = value; });
+      const etUTC = new Date(Date.UTC(parseInt(ep.year), parseInt(ep.month)-1, parseInt(ep.day)));
+      const dow = etUTC.getUTCDay();
+      const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+      const monday = new Date(etUTC);
+      monday.setUTCDate(etUTC.getUTCDate() - daysSinceMonday);
       displayCutStr = etLocalISO(monday);
     } else {
-      const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-      const et = new Date(etStr);
-      et.setDate(et.getDate() - 30);
-      displayCutStr = etLocalISO(et);
+      const etParts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
+      }).formatToParts(new Date());
+      const ep = {};
+      etParts.forEach(({ type, value }) => { ep[type] = value; });
+      const etUTC = new Date(Date.UTC(parseInt(ep.year), parseInt(ep.month)-1, parseInt(ep.day)));
+      etUTC.setUTCDate(etUTC.getUTCDate() - 30);
+      displayCutStr = etLocalISO(etUTC);
     }
 
     let firstBuys = [];
@@ -6940,6 +6997,8 @@ async function runMonitorWindow(tab, body) {
 
     const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, drift, displayCutStr);
     _monitorCache[tab] = alerts;
+    if (tab === 'week')  _monitorCache['_weekKey']  = currentWeekStart();
+    if (tab === 'month') _monitorCache['_monthKey'] = currentMonthKey();
 
     const displayLabel = tab === 'today'
       ? `on ${fmtDate(displayCutStr)}${isMarketOpen() ? ' (live)' : ''}`
@@ -6988,15 +7047,15 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
   } catch(e) {}
 
   // ── 3. First Buy in Years ─────────────────────────────────────
-  // buildFirstBuySignal returns: { ticker, company, insider, title, value, gapYears, latestTrade }
+  // buildFirstBuySignal returns: { ticker, company, insider, title, totalBuyVal, gapYears, latestDate }
   firstBuys.forEach(s => {
-    if (!s.ticker || !s.latestTrade || s.latestTrade < cutStr) return;
+    if (!s.ticker || !s.latestDate || s.latestDate < cutStr) return;
     alerts.push({
       ticker: s.ticker, company: s.company || s.ticker,
       type: 'FIRST BUY', icon: '🚨', color: 'var(--sell)',
       headline: `First buy in ${s.gapYears?.toFixed(1)||'?'}yr — ${s.insider}`,
-      detail: `${s.title||'Insider'} · ${fmt(s.value||0)} · gap: ${s.gapYears?.toFixed(1)}yrs`,
-      score: 85, date: s.latestTrade,
+      detail: `${s.title||'Insider'} · ${fmt(s.totalBuyVal||0)} · gap: ${s.gapYears?.toFixed(1)}yrs`,
+      score: 85, date: s.latestDate,
     });
   });
 
