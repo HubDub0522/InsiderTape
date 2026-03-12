@@ -55,7 +55,8 @@ function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,1
 
 // ── Rate-limited GET (max 8 req/sec to respect SEC limits) ───────
 const reqTimes = [];
-async function get(url, ms = 20000) {
+async function get(url, ms = 20000, _hops = 0) {
+  if (_hops > 5) throw new Error('Too many redirects');
   const now = Date.now();
   while (reqTimes.length && reqTimes[0] < now - 1000) reqTimes.shift();
   if (reqTimes.length >= 8) {
@@ -68,11 +69,14 @@ async function get(url, ms = 20000) {
       headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
       timeout: ms,
     }, res => {
-      if ([301,302,303].includes(res.statusCode) && res.headers.location)
-        return get(res.headers.location, ms).then(resolve).catch(reject);
+      if ([301,302,303].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        return get(res.headers.location, ms, _hops + 1).then(resolve).catch(reject);
+      }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+      res.on('error', reject);
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
