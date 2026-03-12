@@ -644,10 +644,20 @@ function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot
 const GOV_ISSUERS = /\b(u\.?s\.?\s+senate|u\.?s\.?\s+house\s+of\s+representatives?|united\s+states\s+senate|united\s+states\s+house|congress\s+of\s+the\s+united\s+states)\b/i;
 const GOV_TITLES  = /\b(senator|representative|congressman|congresswoman|attorney\s*general|secretary\s+of\s+(state|treasury|defense|commerce|labor|energy|education|transportation)|comptroller\s+of\s+the\s+currency|member\s+of\s+congress)\b/i;
 const GOV_NAMES = /^(nancy pelosi|paul pelosi|mitch mcconnell|kevin mccarthy|chuck schumer|elizabeth warren|bernie sanders|mark kelly|tommy tuberville|dan sullivan|sheldon whitehouse|ron wyden|richard burr|kelly loeffler|david perdue|jim inhofe|john boozman|marsha blackburn|bill hagerty|thom tillis|mike crapo|james risch|john barrasso|roger wicker|cindy hyde-smith|john kennedy|bill cassidy|john cornyn|ted cruz|mike rounds|john thune|jerry moran|rob portman|sherrod brown|tim scott|lindsey graham|dianne feinstein|alex padilla|mark warner|tim kaine|ben cardin|chris van hollen|chris coons|tom carper|joe manchin|shelley moore capito|patrick leahy|peter welch|angus king|susan collins|jack reed|dick durbin|tammy duckworth|todd young|mike braun|chuck grassley|joni ernst|gary peters|debbie stabenow|amy klobuchar|tina smith|jon tester|steve daines|deb fischer|jeff merkley|bob menendez|cory booker|martin heinrich|ben ray lujan|kirsten gillibrand|richard blumenthal|chris murphy|michael bennet|john hickenlooper|brian schatz|mazie hirono|mike lee|mitt romney|rand paul|ro khanna|eric swalwell|brad sherman|virginia foxx|patrick mchenry|greg meeks|maxine waters|josh gottheimer|michael mccaul|french hill|dean phillips|greg landsman|pat fallon|bill foster|donald beyer|pete sessions|maria cantwell|raphael warnock|jon ossoff|marco rubio|rick scott|katie porter|adam schiff|laphonza butler|jacky rosen|catherine cortez masto|ruben gallego|andy kim|barry moore|ralph norman|jeff van drew|scott perry|mike garcia|david valadao|tom emmer|jim banks|jim jordan|kevin hern|blaine luetkemeyer|bill huizenga|ann wagner|andy barr|roger williams|david kustoff|bryan steil|lance gooden|jim himes|carolyn maloney|bill pascrell|mikie sherrill|bonnie watson coleman|diana degette|jason crow|joe neguse|ed perlmutter|john garamendi|mike thompson|jared huffman|mike quigley|steny hoyer|dutch ruppersberger|jamie raskin|david trone|adam smith|rick larsen|suzan delbene|pramila jayapal|derek kilmer|kim schrier|marilyn strickland|brian higgins|claudia tenney|elise stefanik|tom reed|paul tonko|josh harder|jerry mcnerney|doris matsui|ami bera|mark desaulnier|jackie speier|anna eshoo|zoe lofgren|jimmy panetta|alan lowenthal|mike levin|darrell issa|scott peters|juan vargas|sara jacobs)$/i;
+function normalizeName(name) {
+  if (!name) return '';
+  // EDGAR stores names as "LAST, FIRST" — convert to "first last" for matching
+  if (name.includes(',')) {
+    const parts = name.split(',').map(s => s.trim());
+    return (parts[1] + ' ' + parts[0]).toLowerCase();
+  }
+  return name.trim().toLowerCase();
+}
 function isGovOfficial(titleOrName, company) {
   if (company && GOV_ISSUERS.test(company)) return true;
   if (!titleOrName) return false;
-  return GOV_TITLES.test(titleOrName) || GOV_NAMES.test(titleOrName.trim());
+  if (GOV_TITLES.test(titleOrName)) return true;
+  return GOV_NAMES.test(normalizeName(titleOrName));
 }
 
 function switchView(view, btn, opts={}) {
