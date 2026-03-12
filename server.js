@@ -1775,9 +1775,9 @@ app.get('/api/admin/daily', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   if (dailyRunning) return res.json({ ok: false, message: 'Daily worker already running' });
   dailyRunning = true;
-  const worker = require('child_process').spawn(
+  const worker = spawn(
     process.execPath,
-    ['--max-old-space-size=200', require('path').join(__dirname, 'daily-worker.js'), '7', 'poll'],
+    ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), '7', 'poll'],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ' + l)));
@@ -1827,6 +1827,10 @@ app.get('/api/rrg', async (req, res) => {
     const mode   = req.query.mode === 'tickers' ? 'tickers' : 'sectors';
     const weeks  = Math.min(parseInt(req.query.weeks || '12'), 26); // trail length
     const minVal = parseInt(req.query.minval || '50000');
+    // Optional comma-separated list of tickers to restrict tickers mode to
+    const customTickers = req.query.tickers
+      ? req.query.tickers.toUpperCase().split(',').map(t => t.trim()).filter(t => /^[A-Z]{1,6}$/.test(t)).slice(0, 40)
+      : [];
 
     // Build weekly buy-value series per sector or ticker over last N weeks
     // Week 0 = most recent completed week, week N-1 = oldest
@@ -1868,7 +1872,6 @@ app.get('/api/rrg', async (req, res) => {
     }
 
     // Map rows to weekly buckets per entity (sector or ticker)
-    const SECTOR_MAP_KEYS = Object.keys(TICKER_SECTOR_MAP);
     const entityWeekly = {}; // entity → { weekStr → { buy_val, sell_val, buyers } }
 
     rows.forEach(r => {
@@ -1881,6 +1884,8 @@ app.get('/api/rrg', async (req, res) => {
         if (!info) return;
         entities = [info[0]]; // sector name
       } else {
+        // In tickers mode: if caller specified a custom list, restrict to those tickers
+        if (customTickers.length && !customTickers.includes(r.ticker)) return;
         entities = [r.ticker];
       }
 
@@ -1905,7 +1910,6 @@ app.get('/api/rrg', async (req, res) => {
     const SMA_PERIOD = 4; // 4-week smoothing
     const MOM_LOOKBACK = 2; // compare to 2 periods ago
 
-    const trailData = {}; // entity → [{week, rsRatio, rsMomentum}]
     const latestPoints = []; // current RRG coordinates
 
     Object.entries(entityWeekly).forEach(([entity, weekMap]) => {
@@ -1951,8 +1955,6 @@ app.get('/api/rrg', async (req, res) => {
         }
       }
       if (trail.length < 2) return;
-
-      trailData[entity] = trail;
 
       // Current position = last point
       const cur = trail[trail.length - 1];
