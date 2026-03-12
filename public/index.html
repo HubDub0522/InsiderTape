@@ -5946,12 +5946,16 @@ function drawRRG(data) {
   // Centre cross always at exact canvas midpoint
   const cx = toX(100), cy = toY(100);   // will be ML + cW/2,  MT + cH/2
 
+  // ── Dark base background so both modes always look rich/consistent ──
+  ctx.fillStyle = 'rgba(10,14,20,0.55)';
+  ctx.fillRect(ML, MT, cW, cH);
+
   // ── Fill quadrants ────────────────────────────────────────────
   const fills = [
-    [cx, MT,    ML+cW-cx, cy-MT,    'rgba(0,255,157,0.055)'],   // LEADING   top-right
-    [ML, MT,    cx-ML,    cy-MT,    'rgba(255,215,0,0.045)'],    // IMPROVING top-left
-    [ML, cy,    cx-ML,    MT+cH-cy, 'rgba(100,100,140,0.045)'],  // LAGGING   bottom-left
-    [cx, cy,    ML+cW-cx, MT+cH-cy, 'rgba(255,68,102,0.055)'],   // WEAKENING bottom-right
+    [cx, MT,    ML+cW-cx, cy-MT,    'rgba(0,255,157,0.09)'],    // LEADING   top-right
+    [ML, MT,    cx-ML,    cy-MT,    'rgba(255,215,0,0.07)'],     // IMPROVING top-left
+    [ML, cy,    cx-ML,    MT+cH-cy, 'rgba(80,80,120,0.08)'],     // LAGGING   bottom-left
+    [cx, cy,    ML+cW-cx, MT+cH-cy, 'rgba(255,68,102,0.09)'],    // WEAKENING bottom-right
   ];
   fills.forEach(([x,y,w,h,c]) => { ctx.fillStyle=c; ctx.fillRect(x,y,w,h); });
 
