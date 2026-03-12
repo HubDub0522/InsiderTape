@@ -815,13 +815,9 @@ async function apiFetch(path, opts={}) {
   try {
     const resp = await fetch(API_BASE + path, { ...opts, signal: controller.signal });
     if (!resp.ok) {
-      // BUG FIX: previously threw a generic string — now tries to parse the JSON
-      // error body from the server so the real error message reaches the UI/console.
       let msg = `HTTP ${resp.status}`;
       try { const j = await resp.json(); msg = j.error || j.message || msg; } catch(_) {}
-      const err = new Error(msg);
-      err.status = resp.status;
-      throw err;
+      const err = new Error(msg); err.status = resp.status; throw err;
     }
     return resp.json();
   } finally {
@@ -903,16 +899,26 @@ function toggleDays(el) {
   saveFilters();
 }
 
-async function loadScreener() {
+async function loadScreener(retryAttempt = 0) {
   state.minVal = parseInt(document.getElementById('minVal').value) || 0;
   const days = state.days || 7;
-  document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
-  document.getElementById('summaryBar').innerHTML = '';
+  if (retryAttempt === 0) {
+    document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
+    document.getElementById('summaryBar').innerHTML = '';
+  }
   try {
     const resp = await apiFetch('/api/screener?days=' + days);
     if (resp && resp.building) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span></div></td></tr>`;
-      setTimeout(loadScreener, 8000); return;
+      const MAX_RETRIES = 25; // ~200 seconds max
+      if (retryAttempt >= MAX_RETRIES) {
+        document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--option)">SEC data is taking longer than expected.</div><button onclick="loadScreener(0)" style="margin-top:10px;padding:6px 16px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:4px;color:var(--option);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ CHECK AGAIN</button></div></td></tr>`;
+        return;
+      }
+      const elapsed = retryAttempt * 8;
+      const msg = elapsed < 16 ? '⏳ Server is loading SEC data (~60s on first start)…' : `⏳ Still loading SEC data… (${elapsed}s elapsed)`;
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>${msg}</span></div></td></tr>`;
+      setTimeout(() => loadScreener(retryAttempt + 1), 8000);
+      return;
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
     if (!trades.length) {
@@ -3153,78 +3159,56 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades) {
     worstTrade:+worstTrade.toFixed(1),consistency:+consistency.toFixed(0),
     tickers:[...new Set(completed.map(s=>s.ticker))].join(', ')};
 
-
-  // Generate summary and insights deterministically from the already-computed stats.
-  // No API key, no external call, no latency, always works.
+  // Generate summary and insights deterministically — no API key, no external call.
   const ai = generateScorecardInsights(statsForAI, timing);
   scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, ai);
 }
 
 // ── DETERMINISTIC SCORECARD INSIGHTS ─────────────────────────────────────────
-// Replaces the Anthropic API call. Generates a summary sentence and 3 insight
-// bullets purely from the computed stats — instant, no key needed, always renders.
 function generateScorecardInsights(stats, timing) {
   const { accuracyScore, tier, winRate, avgRet90, avgRet30, tradeCount, timingEdge, consistency, bestTrade, worstTrade, tickers } = stats;
 
-  // ── Summary sentence ──────────────────────────────────────────────
-  let summaryParts = [];
-
-  // Opening — tier + win rate
-  if (tier === 'ELITE')        summaryParts.push(`Elite-tier insider with a ${winRate}% win rate across ${tradeCount} scored buys.`);
-  else if (tier === 'STRONG')  summaryParts.push(`Strong track record — ${winRate}% of ${tradeCount} buys close positive at 90 days.`);
-  else if (tier === 'AVERAGE') summaryParts.push(`Mixed results across ${tradeCount} buys, with a ${winRate}% win rate at 90 days.`);
-  else                         summaryParts.push(`Below-average performance on ${tradeCount} scored buys, with only a ${winRate}% win rate.`);
-
-  // Second sentence — return + timing
+  // Summary
+  let s1 = tier === 'ELITE'   ? `Elite-tier insider with a ${winRate}% win rate across ${tradeCount} scored buys.`
+          : tier === 'STRONG' ? `Strong track record — ${winRate}% of ${tradeCount} buys close positive at 90 days.`
+          : tier === 'AVERAGE'? `Mixed results across ${tradeCount} buys, with a ${winRate}% win rate at 90 days.`
+          :                     `Below-average performance on ${tradeCount} scored buys, with a ${winRate}% win rate.`;
   const retStr = avgRet90 >= 0 ? `+${avgRet90}%` : `${avgRet90}%`;
-  if (timing && timing.timingAlpha >= 70) {
-    summaryParts.push(`Averages ${retStr} at 90 days with elite entry timing — buys near price lows ${timing.nearLowPct}% of the time.`);
-  } else if (timingEdge > 3) {
-    summaryParts.push(`Averages ${retStr} at 90 days, outpacing the market by +${timingEdge}% on typical entry timing.`);
-  } else if (avgRet90 > 0) {
-    summaryParts.push(`Averages ${retStr} at 90 days across trades in ${tickers.split(',').slice(0,3).join(', ')} and others.`);
-  } else {
-    summaryParts.push(`Averages ${retStr} at 90 days — entries tend toward the middle or high end of the price range.`);
-  }
+  let s2 = timing && timing.timingAlpha >= 70
+    ? `Averages ${retStr} at 90 days with elite entry timing — buys near 12-month lows ${timing.nearLowPct}% of the time.`
+    : timingEdge > 3
+    ? `Averages ${retStr} at 90 days, outpacing a market-average entry by +${timingEdge}%.`
+    : `Averages ${retStr} at 90 days across trades in ${(tickers||'').split(',').slice(0,3).join(', ')} and others.`;
 
-  const summary = summaryParts.join(' ');
-
-  // ── Insights (3 bullets) ──────────────────────────────────────────
+  // 3 insight bullets
   const insights = [];
+  if (winRate >= 65)
+    insights.push({ type:'good', icon:'🎯', text:`${winRate}% of buys close positive at 90 days — well above the ~50% random baseline.` });
+  else if (winRate >= 50)
+    insights.push({ type:'info', icon:'📊', text:`${winRate}% win rate at 90 days — slightly above breakeven. Selectivity matters here.` });
+  else
+    insights.push({ type:'bad',  icon:'⚠️', text:`${winRate}% win rate at 90 days is below 50% — more buys have ended negative than positive.` });
 
-  // Insight 1: Win rate / accuracy
-  if (winRate >= 65) {
-    insights.push({ type: 'good', icon: '🎯', text: `${winRate}% of buys close positive at 90 days — well above the ~50% baseline for random stock picks.` });
-  } else if (winRate >= 50) {
-    insights.push({ type: 'info', icon: '📊', text: `${winRate}% win rate at 90 days — slightly above breakeven. Selectivity matters here.` });
-  } else {
-    insights.push({ type: 'bad', icon: '⚠️', text: `${winRate}% win rate at 90 days is below 50% — more buys have ended negative than positive.` });
-  }
+  if (timing && timing.nearLowPct >= 50)
+    insights.push({ type:'good', icon:'📉', text:`${timing.nearLowPct}% of buys fall within 20% of the 12-month low — strong bottom-picking discipline.` });
+  else if (timing && timing.timingAlpha >= 60)
+    insights.push({ type:'good', icon:'⏱️', text:`Above-average entry timing — ${timing.timingAlpha}/100 timing alpha, tends to buy below the mid-range.` });
+  else if (timingEdge > 0)
+    insights.push({ type:'info', icon:'↗️', text:`Entry timing is +${timingEdge}% better than a naive market-average entry — modest but consistent edge.` });
+  else
+    insights.push({ type:'bad',  icon:'📈', text:`Entries tend toward the high end of the 12-month range — timing edge vs market is ${timingEdge}%.` });
 
-  // Insight 2: Timing / entry quality
-  if (timing && timing.nearLowPct >= 50) {
-    insights.push({ type: 'good', icon: '📉', text: `${timing.nearLowPct}% of buys fall within 20% of the 12-month low — a strong signal of disciplined bottom-picking.` });
-  } else if (timing && timing.timingAlpha >= 60) {
-    insights.push({ type: 'good', icon: '⏱️', text: `Above-average entry timing with a ${timing.timingAlpha}/100 timing alpha score — tends to buy below mid-range.` });
-  } else if (timingEdge > 0) {
-    insights.push({ type: 'info', icon: '↗️', text: `Entry timing is +${timingEdge}% better than a naive market-average entry — modest but consistent edge.` });
-  } else {
-    insights.push({ type: 'bad', icon: '📈', text: `Entries tend toward the high end of the 12-month range — timing edge vs market is ${timingEdge}%.` });
-  }
-
-  // Insight 3: Consistency / volatility of outcomes
   const spread = Math.abs(bestTrade) + Math.abs(worstTrade);
-  if (consistency >= 65 && spread < 80) {
-    insights.push({ type: 'good', icon: '🔒', text: `Consistent outcomes — best trade +${bestTrade}%, worst ${worstTrade}%. Tight spread suggests low variance, not a one-hit wonder.` });
-  } else if (bestTrade >= 50 && winRate >= 55) {
-    insights.push({ type: 'info', icon: '💡', text: `Best trade of +${bestTrade}% shows upside potential, though worst of ${worstTrade}% means sizing discipline matters.` });
-  } else if (avgRet30 !== null && avgRet30 > 0 && avgRet90 > avgRet30) {
-    insights.push({ type: 'good', icon: '📈', text: `Returns accelerate over time — avg +${avgRet30}% at 30 days grows to ${avgRet90 >= 0 ? '+' : ''}${avgRet90}% at 90 days, suggesting conviction holds.` });
-  } else {
-    insights.push({ type: 'info', icon: '📋', text: `${tradeCount} trades scored across ${tickers.split(',').slice(0,3).join(', ')} — small sample sizes can skew scores, consider overall context.` });
-  }
+  if (consistency >= 65 && spread < 80)
+    insights.push({ type:'good', icon:'🔒', text:`Consistent outcomes — best trade +${bestTrade}%, worst ${worstTrade}%. Tight spread, not a one-hit wonder.` });
+  else if (bestTrade >= 50 && winRate >= 55)
+    insights.push({ type:'info', icon:'💡', text:`Best trade of +${bestTrade}% shows real upside potential, though worst of ${worstTrade}% means sizing matters.` });
+  else if (avgRet30 !== null && avgRet30 > 0 && avgRet90 > avgRet30)
+    insights.push({ type:'good', icon:'📈', text:`Returns accelerate over time — avg +${avgRet30}% at 30 days grows to ${retStr} at 90 days.` });
+  else
+    insights.push({ type:'info', icon:'📋', text:`${tradeCount} trades scored — consider sample size when interpreting the overall score.` });
 
-  return { summary, insights };
+  return { summary: s1 + ' ' + s2, insights };
 
 
 // ── TIMING QUALITY ENGINE ─────────────────────────────────────────
