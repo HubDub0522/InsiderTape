@@ -267,7 +267,9 @@ function runSync(numQ = 4) {
 // ─── HTTP helper ──────────────────────────────────────────────
 const http = require('http');
 
-function get(url, ms=30000) {
+function get(url, ms=30000, _hops=0) {
+  // BUG FIX: no redirect limit — a redirect loop would recurse until stack overflow.
+  if (_hops > 5) return Promise.reject(new Error('Too many redirects'));
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('http://') ? http : https;
     const req = mod.get(url, {
@@ -279,7 +281,7 @@ function get(url, ms=30000) {
         res.resume();
         const loc = res.headers.location;
         const next = loc.startsWith('http') ? loc : new URL(loc, url).href;
-        return get(next, ms).then(resolve).catch(reject);
+        return get(next, ms, _hops + 1).then(resolve).catch(reject);
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
@@ -1603,7 +1605,12 @@ let _scoreboardCacheTime = 0;
 const SCOREBOARD_TTL = 6 * 60 * 60 * 1000;
 
 async function preComputeScoreboard() {
-  if (_scoreboardCache) return;
+  // BUG FIX: previously only checked if cache existed at all (if (_scoreboardCache) return).
+  // This meant the scoreboard was computed once at startup and never refreshed, even though
+  // the 12h interval sets _scoreboardCache = null and calls this function again.
+  // The null-clear worked, but a direct call from the /api/scoreboard route would
+  // re-populate and then never expire. Now respects the TTL consistently.
+  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) return;
   try {
     slog('Pre-computing scoreboard...');
     const minBuys = 3, limit = 300;
@@ -1795,9 +1802,15 @@ setInterval(() => {
 // Call as: /api/admin/sync?secret=YOUR_SECRET
 function requireAdminSecret(req, res) {
   const secret = process.env.ADMIN_SECRET;
-  if (!secret) return false; // if not set, allow (backwards compat on first deploy)
+  // BUG FIX: previously allowed all access when ADMIN_SECRET was not set.
+  // Admin routes must always be protected — anyone could trigger a full sync
+  // or wipe the DB without this fix.
+  if (!secret) {
+    res.status(403).json({ error: 'Admin routes disabled — set ADMIN_SECRET env var to enable them.' });
+    return true;
+  }
   if (req.query.secret !== secret) {
-    res.status(403).json({ error: 'Forbidden — set ?secret=YOUR_ADMIN_SECRET' });
+    res.status(403).json({ error: 'Forbidden' });
     return true;
   }
   return false;
