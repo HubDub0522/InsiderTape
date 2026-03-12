@@ -1246,7 +1246,7 @@ app.get('/api/debug', (req, res) => {
       tickers_filed_30d: ranker30,
       history_3yr_buys: history1095,
       screener_query_test: screenerTest || { ok: false, error: screenerError },
-      server_version: 'v2',
+      server_version: 'v1.2',
       sync_running: syncRunning,
       daily_running: dailyRunning,
       backfill_running: backfillRunning,
