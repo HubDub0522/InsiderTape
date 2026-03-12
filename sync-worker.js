@@ -44,9 +44,6 @@ const insertStmt = db.prepare(`
 function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
 
 function get(url, ms = 180000, _hops = 0) {
-  // BUG FIX: no redirect limit (infinite recursion possible) and missing
-  // res.on('error') handler meant a mid-stream network error would leave the
-  // promise hanging until the outer timeout fired.
   if (_hops > 5) return Promise.reject(new Error('Too many redirects'));
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
