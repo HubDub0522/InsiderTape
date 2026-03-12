@@ -253,7 +253,7 @@ function runSync(numQ = 4) {
   const worker = spawn(
     process.execPath,
     ['--max-old-space-size=400', path.join(__dirname, 'sync-worker.js'), String(numQ)],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
   );
 
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(l)));
@@ -334,7 +334,7 @@ function runDaily(daysBack = 3) {
   const worker = spawn(
     process.execPath,
     ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack), 'poll'],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
   );
 
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ' + l)));
@@ -374,7 +374,7 @@ function runBackfillNow(daysBack = 7) {
   const worker = spawn(
     process.execPath,
     ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack), 'backfill'],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
   );
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[backfill] ' + l)));
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[backfill] ERR: ' + l)));
@@ -1246,7 +1246,7 @@ app.get('/api/debug', (req, res) => {
       tickers_filed_30d: ranker30,
       history_3yr_buys: history1095,
       screener_query_test: screenerTest || { ok: false, error: screenerError },
-      server_version: '2026-03-11',
+      server_version: 'v2',
       sync_running: syncRunning,
       daily_running: dailyRunning,
       backfill_running: backfillRunning,
@@ -1848,7 +1848,7 @@ app.get('/api/admin/daily', (req, res) => {
   const worker = spawn(
     process.execPath,
     ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), '7', 'poll'],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
   );
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ' + l)));
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ERR: ' + l)));
