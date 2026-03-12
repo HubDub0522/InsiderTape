@@ -821,6 +821,7 @@ async function apiFetch(path, opts={}) {
   const ms = path.startsWith('/api/scoreboard') ? 55000
            : (path.startsWith('/api/drift') || path.startsWith('/api/proximity')) ? 45000
            : path.startsWith('/api/firstbuys') ? 45000
+           : path.startsWith('/api/congress') ? 15000
            : 28000;
   const timer = setTimeout(() => controller.abort(), ms);
   try {
