@@ -1236,11 +1236,25 @@ app.get('/api/debug', (req, res) => {
 
     // Sample of actual insider names + titles from recent trades — for debugging gov filter
     const nameSample = db.prepare(`
+      SELECT DISTINCT insider, MAX(title) AS title, MAX(company) AS company, COUNT(*) AS n
+      FROM trades
+      WHERE filing_date >= date('now','-365 days')
+      GROUP BY insider
+      ORDER BY n DESC
+      LIMIT 300
+    `).all();
+
+    // Look for anything that might be a gov official by keyword
+    const govSearch = db.prepare(`
       SELECT DISTINCT insider, MAX(title) AS title, MAX(company) AS company
       FROM trades
-      WHERE filing_date >= date('now','-90 days')
-      ORDER BY filing_date DESC
-      LIMIT 200
+      WHERE (
+        insider LIKE '%pelosi%' OR insider LIKE '%tuberville%' OR insider LIKE '%warren%'
+        OR insider LIKE '%schumer%' OR insider LIKE '%mcconnell%' OR insider LIKE '%senator%'
+        OR title LIKE '%senator%' OR title LIKE '%representative%' OR title LIKE '%congress%'
+        OR company LIKE '%senate%' OR company LIKE '%house of rep%' OR company LIKE '%congress%'
+      )
+      LIMIT 50
     `).all();
 
     res.json({
@@ -1255,7 +1269,8 @@ app.get('/api/debug', (req, res) => {
       tickers_filed_30d: ranker30,
       history_3yr_buys: history1095,
       screener_query_test: screenerTest || { ok: false, error: screenerError },
-      name_sample: nameSample,
+      name_sample: nameSample.slice(0, 20),
+      gov_search: govSearch,
       server_version: 'v1.2',
       sync_running: syncRunning,
       daily_running: dailyRunning,
