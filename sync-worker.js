@@ -43,17 +43,24 @@ const insertStmt = db.prepare(`
 
 function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
 
-function get(url, ms = 180000) {
+function get(url, ms = 180000, _hops = 0) {
+  // BUG FIX: no redirect limit (infinite recursion possible) and missing
+  // res.on('error') handler meant a mid-stream network error would leave the
+  // promise hanging until the outer timeout fired.
+  if (_hops > 5) return Promise.reject(new Error('Too many redirects'));
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
       headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
       timeout: ms,
     }, res => {
-      if ([301,302,303].includes(res.statusCode) && res.headers.location)
-        return get(res.headers.location, ms).then(resolve).catch(reject);
+      if ([301,302,303].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        return get(res.headers.location, ms, _hops + 1).then(resolve).catch(reject);
+      }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      res.on('error', reject);
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
