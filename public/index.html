@@ -5920,21 +5920,18 @@ function drawRRG(data) {
   const ML=52, MR=20, MT=24, MB=36;
   const cW = W - ML - MR, cH = H - MT - MB;
 
-  // ── AXIS RANGE: always centred on 100, with generous minimum spread ──
-  // Collect all x/y values including trail points
+  // ── AXIS RANGE: fit to CURRENT point positions only ──────────
+  // Trails can extend outside the visible area — we don't let a single
+  // outlier tail blow up the scale and flatten everything else.
   let minX = 100, maxX = 100, minY = 100, maxY = 100;
   points.forEach(p => {
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-    (p.trail||[]).forEach(t => {
-      minX = Math.min(minX, t.x); maxX = Math.max(maxX, t.x);
-      minY = Math.min(minY, t.y); maxY = Math.max(maxY, t.y);
-    });
   });
 
-  // Force symmetric axis around 100, minimum ±8 units of visible spread
-  const PAD = 4;
-  const MIN_HALF = 8;
+  // Symmetric around 100, minimum ±5 units so axes are always visible
+  const PAD = 3;
+  const MIN_HALF = 5;
   const halfX = Math.max(MIN_HALF, Math.max(100 - minX, maxX - 100) + PAD);
   const halfY = Math.max(MIN_HALF, Math.max(100 - minY, maxY - 100) + PAD);
 
