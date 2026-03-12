@@ -415,9 +415,9 @@ function runBackfillNow(daysBack = 7) {
 
 
 // ─── CONGRESS SYNC (STOCK Act) ────────────────────────────────────────────────
-// Fetches Senate + House STOCK Act trade data from free community S3 feeds and
-// inserts into gov_trades. Runs inline in the server process (no child process)
-// so errors are visible in logs and it can't be silently killed by Render.
+// Fetches Senate + House STOCK Act trade data from FMP's congressional trading
+// endpoints. Requires FMP_KEY to be set. If the key doesn't have access (402),
+// the sync logs a clear actionable message.
 let congressRunning = false;
 
 function normCongressDate(raw) {
@@ -428,11 +428,10 @@ function normCongressDate(raw) {
   return null;
 }
 function normCongressType(raw = '') {
-  const t = raw.trim().toLowerCase();
-  if (t.includes('purchase') || t === 'buy' || t === 'p') return 'P';
-  if (t.includes('sale') || t.includes('sell') || t === 's') return 'S';
-  if (t.includes('exchange') || t === 'e') return 'E';
-  return raw.slice(0, 20);
+  const t = (raw || '').trim().toLowerCase();
+  if (t === 'buy' || t === 'purchase' || t === 'p') return 'P';
+  if (t === 'sell' || t === 'sale' || t === 'sold' || t === 's') return 'S';
+  return (raw || '').slice(0, 20);
 }
 function normCongressTicker(raw = '') {
   const t = (raw || '').trim().toUpperCase().replace(/^[A-Z]+:\s*/, '').slice(0, 10);
@@ -454,78 +453,86 @@ const _congressInsertMany = db.transaction(rows => {
   return n;
 });
 
+// Fetch multiple pages from an FMP endpoint until empty or maxPages reached
+async function fetchFMPCongress(endpoint, chamber, maxPages = 20) {
+  const key = FMP;
+  if (!key) throw new Error('FMP_KEY not set — cannot fetch congressional data');
+
+  const rows = [];
+  for (let page = 0; page < maxPages; page++) {
+    const url = `https://financialmodelingprep.com/stable/${endpoint}?page=${page}&apikey=${key}`;
+    const { status, body } = await get(url, 30000);
+
+    if (status === 401 || status === 403) throw new Error(`FMP API key rejected (HTTP ${status}) — check FMP_KEY is valid`);
+    if (status === 402) throw new Error(`FMP plan does not include congressional data (HTTP 402) — upgrade to FMP Premium at financialmodelingprep.com/pricing-plans`);
+    if (status !== 200) throw new Error(`FMP ${endpoint} HTTP ${status}`);
+
+    let data;
+    try { data = JSON.parse(body.toString('utf8')); } catch(e) { throw new Error(`FMP JSON parse failed: ${e.message}`); }
+
+    // FMP returns [] or { "Error Message": "..." } when exhausted
+    if (!Array.isArray(data) || data.length === 0) break;
+    if (data[0] && data[0]['Error Message']) throw new Error(`FMP error: ${data[0]['Error Message']}`);
+
+    for (const tx of data) {
+      // Senate fields: firstName, lastName, ticker, assetDescription, type,
+      //   transactionDate, disclosureDate, amount, owner, link
+      // House fields: representative, ticker, assetDescription, type,
+      //   transactionDate, disclosureDate, amount, owner, link, district
+      const member = chamber === 'S'
+        ? `${tx.firstName || ''} ${tx.lastName || ''}`.trim()
+        : (tx.representative || '').trim();
+
+      rows.push({
+        chamber,
+        member: member.slice(0, 100),
+        ticker: normCongressTicker(tx.ticker),
+        asset_description: (tx.assetDescription || tx.asset || '').slice(0, 200),
+        transaction_type: normCongressType(tx.type || tx.transactionType || ''),
+        transaction_date: normCongressDate(tx.transactionDate || tx.date || ''),
+        disclosure_date: normCongressDate(tx.disclosureDate || ''),
+        amount_range: (tx.amount || '').slice(0, 50),
+        owner: (tx.owner || '').slice(0, 30),
+        filing_url: (tx.link || tx.filingUrl || '').slice(0, 300),
+      });
+    }
+
+    slog(`[congress] ${chamber} page ${page}: +${data.length} (total so far: ${rows.length})`);
+    if (data.length < 100) break; // last page (FMP pages are 100 items)
+  }
+  return rows;
+}
+
 async function runCongressSync() {
   if (congressRunning) { slog('[congress] already running, skipping'); return; }
+  if (!FMP) {
+    slog('[congress] FMP_KEY not set — skipping congress sync');
+    return { senate: 0, house: 0, errors: ['FMP_KEY not set'] };
+  }
   congressRunning = true;
-  slog('[congress] === starting STOCK Act sync ===');
+  slog('[congress] === starting STOCK Act sync via FMP ===');
 
   const results = { senate: 0, house: 0, errors: [] };
 
   // ── Senate ──────────────────────────────────────────────────────
   try {
-    slog('[congress] fetching Senate S3 feed…');
-    const { status: ss, body: sb } = await get(
-      'https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json',
-      120000
-    );
-    if (ss !== 200) throw new Error(`Senate S3 HTTP ${ss}`);
-    const senateData = JSON.parse(sb.toString('utf8'));
-    const rows = [];
-    for (const filing of senateData) {
-      const member = `${filing.first_name || ''} ${filing.last_name || ''}`.trim();
-      const dd = normCongressDate(filing.date_recieved || filing.date_received || '');
-      const url = filing.ptr_link || '';
-      for (const tx of (filing.transactions || [])) {
-        if (!tx || (tx.asset_type || '').toLowerCase().includes('non-public')) continue;
-        rows.push({
-          chamber: 'S', member,
-          ticker: normCongressTicker(tx.ticker),
-          asset_description: (tx.asset_description || '').slice(0, 200),
-          transaction_type: normCongressType(tx.type || ''),
-          transaction_date: normCongressDate(tx.transaction_date || ''),
-          disclosure_date: dd,
-          amount_range: (tx.amount || '').slice(0, 50),
-          owner: (tx.owner || '').slice(0, 30),
-          filing_url: url,
-        });
-      }
-    }
+    slog('[congress] fetching Senate trades from FMP…');
+    const rows = await fetchFMPCongress('senate-trading', 'S');
     results.senate = _congressInsertMany(rows);
-    slog(`[congress] Senate: ${rows.length} parsed, ${results.senate} new inserted`);
+    slog(`[congress] Senate: ${rows.length} fetched, ${results.senate} new inserted`);
   } catch(e) {
-    slog(`[congress] Senate fetch ERROR: ${e.message}`);
+    slog(`[congress] Senate ERROR: ${e.message}`);
     results.errors.push('senate: ' + e.message);
   }
 
   // ── House ───────────────────────────────────────────────────────
   try {
-    slog('[congress] fetching House S3 feed…');
-    const { status: hs, body: hb } = await get(
-      'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
-      120000
-    );
-    if (hs !== 200) throw new Error(`House S3 HTTP ${hs}`);
-    const houseData = JSON.parse(hb.toString('utf8'));
-    const rows = [];
-    for (const tx of houseData) {
-      if (!tx) continue;
-      rows.push({
-        chamber: 'H',
-        member: (tx.representative || '').slice(0, 100),
-        ticker: normCongressTicker(tx.ticker),
-        asset_description: (tx.asset_description || '').slice(0, 200),
-        transaction_type: normCongressType(tx.type || ''),
-        transaction_date: normCongressDate(tx.transaction_date || ''),
-        disclosure_date: normCongressDate(tx.disclosure_date || ''),
-        amount_range: (tx.amount || '').slice(0, 50),
-        owner: (tx.owner || '').slice(0, 30),
-        filing_url: (tx.link || '').slice(0, 300),
-      });
-    }
+    slog('[congress] fetching House trades from FMP…');
+    const rows = await fetchFMPCongress('house-trading', 'H');
     results.house = _congressInsertMany(rows);
-    slog(`[congress] House: ${rows.length} parsed, ${results.house} new inserted`);
+    slog(`[congress] House: ${rows.length} fetched, ${results.house} new inserted`);
   } catch(e) {
-    slog(`[congress] House fetch ERROR: ${e.message}`);
+    slog(`[congress] House ERROR: ${e.message}`);
     results.errors.push('house: ' + e.message);
   }
 
@@ -557,7 +564,6 @@ function scheduleCongressDaily() {
 
 // Initial run (10s delay to let server settle)
 setTimeout(() => { runCongressSync().catch(e => slog('[congress] startup sync failed: ' + e.message)); scheduleCongressDaily(); }, 10000);
-
 
 
 // SCREENER
