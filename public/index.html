@@ -5775,7 +5775,7 @@ function renderRRGShell(body) {
 
       <!-- Canvas container -->
       <div id="rrgCanvasWrap" style="flex:1;min-width:300px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative">
-        <canvas id="rrgCanvas" style="display:block;width:100%;border-radius:4px" height="500"></canvas>
+        <canvas id="rrgCanvas" style="display:block;width:100%;border-radius:4px" height="560"></canvas>
         <!-- Loading overlay -->
         <div id="rrgLoading" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:rgba(8,12,18,0.75);border-radius:12px;z-index:10;flex-direction:column;gap:10px">
           <div class="spinner"></div>
@@ -5907,7 +5907,7 @@ function drawRRG(data) {
   const points = (data && data.points) || [];
   const dpr = window.devicePixelRatio || 1;
   const W   = Math.max(canvas.offsetWidth || canvas.parentElement?.offsetWidth || 600, 200);
-  const H   = 500;
+  const H   = 560;
   canvas.width  = W * dpr;
   canvas.height = H * dpr;
   canvas.style.width  = W + 'px';
@@ -5916,116 +5916,144 @@ function drawRRG(data) {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
-  // ── SYMMETRIC axis always centred exactly on (100, 100) ───────
-  // Find max deviation from 100 across all points AND all trail points,
-  // then use that same half-range on both sides so 100 stays in the middle.
-  const PAD_DATA = 12;   // breathing room beyond outermost point
-  const MIN_HALF = 22;   // minimum half-range so centre lines are always visible
+  // ── Chart margins ─────────────────────────────────────────────
+  const ML=52, MR=20, MT=24, MB=36;
+  const cW = W - ML - MR, cH = H - MT - MB;
 
-  let maxDevX = MIN_HALF, maxDevY = MIN_HALF;
+  // ── AXIS RANGE: always centred on 100, with generous minimum spread ──
+  // Collect all x/y values including trail points
+  let minX = 100, maxX = 100, minY = 100, maxY = 100;
   points.forEach(p => {
-    maxDevX = Math.max(maxDevX, Math.abs(p.x - 100));
-    maxDevY = Math.max(maxDevY, Math.abs(p.y - 100));
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     (p.trail||[]).forEach(t => {
-      maxDevX = Math.max(maxDevX, Math.abs(t.x - 100));
-      maxDevY = Math.max(maxDevY, Math.abs(t.y - 100));
+      minX = Math.min(minX, t.x); maxX = Math.max(maxX, t.x);
+      minY = Math.min(minY, t.y); maxY = Math.max(maxY, t.y);
     });
   });
-  const halfX = maxDevX + PAD_DATA;
-  const halfY = maxDevY + PAD_DATA;
+
+  // Force symmetric axis around 100, minimum ±8 units of visible spread
+  const PAD = 4;
+  const MIN_HALF = 8;
+  const halfX = Math.max(MIN_HALF, Math.max(100 - minX, maxX - 100) + PAD);
+  const halfY = Math.max(MIN_HALF, Math.max(100 - minY, maxY - 100) + PAD);
+
   const xMin = 100 - halfX, xMax = 100 + halfX;
   const yMin = 100 - halfY, yMax = 100 + halfY;
-
-  // Chart margins — leave room for tick labels
-  const ML=46, MR=18, MT=22, MB=30;
-  const cW = W - ML - MR, cH = H - MT - MB;
 
   function toX(v) { return ML + (v - xMin) / (xMax - xMin) * cW; }
   function toY(v) { return MT + (1 - (v - yMin) / (yMax - yMin)) * cH; }
 
-  // Centre cross always at exact canvas midpoint
-  const cx = toX(100), cy = toY(100);   // will be ML + cW/2,  MT + cH/2
+  // The centre cross MUST be at x=100, y=100 — which maps to the midpoint of the chart
+  const cx = toX(100), cy = toY(100);
 
-  // ── Dark base background so both modes always look rich/consistent ──
-  ctx.fillStyle = 'rgba(10,14,20,0.55)';
+  // ── Background ────────────────────────────────────────────────
+  ctx.fillStyle = '#0a0e14';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(12,17,24,1)';
   ctx.fillRect(ML, MT, cW, cH);
 
-  // ── Fill quadrants ────────────────────────────────────────────
-  const fills = [
-    [cx, MT,    ML+cW-cx, cy-MT,    'rgba(0,255,157,0.09)'],    // LEADING   top-right
-    [ML, MT,    cx-ML,    cy-MT,    'rgba(255,215,0,0.07)'],     // IMPROVING top-left
-    [ML, cy,    cx-ML,    MT+cH-cy, 'rgba(80,80,120,0.08)'],     // LAGGING   bottom-left
-    [cx, cy,    ML+cW-cx, MT+cH-cy, 'rgba(255,68,102,0.09)'],    // WEAKENING bottom-right
-  ];
-  fills.forEach(([x,y,w,h,c]) => { ctx.fillStyle=c; ctx.fillRect(x,y,w,h); });
+  // ── Quadrant fills (must fill from axis lines, not chart edges) ──
+  // LEADING: top-right  (x>100, y>100)
+  ctx.fillStyle = 'rgba(0,255,157,0.08)';
+  ctx.fillRect(cx, MT, (ML+cW) - cx, cy - MT);
+  // IMPROVING: top-left (x<100, y>100)
+  ctx.fillStyle = 'rgba(255,215,0,0.06)';
+  ctx.fillRect(ML, MT, cx - ML, cy - MT);
+  // LAGGING: bottom-left (x<100, y<100)
+  ctx.fillStyle = 'rgba(70,70,110,0.07)';
+  ctx.fillRect(ML, cy, cx - ML, (MT+cH) - cy);
+  // WEAKENING: bottom-right (x>100, y<100)
+  ctx.fillStyle = 'rgba(255,60,90,0.08)';
+  ctx.fillRect(cx, cy, (ML+cW) - cx, (MT+cH) - cy);
 
-  // ── Grid lines (symmetric around 100) ────────────────────────
-  // Pick a nice step that divides the half-range into ~4 equal ticks
-  function symTicks(half) {
-    const candidates = [2,4,5,8,10,15,20,25,50];
-    const step = candidates.find(s => half/s <= 5 && half/s >= 2) || 10;
-    const ticks = [];
-    for (let v = step; v < half - 0.01; v += step) {
-      ticks.push(100 - v, 100 + v);
-    }
-    return ticks.sort((a,b)=>a-b);
+  // ── Subtle grid lines ─────────────────────────────────────────
+  function niceGridStep(half) {
+    const raw = half / 3;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const r = raw / mag;
+    const step = r < 1.5 ? 1 : r < 3.5 ? 2 : r < 7.5 ? 5 : 10;
+    return step * mag;
   }
+  const stepX = niceGridStep(halfX);
+  const stepY = niceGridStep(halfY);
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 1;
-  symTicks(halfX).forEach(v => {
-    const x = toX(v);
-    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT+cH); ctx.stroke();
-  });
-  symTicks(halfY).forEach(v => {
-    const y = toY(v);
-    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML+cW, y); ctx.stroke();
-  });
-
-  // ── Centre axes ───────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([6,4]);
-  ctx.beginPath(); ctx.moveTo(cx, MT); ctx.lineTo(cx, MT+cH); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ML, cy); ctx.lineTo(ML+cW, cy); ctx.stroke();
   ctx.setLineDash([]);
 
-  // ── Tick labels ───────────────────────────────────────────────
-  ctx.font = '9px Space Mono,monospace';
-  // X-axis bottom
+  // Vertical grid
+  for (let v = Math.ceil((xMin + 0.001) / stepX) * stepX; v < xMax - 0.001; v += stepX) {
+    if (Math.abs(v - 100) < 0.001) continue;
+    const x = toX(v);
+    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT+cH); ctx.stroke();
+  }
+  // Horizontal grid
+  for (let v = Math.ceil((yMin + 0.001) / stepY) * stepY; v < yMax - 0.001; v += stepY) {
+    if (Math.abs(v - 100) < 0.001) continue;
+    const y = toY(v);
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML+cW, y); ctx.stroke();
+  }
+
+  // ── Centre axis lines — solid, always at x=100 and y=100 ─────
+  ctx.strokeStyle = 'rgba(255,255,255,0.30)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  // Vertical axis at x=100
+  ctx.beginPath(); ctx.moveTo(cx, MT); ctx.lineTo(cx, MT+cH); ctx.stroke();
+  // Horizontal axis at y=100
+  ctx.beginPath(); ctx.moveTo(ML, cy); ctx.lineTo(ML+cW, cy); ctx.stroke();
+
+  // ── Axis tick labels ──────────────────────────────────────────
+  ctx.font = '9px "Space Mono",monospace';
+  // X-axis ticks at bottom
   ctx.textAlign = 'center';
-  [...symTicks(halfX), 100].forEach(v => {
-    ctx.fillStyle = v===100 ? 'rgba(255,255,255,0.55)' : 'rgba(80,110,140,0.85)';
-    ctx.fillText(Math.round(v), toX(v), MT+cH+16);
-  });
-  // Y-axis left
+  for (let v = Math.ceil((xMin + 0.001) / stepX) * stepX; v < xMax + 0.001; v += stepX) {
+    const x = toX(v);
+    ctx.fillStyle = Math.abs(v - 100) < 0.001 ? 'rgba(255,255,255,0.60)' : 'rgba(100,130,160,0.75)';
+    ctx.fillText(v.toFixed(v % 1 === 0 ? 0 : 1), x, MT+cH+18);
+  }
+  // Y-axis ticks at left
   ctx.textAlign = 'right';
-  [...symTicks(halfY), 100].forEach(v => {
-    ctx.fillStyle = v===100 ? 'rgba(255,255,255,0.55)' : 'rgba(80,110,140,0.85)';
-    ctx.fillText(Math.round(v), ML-6, toY(v)+3.5);
-  });
+  for (let v = Math.ceil((yMin + 0.001) / stepY) * stepY; v < yMax + 0.001; v += stepY) {
+    const y = toY(v);
+    ctx.fillStyle = Math.abs(v - 100) < 0.001 ? 'rgba(255,255,255,0.60)' : 'rgba(100,130,160,0.75)';
+    ctx.fillText(v.toFixed(v % 1 === 0 ? 0 : 1), ML-8, y+3.5);
+  }
 
   // ── Axis labels ───────────────────────────────────────────────
-  ctx.fillStyle = 'rgba(70,100,130,0.65)';
-  ctx.font = '8px Space Mono,monospace';
+  ctx.fillStyle = 'rgba(80,110,140,0.55)';
+  ctx.font = '8px "Space Mono",monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('JdK RS-RATIO →', ML+cW/2, H-3);
-  ctx.save(); ctx.translate(10, MT+cH/2); ctx.rotate(-Math.PI/2);
-  ctx.fillText('JdK RS-MOMENTUM →', 0, 0); ctx.restore();
+  ctx.fillText('RS-RATIO  →', ML + cW/2, H - 4);
+  ctx.save(); ctx.translate(11, MT + cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('RS-MOMENTUM  →', 0, 0); ctx.restore();
 
   // ── Quadrant corner labels ────────────────────────────────────
-  ctx.font = 'bold 9px Space Mono,monospace';
+  ctx.font = 'bold 8px "Space Mono",monospace';
+  const QL = 9; // label offset from axis
   ctx.textAlign = 'left';
-  ctx.fillStyle = 'rgba(0,255,157,0.35)';   ctx.fillText('LEADING',   cx+7, MT+15);
-  ctx.fillStyle = 'rgba(255,68,102,0.35)';  ctx.fillText('WEAKENING', cx+7, MT+cH-7);
+  ctx.fillStyle = 'rgba(0,255,157,0.40)';
+  ctx.fillText('LEADING', cx + QL, MT + 14);
+  ctx.fillStyle = 'rgba(255,60,90,0.40)';
+  ctx.fillText('WEAKENING', cx + QL, MT+cH - 7);
   ctx.textAlign = 'right';
-  ctx.fillStyle = 'rgba(255,215,0,0.35)';   ctx.fillText('IMPROVING', cx-7, MT+15);
-  ctx.fillStyle = 'rgba(100,100,140,0.35)'; ctx.fillText('LAGGING',   cx-7, MT+cH-7);
+  ctx.fillStyle = 'rgba(255,215,0,0.40)';
+  ctx.fillText('IMPROVING', cx - QL, MT + 14);
+  ctx.fillStyle = 'rgba(100,100,160,0.40)';
+  ctx.fillText('LAGGING', cx - QL, MT+cH - 7);
+
+  // ── Clip to chart area ────────────────────────────────────────
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ML, MT, cW, cH);
+  ctx.clip();
 
   // ── Empty state ───────────────────────────────────────────────
   if (!points.length) {
+    ctx.restore();
     ctx.fillStyle = 'rgba(120,140,160,0.5)';
-    ctx.font = '12px Space Mono,monospace';
+    ctx.font = '12px "Space Mono",monospace';
     ctx.textAlign = 'center';
     ctx.fillText('No data — try a different time window', W/2, H/2);
     canvas._rrgPoints = [];
@@ -6033,48 +6061,61 @@ function drawRRG(data) {
   }
 
   // ── Bubble sizing ─────────────────────────────────────────────
-  const maxVal  = Math.max(...points.map(p=>p.totalBuyVal), 1);
-  const bubbleR = v => Math.max(7, Math.min(26, 7 + (v/maxVal)*19));
-
+  const maxVal  = Math.max(...points.map(p => p.totalBuyVal), 1);
+  const bubbleR = v => Math.max(8, Math.min(28, 8 + (v / maxVal) * 20));
   const hov = _rrgState.hovered;
 
-  // ── Draw trails (lines + small dots on each historical position) ──
+  // ── Draw trails ───────────────────────────────────────────────
+  // Each tail is a smooth line from oldest trail point → current position.
+  // We draw the line first (thick, faded gradient), then small dot markers.
   points.forEach(p => {
-    if (!p.trail || p.trail.length < 2) return;
+    const trail = p.trail || [];
+    if (trail.length < 2) return;
     const color = quadrantColor(p.quadrant);
-    const isH = hov === p.entity;
-    const n = p.trail.length;
+    const isH   = hov === p.entity;
+    const n     = trail.length;
+    const BASE_ALPHA = isH ? 0.85 : 0.38;
 
-    // Draw the connecting line segments first, fading oldest→newest
+    // ── Draw smooth path through all trail points ──
+    ctx.save();
+    ctx.lineWidth   = isH ? 2.5 : 1.8;
+    ctx.strokeStyle = color;
+    ctx.lineJoin    = 'round';
+    ctx.lineCap     = 'round';
+
     for (let i = 1; i < n; i++) {
-      const fade = i / n;
-      ctx.globalAlpha = fade * (isH ? 0.8 : 0.28);
-      ctx.strokeStyle = color;
-      ctx.lineWidth   = isH ? 2 : 1.5;
+      const alpha = BASE_ALPHA * (i / n);
+      ctx.globalAlpha = alpha;
       ctx.beginPath();
-      ctx.moveTo(toX(p.trail[i-1].x), toY(p.trail[i-1].y));
-      ctx.lineTo(toX(p.trail[i].x),   toY(p.trail[i].y));
+      ctx.moveTo(toX(trail[i-1].x), toY(trail[i-1].y));
+      ctx.lineTo(toX(trail[i].x),   toY(trail[i].y));
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
 
-    // Small filled circle at each prior-week position (all except the last = current)
+    // ── Draw dot at each past trail position ──
     for (let i = 0; i < n - 1; i++) {
-      const fade = (i + 1) / n;
-      const tx = toX(p.trail[i].x), ty = toY(p.trail[i].y);
-      const dotR = isH ? 3.5 : 2.5;
-      ctx.globalAlpha = fade * (isH ? 0.9 : 0.45);
-      ctx.beginPath(); ctx.arc(tx, ty, dotR, 0, Math.PI*2);
+      const alpha = 0.30 + 0.55 * ((i + 1) / n);
+      const tx = toX(trail[i].x), ty = toY(trail[i].y);
+      const dotR = isH ? 3.5 : 2.2;
+
+      ctx.globalAlpha = isH ? alpha : alpha * 0.7;
+      ctx.beginPath();
+      ctx.arc(tx, ty, dotR, 0, Math.PI * 2);
       ctx.fillStyle   = color;
       ctx.fill();
-      ctx.strokeStyle = isH ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.15)';
-      ctx.lineWidth = 0.8;
+
+      // Ring on dots for "week markers" look
+      ctx.strokeStyle = isH ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.18)';
+      ctx.lineWidth   = 0.8;
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
   });
 
-  // ── Draw current-position dots + labels ───────────────────────
+  // ── Draw current-position bubbles ─────────────────────────────
+  // Pass 1: glow rings (drawn under everything)
   const screenPts = [];
   points.forEach(p => {
     const sx = toX(p.x), sy = toY(p.y);
@@ -6082,53 +6123,71 @@ function drawRRG(data) {
     const c  = quadrantColor(p.quadrant);
     const isH = hov === p.entity;
 
-    // Glow ring for hovered
     if (isH) {
-      const grd = ctx.createRadialGradient(sx, sy, r*0.5, sx, sy, r+16);
-      grd.addColorStop(0, c+'50'); grd.addColorStop(1, 'transparent');
+      const grd = ctx.createRadialGradient(sx, sy, r * 0.4, sx, sy, r + 20);
+      grd.addColorStop(0, c + '55');
+      grd.addColorStop(1, 'transparent');
       ctx.fillStyle = grd;
-      ctx.beginPath(); ctx.arc(sx, sy, r+16, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath();
+      ctx.arc(sx, sy, r + 20, 0, Math.PI * 2);
+      ctx.fill();
     }
+    screenPts.push({ ...p, sx, sy, r, c });
+  });
 
-    // Main dot
-    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI*2);
-    ctx.fillStyle   = c + (isH ? 'cc' : '55');
+  // Pass 2: bubble fill + stroke + direction arrow
+  screenPts.forEach(({ sx, sy, r, c, dx, dy, x, y, entity }) => {
+    const isH = hov === entity;
+
+    // Bubble fill
+    const grd = ctx.createRadialGradient(sx - r * 0.3, sy - r * 0.3, 0, sx, sy, r);
+    grd.addColorStop(0, c + (isH ? 'cc' : '66'));
+    grd.addColorStop(1, c + (isH ? '88' : '22'));
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = grd;
     ctx.fill();
-    ctx.strokeStyle = c + (isH ? 'ff' : 'bb');
+
+    // Bubble border
+    ctx.strokeStyle = c + (isH ? 'ff' : 'aa');
     ctx.lineWidth   = isH ? 2.5 : 1.5;
     ctx.stroke();
 
-    // Direction arrow (small solid triangle outside the dot)
-    if (Math.abs(p.dx) > 0.05 || Math.abs(p.dy) > 0.05) {
-      const prevSx = toX(p.x - p.dx), prevSy = toY(p.y - p.dy);
-      const mag = Math.hypot(sx-prevSx, sy-prevSy);
-      if (mag > 0.5) {
-        const ux = (sx-prevSx)/mag, uy = (sy-prevSy)/mag;
-        const arrowBase = r + 6, arrowLen = 8, arrowW = 4;
-        ctx.beginPath();
-        ctx.moveTo(sx + ux*(arrowBase+arrowLen), sy + uy*(arrowBase+arrowLen));
-        ctx.lineTo(sx + ux*arrowBase - uy*arrowW, sy + uy*arrowBase + ux*arrowW);
-        ctx.lineTo(sx + ux*arrowBase + uy*arrowW, sy + uy*arrowBase - ux*arrowW);
-        ctx.closePath();
-        ctx.fillStyle = c + (isH ? 'ff' : 'bb');
-        ctx.fill();
-      }
+    // Direction arrow — solid triangle pointing in direction of travel
+    const prevSx = toX(x - dx), prevSy = toY(y - dy);
+    const mag = Math.hypot(sx - prevSx, sy - prevSy);
+    if (mag > 1) {
+      const ux = (sx - prevSx) / mag, uy = (sy - prevSy) / mag;
+      const aBase = r + 5, aLen = 9, aW = 4.5;
+      ctx.beginPath();
+      ctx.moveTo(sx + ux * (aBase + aLen),          sy + uy * (aBase + aLen));
+      ctx.lineTo(sx + ux * aBase - uy * aW,          sy + uy * aBase + ux * aW);
+      ctx.lineTo(sx + ux * aBase + uy * aW,          sy + uy * aBase - ux * aW);
+      ctx.closePath();
+      ctx.fillStyle = c + (isH ? 'ff' : 'cc');
+      ctx.fill();
     }
-
-    // Label — text shadow for legibility
-    ctx.shadowColor = 'rgba(0,0,0,0.95)'; ctx.shadowBlur = 5;
-    ctx.font      = isH ? 'bold 11px DM Sans,sans-serif' : '10px DM Sans,sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = isH ? '#fff' : 'rgba(200,215,232,0.9)';
-    ctx.fillText(p.label, sx, sy - r - 5);
-    ctx.shadowBlur = 0;
-
-    screenPts.push({...p, sx, sy, r});
   });
 
+  // Pass 3: labels on top
+  screenPts.forEach(({ sx, sy, r, c, label, entity }) => {
+    const isH = hov === entity;
+    ctx.shadowColor = 'rgba(0,0,0,0.98)';
+    ctx.shadowBlur  = 6;
+    ctx.font        = isH ? 'bold 11px "DM Sans",sans-serif' : '10px "DM Sans",sans-serif';
+    ctx.textAlign   = 'center';
+    ctx.fillStyle   = isH ? '#fff' : 'rgba(210,225,242,0.92)';
+    ctx.fillText(label, sx, sy - r - 6);
+    ctx.shadowBlur  = 0;
+  });
+
+  // Release clip
+  ctx.restore();
+
+  // Store screen coordinates for hit-testing
   canvas._rrgPoints = screenPts;
 
-  // Bind events once
+  // Bind events once (canvas is recreated each render so check _rrgBound on state)
   if (!canvas._rrgBound) {
     canvas._rrgBound = true;
     canvas.addEventListener('mousemove',  rrgMouseMove);
