@@ -414,29 +414,124 @@ function runBackfillNow(daysBack = 7) {
 }
 
 
-// ─── CONGRESS WORKER (STOCK Act) ─────────────────────────────────────────────
-// Polls community S3 feeds (senate-stock-watcher / house-stock-watcher) and
-// inserts congressional trades into gov_trades. Runs once at startup then once
-// per day at ~8am ET.
+// ─── CONGRESS SYNC (STOCK Act) ────────────────────────────────────────────────
+// Fetches Senate + House STOCK Act trade data from free community S3 feeds and
+// inserts into gov_trades. Runs inline in the server process (no child process)
+// so errors are visible in logs and it can't be silently killed by Render.
 let congressRunning = false;
 
-function runCongressSync() {
+function normCongressDate(raw) {
+  if (!raw || raw === '--') return null;
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  return null;
+}
+function normCongressType(raw = '') {
+  const t = raw.trim().toLowerCase();
+  if (t.includes('purchase') || t === 'buy' || t === 'p') return 'P';
+  if (t.includes('sale') || t.includes('sell') || t === 's') return 'S';
+  if (t.includes('exchange') || t === 'e') return 'E';
+  return raw.slice(0, 20);
+}
+function normCongressTicker(raw = '') {
+  const t = (raw || '').trim().toUpperCase().replace(/^[A-Z]+:\s*/, '').slice(0, 10);
+  if (!t || t === '--' || t === 'N/A' || t === 'NA') return '--';
+  return t;
+}
+
+const _congressInsert = db.prepare(`
+  INSERT OR IGNORE INTO gov_trades
+    (chamber, member, ticker, asset_description, transaction_type,
+     transaction_date, disclosure_date, amount_range, owner, filing_url)
+  VALUES
+    (@chamber, @member, @ticker, @asset_description, @transaction_type,
+     @transaction_date, @disclosure_date, @amount_range, @owner, @filing_url)
+`);
+const _congressInsertMany = db.transaction(rows => {
+  let n = 0;
+  for (const r of rows) n += _congressInsert.run(r).changes;
+  return n;
+});
+
+async function runCongressSync() {
   if (congressRunning) { slog('[congress] already running, skipping'); return; }
   congressRunning = true;
-  slog('=== spawning congress-worker (STOCK Act sync) ===');
+  slog('[congress] === starting STOCK Act sync ===');
 
-  const worker = spawn(
-    process.execPath,
-    ['--max-old-space-size=300', path.join(__dirname, 'congress-worker.js')],
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
-  );
+  const results = { senate: 0, house: 0, errors: [] };
 
-  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(l)));
-  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('ERR: ' + l)));
-  worker.on('exit', code => {
-    congressRunning = false;
-    slog(`=== congress-worker exited (code ${code}) ===`);
-  });
+  // ── Senate ──────────────────────────────────────────────────────
+  try {
+    slog('[congress] fetching Senate S3 feed…');
+    const { status: ss, body: sb } = await get(
+      'https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json',
+      120000
+    );
+    if (ss !== 200) throw new Error(`Senate S3 HTTP ${ss}`);
+    const senateData = JSON.parse(sb.toString('utf8'));
+    const rows = [];
+    for (const filing of senateData) {
+      const member = `${filing.first_name || ''} ${filing.last_name || ''}`.trim();
+      const dd = normCongressDate(filing.date_recieved || filing.date_received || '');
+      const url = filing.ptr_link || '';
+      for (const tx of (filing.transactions || [])) {
+        if (!tx || (tx.asset_type || '').toLowerCase().includes('non-public')) continue;
+        rows.push({
+          chamber: 'S', member,
+          ticker: normCongressTicker(tx.ticker),
+          asset_description: (tx.asset_description || '').slice(0, 200),
+          transaction_type: normCongressType(tx.type || ''),
+          transaction_date: normCongressDate(tx.transaction_date || ''),
+          disclosure_date: dd,
+          amount_range: (tx.amount || '').slice(0, 50),
+          owner: (tx.owner || '').slice(0, 30),
+          filing_url: url,
+        });
+      }
+    }
+    results.senate = _congressInsertMany(rows);
+    slog(`[congress] Senate: ${rows.length} parsed, ${results.senate} new inserted`);
+  } catch(e) {
+    slog(`[congress] Senate fetch ERROR: ${e.message}`);
+    results.errors.push('senate: ' + e.message);
+  }
+
+  // ── House ───────────────────────────────────────────────────────
+  try {
+    slog('[congress] fetching House S3 feed…');
+    const { status: hs, body: hb } = await get(
+      'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json',
+      120000
+    );
+    if (hs !== 200) throw new Error(`House S3 HTTP ${hs}`);
+    const houseData = JSON.parse(hb.toString('utf8'));
+    const rows = [];
+    for (const tx of houseData) {
+      if (!tx) continue;
+      rows.push({
+        chamber: 'H',
+        member: (tx.representative || '').slice(0, 100),
+        ticker: normCongressTicker(tx.ticker),
+        asset_description: (tx.asset_description || '').slice(0, 200),
+        transaction_type: normCongressType(tx.type || ''),
+        transaction_date: normCongressDate(tx.transaction_date || ''),
+        disclosure_date: normCongressDate(tx.disclosure_date || ''),
+        amount_range: (tx.amount || '').slice(0, 50),
+        owner: (tx.owner || '').slice(0, 30),
+        filing_url: (tx.link || '').slice(0, 300),
+      });
+    }
+    results.house = _congressInsertMany(rows);
+    slog(`[congress] House: ${rows.length} parsed, ${results.house} new inserted`);
+  } catch(e) {
+    slog(`[congress] House fetch ERROR: ${e.message}`);
+    results.errors.push('house: ' + e.message);
+  }
+
+  congressRunning = false;
+  slog(`[congress] === sync complete: +${results.senate} senate, +${results.house} house${results.errors.length ? ' | ERRORS: ' + results.errors.join('; ') : ''} ===`);
+  return results;
 }
 
 // Schedule daily at 8:05am ET
@@ -452,18 +547,18 @@ function scheduleCongressDaily() {
     dstEnd.setUTCHours(6, 0, 0, 0);
     return (now >= dstStart && now < dstEnd) ? -4 : -5;
   })();
-
-  // Next 8:05am ET
   const target = new Date(now);
   target.setUTCHours(8 - etOffset, 5, 0, 0);
   if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
   const ms = Math.max(target - now, 60000);
-  slog(`=== congress-worker scheduled in ${Math.round(ms/3600000*10)/10}h ===`);
+  slog(`[congress] next sync in ${Math.round(ms / 3600000 * 10) / 10}h`);
   setTimeout(() => { runCongressSync(); scheduleCongressDaily(); }, ms);
 }
 
-// Initial run (5s delay to let server settle)
-setTimeout(() => { runCongressSync(); scheduleCongressDaily(); }, 5000);
+// Initial run (10s delay to let server settle)
+setTimeout(() => { runCongressSync().catch(e => slog('[congress] startup sync failed: ' + e.message)); scheduleCongressDaily(); }, 10000);
+
+
 
 // SCREENER
 app.get('/api/screener', (req, res) => {
@@ -2016,7 +2111,36 @@ app.get('/api/admin/daily', (req, res) => {
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
 });
 
-// GET /api/admin/free-disk — delete the bloated /var/data/trades.db to free disk space.
+// GET /api/admin/congress — trigger congress sync manually and wait for result
+app.get('/api/admin/congress', async (req, res) => {
+  if (requireAdminSecret(req, res)) return;
+  if (congressRunning) return res.json({ ok: false, message: 'Already running' });
+  try {
+    const results = await runCongressSync();
+    res.json({ ok: true, results });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// GET /api/congress-status — diagnostic: what's in gov_trades + recent sync log lines
+app.get('/api/congress-status', (req, res) => {
+  try {
+    let stats = { total: 0, senate: 0, house: 0, latest_td: null, latest_dd: null, sample: [] };
+    try {
+      stats.total    = db.prepare('SELECT COUNT(*) AS n FROM gov_trades').get().n;
+      stats.senate   = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='S'").get().n;
+      stats.house    = db.prepare("SELECT COUNT(*) AS n FROM gov_trades WHERE chamber='H'").get().n;
+      stats.latest_td = db.prepare('SELECT MAX(transaction_date) AS d FROM gov_trades').get().d;
+      stats.latest_dd = db.prepare('SELECT MAX(disclosure_date) AS d FROM gov_trades').get().d;
+      stats.sample   = db.prepare('SELECT * FROM gov_trades ORDER BY id DESC LIMIT 5').all();
+    } catch(e) { stats.error = e.message; }
+    const recentLogs = syncLog.filter(l => l.toLowerCase().includes('congress')).slice(-30);
+    res.json({ congress_running: congressRunning, stats, recent_logs: recentLogs });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
 app.get('/api/admin/free-disk', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   const varDb = '/var/data/trades.db';
