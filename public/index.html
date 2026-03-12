@@ -5695,18 +5695,21 @@ function fmtSector(n) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════════════════
-// RELATIVE ROTATION GRAPH (RRG)
+
 // ═══════════════════════════════════════════════════════════════════════════
+// RELATIVE ROTATION GRAPH (RRG)
+// Implements JdK RS-Ratio / RS-Momentum methodology (StockCharts style)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function fmtMoney(n) { return fmt(n); }
+
 let _rrgState = {
   mode: 'sectors',
   weeks: 12,
   data: null,
   hovered: null,
-  customTickers: [],   // user-added tickers for tickers mode
+  customTickers: [],
 };
-
-// Format money for RRG (alias for fmt, defined once here)
-function fmtMoney(n) { return fmt(n); }
 
 async function loadRRGPage() {
   window.scrollTo(0, 0);
@@ -5718,143 +5721,102 @@ async function loadRRGPage() {
 
 function renderRRGShell(body) {
   const m = _rrgState.mode, w = _rrgState.weeks;
+  const modeBtnStyle = (active) =>
+    `padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:none;cursor:pointer;transition:all .15s;` +
+    (active ? `background:rgba(0,212,255,0.15);color:var(--accent)` : `background:transparent;color:var(--muted)`);
+  const wkBtnStyle = (active) =>
+    `padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;transition:all .15s;` +
+    (active ? `background:rgba(0,212,255,0.15);color:var(--accent)` : `background:transparent;color:var(--muted)`);
+
   body.innerHTML = `
   <div style="max-width:1300px;margin:0 auto;padding:24px 20px">
-    <!-- Header -->
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px">
+
+    <!-- Header row -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:16px">
       <div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">RELATIVE ROTATION GRAPH</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px;max-width:560px;line-height:1.6">
-          Plots insider buying momentum vs relative strength — visualise which sectors/tickers
-          are <span style="color:#00ff9d">leading</span>,
-          <span style="color:#ffd700">improving</span>,
-          <span style="color:#ff4466">weakening</span>, or
-          <span style="color:#6a6a8a">lagging</span> the market.
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.7;max-width:500px">
+          JdK RS-Ratio vs RS-Momentum · insider buy flow relative to market ·
+          <span style="color:#00ff9d">leading</span> /
+          <span style="color:#ffd700">improving</span> /
+          <span style="color:#ff4466">weakening</span> /
+          <span style="color:#6a6a8a">lagging</span>
         </div>
       </div>
-      <!-- Controls -->
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-        <!-- Mode -->
-        <div style="display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <button id="rrgModeSectors" onclick="rrgSetMode('sectors')"
-            style="padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:none;cursor:pointer;
-                   background:${m==='sectors'?'rgba(0,212,255,0.15)':'transparent'};
-                   color:${m==='sectors'?'var(--accent)':'var(--muted)'}">SECTORS</button>
-          <button id="rrgModeTickers" onclick="rrgSetMode('tickers')"
-            style="padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:none;cursor:pointer;
-                   background:${m==='tickers'?'rgba(0,212,255,0.15)':'transparent'};
-                   color:${m==='tickers'?'var(--accent)':'var(--muted)'}">TICKERS</button>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+        <!-- Mode toggle -->
+        <div style="display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:7px;overflow:hidden">
+          <button id="rrgModeSectors" onclick="rrgSetMode('sectors')" style="${modeBtnStyle(m==='sectors')}">SECTORS</button>
+          <button id="rrgModeTickers" onclick="rrgSetMode('tickers')" style="${modeBtnStyle(m==='tickers')}">TICKERS</button>
         </div>
-        <!-- Weeks -->
-        <div style="display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <button onclick="rrgSetWeeks(8)"  id="rrgW8"
-            style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;
-                   background:${w===8?'rgba(0,212,255,0.15)':'transparent'};
-                   color:${w===8?'var(--accent)':'var(--muted)'}">8W</button>
-          <button onclick="rrgSetWeeks(12)" id="rrgW12"
-            style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;
-                   background:${w===12?'rgba(0,212,255,0.15)':'transparent'};
-                   color:${w===12?'var(--accent)':'var(--muted)'}">12W</button>
-          <button onclick="rrgSetWeeks(20)" id="rrgW20"
-            style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;
-                   background:${w===20?'rgba(0,212,255,0.15)':'transparent'};
-                   color:${w===20?'var(--accent)':'var(--muted)'}">20W</button>
+        <!-- Week toggle -->
+        <div style="display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:7px;overflow:hidden">
+          ${[8,12,20].map(n => `<button id="rrgW${n}" onclick="rrgSetWeeks(${n})" style="${wkBtnStyle(w===n)}">${n}W</button>`).join('')}
         </div>
       </div>
     </div>
 
-    <!-- Add tickers bar (tickers mode only) -->
-    <div id="rrgTickerBar" style="display:${m==='tickers'?'flex':'none'};align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
-      <span style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);flex-shrink:0">ADD TICKERS:</span>
+    <!-- Ticker add bar (tickers mode) -->
+    <div id="rrgTickerBar" style="display:${m==='tickers'?'flex':'none'};align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);flex-shrink:0;letter-spacing:1px">ADD TICKERS:</span>
       <input id="rrgTickerInput" type="text" placeholder="e.g. AAPL, MSFT, NVDA"
-        style="flex:1;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;
-               padding:7px 12px;color:var(--text);font-family:'Space Mono',monospace;font-size:12px;
-               letter-spacing:1px;text-transform:uppercase;outline:none"
+        style="flex:1;min-width:140px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 12px;color:var(--text);font-family:'Space Mono',monospace;font-size:12px;letter-spacing:1px;text-transform:uppercase;outline:none"
         onkeydown="if(event.key==='Enter')rrgAddTickers()"
-        onfocus="this.style.borderColor='var(--accent)'"
-        onblur="this.style.borderColor='var(--border)'"
-      >
+        onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
       <button onclick="rrgAddTickers()"
-        style="padding:7px 14px;background:var(--accent);color:var(--bg);border:none;border-radius:5px;
-               font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;
-               transition:background .15s;white-space:nowrap"
-        onmouseover="this.style.background='#33ddff'" onmouseout="this.style.background='var(--accent)'">
-        + ADD
-      </button>
+        style="padding:7px 14px;background:var(--accent);color:#000;border:none;border-radius:5px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;flex-shrink:0">+ ADD</button>
       <button onclick="rrgClearTickers()"
-        style="padding:7px 12px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:5px;
-               font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;transition:all .15s;white-space:nowrap"
-        onmouseover="this.style.color='var(--sell)';this.style.borderColor='var(--sell)'"
-        onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">
-        CLEAR
-      </button>
+        style="padding:7px 12px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:5px;font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;flex-shrink:0">CLEAR</button>
       <div id="rrgTickerTags" style="display:flex;gap:5px;flex-wrap:wrap"></div>
     </div>
 
-    <!-- Main layout: canvas + side panel -->
+    <!-- Main: canvas + side panel -->
     <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-      <!-- Canvas wrap -->
-      <div id="rrgCanvasWrap" style="flex:1;min-width:320px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative">
-        <!-- Quadrant labels -->
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;padding:0 8px">
-          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#ffd700;letter-spacing:1px">↑ IMPROVING</span>
-          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#00ff9d;letter-spacing:1px">LEADING ↑</span>
+
+      <!-- Canvas container -->
+      <div id="rrgCanvasWrap" style="flex:1;min-width:300px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative">
+        <canvas id="rrgCanvas" style="display:block;width:100%;border-radius:4px" height="500"></canvas>
+        <!-- Loading overlay -->
+        <div id="rrgLoading" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:rgba(8,12,18,0.75);border-radius:12px;z-index:10;flex-direction:column;gap:10px">
+          <div class="spinner"></div>
+          <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Computing rotation…</span>
         </div>
-        <canvas id="rrgCanvas" style="display:block;width:100%;cursor:crosshair" height="520"></canvas>
-        <div style="display:flex;justify-content:space-between;margin-top:6px;padding:0 8px">
-          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#6a6a8a;letter-spacing:1px">↓ LAGGING</span>
-          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#ff4466;letter-spacing:1px">WEAKENING ↓</span>
-        </div>
-        <!-- Loading overlay — hidden by default, shown by JS -->
-        <div id="rrgLoading" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:rgba(10,14,20,0.7);border-radius:12px;z-index:10">
-          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
-            <div class="spinner"></div>
-            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Computing rotation...</span>
-          </div>
-        </div>
-        <!-- Tooltip -->
-        <div id="rrgTooltip" style="display:none;position:absolute;pointer-events:none;background:rgba(8,11,15,0.95);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;z-index:20;min-width:160px;box-shadow:0 4px 24px rgba(0,0,0,0.5);line-height:1.7"></div>
+        <!-- Hover tooltip -->
+        <div id="rrgTip" style="display:none;position:absolute;pointer-events:none;background:rgba(8,11,16,0.96);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;z-index:20;min-width:170px;box-shadow:0 6px 28px rgba(0,0,0,0.6);line-height:1.8"></div>
       </div>
 
-      <!-- Side panel -->
-      <div style="width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:10px">
-        ${['LEADING','IMPROVING','WEAKENING','LAGGING'].map(q => {
-          const c = q==='LEADING'?'#00ff9d':q==='IMPROVING'?'#ffd700':q==='WEAKENING'?'#ff4466':'#6a6a8a';
-          const arrow = q==='LEADING'?'↗':q==='IMPROVING'?'↑':q==='WEAKENING'?'↘':'↙';
-          const id = 'rrg'+q[0]+q.slice(1).toLowerCase()+'List';
-          return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
-            <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:${c};margin-bottom:8px">${arrow} ${q}</div>
-            <div id="${id}"><span style="color:var(--muted);font-size:10px">—</span></div>
-          </div>`;
-        }).join('')}
+      <!-- Side panel quadrant lists -->
+      <div style="width:210px;flex-shrink:0;display:flex;flex-direction:column;gap:8px">
+        ${[['LEADING','#00ff9d','↗'],['IMPROVING','#ffd700','↑'],['WEAKENING','#ff4466','↘'],['LAGGING','#6a6a8a','↙']].map(([q,c,a]) => `
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:11px 13px">
+          <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:${c};margin-bottom:7px">${a} ${q}</div>
+          <div id="rrgList${q}"><span style="color:var(--muted);font-size:10px">—</span></div>
+        </div>`).join('')}
       </div>
     </div>
 
-    <!-- Full table -->
-    <div id="rrgTable" style="margin-top:24px"></div>
+    <!-- Full data table -->
+    <div id="rrgTable" style="margin-top:22px"></div>
   </div>`;
 }
 
+// ── Ticker management ────────────────────────────────────────────────────
 function rrgAddTickers() {
   const inp = document.getElementById('rrgTickerInput');
   if (!inp) return;
-  const raw = inp.value.toUpperCase().replace(/[^A-Z,\s]/g,'');
-  const tickers = raw.split(/[,\s]+/).map(t => t.trim()).filter(t => t.length >= 1 && t.length <= 6);
-  if (!tickers.length) return;
-  const added = [];
+  const tickers = inp.value.toUpperCase().replace(/[^A-Z,\s]/g,'')
+    .split(/[\s,]+/).map(t=>t.trim()).filter(t=>t.length>=1&&t.length<=6);
+  let added = false;
   tickers.forEach(t => {
-    if (!_rrgState.customTickers.includes(t)) {
-      _rrgState.customTickers.push(t);
-      added.push(t);
-    }
+    if (!_rrgState.customTickers.includes(t)) { _rrgState.customTickers.push(t); added = true; }
   });
   inp.value = '';
   renderRRGTickerTags();
-  if (added.length) fetchAndDrawRRG();
+  if (added) fetchAndDrawRRG();
 }
 
 function rrgRemoveTicker(t) {
-  _rrgState.customTickers = _rrgState.customTickers.filter(x => x !== t);
+  _rrgState.customTickers = _rrgState.customTickers.filter(x=>x!==t);
   renderRRGTickerTags();
   fetchAndDrawRRG();
 }
@@ -5868,407 +5830,409 @@ function rrgClearTickers() {
 function renderRRGTickerTags() {
   const el = document.getElementById('rrgTickerTags');
   if (!el) return;
-  if (!_rrgState.customTickers.length) { el.innerHTML = ''; return; }
   el.innerHTML = _rrgState.customTickers.map(t =>
-    `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);border-radius:4px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent)">
-      ${t}
-      <span onclick="rrgRemoveTicker('${t}')" style="cursor:pointer;color:var(--muted);font-size:11px;line-height:1;margin-left:2px" onmouseover="this.style.color='var(--sell)'" onmouseout="this.style.color='var(--muted)'">×</span>
+    `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.25);border-radius:4px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent)">
+      ${t}<span onclick="rrgRemoveTicker('${t}')" style="cursor:pointer;color:var(--muted);font-size:12px;margin-left:2px" onmouseover="this.style.color='var(--sell)'" onmouseout="this.style.color='var(--muted)'">×</span>
     </span>`
   ).join('');
 }
 
+// ── Fetch + draw ─────────────────────────────────────────────────────────
 async function fetchAndDrawRRG() {
-  const body = document.getElementById('rrgViewBody');
-  if (!body) return;
-
-  // Update the ticker bar visibility
-  const tickerBar = document.getElementById('rrgTickerBar');
-  if (tickerBar) tickerBar.style.display = _rrgState.mode === 'tickers' ? 'flex' : 'none';
+  const tb = document.getElementById('rrgTickerBar');
+  if (tb) tb.style.display = _rrgState.mode==='tickers' ? 'flex' : 'none';
 
   const loading = document.getElementById('rrgLoading');
-  if (loading) loading.style.display = 'flex';
+  if (loading) { loading.style.display = 'flex'; }
 
   try {
     let url = `/api/rrg?mode=${_rrgState.mode}&weeks=${_rrgState.weeks}`;
-    if (_rrgState.mode === 'tickers' && _rrgState.customTickers.length) {
+    if (_rrgState.mode === 'tickers' && _rrgState.customTickers.length)
       url += '&tickers=' + encodeURIComponent(_rrgState.customTickers.join(','));
-    }
+
     const data = await apiFetch(url);
     _rrgState.data = data;
-    // Use requestAnimationFrame so the canvas has laid out before we try to measure it
-    requestAnimationFrame(() => {
+
+    // Double-rAF: first frame for layout, second to guarantee offsetWidth is available
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       drawRRG(data);
       renderRRGSidePanel(data.points || []);
       renderRRGTable(data.points || []);
-    });
+    }));
+
   } catch(e) {
     const wrap = document.getElementById('rrgCanvasWrap');
     if (wrap) wrap.innerHTML = `<div class="empty-state" style="padding:60px 20px">
       <div class="empty-icon">⚠️</div>
-      <div>${e.message}</div>
-      <button onclick="fetchAndDrawRRG()" style="margin-top:12px;padding:7px 18px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:5px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ Retry</button>
+      <div style="color:var(--sell)">${e.message}</div>
+      <button onclick="fetchAndDrawRRG()" style="margin-top:14px;padding:8px 20px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:5px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ Retry</button>
     </div>`;
   } finally {
-    const loading2 = document.getElementById('rrgLoading');
-    if (loading2) loading2.style.display = 'none';
+    const l2 = document.getElementById('rrgLoading');
+    if (l2) l2.style.display = 'none';
   }
 }
 
+// ── Mode / weeks controls ─────────────────────────────────────────────────
 function rrgSetMode(mode) {
   _rrgState.mode = mode;
-  // Update button styles
   ['sectors','tickers'].forEach(m => {
-    const btn = document.getElementById('rrgMode' + m[0].toUpperCase() + m.slice(1));
-    if (btn) {
-      btn.style.background = m === mode ? 'rgba(0,212,255,0.15)' : 'transparent';
-      btn.style.color = m === mode ? 'var(--accent)' : 'var(--muted)';
-    }
+    const b = document.getElementById('rrgMode' + m[0].toUpperCase() + m.slice(1));
+    if (b) { b.style.background = m===mode?'rgba(0,212,255,0.15)':'transparent'; b.style.color = m===mode?'var(--accent)':'var(--muted)'; }
   });
-  // Show/hide ticker add bar
-  const tickerBar = document.getElementById('rrgTickerBar');
-  if (tickerBar) tickerBar.style.display = mode === 'tickers' ? 'flex' : 'none';
+  const tb = document.getElementById('rrgTickerBar');
+  if (tb) tb.style.display = mode==='tickers' ? 'flex' : 'none';
   fetchAndDrawRRG();
 }
 
 function rrgSetWeeks(w) {
   _rrgState.weeks = w;
   [8,12,20].forEach(n => {
-    const btn = document.getElementById('rrgW' + n);
-    if (btn) {
-      btn.style.background = n === w ? 'rgba(0,212,255,0.15)' : 'transparent';
-      btn.style.color = n === w ? 'var(--accent)' : 'var(--muted)';
-    }
+    const b = document.getElementById('rrgW'+n);
+    if (b) { b.style.background = n===w?'rgba(0,212,255,0.15)':'transparent'; b.style.color = n===w?'var(--accent)':'var(--muted)'; }
   });
   fetchAndDrawRRG();
 }
 
+// ── Quadrant color ────────────────────────────────────────────────────────
 function quadrantColor(q) {
-  return q === 'LEADING' ? '#00ff9d' : q === 'IMPROVING' ? '#ffd700' : q === 'WEAKENING' ? '#ff4466' : '#6a6a8a';
+  return q==='LEADING'?'#00ff9d':q==='IMPROVING'?'#ffd700':q==='WEAKENING'?'#ff4466':'#6a6a8a';
 }
 
+// ── Draw ──────────────────────────────────────────────────────────────────
 function drawRRG(data) {
   const canvas = document.getElementById('rrgCanvas');
   if (!canvas) return;
-  const points = (data && data.points) || [];
 
+  const points = (data && data.points) || [];
   const dpr = window.devicePixelRatio || 1;
-  const W = canvas.offsetWidth || canvas.parentElement?.clientWidth || 600;
-  const H = 520;
-  canvas.width = W * dpr;
+  const W   = Math.max(canvas.offsetWidth || canvas.parentElement?.offsetWidth || 600, 200);
+  const H   = 500;
+  canvas.width  = W * dpr;
   canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
   canvas.style.height = H + 'px';
+
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
-  // Chart margins
-  const PAD = { top: 24, right: 24, bottom: 24, left: 36 };
-  const cW = W - PAD.left - PAD.right;
-  const cH = H - PAD.top - PAD.bottom;
-
-  // Axis range: centre on 100, ±40
-  const AXIS_MIN = 60, AXIS_MAX = 140;
-  const toScreen = (x, y) => [
-    PAD.left + (x - AXIS_MIN) / (AXIS_MAX - AXIS_MIN) * cW,
-    PAD.top  + (1 - (y - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * cH,
-  ];
-
-  const hovered = _rrgState.hovered;
-
-  // ── Background quadrant fills ──────────────────────────────────
-  const cx = PAD.left + cW * (100 - AXIS_MIN) / (AXIS_MAX - AXIS_MIN);
-  const cy = PAD.top  + cH * (1 - (100 - AXIS_MIN) / (AXIS_MAX - AXIS_MIN));
-
-  const quadBg = [
-    { x: cx,         y: PAD.top, w: PAD.left+cW-cx, h: cy-PAD.top, color: 'rgba(0,255,157,0.04)' },   // leading
-    { x: PAD.left,   y: PAD.top, w: cx-PAD.left,    h: cy-PAD.top, color: 'rgba(255,215,0,0.04)'  },  // improving
-    { x: PAD.left,   y: cy,      w: cx-PAD.left,    h: PAD.top+cH-cy, color: 'rgba(100,100,140,0.04)' }, // lagging
-    { x: cx,         y: cy,      w: PAD.left+cW-cx, h: PAD.top+cH-cy, color: 'rgba(255,68,102,0.04)'  }, // weakening
-  ];
-  quadBg.forEach(r => {
-    ctx.fillStyle = r.color;
-    ctx.fillRect(r.x, r.y, r.w, r.h);
+  // ── Dynamic axis bounds from data ─────────────────────────────
+  const allX = [], allY = [];
+  points.forEach(p => {
+    allX.push(p.x); allY.push(p.y);
+    (p.trail||[]).forEach(t => { allX.push(t.x); allY.push(t.y); });
   });
 
+  const PAD_DATA = 10;  // space beyond outermost point
+  const MIN_HALF = 20;  // minimum axis half-range (so centre shows clearly)
+  let xMin, xMax, yMin, yMax;
+  if (!allX.length) {
+    xMin=80; xMax=120; yMin=80; yMax=120;
+  } else {
+    xMin = Math.min(Math.min(...allX) - PAD_DATA, 100 - MIN_HALF);
+    xMax = Math.max(Math.max(...allX) + PAD_DATA, 100 + MIN_HALF);
+    yMin = Math.min(Math.min(...allY) - PAD_DATA, 100 - MIN_HALF);
+    yMax = Math.max(Math.max(...allY) + PAD_DATA, 100 + MIN_HALF);
+  }
+
+  // Chart margins
+  const ML=44, MR=16, MT=20, MB=28;
+  const cW = W - ML - MR, cH = H - MT - MB;
+
+  function toX(v) { return ML + (v - xMin) / (xMax - xMin) * cW; }
+  function toY(v) { return MT + (1 - (v - yMin) / (yMax - yMin)) * cH; }
+
+  // Centre cross in pixel space
+  const cx = toX(100), cy = toY(100);
+
+  // ── Fill quadrants ────────────────────────────────────────────
+  const fills = [
+    [cx, MT,    ML+cW-cx, cy-MT,    'rgba(0,255,157,0.05)'],   // LEADING  top-right
+    [ML, MT,    cx-ML,    cy-MT,    'rgba(255,215,0,0.04)'],    // IMPROVING top-left
+    [ML, cy,    cx-ML,    MT+cH-cy, 'rgba(100,100,140,0.04)'],  // LAGGING  bottom-left
+    [cx, cy,    ML+cW-cx, MT+cH-cy, 'rgba(255,68,102,0.05)'],   // WEAKENING bottom-right
+  ];
+  fills.forEach(([x,y,w,h,c]) => { ctx.fillStyle=c; ctx.fillRect(x,y,w,h); });
+
   // ── Grid lines ────────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(30,45,61,0.8)';
+  function gridTicks(vMin, vMax) {
+    const range = vMax - vMin;
+    const rawStep = range / 6;
+    const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    const step = [1,2,2.5,5,10].map(f=>f*mag).find(s=>range/s<=8) || mag*10;
+    const ticks = [];
+    for (let v = Math.ceil(vMin/step)*step; v <= vMax+1e-9; v = Math.round((v+step)*1e8)/1e8)
+      ticks.push(+v.toFixed(4));
+    return ticks;
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = 1;
-  [70, 80, 90, 110, 120, 130].forEach(v => {
-    const [sx] = toScreen(v, 100);
-    const [, sy] = toScreen(100, v);
-    ctx.beginPath(); ctx.moveTo(sx, PAD.top);    ctx.lineTo(sx, PAD.top+cH); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(PAD.left, sy); ctx.lineTo(PAD.left+cW, sy); ctx.stroke();
+  gridTicks(xMin, xMax).forEach(v => {
+    ctx.beginPath(); ctx.moveTo(toX(v), MT); ctx.lineTo(toX(v), MT+cH); ctx.stroke();
+  });
+  gridTicks(yMin, yMax).forEach(v => {
+    ctx.beginPath(); ctx.moveTo(ML, toY(v)); ctx.lineTo(ML+cW, toY(v)); ctx.stroke();
   });
 
   // ── Centre axes ───────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
   ctx.lineWidth = 1.5;
-  ctx.setLineDash([5,4]);
-  ctx.beginPath(); ctx.moveTo(cx, PAD.top); ctx.lineTo(cx, PAD.top+cH); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(PAD.left, cy); ctx.lineTo(PAD.left+cW, cy); ctx.stroke();
+  ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(cx, MT); ctx.lineTo(cx, MT+cH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ML, cy); ctx.lineTo(ML+cW, cy); ctx.stroke();
   ctx.setLineDash([]);
 
-  // ── Axis labels ───────────────────────────────────────────────
-  ctx.fillStyle = 'rgba(74,101,128,0.8)';
-  ctx.font = '10px Space Mono, monospace';
+  // ── Tick labels ───────────────────────────────────────────────
+  ctx.font = '9px Space Mono,monospace';
   ctx.textAlign = 'center';
-  [70, 80, 90, 100, 110, 120, 130].forEach(v => {
-    const [sx] = toScreen(v, 100);
-    ctx.fillText(v, sx, PAD.top + cH + 16);
+  gridTicks(xMin, xMax).forEach(v => {
+    ctx.fillStyle = Math.abs(v-100)<0.01 ? 'rgba(255,255,255,0.5)' : 'rgba(80,110,140,0.9)';
+    ctx.fillText(Math.round(v), toX(v), MT+cH+16);
   });
   ctx.textAlign = 'right';
-  [70, 80, 90, 100, 110, 120, 130].forEach(v => {
-    const [, sy] = toScreen(100, v);
-    ctx.fillText(v, PAD.left - 6, sy + 3.5);
+  gridTicks(yMin, yMax).forEach(v => {
+    ctx.fillStyle = Math.abs(v-100)<0.01 ? 'rgba(255,255,255,0.5)' : 'rgba(80,110,140,0.9)';
+    ctx.fillText(Math.round(v), ML-6, toY(v)+3.5);
   });
 
-  // Axis names
-  ctx.fillStyle = 'rgba(74,101,128,0.6)';
-  ctx.font = '9px Space Mono, monospace';
+  // ── Axis names ────────────────────────────────────────────────
+  ctx.fillStyle = 'rgba(70,100,130,0.7)';
+  ctx.font = '8px Space Mono,monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('RS-RATIO →', PAD.left + cW/2, H - 4);
-  ctx.save(); ctx.translate(10, PAD.top + cH/2); ctx.rotate(-Math.PI/2);
-  ctx.fillText('RS-MOMENTUM →', 0, 0); ctx.restore();
+  ctx.fillText('JdK RS-RATIO →', ML+cW/2, H-4);
+  ctx.save(); ctx.translate(11, MT+cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('JdK RS-MOMENTUM →', 0, 0); ctx.restore();
 
-  // ── Bubble size helper ───────────────────────────────────────
-  const allVals = points.map(p => p.totalBuyVal).filter(v => v > 0);
-  const maxVal  = allVals.length ? Math.max(...allVals) : 1;
-  const dotRadius = v => Math.max(5, Math.min(22, 5 + (v / maxVal) * 17));
+  // ── Quadrant corner labels ────────────────────────────────────
+  ctx.font = 'bold 8px Space Mono,monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(0,255,157,0.3)'; ctx.fillText('LEADING', cx+5, MT+13);
+  ctx.fillStyle = 'rgba(255,68,102,0.3)'; ctx.fillText('WEAKENING', cx+5, MT+cH-5);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(255,215,0,0.3)'; ctx.fillText('IMPROVING', cx-5, MT+13);
+  ctx.fillStyle = 'rgba(100,100,140,0.3)'; ctx.fillText('LAGGING', cx-5, MT+cH-5);
 
-  // ── Draw trails ──────────────────────────────────────────────
+  // ── Empty state message ───────────────────────────────────────
+  if (!points.length) {
+    ctx.fillStyle = 'rgba(120,140,160,0.5)';
+    ctx.font = '13px Space Mono,monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('No data — try a different time window', W/2, H/2);
+    canvas._rrgPoints = [];
+    return;
+  }
+
+  // ── Bubble sizing ─────────────────────────────────────────────
+  const maxVal  = Math.max(...points.map(p=>p.totalBuyVal), 1);
+  const bubbleR = v => Math.max(6, Math.min(26, 6 + (v/maxVal)*20));
+
+  // ── Draw trails ───────────────────────────────────────────────
+  const hov = _rrgState.hovered;
   points.forEach(p => {
     if (!p.trail || p.trail.length < 2) return;
-    const isHov = hovered === p.entity;
-    ctx.globalAlpha = isHov ? 0.8 : 0.25;
-    ctx.lineWidth = isHov ? 2 : 1;
-    ctx.strokeStyle = quadrantColor(p.quadrant);
-    ctx.beginPath();
-    p.trail.forEach((t, i) => {
-      const [sx, sy] = toScreen(t.x, t.y);
-      i === 0 ? ctx.moveTo(sx, sy) : ctx.lineTo(sx, sy);
-    });
-    ctx.stroke();
+    const color = quadrantColor(p.quadrant);
+    const isH = hov === p.entity;
+    for (let i = 1; i < p.trail.length; i++) {
+      const fade = i / p.trail.length;
+      ctx.globalAlpha = fade * (isH ? 0.75 : 0.22);
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = isH ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(toX(p.trail[i-1].x), toY(p.trail[i-1].y));
+      ctx.lineTo(toX(p.trail[i].x),   toY(p.trail[i].y));
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
   });
 
-  // ── Draw dots ────────────────────────────────────────────────
-  const screenPoints = [];
+  // ── Draw dots + labels ────────────────────────────────────────
+  const screenPts = [];
   points.forEach(p => {
-    const [sx, sy] = toScreen(p.x, p.y);
-    const r = dotRadius(p.totalBuyVal);
-    const color = quadrantColor(p.quadrant);
-    const isHov = hovered === p.entity;
+    const sx = toX(p.x), sy = toY(p.y);
+    const r  = bubbleR(p.totalBuyVal);
+    const c  = quadrantColor(p.quadrant);
+    const isH = hov === p.entity;
 
     // Glow for hovered
-    if (isHov) {
-      ctx.beginPath();
-      ctx.arc(sx, sy, r + 6, 0, Math.PI * 2);
-      ctx.fillStyle = color + '30';
-      ctx.fill();
+    if (isH) {
+      const grd = ctx.createRadialGradient(sx, sy, r, sx, sy, r+12);
+      grd.addColorStop(0, c + '40'); grd.addColorStop(1, 'transparent');
+      ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(sx, sy, r+12, 0, Math.PI*2); ctx.fill();
     }
 
-    // Dot
-    ctx.beginPath();
-    ctx.arc(sx, sy, r, 0, Math.PI * 2);
-    ctx.fillStyle = color + (isHov ? 'cc' : '55');
-    ctx.fill();
-    ctx.strokeStyle = color + (isHov ? 'ff' : '99');
-    ctx.lineWidth = isHov ? 2 : 1;
-    ctx.stroke();
+    // Dot fill
+    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI*2);
+    ctx.fillStyle   = c + (isH ? 'bb' : '44'); ctx.fill();
+    ctx.strokeStyle = c + (isH ? 'ff' : '99'); ctx.lineWidth = isH ? 2.5 : 1.5; ctx.stroke();
 
-    // Velocity arrow
-    const [px, py] = toScreen(p.x - p.dx, p.y - p.dy);
-    const mag = Math.hypot(sx - px, sy - py);
-    if (mag > 2) {
-      const ux = (sx - px) / mag, uy = (sy - py) / mag;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx + ux * (r + 6), sy + uy * (r + 6));
-      ctx.strokeStyle = color + 'bb';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+    // Direction arrow on current dot
+    if (Math.abs(p.dx) > 0.05 || Math.abs(p.dy) > 0.05) {
+      const prevSx = toX(p.x - p.dx), prevSy = toY(p.y - p.dy);
+      const mag = Math.hypot(sx-prevSx, sy-prevSy);
+      if (mag > 0.5) {
+        const ux=(sx-prevSx)/mag, uy=(sy-prevSy)/mag;
+        const tip = [sx+ux*(r+9), sy+uy*(r+9)];
+        const base = [sx+ux*(r+1), sy+uy*(r+1)];
+        const perp = [-uy*4, ux*4];
+        ctx.beginPath();
+        ctx.moveTo(tip[0], tip[1]);
+        ctx.lineTo(base[0]+perp[0], base[1]+perp[1]);
+        ctx.lineTo(base[0]-perp[0], base[1]-perp[1]);
+        ctx.closePath();
+        ctx.fillStyle = c + (isH?'ee':'99'); ctx.fill();
+      }
     }
 
     // Label
-    ctx.fillStyle = isHov ? '#fff' : 'rgba(201,216,232,0.85)';
-    ctx.font = isHov ? 'bold 11px DM Sans, sans-serif' : '10px DM Sans, sans-serif';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 4;
+    ctx.font      = isH ? 'bold 11px DM Sans,sans-serif' : '10px DM Sans,sans-serif';
     ctx.textAlign = 'center';
+    ctx.fillStyle = isH ? '#fff' : 'rgba(200,215,232,0.9)';
     ctx.fillText(p.label, sx, sy - r - 5);
+    ctx.shadowBlur = 0;
 
-    screenPoints.push({ ...p, sx, sy, r });
+    screenPts.push({...p, sx, sy, r});
   });
 
-  // Store for hit-testing
-  canvas._rrgPoints = screenPoints;
+  canvas._rrgPoints = screenPts;
 
-  // Bind mouse events once
+  // Bind events once
   if (!canvas._rrgBound) {
     canvas._rrgBound = true;
-    canvas.addEventListener('mousemove', rrgOnMouseMove);
-    canvas.addEventListener('mouseleave', rrgOnMouseLeave);
-    canvas.addEventListener('click', rrgOnClick);
+    canvas.addEventListener('mousemove',  rrgMouseMove);
+    canvas.addEventListener('mouseleave', rrgMouseLeave);
+    canvas.addEventListener('click',      rrgClick);
   }
 }
 
-// Resize redraw
-window.addEventListener('resize', () => {
-  if (_rrgState.data && document.getElementById('rrgCanvas')) {
-    requestAnimationFrame(() => drawRRG(_rrgState.data));
-  }
-});
-
-let _rrgLastHovered = null;
-function rrgOnMouseMove(e) {
+// ── Mouse interaction ─────────────────────────────────────────────────────
+let _rrgLastHov = null;
+function rrgMouseMove(e) {
   const canvas = document.getElementById('rrgCanvas');
   if (!canvas || !canvas._rrgPoints) return;
   const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
   let found = null;
-  for (const p of canvas._rrgPoints) {
-    if (Math.hypot(mx - p.sx, my - p.sy) <= p.r + 6) { found = p; break; }
-  }
-  const tip = document.getElementById('rrgTooltip');
+  for (const p of canvas._rrgPoints)
+    if (Math.hypot(mx-p.sx, my-p.sy) <= p.r+8) { found=p; break; }
+
+  const tip = document.getElementById('rrgTip');
   const newHov = found ? found.entity : null;
 
-  if (found) {
-    _rrgState.hovered = found.entity;
-    if (tip) {
-      tip.style.display = 'block';
-      // Keep tooltip inside the canvas
-      const tipW = 180, tipH = 110;
-      let tx = mx + 16, ty = my - 10;
-      if (tx + tipW > rect.width)  tx = mx - tipW - 8;
-      if (ty + tipH > rect.height) ty = my - tipH;
-      tip.style.left = tx + 'px';
-      tip.style.top  = ty + 'px';
-      const q = found.quadrant;
-      const qc = quadrantColor(q);
-      tip.innerHTML = `
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:${qc}">${found.label}</div>
-        <div style="color:var(--muted);font-size:10px;margin-bottom:5px">${found.company !== found.label ? found.company : ''}</div>
-        <div style="color:${qc};font-size:9px;letter-spacing:1px;margin-bottom:6px">● ${q}</div>
-        <div style="font-size:11px">RS-Ratio: <span style="color:var(--text)">${found.x.toFixed(1)}</span></div>
-        <div style="font-size:11px">RS-Momentum: <span style="color:var(--text)">${found.y.toFixed(1)}</span></div>
-        <div style="font-size:11px">Buy Value: <span style="color:var(--text)">${fmtMoney(found.totalBuyVal)}</span></div>
-        <div style="font-size:11px">Buyers: <span style="color:var(--text)">${found.totalBuyers}</span></div>`;
-    }
-  } else {
-    _rrgState.hovered = null;
-    if (tip) tip.style.display = 'none';
+  if (found && tip) {
+    const c = quadrantColor(found.quadrant);
+    const rect2 = canvas.getBoundingClientRect();
+    const TW=190, TH=120;
+    let tx=mx+16, ty=my-10;
+    if (tx+TW > rect2.width) tx=mx-TW-10;
+    if (ty+TH > rect2.height) ty=my-TH-6;
+    tip.style.display='block'; tip.style.left=tx+'px'; tip.style.top=ty+'px';
+    tip.innerHTML=`
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:${c}">${found.label}</div>
+      ${found.company!==found.label?`<div style="font-size:10px;color:var(--muted);margin-bottom:3px">${found.company}</div>`:''}
+      <div style="font-size:9px;font-family:'Space Mono',monospace;color:${c};letter-spacing:1px;margin-bottom:5px">● ${found.quadrant}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;font-size:10px">
+        <span style="color:var(--muted)">RS-Ratio</span><span style="color:var(--text)">${found.x.toFixed(1)}</span>
+        <span style="color:var(--muted)">RS-Momentum</span><span style="color:var(--text)">${found.y.toFixed(1)}</span>
+        <span style="color:var(--muted)">Buy Value</span><span style="color:var(--text)">${fmtMoney(found.totalBuyVal)}</span>
+        <span style="color:var(--muted)">Buyers</span><span style="color:var(--text)">${found.totalBuyers}</span>
+      </div>`;
+  } else if (tip) {
+    tip.style.display='none';
   }
 
-  // Only redraw when hover target changes to avoid thrashing
-  if (newHov !== _rrgLastHovered) {
-    _rrgLastHovered = newHov;
-    drawRRG(_rrgState.data);
+  if (newHov !== _rrgLastHov) {
+    _rrgLastHov = newHov;
+    _rrgState.hovered = newHov;
+    if (_rrgState.data) drawRRG(_rrgState.data);
   }
 }
 
-function rrgOnMouseLeave() {
-  _rrgState.hovered = null;
-  _rrgLastHovered = null;
-  const tip = document.getElementById('rrgTooltip');
-  if (tip) tip.style.display = 'none';
+function rrgMouseLeave() {
+  _rrgState.hovered = null; _rrgLastHov = null;
+  const tip = document.getElementById('rrgTip');
+  if (tip) tip.style.display='none';
   if (_rrgState.data) drawRRG(_rrgState.data);
 }
 
-function rrgOnClick(e) {
+function rrgClick(e) {
   const canvas = document.getElementById('rrgCanvas');
   if (!canvas || !canvas._rrgPoints) return;
   const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
+  const mx = e.clientX-rect.left, my = e.clientY-rect.top;
   for (const p of canvas._rrgPoints) {
-    if (Math.hypot(mx - p.sx, my - p.sy) <= p.r + 6) {
+    if (Math.hypot(mx-p.sx, my-p.sy) <= p.r+8) {
       if (_rrgState.mode === 'tickers') {
         loadStockView(p.entity);
-      } else {
-        // Sectors mode: jump to sector page
-        if (typeof _sectorSubpage !== 'undefined') {
-          _sectorSubpage = p.entity;
-          switchView('sectors', document.getElementById('sectorsTab'));
-        }
+      } else if (typeof _sectorSubpage !== 'undefined') {
+        _sectorSubpage = p.entity;
+        switchView('sectors', document.getElementById('sectorsTab'));
       }
       return;
     }
   }
 }
 
+// Redraw on resize
+window.addEventListener('resize', () => {
+  if (_rrgState.data && document.getElementById('rrgCanvas'))
+    requestAnimationFrame(() => drawRRG(_rrgState.data));
+});
+
+// ── Side panel ────────────────────────────────────────────────────────────
 function renderRRGSidePanel(points) {
-  const quadrants = ['LEADING','IMPROVING','WEAKENING','LAGGING'];
-  const ids = {
-    LEADING:   'rrgLeadingList',
-    IMPROVING: 'rrgImprovingList',
-    WEAKENING: 'rrgWeakeningList',
-    LAGGING:   'rrgLaggingList',
-  };
-  quadrants.forEach(q => {
-    const el = document.getElementById(ids[q]);
+  ['LEADING','IMPROVING','WEAKENING','LAGGING'].forEach(q => {
+    const el = document.getElementById('rrgList'+q);
     if (!el) return;
-    const filtered = points.filter(p => p.quadrant === q)
-      .sort((a,b) => b.totalBuyVal - a.totalBuyVal).slice(0, 6);
-    if (!filtered.length) { el.innerHTML = '<span style="color:var(--muted);font-size:10px">None</span>'; return; }
-    el.innerHTML = filtered.map(p => {
-      const clickFn = _rrgState.mode === 'tickers'
+    const list = points.filter(p=>p.quadrant===q).sort((a,b)=>b.totalBuyVal-a.totalBuyVal).slice(0,7);
+    if (!list.length) { el.innerHTML='<span style="color:var(--muted);font-size:10px">—</span>'; return; }
+    el.innerHTML = list.map(p => {
+      const onclick = _rrgState.mode==='tickers'
         ? `loadStockView('${p.entity}')`
         : `if(typeof _sectorSubpage!=='undefined'){_sectorSubpage='${p.entity.replace(/'/g,"\\'")}';switchView('sectors',document.getElementById('sectorsTab'))}`;
-      return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;cursor:pointer;padding:2px 0"
-                   onclick="${clickFn}"
-                   onmouseover="this.children[0].style.color='var(--accent)'"
-                   onmouseout="this.children[0].style.color='var(--text)'">
-        <span style="color:var(--text);font-family:'Space Mono',monospace;font-size:10px;transition:color .15s">${p.label}</span>
-        <span style="color:var(--muted);font-size:9px">${fmtMoney(p.totalBuyVal)}</span>
+      return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;cursor:pointer"
+        onclick="${onclick}"
+        onmouseover="this.querySelector('.rrg-lbl').style.color='var(--accent)'"
+        onmouseout="this.querySelector('.rrg-lbl').style.color='var(--text)'">
+        <span class="rrg-lbl" style="color:var(--text);font-family:'Space Mono',monospace;font-size:10px;transition:color .12s;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${p.label}</span>
+        <span style="color:var(--muted);font-size:9px;flex-shrink:0">${fmtMoney(p.totalBuyVal)}</span>
       </div>`;
     }).join('');
   });
 }
 
+// ── Data table ────────────────────────────────────────────────────────────
 function renderRRGTable(points) {
   const el = document.getElementById('rrgTable');
   if (!el || !points.length) return;
-  const sorted = [...points].sort((a,b) => {
-    const qo = { LEADING:0, IMPROVING:1, WEAKENING:2, LAGGING:3 };
-    return (qo[a.quadrant]??9) - (qo[b.quadrant]??9) || b.totalBuyVal - a.totalBuyVal;
-  });
+  const ORDER = {LEADING:0,IMPROVING:1,WEAKENING:2,LAGGING:3};
+  const sorted = [...points].sort((a,b)=>(ORDER[a.quadrant]??9)-(ORDER[b.quadrant]??9)||b.totalBuyVal-a.totalBuyVal);
   el.innerHTML = `
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
-    <div style="padding:14px 16px;border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;color:var(--muted)">
-      ALL ENTITIES — ${points.length} tracked
-    </div>
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1.5px;color:var(--muted)">${points.length} ENTITIES TRACKED</div>
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead>
-        <tr style="border-bottom:1px solid var(--border)">
-          <th style="padding:10px 16px;text-align:left;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);font-weight:400">ENTITY</th>
-          <th style="padding:10px 16px;text-align:center;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);font-weight:400">QUADRANT</th>
-          <th style="padding:10px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);font-weight:400">RS-RATIO</th>
-          <th style="padding:10px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);font-weight:400">RS-MOM</th>
-          <th style="padding:10px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);font-weight:400">BUY VALUE</th>
-          <th style="padding:10px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);font-weight:400">BUYERS</th>
-        </tr>
-      </thead>
+      <thead><tr style="border-bottom:1px solid var(--border)">
+        ${['ENTITY','QUADRANT','RS-RATIO','RS-MOM','BUY VALUE','BUYERS'].map(h=>`<th style="padding:9px 14px;text-align:${h==='ENTITY'||h==='QUADRANT'?'left':'right'};font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--muted);font-weight:400">${h}</th>`).join('')}
+      </tr></thead>
       <tbody>
-        ${sorted.map(p => {
-          const qc = quadrantColor(p.quadrant);
-          const arrow = p.quadrant==='LEADING'?'↗':p.quadrant==='IMPROVING'?'↑':p.quadrant==='WEAKENING'?'↘':'↙';
-          const clickFn = _rrgState.mode === 'tickers' ? `loadStockView('${p.entity}')` : '';
-          return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);cursor:${clickFn?'pointer':'default'}"
-                      ${clickFn?`onclick="${clickFn}"`:''}
-                      onmouseover="this.style.background='rgba(255,255,255,0.03)'"
-                      onmouseout="this.style.background=''">
-            <td style="padding:9px 16px;color:var(--text);font-weight:500">${p.label}</td>
-            <td style="padding:9px 16px;text-align:center">
-              <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;background:${qc}22;color:${qc};border:1px solid ${qc}44">${arrow} ${p.quadrant}</span>
-            </td>
-            <td style="padding:9px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:${p.x>=100?'var(--buy)':'var(--muted)'}">${p.x.toFixed(1)}</td>
-            <td style="padding:9px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:${p.y>=100?'var(--buy)':'var(--sell)'}">${p.y.toFixed(1)}</td>
-            <td style="padding:9px 16px;text-align:right;color:var(--text)">${fmtMoney(p.totalBuyVal)}</td>
-            <td style="padding:9px 16px;text-align:right;color:var(--muted)">${p.totalBuyers}</td>
+        ${sorted.map(p=>{
+          const c=quadrantColor(p.quadrant);
+          const a=p.quadrant==='LEADING'?'↗':p.quadrant==='IMPROVING'?'↑':p.quadrant==='WEAKENING'?'↘':'↙';
+          const onclick = _rrgState.mode==='tickers' ? `onclick="loadStockView('${p.entity}')"` : '';
+          return `<tr style="border-bottom:1px solid rgba(255,255,255,0.03);cursor:${onclick?'pointer':'default'}"
+            ${onclick} onmouseover="this.style.background='rgba(255,255,255,0.025)'" onmouseout="this.style.background=''">
+            <td style="padding:8px 14px;font-weight:500;color:var(--text)">${p.label}</td>
+            <td style="padding:8px 14px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;background:${c}22;color:${c};border:1px solid ${c}44">${a} ${p.quadrant}</span></td>
+            <td style="padding:8px 14px;text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:${p.x>=100?'var(--buy)':'var(--muted)'}">${p.x.toFixed(1)}</td>
+            <td style="padding:8px 14px;text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:${p.y>=100?'var(--buy)':'var(--sell)'}">${p.y.toFixed(1)}</td>
+            <td style="padding:8px 14px;text-align:right;color:var(--text)">${fmtMoney(p.totalBuyVal)}</td>
+            <td style="padding:8px 14px;text-align:right;color:var(--muted)">${p.totalBuyers}</td>
           </tr>`;
         }).join('')}
       </tbody>
-    </table>
-    </div>
+    </table></div>
   </div>`;
 }
 
