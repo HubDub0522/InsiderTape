@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const FMP  = process.env.FMP_KEY || '';
+const FMP  = process.env.FMP_KEY || process.env.FMP_API_KEY || process.env.FMPCLOUD_KEY || process.env.FMP || '';
 
 // ─── DB PATH — prefer Render persistent disk, fall back to local ./data ──────
 // /var/data exists on Render but can throw disk I/O errors if the disk is
@@ -506,8 +506,8 @@ async function fetchFMPCongress(endpoint, chamber, maxPages = 20) {
 async function runCongressSync() {
   if (congressRunning) { slog('[congress] already running, skipping'); return; }
   if (!FMP) {
-    slog('[congress] FMP_KEY not set — skipping congress sync');
-    return { senate: 0, house: 0, errors: ['FMP_KEY not set'] };
+    slog('[congress] No FMP key found — checked FMP_KEY, FMP_API_KEY, FMPCLOUD_KEY, FMP env vars. Set one in Render dashboard to enable congressional data.');
+    return { senate: 0, house: 0, errors: ['No FMP key found in environment'] };
   }
   congressRunning = true;
   slog('[congress] === starting STOCK Act sync via FMP ===');
@@ -2142,7 +2142,14 @@ app.get('/api/congress-status', (req, res) => {
       stats.sample   = db.prepare('SELECT * FROM gov_trades ORDER BY id DESC LIMIT 5').all();
     } catch(e) { stats.error = e.message; }
     const recentLogs = syncLog.filter(l => l.toLowerCase().includes('congress')).slice(-30);
-    res.json({ congress_running: congressRunning, stats, recent_logs: recentLogs });
+    const envCheck = {
+      FMP_KEY: !!process.env.FMP_KEY,
+      FMP_API_KEY: !!process.env.FMP_API_KEY,
+      FMPCLOUD_KEY: !!process.env.FMPCLOUD_KEY,
+      FMP: !!process.env.FMP,
+      fmp_resolved: !!FMP,
+    };
+    res.json({ congress_running: congressRunning, stats, recent_logs: recentLogs, env_check: envCheck });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
