@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const FMP  = process.env.FMP_KEY || 'OJfv9bPVEMrnwPX7noNpJLZCFLLFTmlu';
+const FMP  = process.env.FMP_KEY || '';
 
 // ─── DB PATH — prefer Render persistent disk, fall back to local ./data ──────
 // /var/data exists on Render but can throw disk I/O errors if the disk is
@@ -114,6 +114,44 @@ app.use((req, res, next) => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
   });
   next();
+});
+
+// ─── RATE LIMITER ─────────────────────────────────────────────────────────────
+// Simple in-memory per-IP limiter — no dependency required.
+// Heavy endpoints: 30 req/min. All other /api/* endpoints: 120 req/min.
+// Static files are not rate-limited.
+const _rlStore = new Map(); // ip → { count, resetAt }
+const HEAVY_PATHS = ['/api/drift', '/api/proximity', '/api/scoreboard', '/api/firstbuys'];
+function rateLimiter(maxReq, windowMs) {
+  return (req, res, next) => {
+    if (!req.path.startsWith('/api/')) return next(); // only limit API calls
+    const ip  = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+    const key = ip + '|' + maxReq;
+    const now = Date.now();
+    let slot = _rlStore.get(key);
+    if (!slot || now > slot.resetAt) {
+      slot = { count: 0, resetAt: now + windowMs };
+      _rlStore.set(key, slot);
+    }
+    slot.count++;
+    if (slot.count > maxReq) {
+      res.setHeader('Retry-After', Math.ceil((slot.resetAt - now) / 1000));
+      return res.status(429).json({ error: 'Too many requests — slow down' });
+    }
+    next();
+  };
+}
+// Clean up expired entries every 5 minutes to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _rlStore) { if (now > v.resetAt) _rlStore.delete(k); }
+}, 5 * 60 * 1000);
+
+app.use((req, res, next) => {
+  const isHeavy = HEAVY_PATHS.some(p => req.path.startsWith(p));
+  return isHeavy
+    ? rateLimiter(30, 60000)(req, res, next)
+    : rateLimiter(120, 60000)(req, res, next);
 });
 
 // ─── DB ───────────────────────────────────────────────────────
