@@ -5705,7 +5705,7 @@ function fmtMoney(n) { return fmt(n); }
 
 let _rrgState = {
   mode: 'sectors',
-  weeks: 12,
+  weeks: 8,
   data: null,
   hovered: null,
   customTickers: [],
@@ -5975,11 +5975,17 @@ function drawRRG(data) {
   );
   const hiddenCount = activePoints.length - visiblePoints.length;
 
-  // ── AXIS RANGE: fit to visible (non-outlier) current positions ──
+  // ── AXIS RANGE: fit to visible points AND their full trails ──
+  // This makes the chart dynamic — selecting/deselecting reshapes the view
+  // to perfectly contain everything that's currently shown, tails included.
   let minX = 100, maxX = 100, minY = 100, maxY = 100;
   visiblePoints.forEach(p => {
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    (p.trail || []).forEach(t => {
+      minX = Math.min(minX, t.x); maxX = Math.max(maxX, t.x);
+      minY = Math.min(minY, t.y); maxY = Math.max(maxY, t.y);
+    });
   });
 
   // Symmetric around 100, minimum ±5 units so axes are always visible
