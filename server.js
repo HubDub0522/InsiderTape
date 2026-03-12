@@ -1234,6 +1234,15 @@ app.get('/api/debug', (req, res) => {
       screenerTest = { ok: true, rows: rows.length };
     } catch(e) { screenerError = e.message; }
 
+    // Sample of actual insider names + titles from recent trades — for debugging gov filter
+    const nameSample = db.prepare(`
+      SELECT DISTINCT insider, MAX(title) AS title, MAX(company) AS company
+      FROM trades
+      WHERE filing_date >= date('now','-90 days')
+      ORDER BY filing_date DESC
+      LIMIT 200
+    `).all();
+
     res.json({
       db_path: DB_PATH,
       total_rows: total,
@@ -1246,6 +1255,7 @@ app.get('/api/debug', (req, res) => {
       tickers_filed_30d: ranker30,
       history_3yr_buys: history1095,
       screener_query_test: screenerTest || { ok: false, error: screenerError },
+      name_sample: nameSample,
       server_version: 'v1.2',
       sync_running: syncRunning,
       daily_running: dailyRunning,
