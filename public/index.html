@@ -5690,11 +5690,23 @@ function fmtSector(n) {
 }
 
 
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+
 // ═══════════════════════════════════════════════════════════════════════════
 // RELATIVE ROTATION GRAPH (RRG)
 // ═══════════════════════════════════════════════════════════════════════════
-let _rrgState = { mode: 'sectors', weeks: 12, data: null, hovered: null,
-                  animating: false, animFrame: 0, ticker: null };
+let _rrgState = {
+  mode: 'sectors',
+  weeks: 12,
+  data: null,
+  hovered: null,
+  customTickers: [],   // user-added tickers for tickers mode
+};
+
+// Format money for RRG (alias for fmt, defined once here)
+function fmtMoney(n) { return fmt(n); }
 
 async function loadRRGPage() {
   window.scrollTo(0, 0);
@@ -5705,105 +5717,197 @@ async function loadRRGPage() {
 }
 
 function renderRRGShell(body) {
+  const m = _rrgState.mode, w = _rrgState.weeks;
   body.innerHTML = `
-  <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+  <div style="max-width:1300px;margin:0 auto;padding:24px 20px">
+    <!-- Header -->
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px">
       <div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">
-          RELATIVE ROTATION GRAPH
-        </div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">RELATIVE ROTATION GRAPH</div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px;max-width:560px;line-height:1.6">
           Plots insider buying momentum vs relative strength — visualise which sectors/tickers
-          are <span style="color:#00ff9d">leading</span>, 
-          <span style="color:#ffd700">improving</span>, 
-          <span style="color:var(--sell)">weakening</span>, or
-          <span style="color:var(--muted)">lagging</span>.
-          Trails show the rotation path over the past 8 weeks.
+          are <span style="color:#00ff9d">leading</span>,
+          <span style="color:#ffd700">improving</span>,
+          <span style="color:#ff4466">weakening</span>, or
+          <span style="color:#6a6a8a">lagging</span> the market.
         </div>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-          <button id="rrgModeSectors" onclick="rrgSetMode('sectors')" style="padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:none;cursor:pointer;background:rgba(0,212,255,0.15);color:var(--accent)">SECTORS</button>
-          <button id="rrgModeTickers" onclick="rrgSetMode('tickers')" style="padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:none;cursor:pointer;background:transparent;color:var(--muted)">TICKERS</button>
+      <!-- Controls -->
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+        <!-- Mode -->
+        <div style="display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <button id="rrgModeSectors" onclick="rrgSetMode('sectors')"
+            style="padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:none;cursor:pointer;
+                   background:${m==='sectors'?'rgba(0,212,255,0.15)':'transparent'};
+                   color:${m==='sectors'?'var(--accent)':'var(--muted)'}">SECTORS</button>
+          <button id="rrgModeTickers" onclick="rrgSetMode('tickers')"
+            style="padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:none;cursor:pointer;
+                   background:${m==='tickers'?'rgba(0,212,255,0.15)':'transparent'};
+                   color:${m==='tickers'?'var(--accent)':'var(--muted)'}">TICKERS</button>
         </div>
-        <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-          <button onclick="rrgSetWeeks(8)"  id="rrgW8"  style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;background:transparent;color:var(--muted)">8W</button>
-          <button onclick="rrgSetWeeks(12)" id="rrgW12" style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;background:rgba(0,212,255,0.15);color:var(--accent)">12W</button>
-          <button onclick="rrgSetWeeks(20)" id="rrgW20" style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;background:transparent;color:var(--muted)">20W</button>
+        <!-- Weeks -->
+        <div style="display:flex;background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <button onclick="rrgSetWeeks(8)"  id="rrgW8"
+            style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;
+                   background:${w===8?'rgba(0,212,255,0.15)':'transparent'};
+                   color:${w===8?'var(--accent)':'var(--muted)'}">8W</button>
+          <button onclick="rrgSetWeeks(12)" id="rrgW12"
+            style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;
+                   background:${w===12?'rgba(0,212,255,0.15)':'transparent'};
+                   color:${w===12?'var(--accent)':'var(--muted)'}">12W</button>
+          <button onclick="rrgSetWeeks(20)" id="rrgW20"
+            style="padding:8px 12px;font-family:'Space Mono',monospace;font-size:10px;border:none;cursor:pointer;
+                   background:${w===20?'rgba(0,212,255,0.15)':'transparent'};
+                   color:${w===20?'var(--accent)':'var(--muted)'}">20W</button>
         </div>
-        <button onclick="fetchAndDrawRRG()" style="padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:transparent;color:var(--muted)">↺ REFRESH</button>
       </div>
     </div>
 
-    <!-- Main layout: canvas left, legend right -->
-    <div style="display:flex;gap:20px;flex-wrap:wrap">
-      <!-- Canvas card -->
+    <!-- Add tickers bar (tickers mode only) -->
+    <div id="rrgTickerBar" style="display:${m==='tickers'?'flex':'none'};align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:12px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <span style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);flex-shrink:0">ADD TICKERS:</span>
+      <input id="rrgTickerInput" type="text" placeholder="e.g. AAPL, MSFT, NVDA"
+        style="flex:1;min-width:160px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;
+               padding:7px 12px;color:var(--text);font-family:'Space Mono',monospace;font-size:12px;
+               letter-spacing:1px;text-transform:uppercase;outline:none"
+        onkeydown="if(event.key==='Enter')rrgAddTickers()"
+        onfocus="this.style.borderColor='var(--accent)'"
+        onblur="this.style.borderColor='var(--border)'"
+      >
+      <button onclick="rrgAddTickers()"
+        style="padding:7px 14px;background:var(--accent);color:var(--bg);border:none;border-radius:5px;
+               font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;
+               transition:background .15s;white-space:nowrap"
+        onmouseover="this.style.background='#33ddff'" onmouseout="this.style.background='var(--accent)'">
+        + ADD
+      </button>
+      <button onclick="rrgClearTickers()"
+        style="padding:7px 12px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:5px;
+               font-family:'Space Mono',monospace;font-size:10px;cursor:pointer;transition:all .15s;white-space:nowrap"
+        onmouseover="this.style.color='var(--sell)';this.style.borderColor='var(--sell)'"
+        onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">
+        CLEAR
+      </button>
+      <div id="rrgTickerTags" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+    </div>
+
+    <!-- Main layout: canvas + side panel -->
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <!-- Canvas wrap -->
       <div id="rrgCanvasWrap" style="flex:1;min-width:320px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;position:relative">
-        <div id="rrgLoading" style="display:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,14,20,0.7);border-radius:12px;z-index:10">
-          <div class="spinner"></div>
+        <!-- Quadrant labels -->
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;padding:0 8px">
+          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#ffd700;letter-spacing:1px">↑ IMPROVING</span>
+          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#00ff9d;letter-spacing:1px">LEADING ↑</span>
         </div>
-        <canvas id="rrgCanvas" style="display:block;width:100%;cursor:crosshair" height="560"></canvas>
+        <canvas id="rrgCanvas" style="display:block;width:100%;cursor:crosshair" height="520"></canvas>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;padding:0 8px">
+          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#6a6a8a;letter-spacing:1px">↓ LAGGING</span>
+          <span style="font-family:'Space Mono',monospace;font-size:9px;color:#ff4466;letter-spacing:1px">WEAKENING ↓</span>
+        </div>
+        <!-- Loading overlay — hidden by default, shown by JS -->
+        <div id="rrgLoading" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;background:rgba(10,14,20,0.7);border-radius:12px;z-index:10">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <div class="spinner"></div>
+            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Computing rotation...</span>
+          </div>
+        </div>
         <!-- Tooltip -->
-        <div id="rrgTooltip" style="display:none;position:absolute;pointer-events:none;background:rgba(10,14,20,0.97);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:'Space Mono',monospace;font-size:11px;z-index:20;max-width:220px;line-height:1.7"></div>
-        <!-- Quadrant legend overlay -->
-        <div style="position:absolute;top:24px;left:24px;font-family:'Space Mono',monospace;font-size:9px;color:rgba(0,255,157,0.35);letter-spacing:1px;pointer-events:none">IMPROVING</div>
-        <div style="position:absolute;top:24px;right:24px;font-family:'Space Mono',monospace;font-size:9px;color:rgba(0,255,157,0.55);letter-spacing:1px;pointer-events:none;text-align:right">LEADING</div>
-        <div style="position:absolute;bottom:24px;left:24px;font-family:'Space Mono',monospace;font-size:9px;color:rgba(160,160,180,0.35);letter-spacing:1px;pointer-events:none">LAGGING</div>
-        <div style="position:absolute;bottom:24px;right:24px;font-family:'Space Mono',monospace;font-size:9px;color:rgba(255,68,102,0.45);letter-spacing:1px;pointer-events:none;text-align:right">WEAKENING</div>
+        <div id="rrgTooltip" style="display:none;position:absolute;pointer-events:none;background:rgba(8,11,15,0.95);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;font-size:11px;z-index:20;min-width:160px;box-shadow:0 4px 24px rgba(0,0,0,0.5);line-height:1.7"></div>
       </div>
 
-      <!-- Right panel: rankings per quadrant -->
-      <div id="rrgSidePanel" style="width:240px;display:flex;flex-direction:column;gap:12px">
-        <div id="rrgLeading"   style="background:rgba(0,255,157,0.06);border:1px solid rgba(0,255,157,0.25);border-radius:8px;padding:12px">
-          <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:#00ff9d;margin-bottom:8px">● LEADING</div>
-          <div id="rrgLeadingList" style="font-size:11px;color:var(--muted)">—</div>
-        </div>
-        <div id="rrgImproving" style="background:rgba(255,215,0,0.05);border:1px solid rgba(255,215,0,0.2);border-radius:8px;padding:12px">
-          <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:#ffd700;margin-bottom:8px">↗ IMPROVING</div>
-          <div id="rrgImprovingList" style="font-size:11px;color:var(--muted)">—</div>
-        </div>
-        <div id="rrgWeakening" style="background:rgba(255,68,102,0.05);border:1px solid rgba(255,68,102,0.2);border-radius:8px;padding:12px">
-          <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--sell);margin-bottom:8px">↘ WEAKENING</div>
-          <div id="rrgWeakeningList" style="font-size:11px;color:var(--muted)">—</div>
-        </div>
-        <div id="rrgLagging"   style="background:rgba(100,100,120,0.06);border:1px solid rgba(100,100,120,0.2);border-radius:8px;padding:12px">
-          <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);margin-bottom:8px">↙ LAGGING</div>
-          <div id="rrgLaggingList" style="font-size:11px;color:var(--muted)">—</div>
-        </div>
-        <!-- How to read -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:10px;color:var(--muted);line-height:1.7">
-          <div style="color:var(--text);font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;margin-bottom:6px">HOW TO READ</div>
-          <div><b style="color:var(--text)">X-axis</b> — RS-Ratio: relative buying strength vs all tickers</div>
-          <div style="margin-top:4px"><b style="color:var(--text)">Y-axis</b> — RS-Momentum: rate of change in RS-Ratio</div>
-          <div style="margin-top:4px"><b style="color:var(--text)">Trails</b> — 8-week rotation path; clockwise = typical cycle</div>
-          <div style="margin-top:4px"><b style="color:var(--text)">Size</b> — proportional to total insider buy value</div>
-        </div>
+      <!-- Side panel -->
+      <div style="width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:10px">
+        ${['LEADING','IMPROVING','WEAKENING','LAGGING'].map(q => {
+          const c = q==='LEADING'?'#00ff9d':q==='IMPROVING'?'#ffd700':q==='WEAKENING'?'#ff4466':'#6a6a8a';
+          const arrow = q==='LEADING'?'↗':q==='IMPROVING'?'↑':q==='WEAKENING'?'↘':'↙';
+          const id = 'rrg'+q[0]+q.slice(1).toLowerCase()+'List';
+          return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
+            <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:${c};margin-bottom:8px">${arrow} ${q}</div>
+            <div id="${id}"><span style="color:var(--muted);font-size:10px">—</span></div>
+          </div>`;
+        }).join('')}
       </div>
     </div>
 
-    <!-- Bottom: table of all entities with quadrant badges -->
-    <div id="rrgTable" style="margin-top:20px"></div>
+    <!-- Full table -->
+    <div id="rrgTable" style="margin-top:24px"></div>
   </div>`;
+}
+
+function rrgAddTickers() {
+  const inp = document.getElementById('rrgTickerInput');
+  if (!inp) return;
+  const raw = inp.value.toUpperCase().replace(/[^A-Z,\s]/g,'');
+  const tickers = raw.split(/[,\s]+/).map(t => t.trim()).filter(t => t.length >= 1 && t.length <= 6);
+  if (!tickers.length) return;
+  const added = [];
+  tickers.forEach(t => {
+    if (!_rrgState.customTickers.includes(t)) {
+      _rrgState.customTickers.push(t);
+      added.push(t);
+    }
+  });
+  inp.value = '';
+  renderRRGTickerTags();
+  if (added.length) fetchAndDrawRRG();
+}
+
+function rrgRemoveTicker(t) {
+  _rrgState.customTickers = _rrgState.customTickers.filter(x => x !== t);
+  renderRRGTickerTags();
+  fetchAndDrawRRG();
+}
+
+function rrgClearTickers() {
+  _rrgState.customTickers = [];
+  renderRRGTickerTags();
+  fetchAndDrawRRG();
+}
+
+function renderRRGTickerTags() {
+  const el = document.getElementById('rrgTickerTags');
+  if (!el) return;
+  if (!_rrgState.customTickers.length) { el.innerHTML = ''; return; }
+  el.innerHTML = _rrgState.customTickers.map(t =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);border-radius:4px;font-family:'Space Mono',monospace;font-size:10px;color:var(--accent)">
+      ${t}
+      <span onclick="rrgRemoveTicker('${t}')" style="cursor:pointer;color:var(--muted);font-size:11px;line-height:1;margin-left:2px" onmouseover="this.style.color='var(--sell)'" onmouseout="this.style.color='var(--muted)'">×</span>
+    </span>`
+  ).join('');
 }
 
 async function fetchAndDrawRRG() {
   const body = document.getElementById('rrgViewBody');
   if (!body) return;
+
+  // Update the ticker bar visibility
+  const tickerBar = document.getElementById('rrgTickerBar');
+  if (tickerBar) tickerBar.style.display = _rrgState.mode === 'tickers' ? 'flex' : 'none';
+
   const loading = document.getElementById('rrgLoading');
   if (loading) loading.style.display = 'flex';
 
   try {
-    const data = await apiFetch(`/api/rrg?mode=${_rrgState.mode}&weeks=${_rrgState.weeks}`);
+    let url = `/api/rrg?mode=${_rrgState.mode}&weeks=${_rrgState.weeks}`;
+    if (_rrgState.mode === 'tickers' && _rrgState.customTickers.length) {
+      url += '&tickers=' + encodeURIComponent(_rrgState.customTickers.join(','));
+    }
+    const data = await apiFetch(url);
     _rrgState.data = data;
-    drawRRG(data);
-    renderRRGSidePanel(data.points);
-    renderRRGTable(data.points);
+    // Use requestAnimationFrame so the canvas has laid out before we try to measure it
+    requestAnimationFrame(() => {
+      drawRRG(data);
+      renderRRGSidePanel(data.points || []);
+      renderRRGTable(data.points || []);
+    });
   } catch(e) {
     const wrap = document.getElementById('rrgCanvasWrap');
     if (wrap) wrap.innerHTML = `<div class="empty-state" style="padding:60px 20px">
       <div class="empty-icon">⚠️</div>
       <div>${e.message}</div>
-      <button class="retry-btn" onclick="fetchAndDrawRRG()">↺ Retry</button></div>`;
+      <button onclick="fetchAndDrawRRG()" style="margin-top:12px;padding:7px 18px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:5px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ Retry</button>
+    </div>`;
   } finally {
     const loading2 = document.getElementById('rrgLoading');
     if (loading2) loading2.style.display = 'none';
@@ -5812,13 +5916,17 @@ async function fetchAndDrawRRG() {
 
 function rrgSetMode(mode) {
   _rrgState.mode = mode;
+  // Update button styles
   ['sectors','tickers'].forEach(m => {
-    const btn = document.getElementById('rrgMode' + m.charAt(0).toUpperCase() + m.slice(1));
+    const btn = document.getElementById('rrgMode' + m[0].toUpperCase() + m.slice(1));
     if (btn) {
       btn.style.background = m === mode ? 'rgba(0,212,255,0.15)' : 'transparent';
       btn.style.color = m === mode ? 'var(--accent)' : 'var(--muted)';
     }
   });
+  // Show/hide ticker add bar
+  const tickerBar = document.getElementById('rrgTickerBar');
+  if (tickerBar) tickerBar.style.display = mode === 'tickers' ? 'flex' : 'none';
   fetchAndDrawRRG();
 }
 
@@ -5841,195 +5949,158 @@ function quadrantColor(q) {
 function drawRRG(data) {
   const canvas = document.getElementById('rrgCanvas');
   if (!canvas) return;
+  const points = (data && data.points) || [];
+
   const dpr = window.devicePixelRatio || 1;
-  const W = canvas.offsetWidth, H = 560;
+  const W = canvas.offsetWidth || canvas.parentElement?.clientWidth || 600;
+  const H = 520;
   canvas.width = W * dpr;
   canvas.height = H * dpr;
   canvas.style.height = H + 'px';
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, W, H);
 
-  const points = data.points || [];
-  if (!points.length) {
-    ctx.fillStyle = 'rgba(160,160,180,0.5)';
-    ctx.font = '13px Space Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Insufficient data — try a longer time window', W/2, H/2);
-    return;
-  }
+  // Chart margins
+  const PAD = { top: 24, right: 24, bottom: 24, left: 36 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
 
-  // Axis padding
-  const PAD = { l: 52, r: 24, t: 24, b: 40 };
-  const plotW = W - PAD.l - PAD.r;
-  const plotH = H - PAD.t - PAD.b;
+  // Axis range: centre on 100, ±40
+  const AXIS_MIN = 60, AXIS_MAX = 140;
+  const toScreen = (x, y) => [
+    PAD.left + (x - AXIS_MIN) / (AXIS_MAX - AXIS_MIN) * cW,
+    PAD.top  + (1 - (y - AXIS_MIN) / (AXIS_MAX - AXIS_MIN)) * cH,
+  ];
 
-  // Determine axis range with padding
-  const xs = points.map(p => p.x).concat(points.flatMap(p => p.trail.map(t => t.x)));
-  const ys = points.map(p => p.y).concat(points.flatMap(p => p.trail.map(t => t.y)));
-  let xMin = Math.min(...xs), xMax = Math.max(...xs);
-  let yMin = Math.min(...ys), yMax = Math.max(...ys);
-  // Ensure 100 is always centred
-  xMin = Math.min(xMin, 100) - 8; xMax = Math.max(xMax, 100) + 8;
-  yMin = Math.min(yMin, 100) - 8; yMax = Math.max(yMax, 100) + 8;
-  const xRange = xMax - xMin, yRange = yMax - yMin;
+  const hovered = _rrgState.hovered;
 
-  function toScreen(x, y) {
-    return [
-      PAD.l + ((x - xMin) / xRange) * plotW,
-      PAD.t + plotH - ((y - yMin) / yRange) * plotH
-    ];
-  }
+  // ── Background quadrant fills ──────────────────────────────────
+  const cx = PAD.left + cW * (100 - AXIS_MIN) / (AXIS_MAX - AXIS_MIN);
+  const cy = PAD.top  + cH * (1 - (100 - AXIS_MIN) / (AXIS_MAX - AXIS_MIN));
 
-  // ── Background quadrant fills ──────────────────────────────
-  const [cx, cy] = toScreen(100, 100);
-  ctx.fillStyle = 'rgba(0,255,157,0.04)';  ctx.fillRect(cx, PAD.t, W-PAD.r-cx, cy-PAD.t);       // Leading
-  ctx.fillStyle = 'rgba(255,215,0,0.03)';  ctx.fillRect(PAD.l, PAD.t, cx-PAD.l, cy-PAD.t);      // Improving
-  ctx.fillStyle = 'rgba(255,68,102,0.04)'; ctx.fillRect(cx, cy, W-PAD.r-cx, H-PAD.b-cy);        // Weakening
-  ctx.fillStyle = 'rgba(80,80,110,0.04)';  ctx.fillRect(PAD.l, cy, cx-PAD.l, H-PAD.b-cy);       // Lagging
+  const quadBg = [
+    { x: cx,         y: PAD.top, w: PAD.left+cW-cx, h: cy-PAD.top, color: 'rgba(0,255,157,0.04)' },   // leading
+    { x: PAD.left,   y: PAD.top, w: cx-PAD.left,    h: cy-PAD.top, color: 'rgba(255,215,0,0.04)'  },  // improving
+    { x: PAD.left,   y: cy,      w: cx-PAD.left,    h: PAD.top+cH-cy, color: 'rgba(100,100,140,0.04)' }, // lagging
+    { x: cx,         y: cy,      w: PAD.left+cW-cx, h: PAD.top+cH-cy, color: 'rgba(255,68,102,0.04)'  }, // weakening
+  ];
+  quadBg.forEach(r => {
+    ctx.fillStyle = r.color;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  });
 
-  // ── Grid lines ───────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  // ── Grid lines ────────────────────────────────────────────────
+  ctx.strokeStyle = 'rgba(30,45,61,0.8)';
   ctx.lineWidth = 1;
-  const gridSteps = 5;
-  for (let i = 0; i <= gridSteps; i++) {
-    const gx = PAD.l + (i / gridSteps) * plotW;
-    const gy = PAD.t + (i / gridSteps) * plotH;
-    ctx.beginPath(); ctx.moveTo(gx, PAD.t); ctx.lineTo(gx, H-PAD.b); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(PAD.l, gy); ctx.lineTo(W-PAD.r, gy); ctx.stroke();
-  }
+  [70, 80, 90, 110, 120, 130].forEach(v => {
+    const [sx] = toScreen(v, 100);
+    const [, sy] = toScreen(100, v);
+    ctx.beginPath(); ctx.moveTo(sx, PAD.top);    ctx.lineTo(sx, PAD.top+cH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD.left, sy); ctx.lineTo(PAD.left+cW, sy); ctx.stroke();
+  });
 
-  // ── Centre axes ──────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath(); ctx.moveTo(cx, PAD.t); ctx.lineTo(cx, H-PAD.b); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(PAD.l, cy); ctx.lineTo(W-PAD.r, cy); ctx.stroke();
+  // ── Centre axes ───────────────────────────────────────────────
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(cx, PAD.top); ctx.lineTo(cx, PAD.top+cH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD.left, cy); ctx.lineTo(PAD.left+cW, cy); ctx.stroke();
   ctx.setLineDash([]);
 
-  // ── Axis labels ──────────────────────────────────────────────
-  ctx.fillStyle = 'rgba(160,160,180,0.6)';
+  // ── Axis labels ───────────────────────────────────────────────
+  ctx.fillStyle = 'rgba(74,101,128,0.8)';
   ctx.font = '10px Space Mono, monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('RS-RATIO  →', W/2, H - 6);
-  ctx.save(); ctx.translate(13, H/2); ctx.rotate(-Math.PI/2);
-  ctx.fillText('RS-MOMENTUM  →', 0, 0); ctx.restore();
+  [70, 80, 90, 100, 110, 120, 130].forEach(v => {
+    const [sx] = toScreen(v, 100);
+    ctx.fillText(v, sx, PAD.top + cH + 16);
+  });
+  ctx.textAlign = 'right';
+  [70, 80, 90, 100, 110, 120, 130].forEach(v => {
+    const [, sy] = toScreen(100, v);
+    ctx.fillText(v, PAD.left - 6, sy + 3.5);
+  });
 
-  // Tick labels
+  // Axis names
+  ctx.fillStyle = 'rgba(74,101,128,0.6)';
   ctx.font = '9px Space Mono, monospace';
-  ctx.fillStyle = 'rgba(160,160,180,0.4)';
-  [xMin+2, 100, xMax-2].forEach(v => {
-    const [sx] = toScreen(v, yMin);
-    ctx.textAlign = 'center';
-    ctx.fillText(v.toFixed(0), sx, H - PAD.b + 12);
-  });
-  [yMin+2, 100, yMax-2].forEach(v => {
-    const [, sy] = toScreen(xMin, v);
-    ctx.textAlign = 'right';
-    ctx.fillText(v.toFixed(0), PAD.l - 4, sy + 3);
-  });
+  ctx.textAlign = 'center';
+  ctx.fillText('RS-RATIO →', PAD.left + cW/2, H - 4);
+  ctx.save(); ctx.translate(10, PAD.top + cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('RS-MOMENTUM →', 0, 0); ctx.restore();
 
-  // ── Size scale ───────────────────────────────────────────────
-  const maxVal = Math.max(...points.map(p => p.totalBuyVal), 1);
-  const DOT_MAX = 22, DOT_MIN = 6;
-  function dotRadius(val) {
-    return DOT_MIN + (Math.sqrt(val / maxVal)) * (DOT_MAX - DOT_MIN);
-  }
+  // ── Bubble size helper ───────────────────────────────────────
+  const allVals = points.map(p => p.totalBuyVal).filter(v => v > 0);
+  const maxVal  = allVals.length ? Math.max(...allVals) : 1;
+  const dotRadius = v => Math.max(5, Math.min(22, 5 + (v / maxVal) * 17));
 
   // ── Draw trails ──────────────────────────────────────────────
   points.forEach(p => {
-    const trail = p.trail;
-    if (trail.length < 2) return;
-    const color = quadrantColor(p.quadrant);
-    for (let i = 1; i < trail.length; i++) {
-      const alpha = 0.08 + (i / trail.length) * 0.32;
-      const [x0, y0] = toScreen(trail[i-1].x, trail[i-1].y);
-      const [x1, y1] = toScreen(trail[i].x, trail[i].y);
-      ctx.beginPath();
-      ctx.strokeStyle = color.replace(')', `, ${alpha})`).replace('rgb(', 'rgba(').replace(/^#/, '');
-      // Hex → handle properly
-      ctx.strokeStyle = color;
-      ctx.globalAlpha = alpha;
-      ctx.lineWidth = 1.5;
-      ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-    // Trail dots (small)
-    trail.slice(0, -1).forEach((t, i) => {
-      const [sx, sy] = toScreen(t.x, t.y);
-      const alpha = 0.1 + (i / trail.length) * 0.3;
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 2.5, 0, Math.PI*2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    });
-  });
-
-  // ── Draw velocity arrows ─────────────────────────────────────
-  points.forEach(p => {
-    if (!p.dx && !p.dy) return;
-    const [sx, sy] = toScreen(p.x, p.y);
-    const mag = Math.sqrt((p.dx/xRange*plotW)**2 + (p.dy/yRange*plotH)**2);
-    if (mag < 0.5) return;
-    const arrowLen = Math.min(mag * 2.5, 20);
-    const nx = (p.dx/xRange*plotW) / mag;
-    const ny = -(p.dy/yRange*plotH) / mag;
-    const ax = sx + nx * arrowLen;
-    const ay = sy + ny * arrowLen;
+    if (!p.trail || p.trail.length < 2) return;
+    const isHov = hovered === p.entity;
+    ctx.globalAlpha = isHov ? 0.8 : 0.25;
+    ctx.lineWidth = isHov ? 2 : 1;
     ctx.strokeStyle = quadrantColor(p.quadrant);
-    ctx.globalAlpha = 0.5;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ax, ay); ctx.stroke();
-    // Arrowhead
-    const angle = Math.atan2(ny, nx);
     ctx.beginPath();
-    ctx.moveTo(ax, ay);
-    ctx.lineTo(ax - 5*Math.cos(angle-0.4), ay - 5*Math.sin(angle-0.4));
-    ctx.lineTo(ax - 5*Math.cos(angle+0.4), ay - 5*Math.sin(angle+0.4));
-    ctx.closePath();
-    ctx.fillStyle = quadrantColor(p.quadrant);
-    ctx.fill();
+    p.trail.forEach((t, i) => {
+      const [sx, sy] = toScreen(t.x, t.y);
+      i === 0 ? ctx.moveTo(sx, sy) : ctx.lineTo(sx, sy);
+    });
+    ctx.stroke();
     ctx.globalAlpha = 1;
   });
 
-  // ── Draw dots + labels ───────────────────────────────────────
-  const hov = _rrgState.hovered;
+  // ── Draw dots ────────────────────────────────────────────────
+  const screenPoints = [];
   points.forEach(p => {
     const [sx, sy] = toScreen(p.x, p.y);
     const r = dotRadius(p.totalBuyVal);
     const color = quadrantColor(p.quadrant);
-    const isHov = hov === p.entity;
+    const isHov = hovered === p.entity;
 
-    // Glow on hover
+    // Glow for hovered
     if (isHov) {
-      ctx.beginPath(); ctx.arc(sx, sy, r+8, 0, Math.PI*2);
-      ctx.fillStyle = color; ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r + 6, 0, Math.PI * 2);
+      ctx.fillStyle = color + '30';
+      ctx.fill();
     }
-    // Fill
-    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI*2);
-    ctx.fillStyle = color; ctx.globalAlpha = isHov ? 0.9 : 0.65; ctx.fill();
-    // Border
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = isHov ? '#fff' : color;
+
+    // Dot
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = color + (isHov ? 'cc' : '55');
+    ctx.fill();
+    ctx.strokeStyle = color + (isHov ? 'ff' : '99');
     ctx.lineWidth = isHov ? 2 : 1;
     ctx.stroke();
 
+    // Velocity arrow
+    const [px, py] = toScreen(p.x - p.dx, p.y - p.dy);
+    const mag = Math.hypot(sx - px, sy - py);
+    if (mag > 2) {
+      const ux = (sx - px) / mag, uy = (sy - py) / mag;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + ux * (r + 6), sy + uy * (r + 6));
+      ctx.strokeStyle = color + 'bb';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
     // Label
-    const label = p.label.length > 12 ? p.label.slice(0,10) + '…' : p.label;
-    ctx.font = isHov ? 'bold 11px Space Mono, monospace' : '10px Space Mono, monospace';
-    ctx.fillStyle = isHov ? '#fff' : 'rgba(220,220,240,0.85)';
+    ctx.fillStyle = isHov ? '#fff' : 'rgba(201,216,232,0.85)';
+    ctx.font = isHov ? 'bold 11px DM Sans, sans-serif' : '10px DM Sans, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(label, sx, sy - r - 5);
+    ctx.fillText(p.label, sx, sy - r - 5);
+
+    screenPoints.push({ ...p, sx, sy, r });
   });
 
-  // Store point positions for hover
-  canvas._rrgPoints = points.map(p => ({ ...p, sx: toScreen(p.x, p.y)[0], sy: toScreen(p.x, p.y)[1], r: dotRadius(p.totalBuyVal) }));
-  canvas._toScreen = toScreen;
+  // Store for hit-testing
+  canvas._rrgPoints = screenPoints;
 
-  // Attach interaction handler if not already done
+  // Bind mouse events once
   if (!canvas._rrgBound) {
     canvas._rrgBound = true;
     canvas.addEventListener('mousemove', rrgOnMouseMove);
@@ -6038,46 +6109,64 @@ function drawRRG(data) {
   }
 }
 
+// Resize redraw
+window.addEventListener('resize', () => {
+  if (_rrgState.data && document.getElementById('rrgCanvas')) {
+    requestAnimationFrame(() => drawRRG(_rrgState.data));
+  }
+});
+
+let _rrgLastHovered = null;
 function rrgOnMouseMove(e) {
   const canvas = document.getElementById('rrgCanvas');
   if (!canvas || !canvas._rrgPoints) return;
   const rect = canvas.getBoundingClientRect();
-  const mx = (e.clientX - rect.left);
-  const my = (e.clientY - rect.top);
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
   let found = null;
   for (const p of canvas._rrgPoints) {
-    const dist = Math.sqrt((mx - p.sx)**2 + (my - p.sy)**2);
-    if (dist <= p.r + 8) { found = p; break; }
+    if (Math.hypot(mx - p.sx, my - p.sy) <= p.r + 6) { found = p; break; }
   }
   const tip = document.getElementById('rrgTooltip');
+  const newHov = found ? found.entity : null;
+
   if (found) {
     _rrgState.hovered = found.entity;
     if (tip) {
       tip.style.display = 'block';
-      tip.style.left = (mx + 16) + 'px';
-      tip.style.top  = (my - 10) + 'px';
+      // Keep tooltip inside the canvas
+      const tipW = 180, tipH = 110;
+      let tx = mx + 16, ty = my - 10;
+      if (tx + tipW > rect.width)  tx = mx - tipW - 8;
+      if (ty + tipH > rect.height) ty = my - tipH;
+      tip.style.left = tx + 'px';
+      tip.style.top  = ty + 'px';
       const q = found.quadrant;
-      const qColor = quadrantColor(q);
+      const qc = quadrantColor(q);
       tip.innerHTML = `
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:${qColor}">${found.label}</div>
-        <div style="color:var(--muted);font-size:10px;margin-bottom:6px">${found.company !== found.label ? found.company : ''}</div>
-        <div style="color:${qColor};font-size:10px;letter-spacing:1px;margin-bottom:8px">● ${q}</div>
-        <div>RS-Ratio: <span style="color:var(--text)">${found.x.toFixed(1)}</span></div>
-        <div>RS-Momentum: <span style="color:var(--text)">${found.y.toFixed(1)}</span></div>
-        <div>Buy Value: <span style="color:var(--text)">${fmtMoney(found.totalBuyVal)}</span></div>
-        <div>Buyers: <span style="color:var(--text)">${found.totalBuyers}</span></div>`;
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:${qc}">${found.label}</div>
+        <div style="color:var(--muted);font-size:10px;margin-bottom:5px">${found.company !== found.label ? found.company : ''}</div>
+        <div style="color:${qc};font-size:9px;letter-spacing:1px;margin-bottom:6px">● ${q}</div>
+        <div style="font-size:11px">RS-Ratio: <span style="color:var(--text)">${found.x.toFixed(1)}</span></div>
+        <div style="font-size:11px">RS-Momentum: <span style="color:var(--text)">${found.y.toFixed(1)}</span></div>
+        <div style="font-size:11px">Buy Value: <span style="color:var(--text)">${fmtMoney(found.totalBuyVal)}</span></div>
+        <div style="font-size:11px">Buyers: <span style="color:var(--text)">${found.totalBuyers}</span></div>`;
     }
-    drawRRG(_rrgState.data);
   } else {
     _rrgState.hovered = null;
     if (tip) tip.style.display = 'none';
-    if (_rrgState._lastHovered) { _rrgState._lastHovered = null; drawRRG(_rrgState.data); }
   }
-  _rrgState._lastHovered = found ? found.entity : null;
+
+  // Only redraw when hover target changes to avoid thrashing
+  if (newHov !== _rrgLastHovered) {
+    _rrgLastHovered = newHov;
+    drawRRG(_rrgState.data);
+  }
 }
 
 function rrgOnMouseLeave() {
   _rrgState.hovered = null;
+  _rrgLastHovered = null;
   const tip = document.getElementById('rrgTooltip');
   if (tip) tip.style.display = 'none';
   if (_rrgState.data) drawRRG(_rrgState.data);
@@ -6087,15 +6176,18 @@ function rrgOnClick(e) {
   const canvas = document.getElementById('rrgCanvas');
   if (!canvas || !canvas._rrgPoints) return;
   const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
   for (const p of canvas._rrgPoints) {
-    const dist = Math.sqrt((mx - p.sx)**2 + (my - p.sy)**2);
-    if (dist <= p.r + 8) {
+    if (Math.hypot(mx - p.sx, my - p.sy) <= p.r + 6) {
       if (_rrgState.mode === 'tickers') {
         loadStockView(p.entity);
       } else {
-        // Switch to tickers mode filtered for this sector — navigate to sector page
-        switchView('sectors', document.getElementById('sectorsTab'));
+        // Sectors mode: jump to sector page
+        if (typeof _sectorSubpage !== 'undefined') {
+          _sectorSubpage = p.entity;
+          switchView('sectors', document.getElementById('sectorsTab'));
+        }
       }
       return;
     }
@@ -6104,18 +6196,30 @@ function rrgOnClick(e) {
 
 function renderRRGSidePanel(points) {
   const quadrants = ['LEADING','IMPROVING','WEAKENING','LAGGING'];
-  const ids = { LEADING:'rrgLeadingList', IMPROVING:'rrgImprovingList', WEAKENING:'rrgWeakeningList', LAGGING:'rrgLaggingList' };
+  const ids = {
+    LEADING:   'rrgLeadingList',
+    IMPROVING: 'rrgImprovingList',
+    WEAKENING: 'rrgWeakeningList',
+    LAGGING:   'rrgLaggingList',
+  };
   quadrants.forEach(q => {
     const el = document.getElementById(ids[q]);
     if (!el) return;
-    const filtered = points.filter(p => p.quadrant === q).sort((a,b) => b.totalBuyVal - a.totalBuyVal).slice(0,6);
+    const filtered = points.filter(p => p.quadrant === q)
+      .sort((a,b) => b.totalBuyVal - a.totalBuyVal).slice(0, 6);
     if (!filtered.length) { el.innerHTML = '<span style="color:var(--muted);font-size:10px">None</span>'; return; }
-    el.innerHTML = filtered.map(p =>
-      `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;cursor:pointer" onclick="${_rrgState.mode==='tickers'?`loadStockView('${p.entity}')`:`switchView('sectors',document.getElementById('sectorsTab'))`}">
-        <span style="color:var(--text);font-family:'Space Mono',monospace;font-size:10px">${p.label}</span>
+    el.innerHTML = filtered.map(p => {
+      const clickFn = _rrgState.mode === 'tickers'
+        ? `loadStockView('${p.entity}')`
+        : `if(typeof _sectorSubpage!=='undefined'){_sectorSubpage='${p.entity.replace(/'/g,"\\'")}';switchView('sectors',document.getElementById('sectorsTab'))}`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;cursor:pointer;padding:2px 0"
+                   onclick="${clickFn}"
+                   onmouseover="this.children[0].style.color='var(--accent)'"
+                   onmouseout="this.children[0].style.color='var(--text)'">
+        <span style="color:var(--text);font-family:'Space Mono',monospace;font-size:10px;transition:color .15s">${p.label}</span>
         <span style="color:var(--muted);font-size:9px">${fmtMoney(p.totalBuyVal)}</span>
-       </div>`
-    ).join('');
+      </div>`;
+    }).join('');
   });
 }
 
@@ -6123,10 +6227,9 @@ function renderRRGTable(points) {
   const el = document.getElementById('rrgTable');
   if (!el || !points.length) return;
   const sorted = [...points].sort((a,b) => {
-    const qo = {LEADING:0,IMPROVING:1,WEAKENING:2,LAGGING:3};
+    const qo = { LEADING:0, IMPROVING:1, WEAKENING:2, LAGGING:3 };
     return (qo[a.quadrant]??9) - (qo[b.quadrant]??9) || b.totalBuyVal - a.totalBuyVal;
   });
-
   el.innerHTML = `
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden">
     <div style="padding:14px 16px;border-bottom:1px solid var(--border);font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;color:var(--muted)">
@@ -6145,18 +6248,17 @@ function renderRRGTable(points) {
         </tr>
       </thead>
       <tbody>
-        ${sorted.map((p,i) => {
-          const qColor = quadrantColor(p.quadrant);
+        ${sorted.map(p => {
+          const qc = quadrantColor(p.quadrant);
           const arrow = p.quadrant==='LEADING'?'↗':p.quadrant==='IMPROVING'?'↑':p.quadrant==='WEAKENING'?'↘':'↙';
           const clickFn = _rrgState.mode === 'tickers' ? `loadStockView('${p.entity}')` : '';
           return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);cursor:${clickFn?'pointer':'default'}"
                       ${clickFn?`onclick="${clickFn}"`:''}
                       onmouseover="this.style.background='rgba(255,255,255,0.03)'"
-                      onmouseout="this.style.background=''"
-                  >
+                      onmouseout="this.style.background=''">
             <td style="padding:9px 16px;color:var(--text);font-weight:500">${p.label}</td>
             <td style="padding:9px 16px;text-align:center">
-              <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;background:${qColor}22;color:${qColor};border:1px solid ${qColor}44">${arrow} ${p.quadrant}</span>
+              <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;background:${qc}22;color:${qc};border:1px solid ${qc}44">${arrow} ${p.quadrant}</span>
             </td>
             <td style="padding:9px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:${p.x>=100?'var(--buy)':'var(--muted)'}">${p.x.toFixed(1)}</td>
             <td style="padding:9px 16px;text-align:right;font-family:'Space Mono',monospace;font-size:11px;color:${p.y>=100?'var(--buy)':'var(--sell)'}">${p.y.toFixed(1)}</td>
@@ -6169,6 +6271,8 @@ function renderRRGTable(points) {
     </div>
   </div>`;
 }
+
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 
