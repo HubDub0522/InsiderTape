@@ -1941,25 +1941,26 @@ app.get('/api/rrg', async (req, res) => {
       const rolled = entityRolled[entity];
 
       // Raw RS: entity share × N × 100  (100 = exactly average entity)
-      const rawRS = rolled.map((v, i) =>
-        benchmark[i] > 0 ? (v / benchmark[i]) * N * 100 : 100
-      );
-
-      // EMA(10) → JdK RS-Ratio
-      const rsRatioFull = ema(rawRS, 10);
-
-      // 4-period rate of change, offset to 100 → RS-Momentum raw
-      // Must use a longer lookback (4 weeks) so the ROC is large enough to
-      // spread entities meaningfully off y=100 after EMA smoothing.
-      // 1-period ROC of a slow EMA is near-zero → everything collapses to y=100.
-      const MOM_LB = 4;
-      const rocRaw = rsRatioFull.map((v, i) => {
-        if (i < MOM_LB || rsRatioFull[i - MOM_LB] <= 0) return 100;
-        return 100 + (v - rsRatioFull[i - MOM_LB]) / rsRatioFull[i - MOM_LB] * 100;
+      // Use power-law compression so smaller entities get visibility
+      const rawRS = rolled.map((v, i) => {
+        if (benchmark[i] <= 0) return 100;
+        const share = v / benchmark[i];
+        return Math.pow(share * N, 0.5) * 100;
       });
 
-      // EMA(4) → JdK RS-Momentum
-      const rsMomFull = ema(rocRaw, 4);
+      // EMA(5) → JdK RS-Ratio  (shorter period = more responsive = better spread)
+      const rsRatioFull = ema(rawRS, 5);
+
+      // Rate of change over 3 weeks, amplified so momentum visibly separates from 100
+      const MOM_LB = 3;
+      const rocRaw = rsRatioFull.map((v, i) => {
+        if (i < MOM_LB || rsRatioFull[i - MOM_LB] <= 0) return 100;
+        const pct = (v - rsRatioFull[i - MOM_LB]) / rsRatioFull[i - MOM_LB] * 100;
+        return 100 + pct * 4.0;
+      });
+
+      // EMA(3) → JdK RS-Momentum
+      const rsMomFull = ema(rocRaw, 3);
 
       // Slice to display window only
       const rsRatio = rsRatioFull.slice(WARMUP);
@@ -1969,8 +1970,8 @@ app.get('/api/rrg', async (req, res) => {
       const displayBuy = displayWeeks.reduce((s, wk) => s + (entityWeekly[entity].weeks[wk]?.buy_val || 0), 0);
       if (displayBuy === 0) return;
 
-      // Build trail (last 8 display-window points)
-      const TRAIL = Math.min(8, rsRatio.length);
+      // Build trail (last 12 display-window points for richer tails)
+      const TRAIL = Math.min(12, rsRatio.length);
       const trail = [];
       for (let i = rsRatio.length - TRAIL; i < rsRatio.length; i++) {
         trail.push({ week: displayWeeks[i], x: +rsRatio[i].toFixed(2), y: +rsMom[i].toFixed(2) });
