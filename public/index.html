@@ -5788,6 +5788,11 @@ function renderRRGShell(body) {
 
       <!-- Side panel quadrant lists -->
       <div style="width:210px;flex-shrink:0;display:flex;flex-direction:column;gap:8px">
+        <!-- Select / Deselect all -->
+        <div style="display:flex;gap:6px">
+          <button onclick="rrgSelectAll()" style="flex:1;padding:5px 0;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.22);border-radius:5px;color:var(--accent);cursor:pointer">SELECT ALL</button>
+          <button onclick="rrgDeselectAll()" style="flex:1;padding:5px 0;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:5px;color:var(--muted);cursor:pointer">DESELECT ALL</button>
+        </div>
         ${[['LEADING','#00ff9d','↗'],['IMPROVING','#ffd700','↑'],['WEAKENING','#ff4466','↘'],['LAGGING','#6a6a8a','↙']].map(([q,c,a]) => `
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:11px 13px">
           <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:${c};margin-bottom:7px">${a} ${q}</div>
@@ -5824,8 +5829,28 @@ function rrgRemoveTicker(t) {
 
 function rrgClearTickers() {
   _rrgState.customTickers = [];
+  _rrgState.hiddenEntities.clear();
   renderRRGTickerTags();
   fetchAndDrawRRG();
+}
+
+function rrgSelectAll() {
+  _rrgState.hiddenEntities.clear();
+  if (_rrgState.data) {
+    drawRRG(_rrgState.data);
+    renderRRGSidePanel(_rrgState.data.points || []);
+    renderRRGTable(_rrgState.data.points || []);
+  }
+}
+
+function rrgDeselectAll() {
+  const points = _rrgState.data?.points || [];
+  points.forEach(p => _rrgState.hiddenEntities.add(p.entity));
+  if (_rrgState.data) {
+    drawRRG(_rrgState.data);
+    renderRRGSidePanel(points);
+    renderRRGTable(points);
+  }
 }
 
 function renderRRGTickerTags() {
@@ -6197,22 +6222,21 @@ function drawRRG(data) {
   // ── InsiderTape watermark ─────────────────────────────────────
   ctx.save();
   ctx.globalAlpha = 0.13;
-  ctx.font = 'bold 13px "Space Mono",monospace';
+  ctx.font = 'bold 20px "Space Mono",monospace';
   ctx.textAlign = 'right';
   ctx.fillStyle = '#ffffff';
-  ctx.letterSpacing = '2px';
-  ctx.fillText('INSIDERTAPE', ML + cW - 6, MT + cH - 18);
-  ctx.font = '9px "Space Mono",monospace';
-  ctx.globalAlpha = 0.09;
-  ctx.fillText('insidertape.com', ML + cW - 6, MT + cH - 6);
+  ctx.fillText('INSIDERTAPE', ML + cW - 8, MT + cH - 20);
+  ctx.font = '10px "Space Mono",monospace';
+  ctx.globalAlpha = 0.10;
+  ctx.fillText('insidertape.com', ML + cW - 8, MT + cH - 6);
   ctx.restore();
 
-  // ── "N outliers hidden" notice in bottom-right corner ─────────
+  // ── "N outliers hidden" notice — above watermark ──────────────
   if (hiddenCount > 0) {
     ctx.font      = '9px "Space Mono",monospace';
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(120,140,160,0.55)';
-    ctx.fillText(`${hiddenCount} outlier${hiddenCount > 1 ? 's' : ''} hidden`, ML + cW - 4, MT + cH - 5);
+    ctx.fillText(`${hiddenCount} outlier${hiddenCount > 1 ? 's' : ''} hidden`, ML + cW - 4, MT + cH - 40);
   }
 
   // Store screen coordinates for hit-testing
