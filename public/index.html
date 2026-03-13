@@ -2729,7 +2729,7 @@ function buildPressureChart(mainChart,trades,priceData) {
     topLineColor:'rgba(0,255,136,1)',topFillColor1:'rgba(0,255,136,0.20)',topFillColor2:'rgba(0,255,136,0.02)',
     bottomLineColor:'rgba(255,68,102,1)',bottomFillColor1:'rgba(255,68,102,0.02)',bottomFillColor2:'rgba(255,68,102,0.20)',
     lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:true,crosshairMarkerRadius:3,
-    baseLineVisible:false,
+    baseLineVisible:false,baseLineColor:'transparent',baseLineWidth:0,
   });
   areaSeries.setData(allDates.map(t=>({time:t,value:valueByDate[t]??0})));
 
