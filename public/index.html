@@ -2680,7 +2680,11 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
 }
 
 function buildPressureChart(mainChart,trades,priceData) {
-  const pc=document.getElementById('pressureContainer'); if(!pc||!trades.length)return; pc.innerHTML='';
+  // Clear the outer wrapper entirely so stale labels and chart canvases from
+  // previous builds don't stack up. Then recreate the inner container fresh.
+  const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
+  pw.innerHTML='<div id="pressureContainer" style="width:100%;height:120px;"></div>';
+  const pc=document.getElementById('pressureContainer');
 
   // Aggregate net buy/sell value by week (Monday anchor).
   // Weeks with no trades get 0 — no carry-forward.
@@ -2753,8 +2757,8 @@ function buildPressureChart(mainChart,trades,priceData) {
   const label=document.createElement('div');
   label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
   label.textContent='INSIDER PRESSURE';
-  document.getElementById('pressureWrapper').style.position='relative';
-  document.getElementById('pressureWrapper').appendChild(label);
+  pw.style.position='relative';
+  pw.appendChild(label);
 }
 
 
