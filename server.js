@@ -10,9 +10,17 @@ const Database = require('better-sqlite3');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const FMP     = process.env.FMP_KEY     || '';
-const TIINGO  = process.env.TIINGO_KEY  || '';
-const POLYGON = process.env.POLYGON_KEY || '';
+const FMP            = process.env.FMP_KEY             || '';
+const TIINGO         = process.env.TIINGO_KEY          || '';
+const POLYGON        = process.env.POLYGON_KEY         || '';
+const RESEND_KEY     = process.env.RESEND_KEY          || '';
+const FROM_EMAIL     = process.env.FROM_EMAIL          || 'noreply@insidertape.com';
+const SESSION_SECRET = process.env.SESSION_SECRET      || 'dev-secret-change-in-prod';
+const SITE_URL       = process.env.SITE_URL            || 'https://insidertape.com';
+const STRIPE_SECRET  = process.env.STRIPE_SECRET_KEY   || '';
+const STRIPE_PRICE_MONTHLY = process.env.STRIPE_PRICE_ID        || '';
+const STRIPE_PRICE_ANNUAL  = process.env.STRIPE_PRICE_ID_ANNUAL || '';
+const ADMIN_EMAIL    = process.env.ADMIN_EMAIL         || '';
 
 // ─── DB PATH — prefer Render persistent disk, fall back to local ./data ──────
 // /var/data exists on Render but can throw disk I/O errors if the disk is
@@ -195,6 +203,45 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
 } catch(e) { console.warn('Schema init warning:', e.message); }
+
+// ─── AUTH / SUBSCRIPTION TABLES ──────────────────────────────
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_admin INTEGER NOT NULL DEFAULT 0
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS magic_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    stripe_customer_id TEXT,
+    stripe_subscription_id TEXT,
+    stripe_checkout_session_id TEXT,
+    plan TEXT DEFAULT 'monthly',
+    status TEXT NOT NULL DEFAULT 'inactive',
+    current_period_end TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_magic_tokens_token ON magic_tokens(token)`);
+} catch(e) { console.warn('Auth schema init warning:', e.message); }
 
 // ─── Clean up bad/invalid trade records ──────────────────────
 // These are idempotent maintenance tasks — safe to skip if the disk is busy.
@@ -2009,6 +2056,269 @@ app.get('/api/stock-lists', (req, res) => {
   }
 });
 
+
+// ═══════════════════════════════════════════════════════════════
+// ─── AUTH & BILLING ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const crypto = require('crypto');
+
+// ── Helpers ──────────────────────────────────────────────────
+function generateToken(bytes=32) {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
+function getSession(req) {
+  const header = req.headers['authorization'] || '';
+  const cookie = req.headers['cookie'] || '';
+  // Check Authorization: Bearer <token>
+  let token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  // Fall back to cookie
+  if (!token) {
+    const m = cookie.match(/(?:^|;\s*)it_session=([^;]+)/);
+    if (m) token = decodeURIComponent(m[1]);
+  }
+  if (!token) return null;
+  try {
+    const row = db.prepare(`
+      SELECT s.*, u.email, u.is_admin FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token = ? AND s.expires_at > datetime('now')
+    `).get(token);
+    return row || null;
+  } catch(_) { return null; }
+}
+
+function getSubscription(userId) {
+  try {
+    return db.prepare(`SELECT * FROM subscriptions WHERE user_id = ?`).get(userId);
+  } catch(_) { return null; }
+}
+
+function isPremium(session) {
+  if (!session) return false;
+  if (session.is_admin) return true;
+  if (session.email === ADMIN_EMAIL) return true;
+  const sub = getSubscription(session.user_id || session.id);
+  if (!sub) return false;
+  if (sub.status === 'active') return true;
+  // Grace: allow access if period_end is in the future (covers annual cancel-at-period-end)
+  if (sub.current_period_end && sub.current_period_end > new Date().toISOString()) return true;
+  return false;
+}
+
+// ── Middleware: attach session to req ────────────────────────
+app.use((req, res, next) => {
+  req.session = getSession(req);
+  req.isPremium = isPremium(req.session);
+  next();
+});
+
+// ── GET /api/auth/me ─────────────────────────────────────────
+app.get('/api/auth/me', (req, res) => {
+  if (!req.session) return res.json({ loggedIn: false });
+  res.json({
+    loggedIn: true,
+    email: req.session.email,
+    isPremium: req.isPremium,
+    isAdmin: !!req.session.is_admin,
+  });
+});
+
+// ── POST /api/auth/request-link ──────────────────────────────
+app.post('/api/auth/request-link', express.json(), async (req, res) => {
+  const email = (req.body.email || '').trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Valid email required' });
+  }
+  try {
+    // Upsert user
+    db.prepare(`INSERT OR IGNORE INTO users (email) VALUES (?)`).run(email);
+    const user = db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+
+    // Create magic token — expires in 15 minutes
+    const token = generateToken();
+    const expires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    db.prepare(`INSERT INTO magic_tokens (email, token, expires_at) VALUES (?, ?, ?)`).run(email, token, expires);
+
+    const link = `${SITE_URL}/api/auth/verify?token=${token}`;
+
+    // Send via Resend
+    if (RESEND_KEY) {
+      const { Resend } = require('resend');
+      const resend = new Resend(RESEND_KEY);
+      await resend.emails.send({
+        from: FROM_EMAIL,
+        to: email,
+        subject: 'Your InsiderTape login link',
+        html: `
+          <div style="font-family:'Courier New',monospace;max-width:480px;margin:0 auto;background:#080b0f;color:#e0e6ed;padding:40px;border-radius:8px">
+            <div style="font-size:22px;font-weight:700;letter-spacing:3px;color:#00d4ff;margin-bottom:8px">INSIDERTAPE</div>
+            <div style="font-size:12px;color:#4a6580;margin-bottom:32px">FOLLOW THE SMART MONEY</div>
+            <div style="font-size:15px;color:#e0e6ed;margin-bottom:24px">Click the button below to sign in. This link expires in <strong>15 minutes</strong>.</div>
+            <a href="${link}" style="display:inline-block;background:#00d4ff;color:#000;font-family:'Courier New',monospace;font-weight:700;font-size:13px;letter-spacing:1px;padding:14px 32px;border-radius:6px;text-decoration:none">SIGN IN TO INSIDERTAPE</a>
+            <div style="margin-top:32px;font-size:11px;color:#4a6580">If you didn't request this, you can safely ignore this email.<br>Link: ${link}</div>
+          </div>
+        `,
+      });
+    } else {
+      // Dev fallback — log to console
+      slog('MAGIC LINK (no Resend key): ' + link);
+    }
+
+    res.json({ ok: true });
+  } catch(e) {
+    console.error('request-link error:', e.message);
+    res.status(500).json({ error: 'Failed to send link' });
+  }
+});
+
+// ── GET /api/auth/verify ─────────────────────────────────────
+app.get('/api/auth/verify', (req, res) => {
+  const { token, next: nextUrl } = req.query;
+  if (!token) return res.redirect('/signup?error=missing_token');
+  try {
+    const mt = db.prepare(`
+      SELECT * FROM magic_tokens
+      WHERE token = ? AND used = 0 AND expires_at > datetime('now')
+    `).get(token);
+    if (!mt) return res.redirect('/signup?error=invalid_token');
+
+    // Mark token used
+    db.prepare(`UPDATE magic_tokens SET used = 1 WHERE id = ?`).run(mt.id);
+
+    // Get or create user
+    db.prepare(`INSERT OR IGNORE INTO users (email) VALUES (?)`).run(mt.email);
+    const user = db.prepare(`SELECT * FROM users WHERE email = ?`).get(mt.email);
+
+    // Create 30-day session
+    const sessionToken = generateToken();
+    const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare(`INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)`).run(user.id, sessionToken, expires);
+
+    // Set cookie + redirect
+    res.setHeader('Set-Cookie', `it_session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30*24*3600}; Secure`);
+
+    // If already premium or admin, go straight to app
+    const sub = getSubscription(user.id);
+    const alreadyPremium = user.is_admin || user.email === ADMIN_EMAIL ||
+      (sub && (sub.status === 'active' || (sub.current_period_end && sub.current_period_end > new Date().toISOString())));
+
+    if (alreadyPremium) return res.redirect('/?auth=1');
+    // Otherwise go to Stripe checkout
+    return res.redirect('/api/stripe/checkout?session=' + sessionToken);
+  } catch(e) {
+    console.error('verify error:', e.message);
+    res.redirect('/signup?error=server_error');
+  }
+});
+
+// ── GET /api/auth/logout ─────────────────────────────────────
+app.post('/api/auth/logout', (req, res) => {
+  const s = req.session;
+  if (s) {
+    try { db.prepare(`DELETE FROM sessions WHERE id = ?`).run(s.id); } catch(_) {}
+  }
+  res.setHeader('Set-Cookie', 'it_session=; Path=/; Max-Age=0');
+  res.json({ ok: true });
+});
+
+// ── GET /api/stripe/checkout ─────────────────────────────────
+app.get('/api/stripe/checkout', async (req, res) => {
+  if (!STRIPE_SECRET) return res.redirect('/premium');
+  const sessionToken = req.query.session || (req.session && req.session.token);
+  if (!sessionToken) return res.redirect('/signup');
+
+  const userSession = req.session || (() => {
+    try {
+      return db.prepare(`
+        SELECT s.*, u.email, u.is_admin FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token = ? AND s.expires_at > datetime('now')
+      `).get(sessionToken);
+    } catch(_) { return null; }
+  })();
+
+  if (!userSession) return res.redirect('/signup');
+
+  const plan = req.query.plan === 'annual' ? 'annual' : 'monthly';
+  const priceId = plan === 'annual' ? STRIPE_PRICE_ANNUAL : STRIPE_PRICE_MONTHLY;
+  if (!priceId) return res.redirect('/premium');
+
+  try {
+    const Stripe = require('stripe');
+    const stripe = Stripe(STRIPE_SECRET);
+    const checkout = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      customer_email: userSession.email,
+      metadata: { user_id: String(userSession.user_id || userSession.id), plan },
+      success_url: `${SITE_URL}/api/stripe/success?cs_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${SITE_URL}/premium?cancelled=1`,
+    });
+    res.redirect(checkout.url);
+  } catch(e) {
+    console.error('Stripe checkout error:', e.message);
+    res.redirect('/premium?error=stripe');
+  }
+});
+
+// ── GET /api/stripe/success ──────────────────────────────────
+// Called after Stripe redirects back — verify payment and activate subscription
+app.get('/api/stripe/success', async (req, res) => {
+  const csId = req.query.cs_id;
+  if (!csId || !STRIPE_SECRET) return res.redirect('/?premium=1');
+  try {
+    const Stripe = require('stripe');
+    const stripe = Stripe(STRIPE_SECRET);
+    const session = await stripe.checkout.sessions.retrieve(csId, {
+      expand: ['subscription'],
+    });
+    if (session.payment_status === 'paid' || session.status === 'complete') {
+      const userId = parseInt(session.metadata?.user_id);
+      const plan   = session.metadata?.plan || 'monthly';
+      const sub    = session.subscription;
+      if (userId) {
+        const periodEnd = sub?.current_period_end
+          ? new Date(sub.current_period_end * 1000).toISOString() : null;
+        db.prepare(`
+          INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, plan, status, current_period_end, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'active', ?, datetime('now'))
+          ON CONFLICT(user_id) DO UPDATE SET
+            stripe_customer_id = excluded.stripe_customer_id,
+            stripe_subscription_id = excluded.stripe_subscription_id,
+            stripe_checkout_session_id = excluded.stripe_checkout_session_id,
+            plan = excluded.plan, status = 'active',
+            current_period_end = excluded.current_period_end,
+            updated_at = datetime('now')
+        `).run(userId, session.customer, sub?.id || '', csId, plan, periodEnd);
+        slog(`Subscription activated for user ${userId} (${plan})`);
+      }
+    }
+  } catch(e) { console.error('Stripe success error:', e.message); }
+  res.redirect('/?premium=1');
+});
+
+// ── GET /api/stripe/portal ───────────────────────────────────
+// Redirects logged-in user to Stripe billing portal to manage/cancel
+app.get('/api/stripe/portal', async (req, res) => {
+  if (!req.session || !STRIPE_SECRET) return res.redirect('/account');
+  try {
+    const sub = getSubscription(req.session.user_id || req.session.id);
+    if (!sub?.stripe_customer_id) return res.redirect('/account');
+    const Stripe = require('stripe');
+    const stripe = Stripe(STRIPE_SECRET);
+    const portal = await stripe.billingPortal.sessions.create({
+      customer: sub.stripe_customer_id,
+      return_url: `${SITE_URL}/account`,
+    });
+    res.redirect(portal.url);
+  } catch(e) {
+    console.error('Portal error:', e.message);
+    res.redirect('/account');
+  }
+});
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
