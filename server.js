@@ -202,7 +202,6 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_dedup ON trades(accession, ticker, trade_date, type, value)`);
 } catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── AUTH / SUBSCRIPTION TABLES ──────────────────────────────
@@ -445,11 +444,6 @@ app.get('/api/screener', (req, res) => {
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
         AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
-        AND (accession IS NULL OR rowid IN (
-        SELECT MIN(rowid) FROM trades
-        WHERE accession IS NOT NULL
-        GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-      ))
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT ?
@@ -472,11 +466,6 @@ app.get('/api/screener', (req, res) => {
             AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
             AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
             AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
-          AND (accession IS NULL OR rowid IN (
-            SELECT MIN(rowid) FROM trades
-            WHERE accession IS NOT NULL
-            GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-          ))
           GROUP BY ticker, insider, trade_date, type
           ORDER BY trade_date DESC, filing_date DESC
           LIMIT ?
@@ -508,11 +497,6 @@ app.get('/api/history', (req, res) => {
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
         AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
         AND insider IS NOT NULL
-        AND (accession IS NULL OR rowid IN (
-        SELECT MIN(rowid) FROM trades
-        WHERE accession IS NOT NULL
-        GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-      ))
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC
       LIMIT ?
@@ -536,11 +520,6 @@ app.get('/api/ticker', (req, res) => {
       FROM trades
       WHERE ticker = ?
         AND TRIM(type) IN ('P','S','S-')
-        AND (accession IS NULL OR rowid IN (
-          SELECT MIN(rowid) FROM trades
-          WHERE accession IS NOT NULL
-          GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-        ))
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT 5000
@@ -567,11 +546,6 @@ app.get('/api/insider', (req, res) => {
       WHERE UPPER(insider) LIKE UPPER(?)
         AND TRIM(type) IN ('P','S','S-')
         AND COALESCE(value, 0) <= 2000000000
-        AND (accession IS NULL OR rowid IN (
-          SELECT MIN(rowid) FROM trades
-          WHERE accession IS NOT NULL
-          GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-        ))
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC LIMIT ?
     `).all(pattern, limit);
@@ -719,11 +693,6 @@ app.get('/api/ranker', (req, res) => {
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
       AND trade_date <= date('now')
-      AND (accession IS NULL OR rowid IN (
-        SELECT MIN(rowid) FROM trades
-        WHERE accession IS NOT NULL
-        GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-      ))
       GROUP BY ticker
       HAVING buy_count > 0
       ORDER BY total_buy_val DESC
@@ -1995,11 +1964,6 @@ app.get('/api/stock-lists', (req, res) => {
       AND trade_date <= date('now')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
-        AND (accession IS NULL OR rowid IN (
-          SELECT MIN(rowid) FROM trades
-          WHERE accession IS NOT NULL
-          GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-        ))
       GROUP BY ticker
       HAVING insiders >= 2
       ORDER BY total_val DESC
@@ -2023,11 +1987,6 @@ app.get('/api/stock-lists', (req, res) => {
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
         AND TRIM(type) = 'P'
-        AND (accession IS NULL OR rowid IN (
-          SELECT MIN(rowid) FROM trades
-          WHERE accession IS NOT NULL
-          GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-        ))
       GROUP BY ticker
       HAVING buyers >= 1 AND buy_val >= 50000
       ORDER BY buy_val DESC
@@ -2048,11 +2007,6 @@ app.get('/api/stock-lists', (req, res) => {
         AND TRIM(type) = 'P'
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
-        AND (accession IS NULL OR rowid IN (
-          SELECT MIN(rowid) FROM trades
-          WHERE accession IS NOT NULL
-          GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-        ))
       GROUP BY ticker
       HAVING buyer_count >= 3
       ORDER BY buyer_count DESC, total_val DESC
@@ -2086,11 +2040,6 @@ app.get('/api/stock-lists', (req, res) => {
         AND TRIM(type) IN ('S','S-')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
-        AND (accession IS NULL OR rowid IN (
-          SELECT MIN(rowid) FROM trades
-          WHERE accession IS NOT NULL
-          GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-        ))
       GROUP BY ticker
       HAVING seller_count >= 2 AND sell_val >= 500000
       ORDER BY sell_val DESC
@@ -2423,11 +2372,6 @@ app.get('/api/dedup-check', (req, res) => {
         AND trade_date >= date('now','-30 days')
         AND trade_date <= date('now')
         AND insider IS NOT NULL
-        AND (accession IS NULL OR rowid IN (
-          SELECT MIN(rowid) FROM trades
-          WHERE accession IS NOT NULL
-          GROUP BY ticker, trade_date, TRIM(type), CAST(value AS INTEGER), accession
-        ))
       GROUP BY insider ORDER BY total DESC LIMIT 10
     `).all();
 
