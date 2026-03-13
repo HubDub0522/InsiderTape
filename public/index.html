@@ -483,6 +483,19 @@
           <div class="chip" data-days="365" onclick="toggleDays(this)">1Y</div>
         </div>
       </div>
+      <div class="filter-section">
+        <span class="filter-label">Ticker Filter</span>
+        <input id="tickerFilter" type="text" placeholder="AAPL, GOOGL, TSLA…"
+          autocomplete="off" spellcheck="false"
+          style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);
+                 border-radius:5px;padding:7px 10px;color:var(--text);font-family:'Space Mono',monospace;
+                 font-size:11px;outline:none;text-transform:uppercase;letter-spacing:0.5px"
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border)'"
+          oninput="this.value=this.value.toUpperCase()"
+          onkeydown="if(event.key==='Enter')loadScreener()">
+        <div id="tickerFilterTags" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>
+      </div>
       <button class="apply-btn" onclick="loadScreener()">APPLY FILTERS</button>
       <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
@@ -583,6 +596,7 @@ const state = {
   sortCol: 'trade', sortDir: -1,
   activeTypes: new Set(['P','S','S-']),
   activeRole: 'all', minVal: 100000, days: 7,
+  tickerFilter: new Set(),
   currentTicker: null, tickerTrades: [],
   chart: null, candleSeries: null, markers: [],
 };
@@ -908,6 +922,7 @@ function saveFilters() {
       activeTypes: [...state.activeTypes],
       activeRole: state.activeRole,
       minVal: state.minVal,
+      tickerFilter: [...state.tickerFilter],
       sortCol: state.sortCol,
       sortDir: state.sortDir,
     }));
@@ -940,6 +955,12 @@ function restoreFilters() {
       const mv = document.getElementById('minVal');
       if (mv) mv.value = saved.minVal;
     }
+    if (saved.tickerFilter?.length) {
+      state.tickerFilter = new Set(saved.tickerFilter);
+      const tf = document.getElementById('tickerFilter');
+      if (tf) tf.value = saved.tickerFilter.join(', ');
+      renderTickerFilterTags();
+    }
     if (saved.sortCol) { state.sortCol = saved.sortCol; state.sortDir = saved.sortDir ?? -1; }
   } catch(_) {}
 }
@@ -957,6 +978,39 @@ function toggleRole(el) {
   el.classList.add('active'); state.activeRole = el.dataset.role;
   saveFilters();
 }
+// ── Ticker filter tag rendering ─────────────────────────────
+function renderTickerFilterTags() {
+  const el = document.getElementById('tickerFilterTags');
+  if (!el) return;
+  if (state.tickerFilter.size === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = [...state.tickerFilter].map(t => `
+    <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(0,212,255,0.1);
+      border:1px solid rgba(0,212,255,0.3);border-radius:3px;padding:2px 7px;
+      font-family:'Space Mono',monospace;font-size:9px;color:var(--accent)">
+      ${t}
+      <span onclick="removeTickerFilter('${t}')" style="cursor:pointer;color:var(--muted);font-size:10px;line-height:1"
+        onmouseover="this.style.color='var(--sell)'" onmouseout="this.style.color='var(--muted)'">✕</span>
+    </span>`).join('');
+}
+
+function removeTickerFilter(ticker) {
+  state.tickerFilter.delete(ticker);
+  const tf = document.getElementById('tickerFilter');
+  if (tf) tf.value = [...state.tickerFilter].join(', ');
+  renderTickerFilterTags();
+  saveFilters();
+  loadScreener();
+}
+
+function clearTickerFilter() {
+  state.tickerFilter = new Set();
+  const tf = document.getElementById('tickerFilter');
+  if (tf) tf.value = '';
+  renderTickerFilterTags();
+  saveFilters();
+  loadScreener();
+}
+
 function toggleDays(el) {
   const days = parseInt(el.dataset.days);
   if (days > 7 && !auth.isPremium) {
@@ -995,8 +1049,27 @@ async function loadScreener() {
         return true;
       });
     }
+    // Parse ticker filter input on apply
+    const tfInput = document.getElementById('tickerFilter');
+    if (tfInput) {
+      const raw = tfInput.value.trim();
+      if (raw) {
+        const parsed = raw.split(/[,\s]+/).map(t => t.replace(/[^A-Z]/g, '')).filter(Boolean);
+        state.tickerFilter = new Set(parsed);
+      } else {
+        state.tickerFilter = new Set();
+      }
+      renderTickerFilterTags();
+      saveFilters();
+    }
+    if (state.tickerFilter.size > 0) {
+      trades = trades.filter(t => state.tickerFilter.has(t.ticker));
+    }
     if (!trades.length) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings match your filters</div></div></td></tr>`;
+      const tfMsg = state.tickerFilter.size > 0
+        ? `No filings found for ${[...state.tickerFilter].join(', ')} in this window`
+        : 'No filings match your filters';
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>${tfMsg}</div></div></td></tr>`;
       return;
     }
     state.screenerData = trades;
