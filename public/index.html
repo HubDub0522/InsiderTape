@@ -398,6 +398,133 @@
     .nav-tab { padding: 4px 7px; font-size: 10px; }
     #chartContainer { height: 260px !important; }
   }
+
+  /* ═══════════════════════════════════════════════════════════════
+     MOBILE RESPONSIVE — max-width: 640px
+     All rules here are additive — desktop layout untouched
+     ═══════════════════════════════════════════════════════════════ */
+  @media (max-width: 640px) {
+
+    /* ── Global overflow lock ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { overflow-x: hidden !important; max-width: 100vw; }
+    main { overflow-x: hidden; }
+
+    /* ── Auth header button — shrink/hide label ── */
+    #authHeaderBtn button { font-size: 9px; padding: 4px 8px; }
+    #authHeaderBtn { margin-left: 4px; }
+
+    /* ── Utility: any element with these inline patterns
+       We add named classes in JS below for grids we control ── */
+
+    /* 2-col → 1-col generic grid helper */
+    .mob-1col { grid-template-columns: 1fr !important; }
+    /* Scrollable row (for tag/filter rows we want horizontal scroll) */
+    .mob-scroll-row { overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+
+    /* ── Screener filter panel ── */
+    .filter-panel { flex-direction: row; flex-wrap: nowrap; overflow-x: auto;
+      -webkit-overflow-scrolling: touch; padding: 8px 10px; gap: 10px; }
+    .filter-section { flex-shrink: 0; min-width: 130px; margin-bottom: 0; }
+
+    /* ── Screener table — horizontal scroll container ── */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { min-width: 420px; font-size: 11px; }
+    td, th { padding: 8px 6px; }
+
+    /* ── Summary bar wraps ── */
+    .summary-bar { flex-wrap: wrap; gap: 6px; }
+    .summary-card { min-width: 80px; flex: 1; }
+
+    /* ── Stock view ── */
+    .stock-layout { grid-template-columns: 1fr !important; }
+    .stock-header-bar { flex-direction: column; gap: 8px; padding: 10px 12px; }
+    .stock-ticker-big { font-size: 28px; }
+    .stock-price { font-size: 20px; }
+    .chart-controls { flex-wrap: wrap; gap: 4px; }
+    #chartContainer { height: 260px !important; }
+    .insider-sidebar { height: 240px; border-left: none; border-top: 1px solid var(--border); }
+    .stock-trades-section { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 8px 12px; }
+    .stat-grid { gap: 8px; margin-left: 0; flex-wrap: wrap; }
+    .stat-item { min-width: 70px; }
+
+    /* ── Insider dash 4-up → 1-col ── */
+    .insider-dash-grid { grid-template-columns: 1fr !important; }
+
+    /* ── Analysis / conviction / cluster grids → 1-col ── */
+    .conviction-grid,
+    .analysis-tool-grid,
+    .cluster-card-body,
+    .timing-quality-grid { grid-template-columns: 1fr !important; }
+
+    /* ── Profile grid ── */
+    .profile-grid { grid-template-columns: 1fr !important; }
+    .insider-profile-layout { padding: 10px; }
+    .stat-grid { flex-wrap: wrap; }
+
+    /* ── Compare page: 1fr 340px → 1-col ── */
+    .mob-compare-layout { grid-template-columns: 1fr !important; }
+
+    /* ── Watchlist cards ── */
+    .mob-watchlist-stats { grid-template-columns: 1fr 1fr !important; }
+
+    /* ── Monitor tab bar — horizontal scroll ── */
+    .mob-monitor-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch;
+      flex-wrap: nowrap !important; padding-bottom: 4px; }
+
+    /* ── Sectors stat row → 2-col ── */
+    .mob-sectors-stats { grid-template-columns: 1fr 1fr !important; }
+
+    /* ── Premium page feature cards: side-by-side → stack ── */
+    .mob-feature-card { grid-template-columns: 1fr !important; direction: ltr !important; }
+    .mob-feature-card > div { direction: ltr !important; }
+
+    /* ── Pricing cards: keep 2-col on mobile (they fit) ── */
+    /* ── Feature table text size ── */
+    .mob-feature-table { font-size: 11px; }
+
+    /* ── Signup / account pages ── */
+    #signupPageBody, #accountPageBody, #premiumPageBody { padding: 0 4px; }
+
+    /* ── Screener hide less critical cols (already set above, reinforce) ── */
+    .hide-mobile { display: none !important; }
+    #screenerBody tr td:nth-child(5),
+    #screenerBody tr td:nth-child(6),
+    #screenerBody tr td:nth-child(8) { display: none; }
+    #stockTradesBody tr td:nth-child(3),
+    #stockTradesBody tr td:nth-child(6),
+    #stockTradesBody tr td:nth-child(8),
+    #stockTradesBody tr td:nth-child(9) { display: none; }
+
+    /* ── Sector bar chart rows — truncate long names ── */
+    .mob-sector-name { max-width: 90px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
+    /* ── Sector row fixed cols → flex wrap ── */
+    .mob-sector-row { grid-template-columns: minmax(80px,140px) 1fr 60px !important; gap: 6px !important; }
+
+    /* ── Legal modal ── */
+    #legalModal > div { margin: 12px; border-radius: 8px; }
+
+    /* ── Toast ── */
+    .toast { left: 12px; right: 12px; max-width: none; }
+
+    /* ── 3-col grids → 1-col on mobile ── */
+    .mob-3col-grid { grid-template-columns: 1fr !important; }
+
+    /* ── Blurgate skeleton ── */
+    #analysisViewBody, #monitorViewBody, #sectorsViewBody,
+    #compareViewBody, #watchlistViewBody { overflow: hidden; }
+  }
+
+  @media (max-width: 400px) {
+    .nav-tab { padding: 4px 6px; font-size: 9px; }
+    .logo { font-size: 16px; }
+    table { min-width: 360px; }
+    #chartContainer { height: 220px !important; }
+    /* Pricing cards → stack on very small phones */
+    .mob-pricing-grid { grid-template-columns: 1fr !important; }
+  }
+
 </style>
 </head>
 <body>
@@ -483,7 +610,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <div class="live-badge" title="Screener refreshes automatically every 5 minutes"><div class="live-dot"></div>UPDATES DAILY</div>
-          <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v1.4</div>
+          <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v1.5</div>
         </div>
       </div>
       <div class="summary-bar" id="summaryBar"></div>
@@ -5940,7 +6067,7 @@ function renderSectorsPage(data) {
           const barW = Math.round(Math.abs(net) / maxNet * 100);
           const isBuy = net >= 0;
           return `
-            <div style="display:grid;grid-template-columns:140px 1fr 90px;align-items:center;gap:12px;margin-bottom:10px">
+            <div style="display:grid;grid-template-columns:140px 1fr 90px;align-items:center;gap:12px;margin-bottom:10px" class="mob-sector-row">
               <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sectorIcon(s.sector)} ${s.sector}</div>
               <div style="background:var(--bg3);border-radius:3px;height:8px;overflow:hidden">
                 <div style="width:${barW}%;height:100%;background:${isBuy?'var(--buy)':'var(--sell)'};border-radius:3px;transition:width .4s"></div>
@@ -6181,7 +6308,7 @@ function renderSectorSubpage(s, data) {
               ${s.top_industry ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${s.top_industry}</div>` : ''}
               <div style="font-size:12px;color:var(--muted);margin-top:6px">#${rankAmongSectors} sector by insider buy flow · ${days}d window</div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:280px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
               ${[
                 { label:'BUY FLOW',    val: fmtSector(s.buy_val),  color:'var(--buy)' },
                 { label:'SELL FLOW',   val: fmtSector(s.sell_val), color:'var(--sell)' },
@@ -6223,7 +6350,7 @@ function renderSectorSubpage(s, data) {
       </div>
 
       <!-- Two-column layout: tickers left, industries right -->
-      <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+      <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start" class="mob-compare-layout">
 
         <!-- Ticker list -->
         <div>
@@ -6534,7 +6661,7 @@ function renderCompareResults() {
     </div>
 
     <!-- Two-column charts -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px" class="mob-watchlist-stats">
 
       <!-- Buy flow chart -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px">
@@ -6857,7 +6984,7 @@ function renderWatchlistPage(data) {
         ${pressureBar(buyV90, sellV90)}
 
         <!-- Stats — all explicitly windowed -->
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)" class="mob-3col-grid">
           ${stat('30D BUY $',  buyV30  > 0 ? fmt(buyV30)  : '—', buyV30  > 0 ? 'var(--buy)'  : 'var(--muted)')}
           ${stat('30D BUYERS', uniqueBuyers30 > 0 ? uniqueBuyers30 : '—', uniqueBuyers30 > 0 ? 'var(--text)' : 'var(--muted)')}
           ${stat('90D TRADES', t90.length > 0 ? t90.length : '—', t90.length > 0 ? 'var(--text)' : 'var(--muted)')}
@@ -7061,7 +7188,7 @@ function renderMonitorShell(body) {
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap" class="mob-monitor-tabs">
       ${tabBtn('today','📅','TODAY\'S NOTABLE')}
       ${tabBtn('week', '📆','THIS WEEK')}
       ${tabBtn('month','🗓','THIS MONTH')}
@@ -7710,7 +7837,7 @@ function showBlurGate(bodyId, title, desc, featureName) {
     <!-- blurred skeleton content -->
     <div style="filter:blur(4px);pointer-events:none;user-select:none;opacity:0.4;padding:24px 20px">
       <div style="max-width:1200px;margin:0 auto">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px" class="mob-3col-grid">
           ${[1,2,3].map(n=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px">
             <div style="height:10px;background:var(--border);border-radius:3px;width:60%;margin-bottom:14px;opacity:0.5"></div>
             <div style="height:28px;background:var(--border);border-radius:4px;width:80%;margin-bottom:8px;opacity:0.6"></div>
@@ -8184,7 +8311,7 @@ function loadPremiumPage() {
 
       <div style="display:flex;flex-direction:column;gap:56px;margin-bottom:72px">
         ${featureCards.map((f, i) => `
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center${i%2!==0?';direction:rtl':''}">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center" class="mob-feature-card${i%2!==0?';direction:rtl':''}">
             <div style="${i%2!==0?'direction:ltr;':''}">
               <div style="font-size:26px;margin-bottom:10px">${f.icon}</div>
               <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;color:var(--text);margin-bottom:10px">${f.title}</div>
@@ -8197,7 +8324,7 @@ function loadPremiumPage() {
       <div style="text-align:center;margin-bottom:32px">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--text)">SIMPLE PRICING</div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:540px;margin:0 auto 48px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:540px;margin:0 auto 48px" class="mob-pricing-grid">
         <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:28px 24px;text-align:center">
           <div style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">MONTHLY</div>
           <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;color:var(--text);line-height:1">$19<span style="font-size:22px;color:var(--muted)">.99</span></div>
