@@ -8334,27 +8334,46 @@ function loadPremiumPage() {
   </svg>`;
 
   // WATCHLIST: ticker cards with 90D pressure bars
-  const watchlistMockup = `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
-    <rect width="340" height="170" fill="#080b0f"/>
+  const watchlistMockup = `<svg viewBox="0 0 340 230" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="230" fill="#080b0f"/>
     <rect width="340" height="12" fill="#0d1421"/>
     <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">WATCHLIST</text>
-    ${[
-      ['NVDA','NVIDIA Corp','$4.2M','ACTIVE THIS WEEK','#22c55e',0.82],
-      ['META','Meta Platforms','$12.8M','ACTIVE THIS MONTH','#00d4ff',0.65],
-      ['AAPL','Apple Inc','$2.1M','ACTIVE 90D','#f59e0b',0.44],
-      ['MSFT','Microsoft Corp','—','QUIET · 4 MO SINCE LAST BUY','#4a6580',0.12],
-    ].map(([t,n,v,badge,c,ratio],i)=>{
-      const barW = Math.round(ratio * 180);
-      const sellW = Math.round((1-ratio) * 60);
-      return `
-    <rect x="4" y="${14+i*38}" width="332" height="35" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="14" y="${28+i*38}" fill="#00d4ff" font-family="monospace" font-size="9" font-weight="700">${t}</text>
-    <text x="14" y="${38+i*38}" fill="#4a6580" font-family="monospace" font-size="6">${n}</text>
-    <rect x="100" y="${22+i*38}" width="${barW}" height="7" rx="1" fill="${c}" opacity="0.7"/>
-    <rect x="${100+barW}" y="${22+i*38}" width="${Math.min(sellW,80)}" height="7" rx="1" fill="#ef4444" opacity="${ratio>0.3?0.3:0.15}"/>
-    <text x="100" y="${38+i*38}" fill="${c}" font-family="monospace" font-size="6">${badge}</text>
-    <text x="282" y="${28+i*38}" fill="${c}" font-family="monospace" font-size="7" text-anchor="end">${v}</text>`;
-    }).join('')}
+    <!-- Pinned Tickers section label -->
+    <text x="8" y="24" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">📌 PINNED TICKERS</text>
+    <!-- Ticker cards -->
+    <rect x="4" y="28" width="332" height="30" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="14" y="41" fill="#00d4ff" font-family="monospace" font-size="9" font-weight="700">NVDA</text>
+    <rect x="100" y="32" width="148" height="6" rx="1" fill="#22c55e" opacity="0.7"/>
+    <rect x="248" y="32" width="30" height="6" rx="1" fill="#ef4444" opacity="0.3"/>
+    <text x="100" y="51" fill="#22c55e" font-family="monospace" font-size="6">ACTIVE THIS WEEK</text>
+    <text x="282" y="41" fill="#22c55e" font-family="monospace" font-size="7" text-anchor="end">$4.2M</text>
+    <rect x="4" y="61" width="332" height="30" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="14" y="74" fill="#00d4ff" font-family="monospace" font-size="9" font-weight="700">META</text>
+    <rect x="100" y="65" width="110" height="6" rx="1" fill="#00d4ff" opacity="0.65"/>
+    <rect x="210" y="65" width="50" height="6" rx="1" fill="#ef4444" opacity="0.25"/>
+    <text x="100" y="84" fill="#00d4ff" font-family="monospace" font-size="6">ACTIVE THIS MONTH</text>
+    <text x="282" y="74" fill="#00d4ff" font-family="monospace" font-size="7" text-anchor="end">$12.8M</text>
+    <!-- Followed Insiders section label -->
+    <text x="8" y="106" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">★ FOLLOWED INSIDERS</text>
+    <!-- Insider cards -->
+    <rect x="4" y="110" width="332" height="34" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="14" y="123" fill="#e0e6ed" font-family="monospace" font-size="8" font-weight="700">Jensen Huang</text>
+    <rect x="150" y="115" width="46" height="9" rx="1" fill="rgba(0,255,136,0.12)" stroke="rgba(0,255,136,0.3)" stroke-width="0.5"/>
+    <text x="154" y="122" fill="#22c55e" font-family="monospace" font-size="6">ACTIVE WEEK</text>
+    <text x="14" y="136" fill="#4a6580" font-family="monospace" font-size="6">President &amp; CEO · NVDA AMD TSM</text>
+    <text x="330" y="123" fill="#22c55e" font-family="monospace" font-size="7" text-anchor="end">$4.2M</text>
+    <rect x="4" y="147" width="332" height="34" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="14" y="160" fill="#e0e6ed" font-family="monospace" font-size="8" font-weight="700">Mark Zuckerberg</text>
+    <rect x="163" y="152" width="48" height="9" rx="1" fill="rgba(0,212,255,0.10)" stroke="rgba(0,212,255,0.3)" stroke-width="0.5"/>
+    <text x="167" y="159" fill="#00d4ff" font-family="monospace" font-size="6">ACTIVE MONTH</text>
+    <text x="14" y="173" fill="#4a6580" font-family="monospace" font-size="6">Chairman &amp; CEO · META</text>
+    <text x="330" y="160" fill="#00d4ff" font-family="monospace" font-size="7" text-anchor="end">$12.8M</text>
+    <rect x="4" y="184" width="332" height="34" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="14" y="197" fill="#e0e6ed" font-family="monospace" font-size="8" font-weight="700">Jamie Dimon</text>
+    <rect x="120" y="189" width="50" height="9" rx="1" fill="rgba(245,158,11,0.10)" stroke="rgba(245,158,11,0.3)" stroke-width="0.5"/>
+    <text x="124" y="196" fill="#f59e0b" font-family="monospace" font-size="6">ACTIVE 90D</text>
+    <text x="14" y="210" fill="#4a6580" font-family="monospace" font-size="6">Chairman &amp; CEO · JPM</text>
+    <text x="330" y="197" fill="#f59e0b" font-family="monospace" font-size="7" text-anchor="end">$5.5M</text>
   </svg>`;
 
   const featureCards = [
@@ -8384,9 +8403,14 @@ function loadPremiumPage() {
       mock: sectorsMockup
     },
     {
-      icon: '⚔️', title: 'COMPARE & WATCHLIST',
-      desc: 'Compare two tickers side-by-side across every insider metric. Or build a personal watchlist to track your holdings and get a quick read on insider sentiment for each.',
+      icon: '⚔️', title: 'COMPARE',
+      desc: 'Put any two tickers head-to-head across every insider metric — buy pressure, conviction scores, cluster activity, buyer count, and last trade date. Instantly see which has stronger insider conviction.',
       mock: compareMockup
+    },
+    {
+      icon: '📌', title: 'WATCHLIST',
+      desc: 'Pin tickers to track their insider activity in one place — 90D pressure bars, activity badges, and a live signal feed. Plus follow specific insiders by name: see every move they make across any ticker, the moment it's filed.',
+      mock: watchlistMockup
     },
   ];
 
@@ -8445,8 +8469,8 @@ function loadPremiumPage() {
           ['Analysis dashboard', false, true],
           ['Monitor — real-time signals', false, true],
           ['Sectors — industry breakdown', false, true],
-          ['Compare — side-by-side', false, true],
-          ['Watchlist', false, true],
+          ['Compare — side-by-side ticker analysis', false, true],
+          ['Watchlist — pin tickers + follow insiders', false, true],
         ].map(([feat, free, prem], i) => `
           <div style="padding:12px 24px;border-bottom:1px solid var(--border)22;display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:center;background:${i%2===0?'':'rgba(255,255,255,0.01)'}">
             <span style="font-size:12px;color:var(--text)">${feat}</span>
