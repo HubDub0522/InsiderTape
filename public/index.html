@@ -679,9 +679,14 @@ function switchView(view, btn, opts={}) {
     }
   }
   if (view === 'stock') {
-    const content = document.getElementById('stockContent');
-    if (content && (!content.hasChildNodes() || content.querySelector('.empty-state'))) {
+    // Always reload landing when nav tab clicked directly (opts.fromPopstate excluded)
+    if (!opts.fromPopstate) {
       loadStockLanding();
+    } else {
+      const content = document.getElementById('stockContent');
+      if (content && (!content.hasChildNodes() || content.querySelector('.empty-state'))) {
+        loadStockLanding();
+      }
     }
   }
   if (view === 'analysis') {
@@ -1088,11 +1093,17 @@ function renderScreener() {
   document.getElementById('screenerMeta').textContent = `${data.length} filings · ${latestLabel}`;
   const SORT_FIELD = { date:'trade',trade:'trade',filing:'filing',ticker:'ticker',insider:'insider',type:'type',shares:'qty',price:'price',value:'value',owned:'owned' };
   const field = SORT_FIELD[state.sortCol] || state.sortCol;
+  const TEXT_FIELDS = new Set(['trade','filing','ticker','insider','type']);
   const sorted = [...data].sort((a,b) => {
     let av = a[field], bv = b[field];
-    if (field==='trade'||field==='filing') { av=av||''; bv=bv||''; if(!av&&!bv)return 0; if(!av)return 1; if(!bv)return -1; }
-    else { av=parseFloat(av)||0; bv=parseFloat(bv)||0; }
-    if (av<bv) return -state.sortDir; if (av>bv) return state.sortDir; return 0;
+    if (TEXT_FIELDS.has(field)) {
+      av=(av||'').toLowerCase(); bv=(bv||'').toLowerCase();
+      if(!av&&!bv)return 0; if(!av)return 1; if(!bv)return -1;
+      if(av<bv) return -state.sortDir; if(av>bv) return state.sortDir; return 0;
+    } else {
+      av=parseFloat(av)||0; bv=parseFloat(bv)||0;
+      if (av<bv) return -state.sortDir; if (av>bv) return state.sortDir; return 0;
+    }
   });
   const start = (state.currentPage-1)*state.pageSize;
   const page = sorted.slice(start, start+state.pageSize);
@@ -2437,6 +2448,28 @@ function renderStockLanding(lists) {
     </div>`;
   }
 
+  function premiumSectionBlur(title, subtitle, icon, cards, featureName) {
+    if (!cards.length) return '';
+    // Show blurred cards with lock overlay
+    const blurredCards = cards.slice(0, 6).join('');
+    return `<div style="${sectionStyle};position:relative">
+      <div style="${headerStyle}">
+        <span style="font-size:18px">${icon}</span>
+        <span style="${titleStyle}">${title}</span>
+        <span style="${subtitleStyle}">${subtitle}</span>
+        <span style="font-size:9px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 7px;font-family:'Space Mono',monospace;margin-left:4px">PREMIUM</span>
+      </div>
+      <div style="position:relative;overflow:hidden;border-radius:6px">
+        <div style="filter:blur(4px);pointer-events:none;user-select:none">
+          <div style="${gridStyle}">${blurredCards}</div>
+        </div>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,11,15,0.5)">
+          <button onclick="showPremiumOverlay('${featureName}')" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 28px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">🔒 UNLOCK WITH PREMIUM</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
   const hotBuyCards = hotBuys.map(r => stockCard(
     r.ticker, r.company,
     [
@@ -2482,9 +2515,13 @@ function renderStockLanding(lists) {
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
     </div>
-    ${section('This Week\'s Activity', 'All insider moves · Last 7 days', '⚡', activeCards)}
-    ${section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)}
-    ${section('Heavy Selling', 'Watch list · Last 14 days', '🔴', sellCards)}
+    ${section('This Week\'s Activity', 'Insider moves · Last 7 days', '⚡', activeCards)}
+    ${auth.isPremium
+      ? section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)
+      : premiumSectionBlur('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards, 'Top Insider Buying — ranked by dollar value')}
+    ${auth.isPremium
+      ? section('Heavy Selling', 'Watch list · Last 14 days', '🔴', sellCards)
+      : premiumSectionBlur('Heavy Selling', 'Watch list · Last 14 days', '🔴', sellCards, 'Heavy Selling watchlist')}
   </div>`;
 }
 
