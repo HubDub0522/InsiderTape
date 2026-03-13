@@ -2701,25 +2701,32 @@ function buildPressureChart(mainChart,trades,priceData) {
   const allDates=priceData.map(d=>d.time);
   const maxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
 
-  // Build raw daily values (weekly bucket mapped to each price bar date)
-  const rawByDate={};
+  // Build impulse signal: each week's net trade value is a one-week pulse.
+  // Weeks with no trades inject 0 — the signal decays back to zero naturally.
+  // Normalise against the largest single-week total so scale is always ±100.
+  const impulseByDate={};
   allDates.forEach(date=>{
     const dt=new Date(date+'T12:00:00Z');
     const dow=dt.getUTCDay();
     const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
     const wk=monday.toISOString().slice(0,10);
-    rawByDate[date]=byWeek[wk]?+(byWeek[wk].net/maxTotal*100).toFixed(2):0;
+    // Only the Monday of a week gets the impulse; all other days of that week
+    // get 0 so the EMA decays rather than holding the step flat for 5 bars.
+    const isMonday = (dt.getUTCDay()===1);
+    impulseByDate[date] = (isMonday && byWeek[wk])
+      ? +(byWeek[wk].net / maxTotal * 100).toFixed(2)
+      : 0;
   });
 
-  // Apply 5-EMA across the ordered date series so the chart shows a smooth
-  // momentum line rather than blocky weekly steps.
-  // EMA formula: EMA_t = raw_t × k + EMA_(t-1) × (1-k), where k = 2/(5+1)
+  // 5-EMA on the impulse series — a single-week burst creates a peak that
+  // decays back toward zero over the following ~5 trading days (k = 2/6).
+  // No-trade weeks inject 0, which continuously pulls the EMA toward zero.
   const EMA_K = 2 / (5 + 1);
   const valueByDate={};
-  let prevEma = null;
+  let prevEma = 0;
   allDates.forEach(date=>{
-    const raw = rawByDate[date];
-    const ema = prevEma === null ? raw : +(raw * EMA_K + prevEma * (1 - EMA_K)).toFixed(2);
+    const impulse = impulseByDate[date];
+    const ema = +(impulse * EMA_K + prevEma * (1 - EMA_K)).toFixed(2);
     prevEma = ema;
     valueByDate[date] = ema;
   });
