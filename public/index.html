@@ -2613,6 +2613,8 @@ async function loadStockView(ticker, opts={}) {
           <button class="tf-btn" onclick="setRange(180,this)">6M</button>
           <button class="tf-btn active" onclick="setRange(365,this)">1Y</button>
           <button class="tf-btn" onclick="setRange(730,this)">2Y</button>
+          <button class="tf-btn" onclick="setRange(1095,this)">3Y</button>
+          <button class="tf-btn" onclick="setRange(1825,this)">5Y</button>
           <button class="tf-btn" onclick="setRange(9999,this)">ALL</button>
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
@@ -2891,11 +2893,13 @@ function setRange(days,btn) {
   setTimeout(() => { if(state.drawCircles) state.drawCircles(); }, 50);
 
   // ── Update stat labels & values to match the timeframe ──
-  const periodLabel = days >= 9999 ? 'All' : days === 30 ? '1M' : days === 90 ? '3M' : days === 180 ? '6M' : days === 365 ? '1Y' : days === 730 ? '2Y' : days + 'D';
+  const periodLabel = days >= 9999 ? 'All' : days === 30 ? '1M' : days === 90 ? '3M' : days === 180 ? '6M' : days === 365 ? '1Y' : days === 730 ? '2Y' : days === 1095 ? '3Y' : days === 1825 ? '5Y' : days + 'D';
 
-  // Price high / low for the visible window
-  const hi = visible.reduce((m, d) => d.high > m ? d.high : m, 0);
-  const lo = visible.reduce((m, d) => d.low  < m ? d.low  : m, Infinity);
+  // Price high / low — ALL uses full dataset for true all-time high/low
+  const hiSource = days >= 9999 ? all : visible;
+  const loSource = days >= 9999 ? all : visible;
+  const hi = hiSource.reduce((m, d) => d.high > m ? d.high : m, 0);
+  const lo = loSource.reduce((m, d) => d.low  < m ? d.low  : m, Infinity);
   const elHL = document.getElementById('statHighLabel'), elHV = document.getElementById('statHigh');
   const elLL = document.getElementById('statLowLabel'),  elLV = document.getElementById('statLow');
   if (elHL) elHL.textContent = periodLabel + ' High';
@@ -2903,10 +2907,10 @@ function setRange(days,btn) {
   if (elLL) elLL.textContent = periodLabel + ' Low';
   if (elLV) elLV.textContent = lo < Infinity ? '$' + lo.toFixed(2) : '—';
 
-  // Trade counts & value — filtered to visible date range
+  // Trade counts & value — ALL uses all trades, others filtered to visible window
   const trades = state.tickerTrades || [];
-  const cutDate = visible.length ? visible[0].time : '0000-00-00';
-  const inWindow = trades.filter(t => {
+  const cutDate = (days >= 9999 || !visible.length) ? '0000-00-00' : visible[0].time;
+  const inWindow = days >= 9999 ? trades : trades.filter(t => {
     const d = (t.trade || t.filing || '').slice(0, 10);
     return d >= cutDate;
   });
