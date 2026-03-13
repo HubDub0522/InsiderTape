@@ -419,6 +419,7 @@
     <button class="nav-tab" id="sectorsTab" onclick="switchView('sectors', this)">SECTORS</button>
     <button class="nav-tab" id="compareTab" onclick="switchView('compare', this)">COMPARE</button>
     <button class="nav-tab" id="watchlistTab" onclick="switchView('watchlist', this)">WATCHLIST</button>
+    <button class="nav-tab" id="congressTab" onclick="switchView('congress', this)">🏛 CONGRESS</button>
   </nav>
 </header>
 
@@ -543,6 +544,10 @@
   <div id="watchlistViewBody"></div>
 </div>
 
+<div id="view-congress" class="view">
+  <div id="congressViewBody"></div>
+</div>
+
 
 </main>
 <div class="toast" id="toast"></div>
@@ -656,7 +661,7 @@ function switchView(view, btn, opts={}) {
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
-    const idx = {screener:0, stock:1, insider:2, analysis:3, monitor:4, sectors:5, compare:6, watchlist:7}[view];
+    const idx = {screener:0, stock:1, insider:2, analysis:3, monitor:4, sectors:5, compare:6, watchlist:7, congress:8}[view];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
   }
   if (view === 'insider') {
@@ -692,6 +697,9 @@ function switchView(view, btn, opts={}) {
   }
   if (view === 'watchlist') {
     loadWatchlistPage();
+  }
+  if (view === 'congress') {
+    loadCongressPage();
   }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
@@ -1078,7 +1086,7 @@ function renderScreener() {
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${edgarLink}</td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span><span class="insider-title">${t.title}</span>${insiderRoleBadge(t.title||'')}</td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale — lower signal value" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
@@ -2887,8 +2895,8 @@ function renderSidebarTrades(trades) {
   el.innerHTML=trades.map(t=>`
     <div class="trade-card ${tradeClass(t.type)}">
       <div class="trade-card-top"><span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
-      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</div>
-      <div class="trade-role">${t.title}</div>
+      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'} ${insiderRoleBadge(t.title||'')}</div>
+      <div class="trade-role">${t.title||'—'}</div>
       <div class="trade-numbers">
         <div class="trade-num-item"><div class="trade-num-label">Shares</div><div class="trade-num-val">${fmtShares(t.qty)}</div></div>
         <div class="trade-num-item"><div class="trade-num-label">Price</div><div class="trade-num-val">$${(t.price||0).toFixed(2)}</div></div>
@@ -2913,7 +2921,7 @@ function renderSidebarSummary(trades) {
       </div>
     </div>
     <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
-    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
+    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name||'')}','${escName(ins.title||'')}')">${ins.name||'—'} ${insiderRoleBadge(ins.title||'')}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
 }
 function renderStockTradesTable(trades) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
@@ -2921,8 +2929,8 @@ function renderStockTradesTable(trades) {
   el.innerHTML=trades.map(t=>`
     <tr>
       <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">${t.insider}</span></td>
-      <td style="color:var(--muted);font-size:12px">${t.title}</td>
+      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
+      <td style="color:var(--muted);font-size:12px">${t.title||'—'}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
@@ -6540,6 +6548,179 @@ function wlHas(ticker) {
 let _watchlistData  = {};   // { TICKER: trades[] }
 let _watchlistLoaded = false;
 
+// ── CONGRESS PAGE ─────────────────────────────────────────────────────────────
+let _congressCache = null, _congressDays = 365;
+
+async function loadCongressPage() {
+  window.scrollTo(0, 0);
+  if (!history.state?.view === 'congress') {
+    history.pushState({view:'congress'}, '', '/congress');
+    updateTitle('congress');
+  }
+  const body = document.getElementById('congressViewBody');
+  if (!body) return;
+  body.innerHTML = `<div style="max-width:1300px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading government official trades…</span></div></div>`;
+  try {
+    const data = await apiFetch('/api/gov-trades?days=' + _congressDays);
+    _congressCache = data;
+    renderCongressPage(data);
+  } catch(e) {
+    body.innerHTML = `<div style="max-width:1300px;margin:0 auto;padding:24px 20px;color:var(--sell)">Error: ${e.message}</div>`;
+  }
+}
+
+async function switchCongressDays(days) {
+  _congressDays = days;
+  _congressCache = null;
+  await loadCongressPage();
+}
+
+function renderCongressPage(data) {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('congressViewBody');
+  if (!body) return;
+  const { recentTrades = [], topTraders = [], topTickers = [], days = 365 } = data;
+
+  const tabBtn = (d, label) => `
+    <button onclick="switchCongressDays(${d})" style="
+      padding:6px 16px;font-family:'Space Mono',monospace;font-size:11px;
+      background:${_congressDays===d?'rgba(100,160,255,0.12)':'transparent'};
+      border:1px solid ${_congressDays===d?'#6ca0ff':'var(--border)'};
+      color:${_congressDays===d?'#6ca0ff':'var(--muted)'};
+      border-radius:4px;cursor:pointer;transition:all .15s">${label}</button>`;
+
+  const buys = recentTrades.filter(t => t.type === 'P');
+  const sells = recentTrades.filter(t => t.type === 'S' || t.type === 'S-');
+  const totalBuyVal = buys.reduce((s,t) => s + (t.value||0), 0);
+  const totalSellVal = sells.reduce((s,t) => s + (t.value||0), 0);
+
+  body.innerHTML = `
+    <div style="max-width:1300px;margin:0 auto;padding:24px 20px">
+
+      <!-- Header -->
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
+          <span style="font-size:28px">🏛</span>
+          <div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--text)">CONGRESS TRADES</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">Government official stock activity sourced from EDGAR Form 4 filings · STOCK Act disclosures</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;align-items:center">
+          ${tabBtn(90,'90D')} ${tabBtn(180,'180D')} ${tabBtn(365,'1Y')} ${tabBtn(730,'2Y')}
+          <span style="margin-left:12px;font-size:11px;color:var(--muted)">${recentTrades.length} trades found · ${topTraders.length} officials</span>
+        </div>
+      </div>
+
+      ${!recentTrades.length ? `<div class="empty-state"><div class="empty-icon">🏛</div><div>No government official trades found in EDGAR for this period.<br><span style="font-size:12px">Note: Many congressional trades are filed via STOCK Act portals, not EDGAR Form 4.</span></div></div>` : `
+
+      <!-- Stats strip -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px">
+        ${[
+          ['TOTAL TRADES', recentTrades.length, 'var(--text)'],
+          ['BUY VOLUME', fmt(totalBuyVal), 'var(--buy)'],
+          ['SELL VOLUME', fmt(totalSellVal), 'var(--sell)'],
+          ['OFFICIALS ACTIVE', topTraders.length, '#6ca0ff'],
+        ].map(([label, val, color]) => `
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 18px">
+            <div style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted);letter-spacing:1.5px;margin-bottom:6px">${label}</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:${color};line-height:1">${val}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- Two-column: top traders + top tickers -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:28px">
+
+        <!-- Top Gov Traders -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="font-size:16px">👤</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px">MOST ACTIVE OFFICIALS</span>
+            <span style="font-size:10px;color:var(--muted);margin-left:auto">last 12 months</span>
+          </div>
+          ${topTraders.slice(0,10).map((r,i) => {
+            const netBuyer = r.buy_val >= r.sell_val;
+            return `<div onclick="openInsiderProfile('${escName(r.insider||'')}','${escName(r.title||'')}')"
+              style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
+              onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--muted);width:22px;flex-shrink:0">#${i+1}</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.insider||'—'} <span style="display:inline-block;padding:1px 5px;background:rgba(100,160,255,0.12);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:Space Mono,monospace">🏛 GOV</span></div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.title||'Official'}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-family:'Space Mono',monospace;font-size:12px;color:${netBuyer?'var(--buy)':'var(--sell)'}">${r.buys}B / ${r.sells}S</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.trade_count} trades</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <!-- Most Traded Tickers -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <span style="font-size:16px">📊</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px">POPULAR TICKERS</span>
+            <span style="font-size:10px;color:var(--muted);margin-left:auto">by officials trading</span>
+          </div>
+          ${topTickers.slice(0,10).map((r,i) => `
+            <div onclick="openTickerFromScreener('${r.ticker}')"
+              style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:background .12s"
+              onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--muted);width:22px;flex-shrink:0">#${i+1}</span>
+              <span style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--accent);min-width:52px">${r.ticker}</span>
+              <span style="flex:1;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.company||r.ticker}</span>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-size:11px;color:var(--muted)">${r.official_count} official${r.official_count!==1?'s':''}</div>
+                <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy);margin-top:2px">${fmt(r.buy_val)}</div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- Recent trades table -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+          <span style="font-size:16px">📋</span>
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px">RECENT GOV TRADES</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto">${recentTrades.length} trades · ${days}d window</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>TRADE DATE</th><th>OFFICIAL</th><th>TITLE</th>
+              <th>TICKER</th><th>TYPE</th><th>SHARES</th><th>PRICE</th><th>VALUE</th><th>FILING</th>
+            </tr></thead>
+            <tbody>
+              ${recentTrades.slice(0,200).map(t => {
+                const isBuy = t.type === 'P';
+                const edgarLink = (() => {
+                  if (!t.accession) return '';
+                  const cik = parseInt((t.accession.split('-')[0]||''),10);
+                  if (!cik) return '';
+                  const accNoDash = t.accession.replace(/-/g,'');
+                  return `<a href="https://www.sec.gov/Archives/edgar/data/${cik}/${accNoDash}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="font-size:9px;color:var(--muted);text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`;
+                })();
+                return `<tr>
+                  <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
+                  <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span> <span style="display:inline-block;padding:1px 4px;background:rgba(100,160,255,0.12);border:1px solid rgba(100,160,255,0.3);border-radius:3px;font-size:8px;color:#6ca0ff;font-family:Space Mono,monospace">🏛</span></td>
+                  <td style="color:var(--muted);font-size:11px">${t.title||'—'}</td>
+                  <td><span class="insider-name-link" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent)">${t.ticker}</span></td>
+                  <td><span class="badge ${isBuy?'badge-buy':t.type==='S-'?'badge-sell':'badge-sell'}">${isBuy?'BUY':t.type==='S-'?'PLAN SELL':'SELL'}</span></td>
+                  <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+                  <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+                  <td class="${isBuy?'val-positive':'val-negative'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
+                  <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)} ${edgarLink}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`}
+
+    </div>`;
+}
+
 function loadWatchlistPage() {
   window.scrollTo(0, 0);
   const list = wlLoad();
@@ -7351,7 +7532,7 @@ function routeFromPath(path, fromPopstate) {
   }
 })();
 
-function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; return'screener'; }
+function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; if(p.startsWith('/congress'))return'congress'; return'screener'; }
 function _tickerFromPath(p) { const m=p.match(/^\/stock\/([^/]+)/i); return m?decodeURIComponent(m[1]).toUpperCase():null; }
 function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decodeURIComponent(m[1]):null; }
 
