@@ -10,7 +10,9 @@ const Database = require('better-sqlite3');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const FMP  = process.env.FMP_KEY || '';
+const FMP     = process.env.FMP_KEY     || '';
+const TIINGO  = process.env.TIINGO_KEY  || '';
+const POLYGON = process.env.POLYGON_KEY || '';
 
 // ─── DB PATH — prefer Render persistent disk, fall back to local ./data ──────
 // /var/data exists on Render but can throw disk I/O errors if the disk is
@@ -1219,64 +1221,104 @@ function setPC(sym, bars) {
   _priceCache[sym] = { bars, fetchedAt: Date.now() };
 }
 
-// Fetch 2 years of daily OHLCV bars. Try Stooq → FMP → Yahoo in order.
+// Fetch 2 years of daily OHLCV bars.
+// Chain: Tiingo -> Polygon -> Yahoo query1 -> Yahoo query2
+// All sources require free API keys (TIINGO_KEY, POLYGON_KEY) set as Render env vars.
+// Yahoo kept as keyless fallback but is unreliable for server-side requests.
 async function fetchPriceBars(sym) {
   const cached = getPC(sym);
-  if (cached) return cached;
+  if (cached !== null) return cached.length ? cached : null;
 
-  // --- Stooq ---
-  try {
-    const url = `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d`;
-    const { status, body } = await get(url, 8000);
-    if (status === 200) {
-      const text = body.toString();
-      const lines = text.trim().split('\n').slice(1);
-      if (lines.length > 30) {
-        const bars = lines.map(l => {
-          const [date, open, high, low, close, volume] = l.split(',');
-          return { time: date, open: +open, high: +high, low: +low, close: +close, volume: +volume||0 };
-        }).filter(b => b.time && b.close > 0);
-        if (bars.length > 30) { setPC(sym, bars); return bars; }
-      }
-    }
-  } catch(_) {}
+  function parseYahoo(body) {
+    const data   = JSON.parse(body.toString());
+    const result = data && data.chart && data.chart.result && data.chart.result[0];
+    if (!result) return null;
+    const ts = result.timestamp || [];
+    const q  = (result.indicators && result.indicators.quote && result.indicators.quote[0]) || {};
+    const bars = ts.map((t, i) => ({
+      time:   new Date(t * 1000).toISOString().slice(0, 10),
+      open:   (q.open   && q.open[i])   || 0,
+      high:   (q.high   && q.high[i])   || 0,
+      low:    (q.low    && q.low[i])    || 0,
+      close:  (q.close  && q.close[i])  || 0,
+      volume: (q.volume && q.volume[i]) || 0,
+    })).filter(b => b.close > 0);
+    return bars.length > 30 ? bars : null;
+  }
 
-  // --- FMP ---
+  // --- Tiingo (primary — free key, covers NYSE/NASDAQ/OTC/pink sheet) ---
   try {
-    if (FMP) {
-      const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${sym}?serietype=line&timeseries=504&apikey=${FMP}`;
-      const { status, body } = await get(url, 8000);
+    if (TIINGO) {
+      const end   = new Date().toISOString().slice(0, 10);
+      const start = new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10);
+      const url   = 'https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO;
+      const { status, body } = await get(url, 10000);
       if (status === 200) {
         const data = JSON.parse(body.toString());
-        const hist = (data.historical || []).map(d => ({
-          time: d.date, open: d.open||d.close, high: d.high||d.close,
-          low: d.low||d.close, close: d.close, volume: d.volume||0
-        })).filter(b => b.close > 0).reverse();
-        if (hist.length > 30) { setPC(sym, hist); return hist; }
+        if (Array.isArray(data) && data.length > 30) {
+          const bars = data.map(d => ({
+            time:   d.date.slice(0, 10),
+            open:   d.open  || d.close || 0,
+            high:   d.high  || d.close || 0,
+            low:    d.low   || d.close || 0,
+            close:  d.close || 0,
+            volume: d.volume || 0,
+          })).filter(b => b.close > 0);
+          if (bars.length > 30) { setPC(sym, bars); return bars; }
+        }
       }
     }
   } catch(_) {}
 
-  // --- Yahoo Finance ---
+  // --- Polygon.io (secondary — free key, excellent OTC coverage) ---
+  try {
+    if (POLYGON) {
+      const end   = new Date().toISOString().slice(0, 10);
+      const start = new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10);
+      const url   = 'https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=730&apiKey=' + POLYGON;
+      const { status, body } = await get(url, 10000);
+      if (status === 200) {
+        const data = JSON.parse(body.toString());
+        if (data.results && data.results.length > 30) {
+          const bars = data.results.map(d => ({
+            time:   new Date(d.t).toISOString().slice(0, 10),
+            open:   d.o || 0,
+            high:   d.h || 0,
+            low:    d.l || 0,
+            close:  d.c || 0,
+            volume: d.v || 0,
+          })).filter(b => b.close > 0);
+          if (bars.length > 30) { setPC(sym, bars); return bars; }
+        }
+      }
+    }
+  } catch(_) {}
+
+  // --- Yahoo Finance query1 (keyless fallback — unreliable but free) ---
   try {
     const end   = Math.floor(Date.now() / 1000);
     const start = end - 2 * 365 * 86400;
-    const url   = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${start}&period2=${end}`;
+    const url   = 'https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + start + '&period2=' + end;
     const { status, body } = await get(url, 8000);
     if (status === 200) {
-      const data = JSON.parse(body.toString());
-      const result = data?.chart?.result?.[0];
-      const ts     = result?.timestamp || [];
-      const q      = result?.indicators?.quote?.[0] || {};
-      const bars   = ts.map((t, i) => ({
-        time: new Date(t * 1000).toISOString().slice(0, 10),
-        open: q.open?.[i]||0, high: q.high?.[i]||0, low: q.low?.[i]||0,
-        close: q.close?.[i]||0, volume: q.volume?.[i]||0
-      })).filter(b => b.close > 0);
-      if (bars.length > 30) { setPC(sym, bars); return bars; }
+      const bars = parseYahoo(body);
+      if (bars) { setPC(sym, bars); return bars; }
     }
   } catch(_) {}
 
+  // --- Yahoo Finance query2 (different host) ---
+  try {
+    const end   = Math.floor(Date.now() / 1000);
+    const start = end - 2 * 365 * 86400;
+    const url   = 'https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + start + '&period2=' + end;
+    const { status, body } = await get(url, 8000);
+    if (status === 200) {
+      const bars = parseYahoo(body);
+      if (bars) { setPC(sym, bars); return bars; }
+    }
+  } catch(_) {}
+
+  setPC(sym, []);  // cache the miss — 12h TTL prevents hammering sources repeatedly
   return null;
 }
 
