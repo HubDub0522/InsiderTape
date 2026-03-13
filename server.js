@@ -390,6 +390,7 @@ app.get('/api/screener', (req, res) => {
              MAX(accession) AS accession
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
+      AND trade_date <= date('now')
         AND TRIM(type) IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
@@ -441,6 +442,7 @@ app.get('/api/history', (req, res) => {
              MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
+      AND trade_date <= date('now')
         AND TRIM(type) IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
@@ -563,6 +565,7 @@ app.get('/api/firstbuys', (req, res) => {
         FROM trades
         WHERE TRIM(type) = 'P'
           AND trade_date >= date('now', '-' || ? || ' days')
+          AND trade_date <= date('now')
           AND insider IS NOT NULL AND ticker IS NOT NULL
       ),
       latest AS (
@@ -578,6 +581,7 @@ app.get('/api/firstbuys', (req, res) => {
         JOIN recent_buys rb ON t.insider = rb.insider AND t.ticker = rb.ticker
         WHERE TRIM(t.type) = 'P'
           AND t.trade_date >= date('now', '-' || ? || ' days')
+          AND t.trade_date <= date('now')
         GROUP BY t.insider, t.ticker
       ),
       prev AS (
@@ -639,6 +643,7 @@ app.get('/api/ranker', (req, res) => {
           THEN CAST(qty*100.0/(owned-qty) AS INTEGER) ELSE 0 END)       AS max_stake_pct
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days')
+      AND trade_date <= date('now')
       GROUP BY ticker
       HAVING buy_count > 0
       ORDER BY total_buy_val DESC
@@ -1081,6 +1086,7 @@ function buildSectorResult(days) {
       MAX(CASE WHEN TRIM(type)='P' THEN trade_date END)                          AS latest_buy
     FROM trades
     WHERE trade_date >= date('now', '-' || ? || ' days')
+    AND trade_date <= date('now')
       AND TRIM(type) IN ('P','S','S-')
       AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
     GROUP BY ticker
@@ -1170,6 +1176,7 @@ app.get('/api/debug', (req, res) => {
                MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
         FROM trades
         WHERE trade_date >= date('now', '-7 days')
+        AND trade_date <= date('now')
           AND TRIM(type) IN ('P','S','S-')
           AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
         GROUP BY ticker, insider, trade_date, type
@@ -1279,6 +1286,7 @@ async function warmPriceCache() {
     const rows = db.prepare(`
       SELECT ticker, COUNT(*) AS n FROM trades
       WHERE TRIM(type)='P' AND trade_date >= date('now','-365 days')
+      AND trade_date <= date('now')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       GROUP BY ticker ORDER BY n DESC LIMIT 180
     `).all();
@@ -1864,6 +1872,7 @@ app.get('/api/stock-lists', (req, res) => {
         MAX(trade_date) AS latest_date
       FROM trades
       WHERE trade_date >= date('now','-7 days')
+      AND trade_date <= date('now')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
       GROUP BY ticker
@@ -1885,6 +1894,7 @@ app.get('/api/stock-lists', (req, res) => {
         ) THEN 1 ELSE 0 END) AS exec_buy
       FROM trades
       WHERE trade_date >= date('now','-30 days')
+      AND trade_date <= date('now')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
         AND TRIM(type) = 'P'
@@ -1904,6 +1914,7 @@ app.get('/api/stock-lists', (req, res) => {
         MAX(trade_date) AS latest
       FROM trades
       WHERE trade_date >= date('now','-14 days')
+      AND trade_date <= date('now')
         AND TRIM(type) = 'P'
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
@@ -1936,6 +1947,7 @@ app.get('/api/stock-lists', (req, res) => {
         SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val
       FROM trades
       WHERE trade_date >= date('now','-14 days')
+      AND trade_date <= date('now')
         AND TRIM(type) IN ('S','S-')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
