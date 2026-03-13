@@ -3842,7 +3842,7 @@ async function loadNotableLeaderboard() {
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer" onclick="showPremiumOverlay('Notable Insiders & Best Timers leaderboards')">
         <div style="font-size:24px;margin-bottom:12px">🔒</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text);margin-bottom:6px">NOTABLE INSIDERS & BEST TIMERS</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Ranked leaderboards of the most accurate and profitable insider traders — Premium feature.</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Ranked leaderboards of the most accurate and profitable insider traders over the last 5 years — Premium feature.</div>
         <span style="display:inline-block;background:var(--accent);color:#000;border:none;border-radius:6px;padding:10px 24px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">UNLOCK WITH PREMIUM</span>
       </div>`;
     return;
@@ -3998,8 +3998,8 @@ function openLeaderboardFull(type) {
   const list     = type === 'accuracy' ? accuracy : timing;
   const title    = type === 'accuracy' ? '🏆 NOTABLE INSIDERS — FULL LIST' : '⏱️ BEST TIMERS — FULL LIST';
   const subtitle = type === 'accuracy'
-    ? `${list.length} insiders · ranked by accuracy score · scored against real D+30/D+90 returns`
-    : `${list.length} insiders · ranked by timing alpha · % of buys near 12-month lows`;
+    ? `${list.length} insiders · ranked by accuracy score · last 5 years · scored against real D+30/D+90 returns`
+    : `${list.length} insiders · ranked by timing alpha · last 5 years · % of buys near 12-month lows`;
 
   const rows = list.map((r, i) => buildLeaderboardRow(r, i, type)).join('');
 
@@ -4226,7 +4226,7 @@ function renderAnalysisDashboard() {
       id: 'conviction',
       icon: '⚡',
       name: 'High Conviction Trades',
-      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size. Surfaces insiders making their biggest, most deliberate bets.',
+      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size over the last 5 years. Surfaces insiders making their biggest, most deliberate bets.',
       count: buildConvictionData(trades).length,
       countLabel: 'signals detected',
       top3: convTop3.map(c => ({
@@ -4277,7 +4277,7 @@ function renderAnalysisDashboard() {
       id: 'topscores',
       icon: '🥇',
       name: 'Top Insider Scores',
-      desc: 'Ranks insiders by their historical accuracy score — win rate, average forward return, and consistency across all tracked trades.',
+      desc: 'Ranks insiders by accuracy score over the last 5 years — win rate, average forward return, and consistency across all tracked trades.',
       count: _insiderScoreCache ? _insiderScoreCache.length : '…',
       countLabel: 'insiders scored',
       loading: _insiderScoreCache === null,
@@ -4295,7 +4295,7 @@ function renderAnalysisDashboard() {
       id: 'timingleaders',
       icon: '⏱',
       name: 'Best Timing Insiders',
-      desc: 'Ranks insiders by Timing Alpha Score — who consistently buys near 12-month lows, sells near highs, and achieves the best forward returns after each trade.',
+      desc: 'Ranks insiders by Timing Alpha Score over the last 5 years — who consistently buys near 12-month lows, sells near highs, and achieves the best forward returns after each trade.',
       count: _timingAlphaCache ? _timingAlphaCache.length : '…',
       countLabel: 'insiders ranked',
       loading: _timingAlphaCache === null,
@@ -4317,7 +4317,7 @@ function renderAnalysisDashboard() {
     id: 'proximity',
     icon: '🎯',
     name: 'Event Proximity Scanner',
-    desc: 'Detects insider buying relative to estimated quarterly reporting periods. Scores timing signals — buying close to a quarter-end by a CEO is a stronger signal than buying earlier in the quarter.',
+    desc: 'Detects insider buying relative to estimated quarterly reporting periods over the last 5 years. Scores timing signals — buying close to a quarter-end by a CEO is a stronger signal than buying earlier in the quarter.',
     count: _proximityCache ? _proximityCache.length : '…',
     countLabel: 'proximity signals',
     top3: proxTop3.map(r => ({
@@ -4377,7 +4377,7 @@ function renderAnalysisDashboard() {
     id: 'capitalrisk',
     icon: '💎',
     name: 'Capital at Risk Score',
-    desc: 'Scores conviction by personal financial risk taken — not raw trade value. A $500K buy means very different things for a billionaire vs a small-cap CFO. Measures salary multiples, net worth %, and position doubling.',
+    desc: 'Scores conviction by personal financial risk taken over the last 5 years — not raw trade value. A $500K buy means very different things for a billionaire vs a small-cap CFO. Measures salary multiples, net worth %, and position doubling.',
     count: buildCapitalAtRiskData(trades).length,
     countLabel: 'insiders scored',
     top3: carTop3.map(r => ({
@@ -4641,7 +4641,7 @@ function renderTopScoresSubpage() {
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by win rate, avg forward return & consistency · Click to open scorecard</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:660px">
       Open-market buys scored against actual price data at <span style="color:var(--text)">+30 / +90 days</span>.
-      Only insiders with <span style="color:var(--text)">4+ completed trades</span> are ranked.
+      Only insiders with <span style="color:var(--text)">4+ completed trades</span> in the last 5 years are ranked.
       ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_insiderScoreCache.length} insiders ranked</span>`}
     </div>
     <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
