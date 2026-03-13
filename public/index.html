@@ -7877,6 +7877,76 @@ document.addEventListener('keydown', e => {
 // ─── PREMIUM / SIGNUP / ACCOUNT PAGES ───────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
+
+function buildPressureMockupSVG() {
+  // 60 trading days, evenly spaced x: 12..328
+  var days = [];
+  for (var i = 0; i < 60; i++) days.push(12 + i * 5.27);
+
+  // Price curve — gentle uptrend with noise
+  var prices = days.map(function(_, i) {
+    return 72 - i * 0.38 + Math.sin(i / 4.5) * 6 + Math.sin(i / 11) * 4;
+  });
+
+  // Trade events: day index, type, weekly bar height
+  var tradeEvents = [
+    {day:6,  type:'buy',  h:38},
+    {day:8,  type:'buy',  h:38},
+    {day:18, type:'sell', h:28},
+    {day:19, type:'sell', h:28},
+    {day:28, type:'buy',  h:52},
+    {day:30, type:'buy',  h:52},
+    {day:31, type:'buy',  h:52},
+    {day:40, type:'sell', h:22},
+    {day:48, type:'buy',  h:45},
+    {day:50, type:'buy',  h:45},
+    {day:56, type:'buy',  h:30},
+  ];
+
+  // week bucket -> {h, type}
+  var weekBar = {};
+  tradeEvents.forEach(function(e) {
+    var wk = Math.floor(e.day / 5);
+    weekBar[wk] = {h: e.h, type: e.type};
+  });
+
+  // Price polyline
+  var pts = days.map(function(x, i) {
+    return x.toFixed(1) + ',' + prices[i].toFixed(1);
+  }).join(' ');
+
+  // Trade dots on price line
+  var dots = tradeEvents.map(function(e) {
+    var x = days[e.day].toFixed(1);
+    var y = prices[e.day].toFixed(1);
+    var fill = e.type === 'buy' ? '#22c55e' : '#ef4444';
+    return '<circle cx="' + x + '" cy="' + y + '" r="3.2" fill="' + fill + '" stroke="#080b0f" stroke-width="1"/>';
+  }).join('');
+
+  // Histogram bars — every day in a trade-week gets same height bar
+  var zeroY = 150;
+  var bars = days.map(function(x, i) {
+    var wk = Math.floor(i / 5);
+    var b = weekBar[wk];
+    if (!b) return '';
+    var isBuy = b.type === 'buy';
+    var barY = isBuy ? zeroY - b.h : zeroY;
+    var fill = isBuy ? '#22c55e' : '#ef4444';
+    return '<rect x="' + (x - 2).toFixed(1) + '" y="' + barY + '" width="4.5" height="' + b.h + '" fill="' + fill + '" opacity="0.82"/>';
+  }).join('');
+
+  return '<svg viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">'
+    + '<rect width="340" height="180" fill="#080b0f"/>'
+    + '<text x="12" y="11" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">PRICE</text>'
+    + '<polyline points="' + pts + '" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity="0.9"/>'
+    + dots
+    + '<line x1="8" y1="88" x2="332" y2="88" stroke="#1e2d3d" stroke-width="0.5"/>'
+    + '<text x="12" y="99" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">INSIDER PRESSURE</text>'
+    + '<line x1="8" y1="' + zeroY + '" x2="332" y2="' + zeroY + '" stroke="#2a3f52" stroke-width="1"/>'
+    + bars
+    + '</svg>';
+}
+
 function loadPremiumPage() {
   const el = document.getElementById('premiumPageBody');
   if (!el) return;
@@ -7912,70 +7982,8 @@ function loadPremiumPage() {
     <text x="292" y="${54+i*15}" fill="#4a6580" font-family="monospace" font-size="7">${d}</text>`).join('')}
   </svg>`;
 
-  // PRESSURE CHART: accurate to real implementation
-  // - Price line top half with buy(green)/sell(red) dots at exact trade dates
-  // - Histogram bottom half: every day in a trade-week shares same bar height
-  //   aligned directly under the trade dot. Zero everywhere else.
-  const pressureMockup = (()=>{
-    // Define trading days across ~60 days (x positions 12..328, step ~5.3)
-    const days = Array.from({length:60},(_,i)=>({x: 12 + i*5.27}));
-    // Price curve — gentle uptrend with noise
-    const prices = days.map((_,i)=> 72 - i*0.38 + Math.sin(i/4.5)*6 + Math.sin(i/11)*4);
-    // Trade events: [dayIndex, type, weeklyBarHeight]
-    // Each event "fills" its whole week with that bar height
-    // Weeks: ~5 days each. Pick representative weeks.
-    const tradeEvents = [
-      {day:6,  type:'buy',  h:38}, // week 1 buy cluster
-      {day:8,  type:'buy',  h:38},
-      {day:18, type:'sell', h:28}, // week 3 sell
-      {day:19, type:'sell', h:28},
-      {day:28, type:'buy',  h:52}, // week 5 big buy
-      {day:30, type:'buy',  h:52},
-      {day:31, type:'buy',  h:52},
-      {day:40, type:'sell', h:22}, // week 8 sell
-      {day:48, type:'buy',  h:45}, // week 9 buy
-      {day:50, type:'buy',  h:45},
-      {day:56, type:'buy',  h:30}, // week 11 buy
-    ];
-    // Build week->bar map (day / 5 = week bucket)
-    const weekBar = {};
-    tradeEvents.forEach(e=>{
-      const wk = Math.floor(e.day/5);
-      weekBar[wk] = {h:e.h, type:e.type};
-    });
-    // Price polyline
-    const pts = days.map((d,i)=>`${d.x.toFixed(1)},${prices[i].toFixed(1)}`).join(' ');
-    // Trade dots on price line
-    const dots = tradeEvents.map(e=>{
-      const d = days[e.day];
-      const py = prices[e.day];
-      const fill = e.type==='buy' ? '#22c55e' : '#ef4444';
-      return \`<circle cx="\${d.x.toFixed(1)}" cy="\${py.toFixed(1)}" r="3.2" fill="\${fill}" stroke="#080b0f" stroke-width="1"/>\`;
-    }).join('');
-    // Histogram bars — every day in a trade-week gets same height bar
-    // zero line at y=148, bars grow upward (buy) or downward (sell)
-    const zeroY = 148;
-    const bars = days.map((d,i)=>{
-      const wk = Math.floor(i/5);
-      const b = weekBar[wk];
-      if(!b) return '';
-      const isBuy = b.type==='buy';
-      const barY = isBuy ? zeroY - b.h : zeroY;
-      const fill = isBuy ? '#22c55e' : '#ef4444';
-      return \`<rect x="\${(d.x-2).toFixed(1)}" y="\${barY}" width="4.5" height="\${b.h}" fill="\${fill}" opacity="0.82"/>\`;
-    }).join('');
-
-    return \`<svg viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
-      <rect width="340" height="180" fill="#080b0f"/>
-      <text x="12" y="11" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">PRICE</text>
-      <polyline points="\${pts}" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity="0.9"/>
-      \${dots}
-      <line x1="8" y1="88" x2="332" y2="88" stroke="#1e2d3d" stroke-width="0.5"/>
-      <text x="12" y="99" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">INSIDER PRESSURE</text>
-      <line x1="8" y1="\${zeroY}" x2="332" y2="\${zeroY}" stroke="#2a3f52" stroke-width="1"/>
-      \${bars}
-    </svg>\`;
-  })();
+  // PRESSURE CHART: built via function to avoid nested template literal issues
+  const pressureMockup = buildPressureMockupSVG();
 
   // ANALYSIS: accurate 3-stat header row + sector bar chart
   const analysisMockup = `<svg viewBox="0 0 340 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
