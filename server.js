@@ -481,7 +481,7 @@ app.get('/api/screener', (req, res) => {
 // Used by analysis tools that need historical data: drift, regime shift, first-buy
 app.get('/api/history', (req, res) => {
   try {
-    const days  = Math.min(Math.max(parseInt(req.query.days || '1095'), 1), 1825);
+    const days  = Math.min(Math.max(parseInt(req.query.days || '1825'), 1), 1825);
     const limit = Math.min(parseInt(req.query.limit || '10000'), 25000);
 
     const rows = db.prepare(`
@@ -1688,6 +1688,7 @@ async function preComputeScoreboard() {
       FROM trades
       WHERE TRIM(type) = 'P'
         AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
+        AND trade_date >= date('now', '-1825 days')
         AND trade_date <= date('now', '-95 days')
       GROUP BY insider
       HAVING buy_count >= ? AND span_days >= 60
