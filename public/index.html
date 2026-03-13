@@ -2613,7 +2613,7 @@ function buildChart(priceData, trades) {
   new ResizeObserver(()=>{
     const w=container.clientWidth;
     if(w>0&&state.chart){state.chart.applyOptions({width:w});const cv=document.getElementById('markerCanvas');if(cv){cv.width=w;if(state.drawCircles)state.drawCircles();}}
-    if(state.pressureChart){const pc=document.getElementById('pressureContainer');if(pc){const pw=pc.clientWidth;state.pressureChart.applyOptions({width:pw});const cv=pc.querySelector('canvas');if(cv){cv.width=pw;if(state.drawPressure)state.drawPressure();}}}
+    if(state.pressureChart){const pc=document.getElementById('pressureContainer');if(pc)state.pressureChart.applyOptions({width:pc.clientWidth});}
   }).observe(container);
 }
 
@@ -2701,178 +2701,131 @@ function buildPressureChart(mainChart,trades,priceData) {
   const allDates=priceData.map(d=>d.time);
   const maxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
 
-  // Build impulse signal: each week's net trade value is a one-week pulse.
-  // Weeks with no trades inject 0 — the signal decays back to zero naturally.
-  // Normalise against the largest single-week total so scale is always ±100.
-  const impulseByDate={};
+  // ── EMA on weekly buckets, then broadcast to every day in that week ────────
+  // Step 1: get the sorted list of all weeks that appear in the price data.
+  // Step 2: compute a 5-EMA across those weekly raw values (including 0-weeks
+  //         for periods with no trades — this is what pulls the signal back to zero).
+  // Step 3: map each daily price bar to the EMA value of its week.
+  // Result: a smooth continuous line — no intra-week sawtooth decay, no gaps.
+
+  // Collect every calendar week that spans the price data range (including gaps)
+  const allWeeks = [];
+  const seenWks  = new Set();
   allDates.forEach(date=>{
     const dt=new Date(date+'T12:00:00Z');
     const dow=dt.getUTCDay();
     const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
     const wk=monday.toISOString().slice(0,10);
-    // Only the Monday of a week gets the impulse; all other days of that week
-    // get 0 so the EMA decays rather than holding the step flat for 5 bars.
-    const isMonday = (dt.getUTCDay()===1);
-    impulseByDate[date] = (isMonday && byWeek[wk])
-      ? +(byWeek[wk].net / maxTotal * 100).toFixed(2)
-      : 0;
+    if(!seenWks.has(wk)){ seenWks.add(wk); allWeeks.push(wk); }
+  });
+  allWeeks.sort();
+
+  // 5-EMA across weekly raw values. Weeks with no trades inject 0.
+  const EMA_K = 2 / (5 + 1);
+  const emaByWeek={};
+  let prevEma=0;
+  allWeeks.forEach(wk=>{
+    const raw = byWeek[wk] ? +(byWeek[wk].net / maxTotal * 100) : 0;
+    const ema = +(raw * EMA_K + prevEma * (1 - EMA_K)).toFixed(2);
+    prevEma = ema;
+    emaByWeek[wk] = ema;
   });
 
-  // 5-EMA on the impulse series — a single-week burst creates a peak that
-  // decays back toward zero over the following ~5 trading days (k = 2/6).
-  // No-trade weeks inject 0, which continuously pulls the EMA toward zero.
-  const EMA_K = 2 / (5 + 1);
+  // Map every daily price bar to its week's EMA value
   const valueByDate={};
-  let prevEma = 0;
   allDates.forEach(date=>{
-    const impulse = impulseByDate[date];
-    const ema = +(impulse * EMA_K + prevEma * (1 - EMA_K)).toFixed(2);
-    prevEma = ema;
-    valueByDate[date] = ema;
+    const dt=new Date(date+'T12:00:00Z');
+    const dow=dt.getUTCDay();
+    const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
+    const wk=monday.toISOString().slice(0,10);
+    valueByDate[date] = emaByWeek[wk] ?? 0;
   });
-  // pressurePoints: ordered array matching priceData indices (same logical positions
-  // as the main chart bars) — used to slice the visible window by logical range.
+  // pressurePoints: ordered {date, value} array — one entry per price bar.
   const pressurePoints = allDates.map(d=>({date:d, value:valueByDate[d]??0}));
 
-  // Index by date string for O(1) tooltip lookups
+  // Index trades by day for tooltip lookups
   const byDayTrades={};
   trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
 
-  // ── Pure-canvas pressure renderer ────────────────────────────────────────
-  // We own the pixels entirely — LightweightCharts is only used for time-axis
-  // synchronisation (logical range). This guarantees:
-  //   • Zero line always at exact canvas mid-height
-  //   • Symmetric scale: top/bottom margins always equal
-  //   • Dynamic zoom: expands when a spike is visible, contracts when it scrolls off
-  const H = 120;
-  const DEFAULT_HALF = 15; // default ±range when no big spike visible
-  const PADDING = 1.20;    // 20% headroom above peak
+  // ── LightweightCharts: baseline series + symmetric forced scale ─────────
+  // Strategy: feed ALL dates (including zero-value days) to a BaselineSeries.
+  // This gives a single continuous line that passes through zero on quiet days
+  // — no gaps, no disconnected segments.
+  // Scale is forced symmetric by wrapping every data value: we track the visible
+  // peak and pad both min/max equally using autoscaleInfoProvider.
+  const DEFAULT_HALF = 15;
+  const PADDING      = 1.25;
 
-  pc.style.position='relative';
-  const canvas = document.createElement('canvas');
-  canvas.style.cssText='position:absolute;top:0;left:0;display:block;';
-  canvas.width  = pc.clientWidth || 800;
-  canvas.height = H;
-  pc.appendChild(canvas);
-  const ctx = canvas.getContext('2d');
-
-  // Sync the hidden LightweightCharts instance purely for coordinate mapping
-  // (coordinateToTime for tooltips, setVisibleLogicalRange for panning).
-  const pChart = LightweightCharts.createChart(canvas, {
-    width: canvas.width, height: H,
-    layout:{background:{type:'solid',color:'transparent'},textColor:'transparent'},
-    grid:{vertLines:{visible:false},horzLines:{visible:false}},
-    rightPriceScale:{visible:false},
-    leftPriceScale:{visible:false},
-    timeScale:{visible:false,borderVisible:false},
-    crosshair:{mode:LightweightCharts.CrosshairMode.Hidden},
+  const pChart = LightweightCharts.createChart(pc, {
+    width: pc.clientWidth||800, height: 120,
+    layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
+    grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
+    rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.05,bottom:0.05}},
+    timeScale:{borderColor:'#1e2d3d',visible:false},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
     handleScroll:false, handleScale:false,
   });
-  // Dummy series so the time scale has bars to map coordinates against
-  const dummySeries = pChart.addLineSeries({lineWidth:0,color:'transparent',priceLineVisible:false,lastValueVisible:false});
-  dummySeries.setData(pressurePoints.map(p=>({time:p.date,value:0})));
 
-  function drawPressure(logicalRange) {
-    const W = canvas.width;
-    ctx.clearRect(0,0,W,H);
-
-    // ── determine visible slice ──
+  // Helper: compute symmetric half-range for current visible window
+  function visibleHalf(logicalRange) {
     let lo=0, hi=pressurePoints.length-1;
     if(logicalRange){
       lo=Math.max(0,Math.floor(logicalRange.from));
       hi=Math.min(pressurePoints.length-1,Math.ceil(logicalRange.to));
     }
-    const visSlice = pressurePoints.slice(lo, hi+1);
-    if(!visSlice.length) return;
-
-    // ── dynamic symmetric scale ──
-    const peak = Math.max(...visSlice.map(p=>Math.abs(p.value)));
-    const halfRange = Math.max(DEFAULT_HALF, peak * PADDING);
-    const midY = H / 2;
-    const toY = v => midY - (v / halfRange) * midY; // 0 → midY exactly
-
-    // ── grid: zero line + light ±50% lines ──
-    ctx.strokeStyle='#1e2d3d';
-    ctx.lineWidth=1;
-    // subtle half-lines
-    [0.5,-0.5].forEach(frac=>{
-      const y=Math.round(midY-(frac*midY))+0.5;
-      ctx.beginPath(); ctx.setLineDash([3,5]);
-      ctx.moveTo(0,y); ctx.lineTo(W,y);
-      ctx.stroke();
-    });
-    ctx.setLineDash([]);
-    // zero line — solid, slightly brighter
-    ctx.strokeStyle='#2a3f55';
-    ctx.beginPath();
-    ctx.moveTo(0,midY+0.5); ctx.lineTo(W,midY+0.5);
-    ctx.stroke();
-
-    // ── map each visible point to pixel x ──
-    // Use the LightweightCharts time scale to get x coords so we stay
-    // perfectly in sync with the main chart's pan/zoom.
-    const pts=[];
-    for(let i=lo;i<=hi;i++){
-      try{
-        const x=pChart.timeScale().logicalToCoordinate(i);
-        if(x===null||x===undefined) continue;
-        pts.push({x, y:toY(pressurePoints[i].value), v:pressurePoints[i].value, date:pressurePoints[i].date});
-      }catch(_){}
-    }
-    if(pts.length<2) return;
-
-    // ── filled area above zero (buy) ──
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, midY);
-    pts.forEach(p=>ctx.lineTo(p.x, Math.min(p.y, midY)));
-    ctx.lineTo(pts[pts.length-1].x, midY);
-    ctx.closePath();
-    const buyGrad=ctx.createLinearGradient(0,0,0,midY);
-    buyGrad.addColorStop(0,'rgba(0,255,136,0.22)');
-    buyGrad.addColorStop(1,'rgba(0,255,136,0.02)');
-    ctx.fillStyle=buyGrad; ctx.fill();
-
-    // ── filled area below zero (sell) ──
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, midY);
-    pts.forEach(p=>ctx.lineTo(p.x, Math.max(p.y, midY)));
-    ctx.lineTo(pts[pts.length-1].x, midY);
-    ctx.closePath();
-    const sellGrad=ctx.createLinearGradient(0,midY,0,H);
-    sellGrad.addColorStop(0,'rgba(255,68,102,0.02)');
-    sellGrad.addColorStop(1,'rgba(255,68,102,0.22)');
-    ctx.fillStyle=sellGrad; ctx.fill();
-
-    // ── line stroke (color switches at zero) ──
-    // Draw two passes: above-zero in green, below-zero in red
-    for(const [sign, col] of [[1,'rgba(0,255,136,1)'],[-1,'rgba(255,68,102,1)']]) {
-      ctx.beginPath();
-      ctx.strokeStyle=col; ctx.lineWidth=2; ctx.setLineDash([]);
-      let started=false;
-      for(let i=0;i<pts.length;i++){
-        const inZone=(sign===1)?pts[i].v>=0:pts[i].v<0;
-        if(inZone){
-          const clampedY=sign===1?Math.min(pts[i].y,midY):Math.max(pts[i].y,midY);
-          if(!started){ctx.moveTo(pts[i].x,clampedY);started=true;}
-          else ctx.lineTo(pts[i].x,clampedY);
-        } else if(started){
-          ctx.lineTo(pts[i].x,midY); started=false;
-        }
-      }
-      ctx.stroke();
-    }
+    const peak = pressurePoints.slice(lo,hi+1).reduce((m,p)=>Math.max(m,Math.abs(p.value)),0);
+    return Math.ceil(Math.max(DEFAULT_HALF, peak * PADDING));
   }
 
-  // ── Tooltip ──
+  // Invisible histogram anchors the price scale at zero and forces it to
+  // include both positive and negative space equally.
+  // We inject ±tiny sentinel values so the scale always has symmetric room.
+  let _half = DEFAULT_HALF;
+  const histSeries = pChart.addHistogramSeries({
+    color:'rgba(0,0,0,0)', base:0,
+    priceLineVisible:false, lastValueVisible:false,
+    autoscaleInfoProvider:()=>({priceRange:{minValue:-_half, maxValue:_half}}),
+  });
+  // Sentinel data: two invisible bars at ±_half ensure the scale never collapses
+  const sentinelData = [
+    {time: pressurePoints[0].date,                     value:  _half, color:'rgba(0,0,0,0)'},
+    {time: pressurePoints[pressurePoints.length-1].date, value: -_half, color:'rgba(0,0,0,0)'},
+  ];
+  histSeries.setData(sentinelData);
+
+  // EMA line as BaselineSeries — single path, green above zero, red below, no gaps.
+  const baselineSeries = pChart.addBaselineSeries({
+    baseValue:{type:'price',price:0},
+    topLineColor:    'rgba(0,255,136,1)',
+    topFillColor1:   'rgba(0,255,136,0.15)',
+    topFillColor2:   'rgba(0,255,136,0.02)',
+    bottomLineColor: 'rgba(255,68,102,1)',
+    bottomFillColor1:'rgba(255,68,102,0.02)',
+    bottomFillColor2:'rgba(255,68,102,0.15)',
+    lineWidth:2, priceLineVisible:false, lastValueVisible:false,
+    crosshairMarkerVisible:true, crosshairMarkerRadius:3,
+    autoscaleInfoProvider:()=>({priceRange:{minValue:-_half, maxValue:_half}}),
+  });
+  baselineSeries.setData(pressurePoints.map(p=>({time:p.date, value:p.value})));
+
+  function updatePressureScale(logicalRange) {
+    try {
+      _half = visibleHalf(logicalRange);
+      // Re-apply options to both series so their autoscaleInfoProvider closures
+      // return the updated _half value, then trigger a scale refresh.
+      histSeries.applyOptions({autoscaleInfoProvider:()=>({priceRange:{minValue:-_half,maxValue:_half}})});
+      baselineSeries.applyOptions({autoscaleInfoProvider:()=>({priceRange:{minValue:-_half,maxValue:_half}})});
+      pChart.priceScale('right').applyOptions({autoScale:true});
+    } catch(_){}
+  }
+
+  // Tooltip
   const pTooltip=document.getElementById('chartTooltip')||document.createElement('div');
-  canvas.addEventListener('mousemove',e=>{
-    const rect=canvas.getBoundingClientRect();
-    const x=e.clientX-rect.left;
-    const ts=pChart.timeScale().coordinateToTime(x);
-    if(!ts){pTooltip.style.display='none';return;}
+  pc.addEventListener('mousemove',e=>{
+    const rect=pc.getBoundingClientRect(); const x=e.clientX-rect.left;
+    const ts=pChart.timeScale().coordinateToTime(x); if(!ts){pTooltip.style.display='none';return;}
     const dateStr=typeof ts==='string'?ts:new Date(ts*1000).toISOString().slice(0,10);
-    const dayTrades=byDayTrades[dateStr];
-    if(!dayTrades||!dayTrades.length){pTooltip.style.display='none';return;}
+    const dayTrades=byDayTrades[dateStr]; if(!dayTrades||!dayTrades.length){pTooltip.style.display='none';return;}
     const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
     const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
     const netColor=net>=0?'var(--buy)':'var(--sell)';
@@ -2880,32 +2833,21 @@ function buildPressureChart(mainChart,trades,priceData) {
     pTooltip.innerHTML=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>${bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:''}${sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d"><span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span></div><div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
     pTooltip.style.display='block';
     const tx=e.clientX+16,ty=e.clientY-10;
-    pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px';
-    pTooltip.style.top=ty+'px';
+    pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; pTooltip.style.top=ty+'px';
   });
-  canvas.addEventListener('mouseleave',()=>{pTooltip.style.display='none';});
+  pc.addEventListener('mouseleave',()=>{pTooltip.style.display='none';});
 
-  // ── Store pChart on state for resize handling ──
   state.pressureChart=pChart;
-  state.drawPressure=()=>{
-    try{drawPressure(mainChart.timeScale().getVisibleLogicalRange());}catch(e){drawPressure(null);}
-  };
+  state.drawPressure=null;
 
-  // ── Initial draw synced to main chart's current view ──
-  try{
-    const ir=mainChart.timeScale().getVisibleLogicalRange();
-    if(ir) pChart.timeScale().setVisibleLogicalRange(ir);
-    drawPressure(ir||null);
-  }catch(e){drawPressure(null);}
+  try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir){pChart.timeScale().setVisibleLogicalRange(ir);updatePressureScale(ir);}else{updatePressureScale(null);}}catch(e){updatePressureScale(null);}
 
-  // ── Redraw whenever main chart pans/zooms ──
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{
-    if(!range||!state.pressureChart) return;
-    try{pChart.timeScale().setVisibleLogicalRange(range);}catch(_){}
-    drawPressure(range);
+    if(!range||!state.pressureChart)return;
+    state.pressureChart.timeScale().setVisibleLogicalRange(range);
+    updatePressureScale(range);
   });
 
-  // ── Label ──
   const label=document.createElement('div');
   label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
   label.textContent='INSIDER PRESSURE · 5-EMA';
