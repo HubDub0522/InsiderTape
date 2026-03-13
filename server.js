@@ -1654,8 +1654,11 @@ let _scoreboardCache     = null;
 let _scoreboardCacheTime = 0;
 const SCOREBOARD_TTL = 6 * 60 * 60 * 1000;
 
+let _scoreboardRunning = false;
 async function preComputeScoreboard() {
+  if (_scoreboardRunning) return;
   if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) return;
+  _scoreboardRunning = true;
   try {
     slog('Pre-computing scoreboard...');
     const minBuys = 3, limit = 300;
@@ -1680,18 +1683,13 @@ async function preComputeScoreboard() {
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
     )].slice(0, 120);
 
-    // Fetch in batches of 10 to avoid overwhelming external APIs on cold start
-    const priceResults = [];
-    for (let i = 0; i < allTickers.length; i += 10) {
-      const batch = allTickers.slice(i, i + 10);
-      const batchResults = await Promise.allSettled(
-        batch.map(async sym => [sym, await fetchPriceBars(sym)])
-      );
-      priceResults.push(...batchResults);
+    // Use only already-cached price data — warmPriceCache runs first and covers
+    // the top 180 tickers. No network calls here keeps scoreboard fast (~seconds).
+    const priceCache = {};
+    for (const sym of allTickers) {
+      const cached = getPC(sym);
+      if (cached) priceCache[sym] = cached;
     }
-    const priceCache = Object.fromEntries(
-      priceResults.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
-    );
 
     const accuracyResults = [], timingResults = [];
 
@@ -1815,6 +1813,7 @@ async function preComputeScoreboard() {
     _scoreboardCacheTime = Date.now();
     slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
   } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
+  finally { _scoreboardRunning = false; }
 }
 
 app.get('/api/scoreboard', async (req, res) => {
@@ -1825,7 +1824,7 @@ app.get('/api/scoreboard', async (req, res) => {
   }
   // Return empty and trigger background precompute — client will retry
   res.json(_scoreboardCache || { accuracy: [], timing: [], computing: true });
-  if (!_scoreboardCache) {
+  if (!_scoreboardCache && !_scoreboardRunning) {
     preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
   }
 });
@@ -1834,15 +1833,15 @@ app.get('/api/scoreboard', async (req, res) => {
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
 
-// Stagger startup precomputes so server stays responsive:
-// price warm (3min) → drift (3.5min) → proximity (4min) → scoreboard (10min)
+// Startup: warm price cache first (60s), then run all precomputes sequentially.
+// Scoreboard now uses only cached prices so it runs in seconds after warm-up.
 setTimeout(() => {
-  warmPriceCache().then(() => {
-    setTimeout(() => preComputeDrift().catch(e => slog('drift startup err: ' + e.message)), 30000);
-    setTimeout(() => preComputeProximity().catch(e => slog('proximity startup err: ' + e.message)), 60000);
-    setTimeout(() => preComputeScoreboard().catch(e => slog('scoreboard startup err: ' + e.message)), 420000);
-  }).catch(e => slog('warmPriceCache startup err: ' + e.message));
-}, 180000);
+  warmPriceCache()
+    .then(() => preComputeScoreboard().catch(e => slog('scoreboard startup err: ' + e.message)))
+    .then(() => preComputeDrift().catch(e => slog('drift startup err: ' + e.message)))
+    .then(() => preComputeProximity().catch(e => slog('proximity startup err: ' + e.message)))
+    .catch(e => slog('warmPriceCache startup err: ' + e.message));
+}, 60000);
 
 // Refresh every 12h
 setInterval(() => {
