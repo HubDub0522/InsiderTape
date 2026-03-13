@@ -2680,21 +2680,20 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
 }
 
 function buildPressureChart(mainChart,trades,priceData) {
-  // Clear the outer wrapper entirely so stale labels and chart canvases from
-  // previous builds don't stack up. Then recreate the inner container fresh.
+  // Wipe the wrapper completely on every build — prevents stale canvases and
+  // duplicate labels from accumulating across ticker navigations.
   const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
   pw.innerHTML='<div id="pressureContainer" style="width:100%;height:120px;"></div>';
   const pc=document.getElementById('pressureContainer');
 
-  // Aggregate net buy/sell value by week (Monday anchor).
-  // Weeks with no trades get 0 — no carry-forward.
+  // Aggregate net buy/sell $ value by week (Monday anchor).
   const byWeek={};
   trades.forEach(t=>{
     const d=(t.trade||t.filing||'').slice(0,10); if(!d)return;
     const dt=new Date(d+'T12:00:00Z');
     const dow=dt.getUTCDay();
-    const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
-    const wk=monday.toISOString().slice(0,10);
+    const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
+    const wk=mon.toISOString().slice(0,10);
     if(!byWeek[wk])byWeek[wk]={net:0,total:0};
     const tc=tradeClass(t.type); const v=t.value||0;
     if(tc==='buy'){byWeek[wk].net+=v;byWeek[wk].total+=v;}
@@ -2704,34 +2703,40 @@ function buildPressureChart(mainChart,trades,priceData) {
   const allDates=priceData.map(d=>d.time);
   const maxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
 
-  // Map each daily bar to its week's raw net value (normalised ±100).
-  // Weeks with no trades map to 0 — indicator returns to zero naturally.
+  // Each daily bar gets its week's normalised net value (±100). Zero if no trades that week.
   const valueByDate={};
   allDates.forEach(date=>{
     const dt=new Date(date+'T12:00:00Z');
     const dow=dt.getUTCDay();
-    const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
-    const wk=monday.toISOString().slice(0,10);
+    const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
+    const wk=mon.toISOString().slice(0,10);
     valueByDate[date]=byWeek[wk]?+(byWeek[wk].net/maxTotal*100).toFixed(2):0;
   });
 
+  // Histogram series: bars are rooted at zero by definition.
+  // Green bar = net buying that week, red bar = net selling.
+  // No baseline line, no price line, no last-value line — just bars.
+  // scaleMargins: symmetric 15% top+bottom keeps zero centred.
   const pChart=LightweightCharts.createChart(pc,{
     width:pc.clientWidth||800,height:120,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
-    rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.1,bottom:0.1}},
+    rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
     timeScale:{borderColor:'#1e2d3d',visible:false},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
     handleScroll:false,handleScale:false,
   });
-  const areaSeries=pChart.addBaselineSeries({
-    baseValue:{type:'price',price:0},
-    topLineColor:'rgba(0,255,136,1)',topFillColor1:'rgba(0,255,136,0.20)',topFillColor2:'rgba(0,255,136,0.02)',
-    bottomLineColor:'rgba(255,68,102,1)',bottomFillColor1:'rgba(255,68,102,0.02)',bottomFillColor2:'rgba(255,68,102,0.20)',
-    lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:true,crosshairMarkerRadius:3,
-    baseLineVisible:false,baseLineColor:'transparent',baseLineWidth:0,
+
+  const histSeries=pChart.addHistogramSeries({
+    base:0,
+    priceLineVisible:false,
+    lastValueVisible:false,
+    priceFormat:{type:'price',precision:1,minMove:0.1},
   });
-  areaSeries.setData(allDates.map(t=>({time:t,value:valueByDate[t]??0})));
+  histSeries.setData(allDates.map(t=>{
+    const v=valueByDate[t]??0;
+    return {time:t, value:v, color:v>=0?'rgba(0,255,136,0.85)':'rgba(255,68,102,0.85)'};
+  }));
 
   const byDayTrades={};
   trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
