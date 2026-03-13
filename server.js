@@ -1243,10 +1243,10 @@ async function fetchPriceBars(sym) {
       close:  (q.close  && q.close[i])  || 0,
       volume: (q.volume && q.volume[i]) || 0,
     })).filter(b => b.close > 0);
-    return bars.length > 30 ? bars : null;
+    return bars.length >= 2 ? bars : null;
   }
 
-  // --- Tiingo (primary — free key, covers NYSE/NASDAQ/OTC/pink sheet) ---
+  // --- Tiingo (primary — free key, covers NYSE/NASDAQ/OTC/pink sheet, including recent IPOs) ---
   try {
     if (TIINGO) {
       const end   = new Date().toISOString().slice(0, 10);
@@ -1255,7 +1255,7 @@ async function fetchPriceBars(sym) {
       const { status, body } = await get(url, 10000);
       if (status === 200) {
         const data = JSON.parse(body.toString());
-        if (Array.isArray(data) && data.length > 30) {
+        if (Array.isArray(data) && data.length >= 2) {
           const bars = data.map(d => ({
             time:   d.date.slice(0, 10),
             open:   d.open  || d.close || 0,
@@ -1264,13 +1264,13 @@ async function fetchPriceBars(sym) {
             close:  d.close || 0,
             volume: d.volume || 0,
           })).filter(b => b.close > 0);
-          if (bars.length > 30) { setPC(sym, bars); return bars; }
+          if (bars.length >= 2) { setPC(sym, bars); return bars; }
         }
       }
     }
   } catch(_) {}
 
-  // --- Polygon.io (secondary — free key, excellent OTC coverage) ---
+  // --- Polygon.io (secondary — free key, excellent OTC coverage, includes recent IPOs) ---
   try {
     if (POLYGON) {
       const end   = new Date().toISOString().slice(0, 10);
@@ -1279,7 +1279,7 @@ async function fetchPriceBars(sym) {
       const { status, body } = await get(url, 10000);
       if (status === 200) {
         const data = JSON.parse(body.toString());
-        if (data.results && data.results.length > 30) {
+        if (data.results && data.results.length >= 2) {
           const bars = data.results.map(d => ({
             time:   new Date(d.t).toISOString().slice(0, 10),
             open:   d.o || 0,
@@ -1288,7 +1288,7 @@ async function fetchPriceBars(sym) {
             close:  d.c || 0,
             volume: d.v || 0,
           })).filter(b => b.close > 0);
-          if (bars.length > 30) { setPC(sym, bars); return bars; }
+          if (bars.length >= 2) { setPC(sym, bars); return bars; }
         }
       }
     }
