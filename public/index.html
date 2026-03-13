@@ -7912,38 +7912,70 @@ function loadPremiumPage() {
     <text x="292" y="${54+i*15}" fill="#4a6580" font-family="monospace" font-size="7">${d}</text>`).join('')}
   </svg>`;
 
-  // PRESSURE CHART: histogram bars above/below zero line (accurate to actual implementation)
-  const pressureMockup = `<svg viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
-    <rect width="340" height="180" fill="#080b0f"/>
-    <text x="12" y="14" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">PRICE</text>
-    <polyline points="12,60 40,55 65,58 90,45 115,42 140,38 165,44 190,35 215,40 230,32 255,36 280,28 305,22 330,18" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity="0.9"/>
-    <circle cx="90" cy="45" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
-    <circle cx="140" cy="38" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
-    <circle cx="190" cy="35" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
-    <circle cx="255" cy="36" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
-    <circle cx="165" cy="44" r="3.5" fill="#ef4444" stroke="#080b0f" stroke-width="1"/>
-    <circle cx="305" cy="22" r="3.5" fill="#ef4444" stroke="#080b0f" stroke-width="1"/>
-    <line x1="8" y1="78" x2="332" y2="78" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="12" y="90" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">INSIDER PRESSURE</text>
-    <line x1="8" y1="138" x2="332" y2="138" stroke="#1e2d3d" stroke-width="1"/>
-    ${[
-      [12,30,'#22c55e'],[24,18,'#22c55e'],[36,8,'#22c55e'],[48,24,'#22c55e'],
-      [60,5,'#22c55e'],[72,0,null],[84,42,'#22c55e'],[96,35,'#22c55e'],
-      [108,0,null],[120,0,null],[132,12,'#ef4444'],[144,8,'#ef4444'],
-      [156,0,null],[168,55,'#22c55e'],[180,48,'#22c55e'],[192,60,'#22c55e'],
-      [204,40,'#22c55e'],[216,0,null],[228,22,'#ef4444'],[240,15,'#ef4444'],
-      [252,0,null],[264,38,'#22c55e'],[276,45,'#22c55e'],[288,52,'#22c55e'],
-      [300,30,'#22c55e'],[312,0,null],[324,18,'#22c55e']
-    ].filter(([x,h,c])=>c).map(([x,h,c])=>`
-    <rect x="${x}" y="${h>0&&c==='#22c55e'?138-h:138}" width="9" height="${Math.abs(h)||2}" fill="${c}" opacity="0.85"/>`).join('')}
-    <text x="12" y="165" fill="#4a6580" font-family="monospace" font-size="6">STRONG BUY WEEKS</text>
-    <rect x="12" y="168" width="50" height="5" rx="1" fill="#22c55e" opacity="0.3"/>
-    <rect x="66" y="168" width="18" height="5" rx="1" fill="#ef4444" opacity="0.3"/>
-    <rect x="88" y="168" width="40" height="5" rx="1" fill="#22c55e" opacity="0.3"/>
-    <rect x="132" y="168" width="60" height="5" rx="1" fill="#22c55e" opacity="0.5"/>
-    <rect x="196" y="168" width="22" height="5" rx="1" fill="#ef4444" opacity="0.3"/>
-    <rect x="222" y="168" width="80" height="5" rx="1" fill="#22c55e" opacity="0.4"/>
-  </svg>`;
+  // PRESSURE CHART: accurate to real implementation
+  // - Price line top half with buy(green)/sell(red) dots at exact trade dates
+  // - Histogram bottom half: every day in a trade-week shares same bar height
+  //   aligned directly under the trade dot. Zero everywhere else.
+  const pressureMockup = (()=>{
+    // Define trading days across ~60 days (x positions 12..328, step ~5.3)
+    const days = Array.from({length:60},(_,i)=>({x: 12 + i*5.27}));
+    // Price curve — gentle uptrend with noise
+    const prices = days.map((_,i)=> 72 - i*0.38 + Math.sin(i/4.5)*6 + Math.sin(i/11)*4);
+    // Trade events: [dayIndex, type, weeklyBarHeight]
+    // Each event "fills" its whole week with that bar height
+    // Weeks: ~5 days each. Pick representative weeks.
+    const tradeEvents = [
+      {day:6,  type:'buy',  h:38}, // week 1 buy cluster
+      {day:8,  type:'buy',  h:38},
+      {day:18, type:'sell', h:28}, // week 3 sell
+      {day:19, type:'sell', h:28},
+      {day:28, type:'buy',  h:52}, // week 5 big buy
+      {day:30, type:'buy',  h:52},
+      {day:31, type:'buy',  h:52},
+      {day:40, type:'sell', h:22}, // week 8 sell
+      {day:48, type:'buy',  h:45}, // week 9 buy
+      {day:50, type:'buy',  h:45},
+      {day:56, type:'buy',  h:30}, // week 11 buy
+    ];
+    // Build week->bar map (day / 5 = week bucket)
+    const weekBar = {};
+    tradeEvents.forEach(e=>{
+      const wk = Math.floor(e.day/5);
+      weekBar[wk] = {h:e.h, type:e.type};
+    });
+    // Price polyline
+    const pts = days.map((d,i)=>`${d.x.toFixed(1)},${prices[i].toFixed(1)}`).join(' ');
+    // Trade dots on price line
+    const dots = tradeEvents.map(e=>{
+      const d = days[e.day];
+      const py = prices[e.day];
+      const fill = e.type==='buy' ? '#22c55e' : '#ef4444';
+      return \`<circle cx="\${d.x.toFixed(1)}" cy="\${py.toFixed(1)}" r="3.2" fill="\${fill}" stroke="#080b0f" stroke-width="1"/>\`;
+    }).join('');
+    // Histogram bars — every day in a trade-week gets same height bar
+    // zero line at y=148, bars grow upward (buy) or downward (sell)
+    const zeroY = 148;
+    const bars = days.map((d,i)=>{
+      const wk = Math.floor(i/5);
+      const b = weekBar[wk];
+      if(!b) return '';
+      const isBuy = b.type==='buy';
+      const barY = isBuy ? zeroY - b.h : zeroY;
+      const fill = isBuy ? '#22c55e' : '#ef4444';
+      return \`<rect x="\${(d.x-2).toFixed(1)}" y="\${barY}" width="4.5" height="\${b.h}" fill="\${fill}" opacity="0.82"/>\`;
+    }).join('');
+
+    return \`<svg viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+      <rect width="340" height="180" fill="#080b0f"/>
+      <text x="12" y="11" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">PRICE</text>
+      <polyline points="\${pts}" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity="0.9"/>
+      \${dots}
+      <line x1="8" y1="88" x2="332" y2="88" stroke="#1e2d3d" stroke-width="0.5"/>
+      <text x="12" y="99" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">INSIDER PRESSURE</text>
+      <line x1="8" y1="\${zeroY}" x2="332" y2="\${zeroY}" stroke="#2a3f52" stroke-width="1"/>
+      \${bars}
+    </svg>\`;
+  })();
 
   // ANALYSIS: accurate 3-stat header row + sector bar chart
   const analysisMockup = `<svg viewBox="0 0 340 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
