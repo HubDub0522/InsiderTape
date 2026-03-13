@@ -1680,11 +1680,17 @@ async function preComputeScoreboard() {
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
     )].slice(0, 120);
 
-    const priceEntries = await Promise.allSettled(
-      allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
-    );
+    // Fetch in batches of 10 to avoid overwhelming external APIs on cold start
+    const priceResults = [];
+    for (let i = 0; i < allTickers.length; i += 10) {
+      const batch = allTickers.slice(i, i + 10);
+      const batchResults = await Promise.allSettled(
+        batch.map(async sym => [sym, await fetchPriceBars(sym)])
+      );
+      priceResults.push(...batchResults);
+    }
     const priceCache = Object.fromEntries(
-      priceEntries.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
+      priceResults.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
     );
 
     const accuracyResults = [], timingResults = [];
@@ -1812,25 +1818,31 @@ async function preComputeScoreboard() {
 }
 
 app.get('/api/scoreboard', async (req, res) => {
+  // Always return immediately — either cached data or empty placeholder
+  // Never block the request waiting for precompute (precompute runs in background)
   if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
     return res.json(_scoreboardCache);
   }
-  await preComputeScoreboard();
-  res.json(_scoreboardCache || { accuracy: [], timing: [] });
+  // Return empty and trigger background precompute — client will retry
+  res.json(_scoreboardCache || { accuracy: [], timing: [], computing: true });
+  if (!_scoreboardCache) {
+    preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
+  }
 });
 
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
 
-// Stagger: price warm (60s) → drift + proximity (120s) → scoreboard (130s)
+// Stagger startup precomputes so server stays responsive:
+// price warm (3min) → drift (3.5min) → proximity (4min) → scoreboard (10min)
 setTimeout(() => {
   warmPriceCache().then(() => {
-    setTimeout(() => preComputeDrift().catch(e => slog('drift startup err: ' + e.message)), 10000);
-    setTimeout(() => preComputeProximity().catch(e => slog('proximity startup err: ' + e.message)), 12000);
-    setTimeout(() => preComputeScoreboard().catch(e => slog('scoreboard startup err: ' + e.message)), 20000);
+    setTimeout(() => preComputeDrift().catch(e => slog('drift startup err: ' + e.message)), 30000);
+    setTimeout(() => preComputeProximity().catch(e => slog('proximity startup err: ' + e.message)), 60000);
+    setTimeout(() => preComputeScoreboard().catch(e => slog('scoreboard startup err: ' + e.message)), 420000);
   }).catch(e => slog('warmPriceCache startup err: ' + e.message));
-}, 60000);
+}, 180000);
 
 // Refresh every 12h
 setInterval(() => {
