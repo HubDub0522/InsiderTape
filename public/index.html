@@ -703,7 +703,11 @@ function switchView(view, btn, opts={}) {
     loadComparePage();
   }
   if (view === 'watchlist') {
-    if (!requirePremium('Watchlist — track your tickers')) return;
+    if (!auth.isPremium) {
+      // Need to make view active first, then show blur gate
+      showBlurGate('watchlistViewBody', 'WATCHLIST', 'Track your favorite tickers and get notified when insiders make moves.', 'Watchlist — track your tickers');
+      return;
+    }
     loadWatchlistPage();
   }
   if (view === 'analysis') {
@@ -3738,6 +3742,16 @@ async function loadInsiderDashboard() {
       }
     });
     const clusters=Object.entries(clusterMap).sort((a,b)=>b[1].insiders.size-a[1].insiders.size).slice(0,8);
+    const clusterGateHtml = auth.isPremium ? `` : `
+      <div onclick="showPremiumOverlay('Cluster Buys — coordinated insider accumulation signals')" style="position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,11,15,0.75);cursor:pointer;backdrop-filter:blur(2px)">
+        <span style="font-size:18px">🔒</span>
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:1px">PREMIUM FEATURE</span>
+      </div>`;
+    const largestGateHtml = auth.isPremium ? `` : `
+      <div onclick="showPremiumOverlay('Largest Trades — biggest single insider moves')" style="position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,11,15,0.75);cursor:pointer;backdrop-filter:blur(2px)">
+        <span style="font-size:18px">🔒</span>
+        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:1px">PREMIUM FEATURE</span>
+      </div>`;
     dash.innerHTML=`
       <div class="insider-dash-grid">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
@@ -3748,11 +3762,13 @@ async function loadInsiderDashboard() {
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--sell);font-size:14px">▼</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span></div>
           <div>${topSellers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
         </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
+          ${clusterGateHtml}
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--option);font-size:14px">⚡</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span><span style="font-size:10px;color:var(--muted);margin-left:auto">≥3 insiders · 10-day window</span></div>
           <div>${clusters.length?clusters.map(([ticker,{insiders,trades:clTrades}])=>{const totalVal=clTrades.reduce((s,t)=>s+(t.value||0),0);const dates=clTrades.map(t=>t.trade).filter(Boolean).sort();const dateRange=dates.length>1?`${dates[0].slice(5)} – ${dates[dates.length-1].slice(5)}`:(dates[0]||'').slice(5);return`<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span><span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders · ${dateRange}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span></div>`;}).join(''):'<div style="padding:16px 18px;font-size:12px;color:var(--muted)">No clusters found matching ≥3 insiders within 10 days</div>'}</div>
         </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
+          ${largestGateHtml}
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--accent);font-size:14px">💰</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span></div>
           <div>${bigTrades.map(t=>{const isBuy=t.type==='P';return`<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span><span class="badge ${isBuy?'badge-buy':'badge-sell'}" style="margin-right:6px">${isBuy?'BUY':'SELL'}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span></div>`;}).join('')}</div>
         </div>
@@ -3766,6 +3782,16 @@ let _scoreboardData = null;
 async function loadNotableLeaderboard() {
   const el = document.getElementById('notableLeaderboard');
   if (!el) return;
+  if (!auth.isPremium) {
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer" onclick="showPremiumOverlay('Notable Insiders & Best Timers leaderboards')">
+        <div style="font-size:24px;margin-bottom:12px">🔒</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text);margin-bottom:6px">NOTABLE INSIDERS & BEST TIMERS</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Ranked leaderboards of the most accurate and profitable insider traders — Premium feature.</div>
+        <span style="display:inline-block;background:var(--accent);color:#000;border:none;border-radius:6px;padding:10px 24px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">UNLOCK WITH PREMIUM</span>
+      </div>`;
+    return;
+  }
   el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div><span style="font-size:12px;color:var(--muted)">Loading Notable Insiders leaderboard…</span></div>`;
   try {
     const data = await apiFetch('/api/scoreboard');
@@ -4034,7 +4060,10 @@ let _insiderScoreCache = null;  // top insider accuracy scores cache
 let _timingAlphaCache = null;   // top timing alpha scores cache
 
 async function loadAnalysisPage(subpage) {
-  if (!requirePremium('Analysis — sector breakdowns, conviction scores & trends')) return;
+  if (!auth.isPremium) {
+    showBlurGate('analysisViewBody', 'ANALYSIS', 'Sector breakdowns, conviction scores, trend detection & more.', 'Analysis — sector breakdowns, conviction scores & trends');
+    return;
+  }
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
@@ -5768,7 +5797,10 @@ function fmtSector(n) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function loadSectorsPage() {
-  if (!requirePremium('Sectors — industry-level insider activity')) return;
+  if (!auth.isPremium) {
+    showBlurGate('sectorsViewBody', 'SECTORS', 'Industry-level insider activity — see which sectors smart money is targeting.', 'Sectors — industry-level insider activity');
+    return;
+  }
   window.scrollTo(0, 0);
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
@@ -6227,7 +6259,10 @@ const COMPARE_COLORS_HEX = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4466'];
 const COMPARE_COLORS_RGBA10 = ['rgba(0,212,255,0.1)', 'rgba(0,255,136,0.1)', 'rgba(255,170,0,0.1)', 'rgba(255,68,102,0.1)'];
 
 function loadComparePage() {
-  if (!requirePremium('Compare — side-by-side insider activity')) return;
+  if (!auth.isPremium) {
+    showBlurGate('compareViewBody', 'COMPARE', 'Side-by-side insider activity comparison across any two tickers.', 'Compare — side-by-side insider activity');
+    return;
+  }
   window.scrollTo(0, 0);
   renderComparePage();
 }
@@ -6948,7 +6983,10 @@ function etLocalISO(d) {
 }
 
 async function loadMonitorPage() {
-  if (!requirePremium('Monitor — real-time alerts & watchdog signals')) return;
+  if (!auth.isPremium) {
+    showBlurGate('monitorViewBody', 'MONITOR', 'Real-time filing alerts, watchdog signals & unusual activity detection.', 'Monitor — real-time alerts & watchdog signals');
+    return;
+  }
   window.scrollTo(0, 0);
   const body = document.getElementById('monitorViewBody');
   if (!body) return;
@@ -7616,6 +7654,52 @@ function showPrivacy() {
 }
 
 
+
+// ── Blur gate — shows blurred skeleton + unlock overlay ──────
+function showBlurGate(bodyId, title, desc, featureName) {
+  const el = document.getElementById(bodyId);
+  if (!el) return;
+
+  // Generate fake skeleton rows for blur effect
+  const skeletonRows = Array.from({length: 8}, (_, i) => `
+    <div style="display:flex;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)22;align-items:center">
+      <div style="width:${48 + (i%3)*20}px;height:12px;background:var(--border);border-radius:3px;opacity:0.4"></div>
+      <div style="flex:1;height:10px;background:var(--border);border-radius:3px;opacity:0.25"></div>
+      <div style="width:${60 + (i%4)*12}px;height:12px;background:var(--border);border-radius:3px;opacity:0.35"></div>
+    </div>`).join('');
+
+  el.style.position = 'relative';
+  el.innerHTML = `
+    <!-- blurred skeleton content -->
+    <div style="filter:blur(4px);pointer-events:none;user-select:none;opacity:0.4;padding:24px 20px">
+      <div style="max-width:1200px;margin:0 auto">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+          ${[1,2,3].map(n=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px">
+            <div style="height:10px;background:var(--border);border-radius:3px;width:60%;margin-bottom:14px;opacity:0.5"></div>
+            <div style="height:28px;background:var(--border);border-radius:4px;width:80%;margin-bottom:8px;opacity:0.6"></div>
+            <div style="height:8px;background:var(--border);border-radius:3px;width:40%;opacity:0.3"></div>
+          </div>`).join('')}
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);height:44px;background:var(--bg3);opacity:0.6"></div>
+          ${skeletonRows}
+        </div>
+      </div>
+    </div>
+    <!-- unlock overlay -->
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:10">
+      <div style="background:#0d1421;border:1px solid #00d4ff44;border-radius:12px;padding:40px 36px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
+        <div style="font-size:28px;margin-bottom:12px">🔒</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:8px">${title}</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:24px;line-height:1.7">${desc}</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:14px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:1px;width:100%">SEE PLANS →</button>
+          ${!auth.loggedIn ? `<button onclick="switchView('signup',null)" style="background:transparent;color:var(--accent);border:1px solid var(--accent)44;border-radius:8px;padding:12px;font-family:'Space Mono',monospace;font-size:11px;cursor:pointer;width:100%">SIGN IN</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ─── AUTH & PREMIUM GATING ──────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
@@ -7796,35 +7880,113 @@ document.addEventListener('keydown', e => {
 function loadPremiumPage() {
   const el = document.getElementById('premiumPageBody');
   if (!el) return;
+
+  // Mini SVG mockups of key features
+  const screenerMockup = `<svg viewBox="0 0 340 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="160" fill="#080b0f"/>
+    <rect x="0" y="0" width="340" height="32" fill="#0d1421"/>
+    <text x="12" y="20" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1">SCREENER</text>
+    <text x="100" y="20" fill="#00d4ff" font-family="monospace" font-size="8">30D</text>
+    <text x="130" y="20" fill="#4a6580" font-family="monospace" font-size="8">90D</text>
+    <text x="158" y="20" fill="#4a6580" font-family="monospace" font-size="8">1Y</text>
+    <rect x="8" y="38" width="324" height="18" fill="#0d1421" rx="2"/>
+    <text x="14" y="50" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="0.5">TICKER</text>
+    <text x="80" y="50" fill="#4a6580" font-family="monospace" font-size="7">INSIDER</text>
+    <text x="200" y="50" fill="#4a6580" font-family="monospace" font-size="7">VALUE</text>
+    <text x="270" y="50" fill="#4a6580" font-family="monospace" font-size="7">DATE</text>
+    ${[[0,'NVDA','Jensen Huang','$4.2M','Mar 11','#22c55e'],[1,'META','Mark Zuckerberg','$12.8M','Mar 10','#22c55e'],[2,'AAPL','Tim Cook','$2.1M','Mar 09','#22c55e'],[3,'MSFT','Satya Nadella','$8.4M','Mar 08','#22c55e'],[4,'AMZN','Andy Jassy','$6.7M','Mar 07','#22c55e'],[5,'GOOGL','Sundar Pichai','$3.3M','Mar 06','#ef4444']].map(([i,t,n,v,d,c])=>`
+    <rect x="8" y="${60+i*16}" width="324" height="15" fill="${i%2===0?'#080b0f':'#0a0f16'}" rx="1"/>
+    <text x="14" y="${71+i*16}" fill="#00d4ff" font-family="monospace" font-size="8" font-weight="700">${t}</text>
+    <text x="80" y="${71+i*16}" fill="#e0e6ed" font-family="monospace" font-size="7">${n}</text>
+    <text x="200" y="${71+i*16}" fill="${c}" font-family="monospace" font-size="8">${v}</text>
+    <text x="270" y="${71+i*16}" fill="#4a6580" font-family="monospace" font-size="7">${d}</text>`).join('')}
+  </svg>`;
+
+  const analysisMockup = `<svg viewBox="0 0 340 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="160" fill="#080b0f"/>
+    <rect x="8" y="8" width="100" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
+    <text x="18" y="26" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">BUY PRESSURE</text>
+    <text x="18" y="46" fill="#22c55e" font-family="monospace" font-size="18" font-weight="700">74%</text>
+    <text x="18" y="64" fill="#22c55e" font-family="monospace" font-size="7">▲ STRONG BUY</text>
+    <rect x="118" y="8" width="100" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
+    <text x="128" y="26" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">CONVICTION</text>
+    <text x="128" y="46" fill="#00d4ff" font-family="monospace" font-size="18" font-weight="700">8.4</text>
+    <text x="128" y="64" fill="#4a6580" font-family="monospace" font-size="7">of 10 score</text>
+    <rect x="228" y="8" width="104" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
+    <text x="238" y="26" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">CLUSTER BUYS</text>
+    <text x="238" y="46" fill="#f59e0b" font-family="monospace" font-size="18" font-weight="700">12</text>
+    <text x="238" y="64" fill="#4a6580" font-family="monospace" font-size="7">last 30 days</text>
+    <rect x="8" y="84" width="324" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
+    <text x="18" y="100" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">SECTOR BREAKDOWN</text>
+    ${[['Technology','62%','#00d4ff',62],['Healthcare','18%','#22c55e',18],['Energy','12%','#f59e0b',12],['Finance','8%','#8b5cf6',8]].map(([s,p,c,w],i)=>`
+    <text x="18" y="${116+i*9}" fill="#e0e6ed" font-family="monospace" font-size="7">${s}</text>
+    <rect x="110" y="${109+i*9}" width="${w*1.8}" height="6" fill="${c}" rx="2" opacity="0.8"/>
+    <text x="${115+w*1.8}" y="${116+i*9}" fill="${c}" font-family="monospace" font-size="7"> ${p}</text>`).join('')}
+  </svg>`;
+
+  const pressureMockup = `<svg viewBox="0 0 340 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="160" fill="#080b0f"/>
+    <text x="12" y="20" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1">PRICE</text>
+    ${Array.from({length:60},(_,i)=>{const x=12+i*5.3;const h=20+Math.sin(i/6)*18+Math.random()*8;const y=85-h;return`<rect x="${x}" y="${y}" width="4" height="${h}" fill="#00d4ff" opacity="${0.4+i/120}"/>`}).join('')}
+    ${[8,22,35,48].map(i=>`<circle cx="${12+i*5.3+2}" cy="${85-(20+Math.sin(i/6)*18+4)}" r="4" fill="#22c55e" stroke="#080b0f" stroke-width="1.5"/>`).join('')}
+    ${[15,29,42].map(i=>`<circle cx="${12+i*5.3+2}" cy="${85-(20+Math.sin(i/6)*18+4)}" r="4" fill="#ef4444" stroke="#080b0f" stroke-width="1.5"/>`).join('')}
+    <line x1="8" y1="100" x2="332" y2="100" stroke="#1e2d3d" stroke-width="1"/>
+    <text x="12" y="112" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">INSIDER PRESSURE</text>
+    ${Array.from({length:60},(_,i)=>{const x=12+i*5.3;const v=(Math.sin(i/5)*0.7+Math.random()*0.3);const h=Math.abs(v)*28;const isPos=v>0;return`<rect x="${x}" y="${isPos?128-h:128}" width="4" height="${h}" fill="${isPos?'#22c55e':'#ef4444'}" opacity="0.85"/>`}).join('')}
+  </svg>`;
+
+  const featureCards = [
+    { icon: '📊', title: 'Extended Screener', desc: 'Filter by 30D, 90D, or 1Y windows. Add value thresholds, trade types, and roles to surface the exact signals you need.', mock: screenerMockup },
+    { icon: '🔬', title: 'Analysis Dashboard', desc: 'Sector breakdowns, conviction scoring, cluster detection, and trend analysis — all in one dashboard.', mock: analysisMockup },
+    { icon: '📈', title: 'Insider Pressure', desc: 'A unique indicator that overlays buy/sell pressure from insider filings directly on the price chart.', mock: pressureMockup },
+  ];
+
   el.innerHTML = `
-    <div style="max-width:800px;margin:0 auto;padding:48px 24px">
-      <div style="text-align:center;margin-bottom:48px">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:4px;color:var(--text);margin-bottom:8px">INSIDERTAPE <span style="color:var(--accent)">PREMIUM</span></div>
-        <div style="font-size:14px;color:var(--muted);max-width:480px;margin:0 auto;line-height:1.7">Follow what insiders actually do with their own money — not what analysts guess they'll do.</div>
+    <div style="max-width:900px;margin:0 auto;padding:48px 24px">
+
+      <!-- Hero -->
+      <div style="text-align:center;margin-bottom:56px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
+        <div style="font-size:15px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.8">Corporate insiders file legally required disclosures when they buy or sell their own stock. InsiderTape Premium gives you every tool to act on that signal before the crowd does.</div>
       </div>
 
-      <!-- Pricing cards -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:580px;margin:0 auto 48px">
-        <!-- Monthly -->
+      <!-- Feature showcase -->
+      <div style="display:flex;flex-direction:column;gap:48px;margin-bottom:64px">
+        ${featureCards.map((f, i) => `
+          <div style="display:grid;grid-template-columns:${i%2===0?'1fr 1fr':'1fr 1fr'};gap:32px;align-items:center${i%2!==0?';direction:rtl':''}">
+            <div style="${i%2!==0?'direction:ltr':''}">
+              <div style="font-size:28px;margin-bottom:12px">${f.icon}</div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:var(--text);margin-bottom:10px">${f.title}</div>
+              <div style="font-size:13px;color:var(--muted);line-height:1.8">${f.desc}</div>
+            </div>
+            <div style="${i%2!==0?'direction:ltr':''}border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#080b0f">${f.mock}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- Pricing -->
+      <div style="text-align:center;margin-bottom:32px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--text)">SIMPLE PRICING</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:540px;margin:0 auto 48px">
         <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:28px 24px;text-align:center">
           <div style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">MONTHLY</div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:44px;color:var(--text);line-height:1">$19<span style="font-size:20px;color:var(--muted)">.99</span></div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;color:var(--text);line-height:1">$19<span style="font-size:22px;color:var(--muted)">.99</span></div>
           <div style="font-size:11px;color:var(--muted);margin-bottom:24px">per month</div>
           <button onclick="startCheckout('monthly')" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:8px;padding:13px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">GET STARTED →</button>
         </div>
-        <!-- Annual -->
         <div style="background:#0d1421;border:2px solid var(--accent);border-radius:12px;padding:28px 24px;text-align:center;position:relative">
-          <div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px;padding:3px 12px;border-radius:20px;white-space:nowrap">BEST VALUE</div>
+          <div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px;padding:3px 14px;border-radius:20px;white-space:nowrap">BEST VALUE</div>
           <div style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">ANNUAL</div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:44px;color:var(--text);line-height:1">$149<span style="font-size:20px;color:var(--muted)">.99</span></div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:24px">per year · <span style="color:var(--buy)">save 37%</span></div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;color:var(--text);line-height:1">$149<span style="font-size:22px;color:var(--muted)">.99</span></div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">per year</div>
+          <div style="font-size:12px;color:var(--buy);margin-bottom:20px;font-family:'Space Mono',monospace">SAVE 37%</div>
           <button onclick="startCheckout('annual')" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:8px;padding:13px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">GET STARTED →</button>
         </div>
       </div>
 
-      <!-- Feature list -->
-      <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;overflow:hidden;max-width:580px;margin:0 auto">
-        <div style="padding:16px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto auto;gap:12px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted)">
+      <!-- Feature table -->
+      <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;overflow:hidden;max-width:600px;margin:0 auto">
+        <div style="padding:14px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto auto;gap:16px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted)">
           <span>FEATURE</span><span style="text-align:center">FREE</span><span style="text-align:center;color:var(--accent)">PREMIUM</span>
         </div>
         ${[
@@ -7833,22 +7995,22 @@ function loadPremiumPage() {
           ['Stock View — price chart + trade markers', true, true],
           ['Insider Pressure indicator', false, true],
           ['Insider sidebar — full trade history', false, true],
-          ['Summary tab — conviction analysis', false, true],
-          ['Insider profiles — full history', false, true],
+          ['Cluster Buys & Largest Trades', false, true],
+          ['Notable Insiders & Best Timers', false, true],
           ['Analysis dashboard', false, true],
           ['Monitor — real-time signals', false, true],
           ['Sectors — industry breakdown', false, true],
           ['Compare — side-by-side', false, true],
           ['Watchlist', false, true],
-        ].map(([feat, free, prem]) => `
-          <div style="padding:13px 24px;border-bottom:1px solid var(--border)22;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center">
+        ].map(([feat, free, prem], i) => `
+          <div style="padding:12px 24px;border-bottom:1px solid var(--border)22;display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:center;background:${i%2===0?'':'rgba(255,255,255,0.01)'}">
             <span style="font-size:12px;color:var(--text)">${feat}</span>
-            <span style="text-align:center;font-size:14px">${free ? '✓' : '—'}</span>
+            <span style="text-align:center;font-size:14px;color:${free?'var(--muted)':'var(--border)'}">${free ? '✓' : '—'}</span>
             <span style="text-align:center;font-size:14px;color:var(--accent)">${prem ? '✓' : '—'}</span>
           </div>`).join('')}
       </div>
 
-      <div style="text-align:center;margin-top:32px;font-size:11px;color:var(--muted)">
+      <div style="text-align:center;margin-top:28px;font-size:11px;color:var(--muted)">
         Cancel anytime · Secure payment via Stripe · No hidden fees
       </div>
     </div>`;
