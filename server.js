@@ -652,34 +652,6 @@ app.get('/api/ranker', (req, res) => {
 });
 
 // LEADERBOARD — top insiders by open-market buy activity (enough history to score)
-app.get('/api/leaderboard', (req, res) => {
-  try {
-    const limit = Math.min(parseInt(req.query.limit || '40'), 80);
-    const rows = db.prepare(`
-      SELECT
-        insider,
-        MAX(title)                                                          AS title,
-        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END)                               AS buy_count,
-        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN ticker END)                 AS ticker_count,
-        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END)          AS total_buy_val,
-        MAX(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END)               AS latest_buy,
-        MIN(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END)               AS earliest_buy,
-        GROUP_CONCAT(DISTINCT CASE WHEN TRIM(type)='P' THEN ticker END)          AS tickers_csv
-      FROM trades
-      WHERE insider IS NOT NULL
-        AND TRIM(type) = 'P'
-      GROUP BY insider
-      HAVING buy_count >= 3
-      ORDER BY buy_count DESC, total_buy_val DESC
-      LIMIT ?
-    `).all(limit);
-    res.json(rows);
-  } catch(e) {
-    slog('leaderboard error: ' + e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ── SECTORS ─────────────────────────────────────────────────────────────────
 // Static sector/industry map. Zero external calls — instant lookups.
 // Covers S&P 500 + Russell 1000 + high-insider-activity names (~750 tickers).
@@ -1791,9 +1763,13 @@ setTimeout(() => {
     .catch(e => slog('startup precompute err: ' + e.message));
 }, 60000);
 
-// Refresh every 12h
+// Refresh every 12h — intentionally does NOT null the cache before starting.
+// preComputeScoreboard skips if cache is still fresh; the _scoreboardRunning
+// guard prevents double-runs. Stale-but-valid data stays available to users
+// during the refresh window rather than showing {computing:true}.
 setInterval(() => {
-  _scoreboardCache = null;
+  _scoreboardCache     = null;  // expire so preComputeScoreboard re-runs
+  _scoreboardCacheTime = 0;
   warmPriceCache()
     .then(() => preComputeDrift())
     .then(() => preComputeProximity())
