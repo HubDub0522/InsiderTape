@@ -420,6 +420,7 @@
     <button class="nav-tab" id="compareTab" onclick="switchView('compare', this)">COMPARE</button>
     <button class="nav-tab" id="watchlistTab" onclick="switchView('watchlist', this)">WATCHLIST</button>
   </nav>
+  <div id="authHeaderBtn" style="flex-shrink:0;margin-left:8px;display:flex;align-items:center"></div>
 </header>
 
 <main>
@@ -543,6 +544,17 @@
   <div id="watchlistViewBody"></div>
 </div>
 
+<div id="view-premium" class="view">
+  <div id="premiumPageBody"></div>
+</div>
+
+<div id="view-signup" class="view">
+  <div id="signupPageBody"></div>
+</div>
+
+<div id="view-account" class="view">
+  <div id="accountPageBody"></div>
+</div>
 
 </main>
 <div class="toast" id="toast"></div>
@@ -691,7 +703,23 @@ function switchView(view, btn, opts={}) {
     loadComparePage();
   }
   if (view === 'watchlist') {
+    if (!requirePremium('Watchlist — track your tickers')) return;
     loadWatchlistPage();
+  }
+  if (view === 'analysis') {
+    // already handled above — but guard here too in case called directly
+  }
+  if (view === 'monitor') {
+    // guard already in loadMonitorPage
+  }
+  if (view === 'premium') {
+    loadPremiumPage();
+  }
+  if (view === 'signup') {
+    loadSignupPage();
+  }
+  if (view === 'account') {
+    loadAccountPage();
   }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
@@ -701,7 +729,7 @@ function switchView(view, btn, opts={}) {
 }
 
 function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis', monitor:'INSIDERTAPE — Monitor', sectors:'INSIDERTAPE — Sectors', compare:'INSIDERTAPE — Compare', watchlist:'INSIDERTAPE — Watchlist'};
+  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis', monitor:'INSIDERTAPE — Monitor', sectors:'INSIDERTAPE — Sectors', compare:'INSIDERTAPE — Compare', watchlist:'INSIDERTAPE — Watchlist', premium:'INSIDERTAPE — Premium', signup:'INSIDERTAPE — Sign In', account:'INSIDERTAPE — Account'};
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function globalSearch() {
@@ -903,8 +931,13 @@ function toggleRole(el) {
   saveFilters();
 }
 function toggleDays(el) {
+  const days = parseInt(el.dataset.days);
+  if (days > 7 && !auth.isPremium) {
+    requirePremium('Extended screener periods (30D, 90D, 1Y) and advanced filters');
+    return;
+  }
   document.querySelectorAll('[data-days]').forEach(c => c.classList.remove('active'));
-  el.classList.add('active'); state.days = parseInt(el.dataset.days);
+  el.classList.add('active'); state.days = days;
   saveFilters();
 }
 
@@ -2536,7 +2569,15 @@ async function loadStockView(ticker, opts={}) {
           </div>
         </div>
         <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
-          ${!priceData.length?'<div class="empty-state" style="height:500px"><div class="empty-icon">📡</div><div>Price data unavailable</div></div>':''}
+          ${!priceData.length?`<div class="empty-state" style="height:500px;flex-direction:column;gap:10px">
+            <div class="empty-icon">📡</div>
+            <div style="font-size:13px;color:var(--text)">Price chart unavailable</div>
+            <div style="font-size:11px;color:var(--muted);max-width:280px;text-align:center;line-height:1.6">
+              ${ticker} may be OTC, pink sheet, or recently delisted.
+              Insider trade history is still shown below.
+            </div>
+            <button onclick="loadStockView('${ticker}')" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:6px 16px;font-family:'Space Mono',monospace;font-size:10px;cursor:pointer">&#x21BA; RETRY</button>
+          </div>`:''}
         </div>
         <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
           <div id="pressureContainer" style="width:100%;height:120px;"></div>
@@ -2563,7 +2604,7 @@ async function loadStockView(ticker, opts={}) {
         </div>
       </div>
     </div>`;
-  renderSidebarTrades(insiderData);
+  renderSidebarGated(insiderData);
   renderStockTradesTable(insiderData);
   renderTradeMarkerList(insiderData);
   if (priceData.length) buildChart(priceData, insiderData);
@@ -2607,7 +2648,7 @@ function buildChart(priceData, trades) {
   if (visible.length>0) chart.timeScale().setVisibleRange({from:visible[0].time,to:priceData[priceData.length-1].time});
   else chart.timeScale().fitContent();
   buildCircleOverlay(container,chart,candles,trades,priceData);
-  buildPressureChart(chart,trades,priceData);
+  buildPressureChartGated(chart,trades,priceData);
   // Initialise stat bar to match the active 1Y range button
   setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
   new ResizeObserver(()=>{
@@ -2856,7 +2897,7 @@ function toggleChartFilter(group,btn) {
   }
   if(state.drawCircles)state.drawCircles();
   renderSidebarTrades(filtered); renderStockTradesTable(filtered); renderTradeMarkerList(filtered);
-  buildPressureChart(state.chart,filtered,state.currentPriceData);
+  buildPressureChartGated(state.chart,filtered,state.currentPriceData);
 }
 
 function renderTradeMarkerList(trades) {
@@ -2878,7 +2919,7 @@ function renderTradeMarkerList(trades) {
 
 function switchSidebarTab(tab,el) {
   document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active');
-  if(tab==='trades')renderSidebarTrades(state.tickerTrades); else renderSidebarSummary(state.tickerTrades);
+  if(tab==='trades'){renderSidebarGated(state.tickerTrades);}else{if(!requirePremium('Summary tab — insider conviction analysis'))return;renderSidebarSummary(state.tickerTrades);}
 }
 function renderSidebarTrades(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
@@ -3993,6 +4034,7 @@ let _insiderScoreCache = null;  // top insider accuracy scores cache
 let _timingAlphaCache = null;   // top timing alpha scores cache
 
 async function loadAnalysisPage(subpage) {
+  if (!requirePremium('Analysis — sector breakdowns, conviction scores & trends')) return;
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
@@ -5726,6 +5768,7 @@ function fmtSector(n) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function loadSectorsPage() {
+  if (!requirePremium('Sectors — industry-level insider activity')) return;
   window.scrollTo(0, 0);
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
@@ -6184,6 +6227,7 @@ const COMPARE_COLORS_HEX = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4466'];
 const COMPARE_COLORS_RGBA10 = ['rgba(0,212,255,0.1)', 'rgba(0,255,136,0.1)', 'rgba(255,170,0,0.1)', 'rgba(255,68,102,0.1)'];
 
 function loadComparePage() {
+  if (!requirePremium('Compare — side-by-side insider activity')) return;
   window.scrollTo(0, 0);
   renderComparePage();
 }
@@ -6904,6 +6948,7 @@ function etLocalISO(d) {
 }
 
 async function loadMonitorPage() {
+  if (!requirePremium('Monitor — real-time alerts & watchdog signals')) return;
   window.scrollTo(0, 0);
   const body = document.getElementById('monitorViewBody');
   if (!body) return;
@@ -7403,7 +7448,7 @@ function routeFromPath(path, fromPopstate) {
   }
 })();
 
-function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; return'screener'; }
+function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; if(p.startsWith('/premium'))return'premium'; if(p.startsWith('/signup'))return'signup'; if(p.startsWith('/account'))return'account'; return'screener'; }
 function _tickerFromPath(p) { const m=p.match(/^\/stock\/([^/]+)/i); return m?decodeURIComponent(m[1]).toUpperCase():null; }
 function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decodeURIComponent(m[1]):null; }
 
@@ -7568,6 +7613,388 @@ function showPrivacy() {
       InsiderTape collects minimal data, does not sell your information, and does not use advertising tracking. Our core product is public government filing data — not your personal information.
     </div>
   `);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// ─── AUTH & PREMIUM GATING ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const auth = {
+  loggedIn: false,
+  email: null,
+  isPremium: false,
+  isAdmin: false,
+  loaded: false,
+};
+
+// Read session cookie client-side (for instant UI — server validates on API calls)
+function getSessionCookie() {
+  const m = document.cookie.match(/(?:^|;\s*)it_session=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+async function loadAuth() {
+  try {
+    const resp = await fetch('/api/auth/me', {
+      headers: getSessionCookie() ? { 'Authorization': 'Bearer ' + getSessionCookie() } : {}
+    });
+    const data = await resp.json();
+    auth.loggedIn  = data.loggedIn  || false;
+    auth.email     = data.email     || null;
+    auth.isPremium = data.isPremium || false;
+    auth.isAdmin   = data.isAdmin   || false;
+  } catch(_) {}
+  auth.loaded = true;
+  renderAuthHeader();
+  checkUrlAuthParams();
+}
+
+function renderAuthHeader() {
+  const el = document.getElementById('authHeaderBtn');
+  if (!el) return;
+  if (auth.loggedIn) {
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px">
+        ${auth.isPremium ? '<span style="font-size:9px;color:#00d4ff;border:1px solid #00d4ff44;border-radius:3px;padding:2px 6px;font-family:Space Mono,monospace">PREMIUM</span>' : ''}
+        <button onclick="switchView('account',null)" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-family:Space Mono,monospace;font-size:10px;color:var(--muted);cursor:pointer;letter-spacing:0.5px">${auth.email.split('@')[0].toUpperCase()}</button>
+      </div>`;
+  } else {
+    el.innerHTML = `<button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:6px 14px;font-family:Space Mono,monospace;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.5px">GET PREMIUM</button>`;
+  }
+}
+
+function checkUrlAuthParams() {
+  const p = new URLSearchParams(location.search);
+  if (p.get('premium') === '1') {
+    showToast('Welcome to InsiderTape Premium! 🎉', false);
+    history.replaceState({}, '', location.pathname);
+  }
+  if (p.get('auth') === '1') {
+    showToast('Signed in successfully', false);
+    history.replaceState({}, '', location.pathname);
+  }
+  if (p.get('error') === 'invalid_token') {
+    showToast('Login link expired — please request a new one', true);
+    history.replaceState({}, '', location.pathname);
+  }
+}
+
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: getSessionCookie() ? { 'Authorization': 'Bearer ' + getSessionCookie() } : {}
+    });
+  } catch(_) {}
+  // Clear cookie client-side too
+  document.cookie = 'it_session=; Path=/; Max-Age=0';
+  auth.loggedIn = false; auth.email = null; auth.isPremium = false; auth.isAdmin = false;
+  renderAuthHeader();
+  switchView('screener', document.querySelectorAll('.nav-tab')[0]);
+  showToast('Signed out', false);
+}
+
+// ── Premium gate ──────────────────────────────────────────────
+// Returns true if action should proceed, false + shows overlay if blocked
+function requirePremium(featureName) {
+  if (auth.isPremium) return true;
+  showPremiumOverlay(featureName);
+  return false;
+}
+
+function showPremiumOverlay(featureName) {
+  // Remove any existing overlay
+  const existing = document.getElementById('premiumOverlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'premiumOverlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;z-index:8000;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(8,11,15,0.85);backdrop-filter:blur(8px);
+  `;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div style="background:#0d1421;border:1px solid #00d4ff44;border-radius:12px;padding:40px 36px;max-width:420px;width:90%;text-align:center;position:relative">
+      <button onclick="document.getElementById('premiumOverlay').remove()" style="position:absolute;top:12px;right:16px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
+      <div style="font-size:28px;margin-bottom:12px">🔒</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2.5px;color:var(--text);margin-bottom:8px">PREMIUM FEATURE</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:6px">${featureName}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:28px;line-height:1.6">Unlock full access to all signals, analysis tools, and real-time alerts with InsiderTape Premium.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="document.getElementById('premiumOverlay').remove();switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:14px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:1px;width:100%">SEE PLANS →</button>
+        ${!auth.loggedIn ? `<button onclick="document.getElementById('premiumOverlay').remove();switchView('signup',null)" style="background:transparent;color:var(--accent);border:1px solid var(--accent)44;border-radius:8px;padding:12px;font-family:'Space Mono',monospace;font-size:11px;cursor:pointer;width:100%">SIGN IN</button>` : ''}
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+// ── Screener filter guard (30D+ requires premium) ────────────
+function requirePremiumForPeriod(days) {
+  if (days <= 7) return true;
+  return requirePremium('Extended screener periods (30D, 90D, 1Y) and advanced filters');
+}
+
+// ── Sidebar guard (blurs sidebar for free users in stock view) ─
+function renderSidebarGated(trades) {
+  if (auth.isPremium) {
+    renderSidebarTrades(trades);
+    return;
+  }
+  const content = document.getElementById('sidebarContent');
+  if (!content) return;
+  // Show first 5 trades blurred after
+  const preview = trades.slice(0, 3);
+  renderSidebarTrades(preview);
+  // Add blur overlay on sidebar
+  const wrapper = content.parentElement;
+  if (!wrapper) return;
+  let gate = wrapper.querySelector('.sidebar-gate');
+  if (!gate) {
+    gate = document.createElement('div');
+    gate.className = 'sidebar-gate';
+    gate.style.cssText = 'position:absolute;bottom:0;left:0;right:0;height:60%;background:linear-gradient(to bottom,transparent,#080b0f 60%);display:flex;align-items:flex-end;justify-content:center;padding-bottom:24px;z-index:10';
+    gate.innerHTML = `<button onclick="showPremiumOverlay('Full insider sidebar & trade history')" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:10px 20px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">🔒 UNLOCK FULL VIEW</button>`;
+    wrapper.style.position = 'relative';
+    wrapper.appendChild(gate);
+  }
+}
+
+// ── Pressure chart guard ──────────────────────────────────────
+function buildPressureChartGated(mainChart, trades, priceData) {
+  if (auth.isPremium) {
+    buildPressureChart(mainChart, trades, priceData);
+    return;
+  }
+  const pw = document.getElementById('pressureWrapper');
+  if (!pw) return;
+  pw.innerHTML = `
+    <div style="height:120px;display:flex;align-items:center;justify-content:center;gap:12px;cursor:pointer" onclick="showPremiumOverlay('Insider Pressure Indicator')">
+      <div style="font-size:13px;color:var(--muted);font-family:'Space Mono',monospace">🔒 INSIDER PRESSURE</div>
+      <span style="font-size:10px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 8px;font-family:'Space Mono',monospace">PREMIUM</span>
+    </div>`;
+}
+
+// Load auth on boot
+loadAuth();
+
+// Close overlay on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const ov = document.getElementById('premiumOverlay');
+    if (ov) ov.remove();
+  }
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// ─── PREMIUM / SIGNUP / ACCOUNT PAGES ───────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function loadPremiumPage() {
+  const el = document.getElementById('premiumPageBody');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="max-width:800px;margin:0 auto;padding:48px 24px">
+      <div style="text-align:center;margin-bottom:48px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:4px;color:var(--text);margin-bottom:8px">INSIDERTAPE <span style="color:var(--accent)">PREMIUM</span></div>
+        <div style="font-size:14px;color:var(--muted);max-width:480px;margin:0 auto;line-height:1.7">Follow what insiders actually do with their own money — not what analysts guess they'll do.</div>
+      </div>
+
+      <!-- Pricing cards -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:580px;margin:0 auto 48px">
+        <!-- Monthly -->
+        <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:28px 24px;text-align:center">
+          <div style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">MONTHLY</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:44px;color:var(--text);line-height:1">$19<span style="font-size:20px;color:var(--muted)">.99</span></div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:24px">per month</div>
+          <button onclick="startCheckout('monthly')" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:8px;padding:13px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">GET STARTED →</button>
+        </div>
+        <!-- Annual -->
+        <div style="background:#0d1421;border:2px solid var(--accent);border-radius:12px;padding:28px 24px;text-align:center;position:relative">
+          <div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-family:'Space Mono',monospace;font-size:9px;font-weight:700;letter-spacing:1px;padding:3px 12px;border-radius:20px;white-space:nowrap">BEST VALUE</div>
+          <div style="font-family:'Space Mono',monospace;font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">ANNUAL</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:44px;color:var(--text);line-height:1">$149<span style="font-size:20px;color:var(--muted)">.99</span></div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:24px">per year · <span style="color:var(--buy)">save 37%</span></div>
+          <button onclick="startCheckout('annual')" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:8px;padding:13px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">GET STARTED →</button>
+        </div>
+      </div>
+
+      <!-- Feature list -->
+      <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;overflow:hidden;max-width:580px;margin:0 auto">
+        <div style="padding:16px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto auto;gap:12px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted)">
+          <span>FEATURE</span><span style="text-align:center">FREE</span><span style="text-align:center;color:var(--accent)">PREMIUM</span>
+        </div>
+        ${[
+          ['Screener — 7 days', true, true],
+          ['Screener — 30D / 90D / 1Y + filters', false, true],
+          ['Stock View — price chart + trade markers', true, true],
+          ['Insider Pressure indicator', false, true],
+          ['Insider sidebar — full trade history', false, true],
+          ['Summary tab — conviction analysis', false, true],
+          ['Insider profiles — full history', false, true],
+          ['Analysis dashboard', false, true],
+          ['Monitor — real-time signals', false, true],
+          ['Sectors — industry breakdown', false, true],
+          ['Compare — side-by-side', false, true],
+          ['Watchlist', false, true],
+        ].map(([feat, free, prem]) => `
+          <div style="padding:13px 24px;border-bottom:1px solid var(--border)22;display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center">
+            <span style="font-size:12px;color:var(--text)">${feat}</span>
+            <span style="text-align:center;font-size:14px">${free ? '✓' : '—'}</span>
+            <span style="text-align:center;font-size:14px;color:var(--accent)">${prem ? '✓' : '—'}</span>
+          </div>`).join('')}
+      </div>
+
+      <div style="text-align:center;margin-top:32px;font-size:11px;color:var(--muted)">
+        Cancel anytime · Secure payment via Stripe · No hidden fees
+      </div>
+    </div>`;
+}
+
+async function startCheckout(plan) {
+  if (!auth.loggedIn) {
+    // Save intended plan, send to signup
+    sessionStorage.setItem('checkoutPlan', plan);
+    switchView('signup', null);
+    return;
+  }
+  // Already logged in — go straight to Stripe
+  window.location.href = '/api/stripe/checkout?plan=' + plan;
+}
+
+function loadSignupPage() {
+  const el = document.getElementById('signupPageBody');
+  if (!el) return;
+  const params = new URLSearchParams(location.search);
+  const error = params.get('error');
+  const errorMsg = error === 'invalid_token' ? 'That login link has expired. Please request a new one.' :
+                   error === 'server_error'   ? 'Something went wrong. Please try again.' : '';
+
+  if (auth.loggedIn) {
+    el.innerHTML = `
+      <div style="max-width:440px;margin:80px auto;padding:0 24px;text-align:center">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text);margin-bottom:12px">ALREADY SIGNED IN</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:24px">${auth.email}</div>
+        <button onclick="switchView('account',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 28px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">VIEW ACCOUNT →</button>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="max-width:440px;margin:80px auto;padding:0 24px">
+      <div style="text-align:center;margin-bottom:36px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--text);margin-bottom:8px">SIGN IN</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.6">Enter your email and we'll send you a magic sign-in link. No password needed.</div>
+      </div>
+      ${errorMsg ? `<div style="background:rgba(255,80,80,0.08);border:1px solid rgba(255,80,80,0.3);border-radius:8px;padding:12px 16px;font-size:12px;color:#ff7070;margin-bottom:20px;text-align:center">${errorMsg}</div>` : ''}
+      <div id="signupForm">
+        <input id="signupEmail" type="email" placeholder="your@email.com" style="width:100%;box-sizing:border-box;background:#0d1421;border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-family:'Space Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-bottom:12px" onkeydown="if(event.key==='Enter')submitSignup()">
+        <button onclick="submitSignup()" id="signupBtn" style="width:100%;background:var(--accent);color:#000;border:none;border-radius:8px;padding:14px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:1px">SEND MAGIC LINK →</button>
+        <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--muted)">We'll never share your email or send you spam.</div>
+      </div>
+      <div id="signupSuccess" style="display:none;text-align:center;padding:24px">
+        <div style="font-size:36px;margin-bottom:16px">📬</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--text);margin-bottom:8px">CHECK YOUR INBOX</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.7">We sent a sign-in link to <span id="signupEmailSent" style="color:var(--text)"></span>.<br>It expires in 15 minutes.</div>
+      </div>
+    </div>`;
+}
+
+async function submitSignup() {
+  const emailEl = document.getElementById('signupEmail');
+  const btn = document.getElementById('signupBtn');
+  if (!emailEl) return;
+  const email = emailEl.value.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    emailEl.style.borderColor = '#ff5050';
+    emailEl.focus();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'SENDING…';
+  try {
+    const resp = await fetch('/api/auth/request-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      document.getElementById('signupForm').style.display = 'none';
+      document.getElementById('signupSuccess').style.display = 'block';
+      document.getElementById('signupEmailSent').textContent = email;
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'SEND MAGIC LINK →';
+      showToast(data.error || 'Failed — please try again', true);
+    }
+  } catch(_) {
+    btn.disabled = false;
+    btn.textContent = 'SEND MAGIC LINK →';
+    showToast('Network error — please try again', true);
+  }
+}
+
+async function loadAccountPage() {
+  const el = document.getElementById('accountPageBody');
+  if (!el) return;
+  if (!auth.loggedIn) {
+    el.innerHTML = `
+      <div style="max-width:440px;margin:80px auto;padding:0 24px;text-align:center">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text);margin-bottom:16px">SIGN IN REQUIRED</div>
+        <button onclick="switchView('signup',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 28px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">SIGN IN →</button>
+      </div>`;
+    return;
+  }
+
+  // Fetch fresh subscription state
+  let subStatus = 'Loading…';
+  let planLabel = '';
+  let periodEnd = '';
+  try {
+    const resp = await fetch('/api/auth/me', {
+      headers: { 'Authorization': 'Bearer ' + getSessionCookie() }
+    });
+    const data = await resp.json();
+    auth.isPremium = data.isPremium;
+    auth.isAdmin   = data.isAdmin;
+    renderAuthHeader();
+  } catch(_) {}
+
+  el.innerHTML = `
+    <div style="max-width:520px;margin:60px auto;padding:0 24px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--text);margin-bottom:32px">MY ACCOUNT</div>
+
+      <!-- Account info -->
+      <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
+        <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">ACCOUNT</div>
+        <div style="font-size:14px;color:var(--text);margin-bottom:4px">${auth.email}</div>
+        <div style="font-size:11px;color:var(--muted)">Email account</div>
+      </div>
+
+      <!-- Plan -->
+      <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
+        <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">PLAN</div>
+        ${auth.isPremium ? `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <span style="font-size:14px;color:var(--text);font-weight:700">Premium</span>
+            <span style="font-size:9px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 8px;font-family:'Space Mono',monospace">ACTIVE</span>
+          </div>
+          <a href="/api/stripe/portal" style="display:inline-block;border:1px solid var(--border);border-radius:8px;padding:10px 20px;font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);text-decoration:none;cursor:pointer">Manage billing / Cancel →</a>
+        ` : `
+          <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Free plan</div>
+          <button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 24px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">UPGRADE TO PREMIUM →</button>
+        `}
+      </div>
+
+      <!-- Sign out -->
+      <div style="text-align:right;margin-top:8px">
+        <button onclick="logout()" style="background:transparent;border:none;font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);cursor:pointer;text-decoration:underline">Sign out</button>
+      </div>
+    </div>`;
 }
 
 // Close modal on Escape key
