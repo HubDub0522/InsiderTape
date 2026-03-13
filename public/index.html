@@ -3703,15 +3703,17 @@ async function loadInsiderDashboard() {
 // Cached scoreboard data so full-list view doesn't re-fetch
 let _scoreboardData = null;
 
+let _leaderboardRetryTimer = null;
 async function loadNotableLeaderboard() {
+  clearTimeout(_leaderboardRetryTimer);
   const el = document.getElementById('notableLeaderboard');
   if (!el) return;
   el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div><span style="font-size:12px;color:var(--muted)">Loading Notable Insiders leaderboard…</span></div>`;
   try {
     const data = await apiFetch('/api/scoreboard');
     if (data.computing) {
-      el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">⏳ Leaderboard is computing (may take a few minutes on first load). <span style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="loadNotableLeaderboard()">Refresh</span></div>`;
-      setTimeout(loadNotableLeaderboard, 90000);
+      el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">⏳ Leaderboard is computing — ready in ~2 min after deploy. <span style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="loadNotableLeaderboard()">Refresh</span></div>`;
+      _leaderboardRetryTimer = setTimeout(loadNotableLeaderboard, 30000);
       return;
     }
     _scoreboardData = data;
@@ -4404,12 +4406,14 @@ function renderAnalysisSubpage(id) {
 
 // ── INSIDER LEADERBOARDS ──────────────────────────────────────────
 
+let _scoreRetryTimer = null;
 async function computeLeaderboardScores() {
+  clearTimeout(_scoreRetryTimer);
   try {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
     if (data.computing) {
-      // Server is still precomputing — retry in 60s
-      setTimeout(computeLeaderboardScores, 60000);
+      // Server is still precomputing — retry in 30s
+      _scoreRetryTimer = setTimeout(computeLeaderboardScores, 30000);
       return;
     }
     _insiderScoreCache = data.accuracy || [];
