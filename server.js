@@ -202,6 +202,7 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_dedup ON trades(accession, ticker, trade_date, type, value)`);
 } catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── AUTH / SUBSCRIPTION TABLES ──────────────────────────────
