@@ -6605,28 +6605,114 @@ function renderWatchlistPage(data) {
     return;
   }
 
-  // Build ticker cards
   const now = Date.now();
+  const MS_30  = 30  * 86400000;
+  const MS_90  = 90  * 86400000;
+  const MS_365 = 365 * 86400000;
+
+  // Helper: days since a trade date string
+  function daysSinceDate(dateStr) {
+    if (!dateStr) return null;
+    return Math.round((now - new Date(dateStr.slice(0,10) + 'T12:00:00Z')) / 86400000);
+  }
+
+  // Build a pressure bar (buy vs sell width ratio within a fixed window)
+  function pressureBar(buyV, sellV) {
+    const total = buyV + sellV;
+    if (total === 0) return '';
+    const buyPct  = Math.round(buyV  / total * 100);
+    const sellPct = 100 - buyPct;
+    const label   = buyPct >= 70 ? 'STRONG BUY PRESSURE'
+                  : buyPct >= 55 ? 'BUY PRESSURE'
+                  : sellPct >= 70 ? 'STRONG SELL PRESSURE'
+                  : sellPct >= 55 ? 'SELL PRESSURE'
+                  : 'MIXED';
+    const labelColor = buyPct >= 55 ? 'var(--buy)' : sellPct >= 55 ? 'var(--sell)' : 'var(--muted)';
+    return `
+      <div style="padding:10px 16px 12px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">90D PRESSURE</div>
+          <div style="font-size:9px;color:${labelColor};font-family:'Space Mono',monospace">${label}</div>
+        </div>
+        <div style="display:flex;height:5px;border-radius:3px;overflow:hidden;gap:1px">
+          ${buyPct  > 0 ? `<div style="flex:${buyPct};background:var(--buy);border-radius:3px 0 0 3px"></div>` : ''}
+          ${sellPct > 0 ? `<div style="flex:${sellPct};background:var(--sell);border-radius:0 3px 3px 0"></div>` : ''}
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px">
+          <div style="font-size:9px;color:var(--buy)">▲ ${fmt(buyV)} bought</div>
+          <div style="font-size:9px;color:var(--sell)">▼ ${fmt(sellV)} sold</div>
+        </div>
+      </div>`;
+  }
+
   const cards = list.map(ticker => {
     const trades  = data[ticker] || [];
-    const buys    = trades.filter(t => t.type === 'P');
-    const sells   = trades.filter(t => t.type === 'S' || t.type === 'S-');
-    const buyVal  = buys.reduce((s, t) => s + (t.value || 0), 0);
-    const sellVal = sells.reduce((s, t) => s + (t.value || 0), 0);
     const loading = !data[ticker];
     const company = trades[0]?.company || ticker;
-    const lastBuy = buys[0];
-    const daysSince = lastBuy ? Math.round((now - new Date((lastBuy.trade || lastBuy.filing || '').slice(0,10) + 'T12:00:00Z')) / 86400000) : null;
-    const recentSignal = (() => {
-      if (!lastBuy) return null;
-      if (daysSince <= 3)  return { label:'🔴 VERY RECENT', color:'var(--sell)' };
-      if (daysSince <= 14) return { label:'🟡 RECENT', color:'var(--option)' };
-      if (daysSince <= 30) return { label:'🔵 THIS MONTH', color:'var(--accent)' };
-      return null;
+
+    // All trades within 90 days for pressure / stats
+    const t90     = trades.filter(t => daysSinceDate(t.trade || t.filing) <= 90);
+    const buys90  = t90.filter(t => t.type === 'P');
+    const sells90 = t90.filter(t => t.type === 'S' || t.type === 'S-');
+    const buyV90  = buys90.reduce((s, t) => s + (t.value || 0), 0);
+    const sellV90 = sells90.reduce((s, t) => s + (t.value || 0), 0);
+
+    // 30-day window
+    const buys30  = buys90.filter(t => daysSinceDate(t.trade || t.filing) <= 30);
+    const buyV30  = buys30.reduce((s, t) => s + (t.value || 0), 0);
+
+    // Most recent buy ever (for "last activity")
+    const allBuys = trades.filter(t => t.type === 'P');
+    const lastBuy = allBuys[0];
+    const lastBuyDays = lastBuy ? daysSinceDate(lastBuy.trade || lastBuy.filing) : null;
+
+    // Activity badge — based on last buy date
+    const activityBadge = (() => {
+      if (lastBuyDays === null) return { label:'NO BUYS ON RECORD', color:'var(--muted)', bg:'rgba(255,255,255,0.04)' };
+      if (lastBuyDays <=  7)   return { label:'ACTIVE THIS WEEK',  color:'var(--buy)',   bg:'rgba(0,255,136,0.08)' };
+      if (lastBuyDays <= 30)   return { label:'ACTIVE THIS MONTH', color:'var(--accent)', bg:'rgba(0,212,255,0.08)' };
+      if (lastBuyDays <= 90)   return { label:'ACTIVE 90D',        color:'var(--option)', bg:'rgba(255,200,0,0.08)' };
+      return { label:'QUIET — ' + Math.round(lastBuyDays/30) + ' MO SINCE LAST BUY', color:'var(--muted)', bg:'rgba(255,255,255,0.03)' };
     })();
-    const uniqueBuyers = new Set(buys.map(t => t.insider)).size;
-    const sentiment = buyVal + sellVal > 0 ? Math.round(buyVal / (buyVal + sellVal) * 100) : null;
-    const recentBuys = buys.filter(t => (now - new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z')) < 30 * 86400000);
+
+    // Stats row — all scoped to defined windows
+    const uniqueBuyers30 = new Set(buys30.map(t => t.insider)).size;
+    const stat = (label, val, color) => `
+      <div style="padding:10px 14px">
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">${label}</div>
+        <div style="font-size:13px;color:${color};font-family:'Space Mono',monospace;font-weight:700;margin-top:3px">${val}</div>
+      </div>`;
+
+    // Recent buys section — only trades within 90 days, clearly labelled
+    const recentBuysHtml = (() => {
+      if (buys90.length === 0) {
+        const lastDate = lastBuy ? (lastBuy.trade || lastBuy.filing || '—') : null;
+        return `
+          <div style="padding:12px 16px 14px">
+            <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px">LAST 90 DAYS</div>
+            <div style="font-size:11px;color:var(--muted);font-style:italic">
+              No insider buying in the last 90 days.
+              ${lastDate ? `<span style="display:block;margin-top:4px;font-size:10px">Last buy on record: ${lastDate}</span>` : ''}
+            </div>
+          </div>`;
+      }
+      return `
+        <div style="padding:12px 16px 14px">
+          <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px">LAST 90 DAYS — ${buys90.length} BUY${buys90.length!==1?'S':''}</div>
+          ${buys90.slice(0, 3).map(b => `
+            <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03)">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.insider || '—'}</div>
+                <div style="font-size:10px;color:var(--muted)">${b.title || ''}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy)">${fmt(b.value)}</div>
+                <div style="font-size:10px;color:var(--muted)">${b.trade || b.filing || '—'}</div>
+              </div>
+            </div>`).join('')}
+          ${buys90.length > 3 ? `<div style="font-size:10px;color:var(--muted);margin-top:6px">+${buys90.length-3} more · <span style="cursor:pointer;color:var(--accent)" onclick="openTickerFromScreener('${ticker}')">view all</span></div>` : ''}
+        </div>`;
+    })();
 
     return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:border-color .15s"
@@ -6634,74 +6720,50 @@ function renderWatchlistPage(data) {
 
         <!-- Header -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 12px;border-bottom:1px solid var(--border)">
-          <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="openTickerFromScreener('${ticker}')">
-            <div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${ticker}</span>
-                ${recentSignal ? `<span style="font-size:9px;color:${recentSignal.color};background:rgba(255,255,255,0.04);border:1px solid ${recentSignal.color}44;border-radius:3px;padding:2px 7px">${recentSignal.label}</span>` : ''}
-              </div>
-              <div style="font-size:11px;color:var(--muted);margin-top:2px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company}</div>
+          <div style="cursor:pointer" onclick="openTickerFromScreener('${ticker}')">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${ticker}</span>
+              <span style="font-size:9px;color:${activityBadge.color};background:${activityBadge.bg};border:1px solid ${activityBadge.color}33;border-radius:3px;padding:2px 7px;white-space:nowrap">${activityBadge.label}</span>
             </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company}</div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <button onclick="openCompareWith('${ticker}')" title="Add to Compare" style="
-              background:transparent;border:1px solid var(--border);border-radius:5px;
-              color:var(--muted);padding:5px 9px;font-size:11px;cursor:pointer;transition:all .15s"
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <button onclick="openCompareWith('${ticker}')" title="Compare" style="background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--muted);padding:5px 9px;font-size:11px;cursor:pointer;transition:all .15s"
               onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">⚖️</button>
-            <button onclick="watchlistRemove('${ticker}')" title="Remove from watchlist" style="
-              background:transparent;border:1px solid var(--border);border-radius:5px;
-              color:var(--muted);padding:5px 9px;font-size:11px;cursor:pointer;transition:all .15s"
+            <button onclick="watchlistRemove('${ticker}')" title="Remove" style="background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--muted);padding:5px 9px;font-size:11px;cursor:pointer;transition:all .15s"
               onmouseover="this.style.color='var(--sell)';this.style.borderColor='var(--sell)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">✕</button>
           </div>
         </div>
 
         ${loading ? `<div style="padding:20px;text-align:center"><div class="spinner" style="width:18px;height:18px;margin:0 auto"></div></div>` : `
-        <!-- Stats -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)">
-          ${[
-            { label:'BUY FLOW',   val: fmt(buyVal),      color:'var(--buy)'  },
-            { label:'BUYERS',     val: uniqueBuyers,     color:'var(--text)' },
-            { label:'LAST 30D',   val: recentBuys.length + ' buys', color: recentBuys.length > 0 ? 'var(--buy)' : 'var(--muted)' },
-            { label:'SENTIMENT',  val: sentiment !== null ? sentiment + '%' : '—', color: sentiment >= 60 ? 'var(--buy)' : sentiment >= 40 ? 'var(--option)' : 'var(--sell)' },
-          ].map(s => `
-            <div style="padding:10px 14px;${s !== '...' ? '' : ''}">
-              <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">${s.label}</div>
-              <div style="font-size:13px;color:${s.color};font-family:'Space Mono',monospace;font-weight:700;margin-top:3px">${s.val}</div>
-            </div>`).join('')}
+
+        <!-- 90D Pressure bar -->
+        ${pressureBar(buyV90, sellV90)}
+
+        <!-- Stats — all explicitly windowed -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)">
+          ${stat('30D BUY $',  buyV30  > 0 ? fmt(buyV30)  : '—', buyV30  > 0 ? 'var(--buy)'  : 'var(--muted)')}
+          ${stat('30D BUYERS', uniqueBuyers30 > 0 ? uniqueBuyers30 : '—', uniqueBuyers30 > 0 ? 'var(--text)' : 'var(--muted)')}
+          ${stat('90D TRADES', t90.length > 0 ? t90.length : '—', t90.length > 0 ? 'var(--text)' : 'var(--muted)')}
         </div>
 
-        <!-- Last 3 buys -->
-        <div style="padding:12px 16px">
-          <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px">RECENT BUYS</div>
-          ${buys.length === 0
-            ? `<div style="font-size:11px;color:var(--muted);padding:4px 0">No buys on record</div>`
-            : buys.slice(0, 3).map(b => `
-              <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03)">
-                <div style="flex:1;min-width:0">
-                  <div style="font-size:11px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.insider || '—'}</div>
-                  <div style="font-size:10px;color:var(--muted)">${b.title || ''}</div>
-                </div>
-                <div style="text-align:right;flex-shrink:0">
-                  <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy)">${fmt(b.value)}</div>
-                  <div style="font-size:10px;color:var(--muted)">${b.trade || b.filing || '—'}</div>
-                </div>
-              </div>`).join('')}
-        </div>`}
+        <!-- Recent buys — 90d window only, honest drought message -->
+        ${recentBuysHtml}`}
       </div>`;
   }).join('');
 
-  // Recent signals across all watchlist tickers
+  // Signal feed — last 30 days across all watchlist tickers
   const allRecentSignals = list.flatMap(ticker => {
     const trades = data[ticker] || [];
     return trades
-      .filter(t => t.type === 'P' && (now - new Date(t.trade || t.filing)) < 30 * 86400000)
+      .filter(t => t.type === 'P' && daysSinceDate(t.trade || t.filing) <= 30)
       .map(t => ({ ...t, _ticker: ticker }));
   }).sort((a, b) => (b.trade || b.filing || '').localeCompare(a.trade || a.filing || '')).slice(0, 15);
 
   const signalFeed = allRecentSignals.length ? `
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:28px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);margin-bottom:16px">
-        🔔 RECENT ACTIVITY — YOUR WATCHLIST
+        🔔 RECENT ACTIVITY — LAST 30 DAYS
       </div>
       ${allRecentSignals.map(t => `
         <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer"
@@ -6725,7 +6787,7 @@ function renderWatchlistPage(data) {
         ${cards}
       </div>
       <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:24px;padding-bottom:40px">
-        Watchlist stored locally in your browser · Click ⚖️ to compare tickers side-by-side
+        Watchlist stored locally · Stats are windowed (30D / 90D) · Click ⚖️ to compare side-by-side
       </div>
     </div>`;
 }
