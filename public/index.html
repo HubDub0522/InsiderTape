@@ -2683,8 +2683,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   const pc=document.getElementById('pressureContainer'); if(!pc||!trades.length)return; pc.innerHTML='';
 
   // Aggregate net buy/sell value by week (Monday anchor).
-  // ONLY weeks with actual trades get a non-zero value.
-  // Weeks with no trades are explicitly set to 0 — no carry-forward smoothing.
+  // Weeks with no trades get 0 — no carry-forward.
   const byWeek={};
   trades.forEach(t=>{
     const d=(t.trade||t.filing||'').slice(0,10); if(!d)return;
@@ -2701,125 +2700,36 @@ function buildPressureChart(mainChart,trades,priceData) {
   const allDates=priceData.map(d=>d.time);
   const maxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
 
-  // ── EMA on weekly buckets, then broadcast to every day in that week ────────
-  // Step 1: get the sorted list of all weeks that appear in the price data.
-  // Step 2: compute a 5-EMA across those weekly raw values (including 0-weeks
-  //         for periods with no trades — this is what pulls the signal back to zero).
-  // Step 3: map each daily price bar to the EMA value of its week.
-  // Result: a smooth continuous line — no intra-week sawtooth decay, no gaps.
-
-  // Collect every calendar week that spans the price data range (including gaps)
-  const allWeeks = [];
-  const seenWks  = new Set();
-  allDates.forEach(date=>{
-    const dt=new Date(date+'T12:00:00Z');
-    const dow=dt.getUTCDay();
-    const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
-    const wk=monday.toISOString().slice(0,10);
-    if(!seenWks.has(wk)){ seenWks.add(wk); allWeeks.push(wk); }
-  });
-  allWeeks.sort();
-
-  // 5-EMA across weekly raw values. Weeks with no trades inject 0.
-  const EMA_K = 2 / (5 + 1);
-  const emaByWeek={};
-  let prevEma=0;
-  allWeeks.forEach(wk=>{
-    const raw = byWeek[wk] ? +(byWeek[wk].net / maxTotal * 100) : 0;
-    const ema = +(raw * EMA_K + prevEma * (1 - EMA_K)).toFixed(2);
-    prevEma = ema;
-    emaByWeek[wk] = ema;
-  });
-
-  // Map every daily price bar to its week's EMA value
+  // Map each daily bar to its week's raw net value (normalised ±100).
+  // Weeks with no trades map to 0 — indicator returns to zero naturally.
   const valueByDate={};
   allDates.forEach(date=>{
     const dt=new Date(date+'T12:00:00Z');
     const dow=dt.getUTCDay();
     const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
     const wk=monday.toISOString().slice(0,10);
-    valueByDate[date] = emaByWeek[wk] ?? 0;
+    valueByDate[date]=byWeek[wk]?+(byWeek[wk].net/maxTotal*100).toFixed(2):0;
   });
-  // pressurePoints: ordered {date, value} array — one entry per price bar.
-  const pressurePoints = allDates.map(d=>({date:d, value:valueByDate[d]??0}));
 
-  // Index trades by day for tooltip lookups
-  const byDayTrades={};
-  trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
-
-  // ── LightweightCharts: baseline series + symmetric forced scale ─────────
-  // Strategy: feed ALL dates (including zero-value days) to a BaselineSeries.
-  // This gives a single continuous line that passes through zero on quiet days
-  // — no gaps, no disconnected segments.
-  // Scale is forced symmetric by wrapping every data value: we track the visible
-  // peak and pad both min/max equally using autoscaleInfoProvider.
-  const DEFAULT_HALF = 15;
-  const PADDING      = 1.25;
-
-  const pChart = LightweightCharts.createChart(pc, {
-    width: pc.clientWidth||800, height: 120,
+  const pChart=LightweightCharts.createChart(pc,{
+    width:pc.clientWidth||800,height:120,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
-    rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.05,bottom:0.05}},
+    rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.1,bottom:0.1}},
     timeScale:{borderColor:'#1e2d3d',visible:false},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-    handleScroll:false, handleScale:false,
+    handleScroll:false,handleScale:false,
   });
-
-  // Helper: compute symmetric half-range for current visible window
-  function visibleHalf(logicalRange) {
-    let lo=0, hi=pressurePoints.length-1;
-    if(logicalRange){
-      lo=Math.max(0,Math.floor(logicalRange.from));
-      hi=Math.min(pressurePoints.length-1,Math.ceil(logicalRange.to));
-    }
-    const peak = pressurePoints.slice(lo,hi+1).reduce((m,p)=>Math.max(m,Math.abs(p.value)),0);
-    return Math.ceil(Math.max(DEFAULT_HALF, peak * PADDING));
-  }
-
-  // Invisible histogram anchors the price scale at zero and forces it to
-  // include both positive and negative space equally.
-  // We inject ±tiny sentinel values so the scale always has symmetric room.
-  let _half = DEFAULT_HALF;
-  const histSeries = pChart.addHistogramSeries({
-    color:'rgba(0,0,0,0)', base:0,
-    priceLineVisible:false, lastValueVisible:false,
-    autoscaleInfoProvider:()=>({priceRange:{minValue:-_half, maxValue:_half}}),
-  });
-  // Sentinel data: two invisible bars at ±_half ensure the scale never collapses
-  const sentinelData = [
-    {time: pressurePoints[0].date,                     value:  _half, color:'rgba(0,0,0,0)'},
-    {time: pressurePoints[pressurePoints.length-1].date, value: -_half, color:'rgba(0,0,0,0)'},
-  ];
-  histSeries.setData(sentinelData);
-
-  // EMA line as BaselineSeries — single path, green above zero, red below, no gaps.
-  const baselineSeries = pChart.addBaselineSeries({
+  const areaSeries=pChart.addBaselineSeries({
     baseValue:{type:'price',price:0},
-    topLineColor:    'rgba(0,255,136,1)',
-    topFillColor1:   'rgba(0,255,136,0.15)',
-    topFillColor2:   'rgba(0,255,136,0.02)',
-    bottomLineColor: 'rgba(255,68,102,1)',
-    bottomFillColor1:'rgba(255,68,102,0.02)',
-    bottomFillColor2:'rgba(255,68,102,0.15)',
-    lineWidth:2, priceLineVisible:false, lastValueVisible:false,
-    crosshairMarkerVisible:true, crosshairMarkerRadius:3,
-    autoscaleInfoProvider:()=>({priceRange:{minValue:-_half, maxValue:_half}}),
+    topLineColor:'rgba(0,255,136,1)',topFillColor1:'rgba(0,255,136,0.20)',topFillColor2:'rgba(0,255,136,0.02)',
+    bottomLineColor:'rgba(255,68,102,1)',bottomFillColor1:'rgba(255,68,102,0.02)',bottomFillColor2:'rgba(255,68,102,0.20)',
+    lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:true,crosshairMarkerRadius:3,
   });
-  baselineSeries.setData(pressurePoints.map(p=>({time:p.date, value:p.value})));
+  areaSeries.setData(allDates.map(t=>({time:t,value:valueByDate[t]??0})));
 
-  function updatePressureScale(logicalRange) {
-    try {
-      _half = visibleHalf(logicalRange);
-      // Re-apply options to both series so their autoscaleInfoProvider closures
-      // return the updated _half value, then trigger a scale refresh.
-      histSeries.applyOptions({autoscaleInfoProvider:()=>({priceRange:{minValue:-_half,maxValue:_half}})});
-      baselineSeries.applyOptions({autoscaleInfoProvider:()=>({priceRange:{minValue:-_half,maxValue:_half}})});
-      pChart.priceScale('right').applyOptions({autoScale:true});
-    } catch(_){}
-  }
-
-  // Tooltip
+  const byDayTrades={};
+  trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
   const pTooltip=document.getElementById('chartTooltip')||document.createElement('div');
   pc.addEventListener('mousemove',e=>{
     const rect=pc.getBoundingClientRect(); const x=e.clientX-rect.left;
@@ -2836,24 +2746,15 @@ function buildPressureChart(mainChart,trades,priceData) {
     pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; pTooltip.style.top=ty+'px';
   });
   pc.addEventListener('mouseleave',()=>{pTooltip.style.display='none';});
-
   state.pressureChart=pChart;
   state.drawPressure=null;
-
-  try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir){pChart.timeScale().setVisibleLogicalRange(ir);updatePressureScale(ir);}else{updatePressureScale(null);}}catch(e){updatePressureScale(null);}
-
-  mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{
-    if(!range||!state.pressureChart)return;
-    state.pressureChart.timeScale().setVisibleLogicalRange(range);
-    updatePressureScale(range);
-  });
-
+  try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir)pChart.timeScale().setVisibleLogicalRange(ir);}catch(e){}
+  mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
   const label=document.createElement('div');
   label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent='INSIDER PRESSURE · 5-EMA';
-  const pw=document.getElementById('pressureWrapper');
-  pw.style.position='relative';
-  pw.appendChild(label);
+  label.textContent='INSIDER PRESSURE';
+  document.getElementById('pressureWrapper').style.position='relative';
+  document.getElementById('pressureWrapper').appendChild(label);
 }
 
 
