@@ -3095,6 +3095,18 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
           <div class="insider-stat"><div class="insider-stat-label">Net Position</div><div class="insider-stat-val" style="color:${netVal>=0?'var(--buy)':'var(--sell)'}">${netVal>=0?'+':''}${fmt(netVal)}</div></div>
           <div class="insider-stat"><div class="insider-stat-label">Active Since</div><div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div></div>
         </div>
+        ${auth.isPremium ? `
+          <button id="followInsiderBtn"
+            onclick="toggleFollowInsider('${escName(name)}','${escName(latestTitle||'')}', this)"
+            style="margin-top:12px;background:${fiHas(name)?'rgba(0,212,255,0.12)':'transparent'};
+              border:1px solid ${fiHas(name)?'var(--accent)':'var(--border)'};border-radius:6px;
+              padding:7px 16px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:0.5px;
+              color:${fiHas(name)?'var(--accent)':'var(--muted)'};cursor:pointer;transition:all .15s;
+              white-space:nowrap;width:100%"
+            onmouseover="if(!this.classList.contains('fi-active')){this.style.borderColor='var(--accent)';this.style.color='var(--accent)';}"
+            onmouseout="if(!this.classList.contains('fi-active')){this.style.borderColor='var(--border)';this.style.color='var(--muted)';}">
+            ${fiHas(name) ? '★ FOLLOWING' : '☆ FOLLOW INSIDER'}
+          </button>` : ''}
       </div>
       <div class="scorer-section" id="scorerSection">
         <div class="scorer-header">
@@ -6650,7 +6662,26 @@ function openCompareWith(ticker) {
 // ════════════════════════════════════════════════════════════════
 // ── WATCHLIST ────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════
-const WATCHLIST_KEY = 'insidertape_watchlist_v1';
+const WATCHLIST_KEY  = 'insidertape_watchlist_v1';
+const FOLLOWED_KEY   = 'insidertape_followed_insiders_v1';
+
+// ── Followed Insiders storage (stores {name, title} objects) ──
+function fiLoad() {
+  try { return JSON.parse(localStorage.getItem(FOLLOWED_KEY) || '[]'); } catch(_) { return []; }
+}
+function fiSave(list) {
+  try { localStorage.setItem(FOLLOWED_KEY, JSON.stringify(list)); } catch(_) {}
+}
+function fiAdd(name, title) {
+  const list = fiLoad();
+  if (!list.find(i => i.name === name)) { list.push({ name, title: title || '' }); fiSave(list); }
+}
+function fiRemove(name) {
+  fiSave(fiLoad().filter(i => i.name !== name));
+}
+function fiHas(name) {
+  return !!fiLoad().find(i => i.name === name);
+}
 
 function wlLoad() {
   try { return JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]'); } catch(_) { return []; }
@@ -6669,25 +6700,45 @@ function wlHas(ticker) {
   return wlLoad().includes(ticker);
 }
 
-let _watchlistData  = {};   // { TICKER: trades[] }
+let _watchlistData   = {};   // { TICKER: trades[] }
 let _watchlistLoaded = false;
+let _followedData    = {};   // { name: trades[] }
 
 function loadWatchlistPage() {
   window.scrollTo(0, 0);
-  const list = wlLoad();
-  if (list.length === 0) { renderWatchlistPage({}); return; }
-  // Fetch any tickers not yet loaded
-  const missing = list.filter(t => !_watchlistData[t]);
-  if (missing.length === 0) { renderWatchlistPage(_watchlistData); return; }
+  const list     = wlLoad();
+  const followed = fiLoad();
+
+  if (list.length === 0 && followed.length === 0) { renderWatchlistPage({}, {}); return; }
+
+  // Fetch missing ticker data
+  const missingTickers = list.filter(t => !_watchlistData[t]);
+  // Fetch missing followed insider data
+  const missingFollowed = followed.filter(i => !_followedData[i.name]);
+
+  if (missingTickers.length === 0 && missingFollowed.length === 0) {
+    renderWatchlistPage(_watchlistData, _followedData); return;
+  }
+
   renderWatchlistLoading(list);
-  Promise.allSettled(missing.map(async t => {
+
+  const tickerFetches = missingTickers.map(async t => {
     try {
       const trades = await apiFetch('/api/ticker?symbol=' + encodeURIComponent(t));
       _watchlistData[t] = Array.isArray(trades) ? trades : [];
     } catch(_) { _watchlistData[t] = []; }
-  })).then(() => {
+  });
+
+  const insiderFetches = missingFollowed.map(async i => {
+    try {
+      const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(i.name) + '&exact=1');
+      _followedData[i.name] = Array.isArray(trades) ? trades : [];
+    } catch(_) { _followedData[i.name] = []; }
+  });
+
+  Promise.allSettled([...tickerFetches, ...insiderFetches]).then(() => {
     const body = document.getElementById('watchlistViewBody');
-    if (body && body.closest('.view.active')) renderWatchlistPage(_watchlistData);
+    if (body && body.closest('.view.active')) renderWatchlistPage(_watchlistData, _followedData);
   });
 }
 
@@ -6705,8 +6756,8 @@ function watchlistHeader() {
   return `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:28px">
       <div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">📌 WATCHLIST</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">Track insider activity for your pinned tickers</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">WATCHLIST</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Pinned tickers and followed insiders — all in one place</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <input id="watchlistAddInput" type="text" placeholder="Add ticker…" maxlength="8"
@@ -6723,21 +6774,22 @@ function watchlistHeader() {
     </div>`;
 }
 
-function renderWatchlistPage(data) {
+function renderWatchlistPage(data, followedData={}) {
   window.scrollTo(0, 0);
   const body = document.getElementById('watchlistViewBody');
   if (!body) return;
-  const list = wlLoad();
+  const list     = wlLoad();
+  const followed = fiLoad();
 
-  if (list.length === 0) {
+  if (list.length === 0 && followed.length === 0) {
     body.innerHTML = `
       <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
         ${watchlistHeader()}
         <div style="text-align:center;padding:80px 20px;color:var(--muted)">
           <div style="font-size:40px;margin-bottom:16px">📌</div>
           <div style="font-size:15px;color:var(--text);margin-bottom:8px">Your watchlist is empty</div>
-          <div style="font-size:12px;margin-bottom:24px">Add tickers to track their insider activity in one place.</div>
-          <div style="font-size:11px;color:var(--muted)">You can also pin tickers from Stock View using the 📌 button.</div>
+          <div style="font-size:12px;margin-bottom:8px">Add tickers to track insider activity, or follow insiders from their profile pages.</div>
+          <div style="font-size:11px;color:var(--muted)">Pin tickers from Stock View using the 📌 button · Follow insiders from their score cards.</div>
         </div>
       </div>`;
     return;
@@ -6917,17 +6969,130 @@ function renderWatchlistPage(data) {
         </div>`).join('')}
     </div>` : '';
 
-  body.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${watchlistHeader()}
+  // ── Followed Insiders section ────────────────────────────
+  const followedCards = followed.map(insider => {
+    const name   = insider.name;
+    const title  = insider.title || '';
+    const trades = followedData[name] || null;  // null = still loading
+    const loading = trades === null;
+
+    const now2 = Date.now();
+    const allBuys  = trades ? trades.filter(t => t.type === 'P') : [];
+    const allSells = trades ? trades.filter(t => t.type === 'S' || t.type === 'S-') : [];
+
+    // Last buy
+    const lastBuy   = allBuys[0];
+    const lastBuyDays = lastBuy ? Math.round((now2 - new Date((lastBuy.trade||lastBuy.filing||'').slice(0,10)+'T12:00:00Z')) / 86400000) : null;
+
+    // 90D buys
+    const buys90fi  = allBuys.filter(t => {
+      const d = Math.round((now2 - new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z')) / 86400000);
+      return d <= 90;
+    });
+    const buyV90fi  = buys90fi.reduce((s,t) => s+(t.value||0), 0);
+    const buyV30fi  = buys90fi.filter(t => {
+      const d = Math.round((now2 - new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z')) / 86400000);
+      return d <= 30;
+    }).reduce((s,t) => s+(t.value||0), 0);
+
+    // Activity badge
+    const badge = (() => {
+      if (lastBuyDays === null) return { label:'NO BUYS ON RECORD', color:'var(--muted)', bg:'rgba(255,255,255,0.04)' };
+      if (lastBuyDays <=  7)   return { label:'ACTIVE THIS WEEK',  color:'var(--buy)',   bg:'rgba(0,255,136,0.08)' };
+      if (lastBuyDays <= 30)   return { label:'ACTIVE THIS MONTH', color:'var(--accent)', bg:'rgba(0,212,255,0.08)' };
+      if (lastBuyDays <= 90)   return { label:'ACTIVE 90D',        color:'var(--option)', bg:'rgba(255,200,0,0.08)' };
+      return { label:'QUIET — ' + Math.round(lastBuyDays/30) + ' MO SINCE LAST BUY', color:'var(--muted)', bg:'rgba(255,255,255,0.03)' };
+    })();
+
+    // Tickers traded
+    const tickersTraded = trades ? [...new Set(trades.map(t=>t.ticker))].slice(0,5) : [];
+
+    // Recent trades (last 90D)
+    const recentTradesHtml = loading ? `<div style="padding:20px;text-align:center"><div class="spinner" style="width:16px;height:16px;margin:0 auto"></div></div>` :
+      buys90fi.length === 0 ? `
+        <div style="padding:12px 16px 14px">
+          <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:6px">LAST 90 DAYS</div>
+          <div style="font-size:11px;color:var(--muted);font-style:italic">No buys in the last 90 days.${lastBuy?'<span style="display:block;font-size:10px;margin-top:3px">Last buy: '+(lastBuy.trade||lastBuy.filing||'—')+'</span>':''}</div>
+        </div>` :
+      `<div style="padding:12px 16px 14px">
+        <div style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:8px">LAST 90 DAYS — ${buys90fi.length} BUY${buys90fi.length!==1?'S':''}</div>
+        ${buys90fi.slice(0,3).map(b=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03)">
+            <div style="flex:1;min-width:0">
+              <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent);cursor:pointer" onclick="openTickerFromScreener('${b.ticker}')">${b.ticker}</span>
+              <span style="font-size:10px;color:var(--muted);margin-left:6px">${b.trade||b.filing||'—'}</span>
+            </div>
+            <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--buy);flex-shrink:0">${fmt(b.value)}</div>
+          </div>`).join('')}
+        ${buys90fi.length>3?`<div style="font-size:10px;color:var(--muted);margin-top:6px">+${buys90fi.length-3} more · <span style="cursor:pointer;color:var(--accent)" onclick="openInsiderProfileFull('${escName(name)}','${escName(title)}')">view all</span></div>`:''}
+      </div>`;
+
+    return `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:border-color .15s"
+           onmouseover="this.style.borderColor='var(--accent)33'" onmouseout="this.style.borderColor='var(--border)'">
+        <!-- Header -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 16px 12px;border-bottom:1px solid var(--border)">
+          <div style="cursor:pointer;flex:1;min-width:0" onclick="openInsiderProfileFull('${escName(name)}','${escName(title)}')">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1px;color:var(--text)">${name}</span>
+              <span style="font-size:9px;color:${badge.color};background:${badge.bg};border:1px solid ${badge.color}33;border-radius:3px;padding:2px 7px;white-space:nowrap">${badge.label}</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${title}</div>
+            ${tickersTraded.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${tickersTraded.map(t=>`<span onclick="event.stopPropagation();openTickerFromScreener('${t}')" style="font-family:'Space Mono',monospace;font-size:9px;color:var(--accent);background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:1px 6px;cursor:pointer">${t}</span>`).join('')}</div>` : ''}
+          </div>
+          <button onclick="unfollowInsider('${escName(name)}')" title="Unfollow"
+            style="background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--muted);padding:5px 9px;font-size:11px;cursor:pointer;flex-shrink:0;margin-left:8px;transition:all .15s"
+            onmouseover="this.style.color='var(--sell)';this.style.borderColor='var(--sell)'"
+            onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">✕</button>
+        </div>
+        <!-- Stats -->
+        ${!loading ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--border)" class="mob-3col-grid">
+          <div style="padding:10px 14px"><div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">30D BUYS $</div><div style="font-size:13px;color:${buyV30fi>0?'var(--buy)':'var(--muted)'};font-family:'Space Mono',monospace;font-weight:700;margin-top:3px">${buyV30fi>0?fmt(buyV30fi):'—'}</div></div>
+          <div style="padding:10px 14px"><div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">90D BUYS $</div><div style="font-size:13px;color:${buyV90fi>0?'var(--buy)':'var(--muted)'};font-family:'Space Mono',monospace;font-weight:700;margin-top:3px">${buyV90fi>0?fmt(buyV90fi):'—'}</div></div>
+          <div style="padding:10px 14px"><div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">TOTAL TRADES</div><div style="font-size:13px;color:var(--text);font-family:'Space Mono',monospace;font-weight:700;margin-top:3px">${trades.length}</div></div>
+        </div>` : ''}
+        ${recentTradesHtml}
+      </div>`;
+  }).join('');
+
+  const followedSection = followed.length === 0 ? '' : `
+    <div style="margin-bottom:36px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--text)">★ FOLLOWED INSIDERS</div>
+        <div style="font-size:11px;color:var(--muted)">${followed.length} insider${followed.length!==1?'s':''} · click to view full profile</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+        ${followedCards}
+      </div>
+    </div>`;
+
+  const tickerSection = list.length === 0 ? '' : `
+    <div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;color:var(--text)">📌 PINNED TICKERS</div>
+        <div style="font-size:11px;color:var(--muted)">${list.length} ticker${list.length!==1?'s':''}</div>
+      </div>
       ${signalFeed}
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px">
         ${cards}
       </div>
+    </div>`;
+
+  body.innerHTML = `
+    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      ${watchlistHeader()}
+      ${followedSection}
+      ${tickerSection}
       <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:24px;padding-bottom:40px">
-        Watchlist stored locally · Stats are windowed (30D / 90D) · Click ⚖️ to compare side-by-side
+        Stored locally · Follow insiders from their Score Card · Pin tickers from Stock View
       </div>
     </div>`;
+}
+
+function unfollowInsider(name) {
+  fiRemove(name);
+  delete _followedData[name];
+  renderWatchlistPage(_watchlistData, _followedData);
 }
 
 async function watchlistAddFromInput() {
@@ -6943,13 +7108,42 @@ async function watchlistAddFromInput() {
       _watchlistData[ticker] = Array.isArray(trades) ? trades : [];
     } catch(_) { _watchlistData[ticker] = []; }
   }
-  renderWatchlistPage(_watchlistData);
+  renderWatchlistPage(_watchlistData, _followedData);
 }
 
 function watchlistRemove(ticker) {
   wlRemove(ticker);
   delete _watchlistData[ticker];
-  renderWatchlistPage(_watchlistData);
+  renderWatchlistPage(_watchlistData, _followedData);
+}
+
+// ── Toggle Follow Insider ────────────────────────────────────
+function toggleFollowInsider(name, title, btn) {
+  if (fiHas(name)) {
+    fiRemove(name);
+    if (btn) {
+      btn.textContent = '☆ FOLLOW INSIDER';
+      btn.style.background = 'transparent';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color = 'var(--muted)';
+      btn.classList.remove('fi-active');
+    }
+    showToast('Unfollowed ' + name.split(' ').slice(-1)[0], false);
+  } else {
+    fiAdd(name, title);
+    if (btn) {
+      btn.textContent = '★ FOLLOWING';
+      btn.style.background = 'rgba(0,212,255,0.12)';
+      btn.style.borderColor = 'var(--accent)';
+      btn.style.color = 'var(--accent)';
+      btn.classList.add('fi-active');
+    }
+    showToast('Following ' + name.split(' ').slice(-1)[0], false);
+  }
+  // Refresh watchlist if it's open
+  if (document.getElementById('view-watchlist')?.classList.contains('active')) {
+    loadWatchlistPage();
+  }
 }
 
 // Toggle watchlist pin — called from Stock View
