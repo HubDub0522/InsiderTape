@@ -2669,7 +2669,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       canvas.style.cursor='crosshair'; const g=hit.group; const tc=g.tc;
       const color=tc==='buy'?'#00ff88':tc==='sell'?'#ff4466':'#ffaa00';
       const label=tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'◆ OPTION/AWARD';
-      const rows=g.trades.slice(0,5).map(t=>`<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${t.insider}</span>${t.title?`<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>`:''}<span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span></div>`).join('');
+      const rows=g.trades.slice(0,5).map(t=>`<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${t.insider||'—'}</span>${t.title?`<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>`:''}<span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span></div>`).join('');
       tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>${rows}${g.trades.length>5?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Total: <span style="color:${color}">${fmt(g.value)}</span></div>`;
       tooltip.style.display='block';
       const tx=e.clientX+16,ty=e.clientY-10;
@@ -2701,16 +2701,27 @@ function buildPressureChart(mainChart,trades,priceData) {
   const allDates=priceData.map(d=>d.time);
   const maxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
 
-  // For each price bar date: find which week it belongs to.
-  // Only show a value if that exact week had trades — zero if no trades that week.
-  // This eliminates the artificial "declining pressure" after a single event.
-  const valueByDate={};
+  // Build raw daily values (weekly bucket mapped to each price bar date)
+  const rawByDate={};
   allDates.forEach(date=>{
     const dt=new Date(date+'T12:00:00Z');
     const dow=dt.getUTCDay();
     const monday=new Date(dt); monday.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
     const wk=monday.toISOString().slice(0,10);
-    valueByDate[date]=byWeek[wk]?+(byWeek[wk].net/maxTotal*100).toFixed(2):0;
+    rawByDate[date]=byWeek[wk]?+(byWeek[wk].net/maxTotal*100).toFixed(2):0;
+  });
+
+  // Apply 5-EMA across the ordered date series so the chart shows a smooth
+  // momentum line rather than blocky weekly steps.
+  // EMA formula: EMA_t = raw_t × k + EMA_(t-1) × (1-k), where k = 2/(5+1)
+  const EMA_K = 2 / (5 + 1);
+  const valueByDate={};
+  let prevEma = null;
+  allDates.forEach(date=>{
+    const raw = rawByDate[date];
+    const ema = prevEma === null ? raw : +(raw * EMA_K + prevEma * (1 - EMA_K)).toFixed(2);
+    prevEma = ema;
+    valueByDate[date] = ema;
   });
   const pChart=LightweightCharts.createChart(pc,{
     width:pc.clientWidth||800,height:120,
@@ -2754,7 +2765,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
   const label=document.createElement('div');
   label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent='INSIDER PRESSURE';
+  label.textContent='INSIDER PRESSURE · 5-EMA';
   document.getElementById('pressureWrapper').style.position='relative';
   document.getElementById('pressureWrapper').appendChild(label);
 }
@@ -2892,7 +2903,12 @@ function renderSidebarSummary(trades) {
   const buys=trades.filter(t=>t.type==='P'),sells=trades.filter(t=>t.type==='S'||t.type==='S-'),opts=trades.filter(t=>t.type==='A');
   const buyVal=buys.reduce((s,t)=>s+t.value,0),sellVal=sells.reduce((s,t)=>s+t.value,0);
   const insiderMap={};
-  trades.forEach(t=>{if(!insiderMap[t.insider])insiderMap[t.insider]={name:t.insider,title:t.title,trades:0,netVal:0};insiderMap[t.insider].trades++;insiderMap[t.insider].netVal+=t.type==='P'?t.value:-t.value;});
+  trades.forEach(t=>{
+    const k=t.insider||'Unknown';
+    if(!insiderMap[k])insiderMap[k]={name:k,title:t.title||'',trades:0,netVal:0};
+    insiderMap[k].trades++;
+    insiderMap[k].netVal+=t.type==='P'?t.value:-t.value;
+  });
   const topInsiders=Object.values(insiderMap).sort((a,b)=>Math.abs(b.netVal)-Math.abs(a.netVal)).slice(0,5);
   el.innerHTML=`
     <div style="margin-bottom:16px">
@@ -2904,7 +2920,7 @@ function renderSidebarSummary(trades) {
       </div>
     </div>
     <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
-    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
+    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:'Space Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
 }
 function renderStockTradesTable(trades) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
