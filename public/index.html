@@ -3709,10 +3709,15 @@ async function loadNotableLeaderboard() {
   el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div><span style="font-size:12px;color:var(--muted)">Loading Notable Insiders leaderboard…</span></div>`;
   try {
     const data = await apiFetch('/api/scoreboard');
+    if (data.computing) {
+      el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">⏳ Leaderboard is computing (may take a few minutes on first load). <span style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="loadNotableLeaderboard()">Refresh</span></div>`;
+      setTimeout(loadNotableLeaderboard, 90000);
+      return;
+    }
     _scoreboardData = data;
     renderLeaderboardTiles(el, data);
   } catch(e) {
-    el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">Leaderboard unavailable: ${e.message}</div>`;
+    el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">Leaderboard unavailable: ${e.message} — <span style="cursor:pointer;color:var(--accent);text-decoration:underline" onclick="loadNotableLeaderboard()">Retry</span></div>`;
   }
 }
 
@@ -4402,6 +4407,11 @@ function renderAnalysisSubpage(id) {
 async function computeLeaderboardScores() {
   try {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
+    if (data.computing) {
+      // Server is still precomputing — retry in 60s
+      setTimeout(computeLeaderboardScores, 60000);
+      return;
+    }
     _insiderScoreCache = data.accuracy || [];
     _timingAlphaCache  = data.timing   || [];
   } catch(e) {
@@ -6583,12 +6593,16 @@ function renderWatchlistPage(data) {
 
   // Build ticker cards
   const now = Date.now();
+  const ONE_YEAR = 365 * 86400000;
   const cards = list.map(ticker => {
     const trades  = data[ticker] || [];
     const buys    = trades.filter(t => t.type === 'P');
     const sells   = trades.filter(t => t.type === 'S' || t.type === 'S-');
-    const buyVal  = buys.reduce((s, t) => s + (t.value || 0), 0);
-    const sellVal = sells.reduce((s, t) => s + (t.value || 0), 0);
+    // Use 1-year window for primary stats
+    const buys1y  = buys.filter(t => (now - new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z')) < ONE_YEAR);
+    const sells1y = sells.filter(t => (now - new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z')) < ONE_YEAR);
+    const buyVal  = buys1y.reduce((s, t) => s + (t.value || 0), 0);
+    const sellVal = sells1y.reduce((s, t) => s + (t.value || 0), 0);
     const loading = !data[ticker];
     const company = trades[0]?.company || ticker;
     const lastBuy = buys[0];
@@ -6600,7 +6614,7 @@ function renderWatchlistPage(data) {
       if (daysSince <= 30) return { label:'🔵 THIS MONTH', color:'var(--accent)' };
       return null;
     })();
-    const uniqueBuyers = new Set(buys.map(t => t.insider)).size;
+    const uniqueBuyers = new Set(buys1y.map(t => t.insider)).size;
     const sentiment = buyVal + sellVal > 0 ? Math.round(buyVal / (buyVal + sellVal) * 100) : null;
     const recentBuys = buys.filter(t => (now - new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z')) < 30 * 86400000);
 
@@ -6635,10 +6649,10 @@ function renderWatchlistPage(data) {
         <!-- Stats -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border)">
           ${[
-            { label:'BUY FLOW',   val: fmt(buyVal),      color:'var(--buy)'  },
-            { label:'BUYERS',     val: uniqueBuyers,     color:'var(--text)' },
+            { label:'BUY FLOW (1Y)', val: fmt(buyVal),      color:'var(--buy)'  },
+            { label:'BUYERS (1Y)',   val: uniqueBuyers || '—', color:'var(--text)' },
             { label:'LAST 30D',   val: recentBuys.length + ' buys', color: recentBuys.length > 0 ? 'var(--buy)' : 'var(--muted)' },
-            { label:'SENTIMENT',  val: sentiment !== null ? sentiment + '%' : '—', color: sentiment >= 60 ? 'var(--buy)' : sentiment >= 40 ? 'var(--option)' : 'var(--sell)' },
+            { label:'SENTIMENT',  val: sentiment !== null ? sentiment + '%' : '—', color: sentiment !== null ? (sentiment >= 60 ? 'var(--buy)' : sentiment >= 40 ? 'var(--option)' : 'var(--sell)') : 'var(--muted)' },
           ].map(s => `
             <div style="padding:10px 14px;${s !== '...' ? '' : ''}">
               <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace">${s.label}</div>
