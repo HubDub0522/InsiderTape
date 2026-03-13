@@ -192,6 +192,8 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date_type ON trades(trade_date DESC, type, ticker)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date_type ON trades(filing_date DESC, type, ticker)`);
 } catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── Clean up bad/invalid trade records ──────────────────────
@@ -1683,12 +1685,22 @@ async function preComputeScoreboard() {
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
     )].slice(0, 120);
 
-    // Use only already-cached price data — warmPriceCache runs first and covers
-    // the top 180 tickers. No network calls here keeps scoreboard fast (~seconds).
+    // Use already-cached price data first (warmPriceCache covers top 180 tickers).
+    // For any missing tickers the scoreboard specifically needs, fetch them now.
     const priceCache = {};
+    const missing = [];
     for (const sym of allTickers) {
       const cached = getPC(sym);
       if (cached) priceCache[sym] = cached;
+      else missing.push(sym);
+    }
+    // Fetch up to 40 missing tickers in parallel (keep it fast)
+    if (missing.length) {
+      const toFetch = missing.slice(0, 40);
+      const fetched = await Promise.allSettled(toFetch.map(async sym => [sym, await fetchPriceBars(sym)]));
+      for (const r of fetched) {
+        if (r.status === 'fulfilled' && r.value[1]) priceCache[r.value[0]] = r.value[1];
+      }
     }
 
     const accuracyResults = [], timingResults = [];
@@ -1843,6 +1855,25 @@ setTimeout(() => {
     .catch(e => slog('warmPriceCache startup err: ' + e.message));
 }, 60000);
 
+// Pre-warm stock-lists cache immediately on boot (pure DB, no external calls)
+setTimeout(() => {
+  try {
+    const req = { path: '/api/stock-lists', query: {} };
+    // Fire-and-forget by hitting the route logic directly
+    if (!_stockListsCache) {
+      // Inline warm — just run the same queries
+      const hotBuys = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val FROM trades WHERE trade_date>=date('now','-30 days') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') AND TRIM(type)='P' GROUP BY ticker HAVING buyers>=1 AND buy_val>=50000 ORDER BY buy_val DESC LIMIT 16`).all();
+      const clusterBuys = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT insider) AS buyer_count,SUM(COALESCE(value,0)) AS total_val FROM trades WHERE trade_date>=date('now','-14 days') AND TRIM(type)='P' AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') GROUP BY ticker HAVING buyer_count>=3 ORDER BY buyer_count DESC,total_val DESC LIMIT 12`).all();
+      const freshBuys = db.prepare(`SELECT ticker,MAX(company) AS company,MAX(insider) AS insider,MAX(value) AS val,MAX(trade_date) AS date FROM trades WHERE filing_date>=date('now','-2 days') AND TRIM(type)='P' AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') AND COALESCE(value,0)>=25000 GROUP BY ticker ORDER BY val DESC LIMIT 16`).all();
+      const heavySells = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT insider) AS seller_count,SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val FROM trades WHERE trade_date>=date('now','-14 days') AND TRIM(type) IN ('S','S-') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') GROUP BY ticker HAVING seller_count>=2 AND sell_val>=500000 ORDER BY sell_val DESC LIMIT 12`).all();
+      const mostActive = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT insider) AS insiders,SUM(COALESCE(value,0)) AS total_val FROM trades WHERE trade_date>=date('now','-7 days') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') GROUP BY ticker HAVING insiders>=2 ORDER BY total_val DESC LIMIT 20`).all();
+      _stockListsCache = { hotBuys, clusterBuys, freshBuys, heavySells, mostActive };
+      _stockListsCacheTime = Date.now();
+      slog('stock-lists cache pre-warmed');
+    }
+  } catch(e) { slog('stock-lists warm err: ' + e.message); }
+}, 5000);
+
 // Refresh every 12h
 setInterval(() => {
   _scoreboardCache = null;
@@ -1922,7 +1953,12 @@ app.get('/api/admin/free-disk', (req, res) => {
 });
 
 
+let _stockListsCache = null, _stockListsCacheTime = 0;
+const STOCK_LISTS_TTL = 15 * 60 * 1000; // 15 min
 app.get('/api/stock-lists', (req, res) => {
+  if (_stockListsCache && Date.now() - _stockListsCacheTime < STOCK_LISTS_TTL) {
+    return res.json(_stockListsCache);
+  }
   try {
     // Most-active tickers: unique insiders, buy + sell counts, last 7 days
     const mostActive = db.prepare(`
@@ -2016,7 +2052,9 @@ app.get('/api/stock-lists', (req, res) => {
       LIMIT 12
     `).all();
 
-    res.json({ hotBuys, clusterBuys, freshBuys, heavySells, mostActive });
+    const result = { hotBuys, clusterBuys, freshBuys, heavySells, mostActive };
+    _stockListsCache = result; _stockListsCacheTime = Date.now();
+    res.json(result);
   } catch(e) {
     slog('stock-lists error: ' + e.message);
     res.status(500).json({ error: e.message });
