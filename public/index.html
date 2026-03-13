@@ -922,13 +922,14 @@ function saveFilters() {
       activeTypes: [...state.activeTypes],
       activeRole: state.activeRole,
       minVal: state.minVal,
-      tickerFilter: [...state.tickerFilter],
+      tickerFilter: [...(state.tickerFilter||new Set())],
       sortCol: state.sortCol,
       sortDir: state.sortDir,
     }));
   } catch(_) {}
 }
 function restoreFilters() {
+  if (!state.tickerFilter) state.tickerFilter = new Set();
   try {
     const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || 'null');
     if (!saved) return;
@@ -955,12 +956,14 @@ function restoreFilters() {
       const mv = document.getElementById('minVal');
       if (mv) mv.value = saved.minVal;
     }
-    if (saved.tickerFilter?.length) {
-      state.tickerFilter = new Set(saved.tickerFilter);
-      const tf = document.getElementById('tickerFilter');
-      if (tf) tf.value = saved.tickerFilter.join(', ');
-      renderTickerFilterTags();
-    }
+    try {
+      if (saved.tickerFilter?.length) {
+        state.tickerFilter = new Set(saved.tickerFilter);
+        const tf = document.getElementById('tickerFilter');
+        if (tf) tf.value = saved.tickerFilter.join(', ');
+        renderTickerFilterTags();
+      }
+    } catch(_) { state.tickerFilter = new Set(); }
     if (saved.sortCol) { state.sortCol = saved.sortCol; state.sortDir = saved.sortDir ?? -1; }
   } catch(_) {}
 }
@@ -8482,7 +8485,7 @@ function loadPremiumPage() {
     },
     {
       icon: '📌', title: 'WATCHLIST',
-      desc: 'Pin tickers to track their insider activity in one place — 90D pressure bars, activity badges, and a live signal feed. Plus follow specific insiders by name: see every move they make across any ticker, the moment it's filed.',
+      desc: 'Pin tickers to track their insider activity in one place — 90D pressure bars, activity badges, and a live signal feed. Plus follow specific insiders by name: see every move they make across any ticker, the moment it\'s filed.',
       mock: watchlistMockup
     },
   ];
