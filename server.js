@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-const FMP  = process.env.FMP_KEY || process.env.FMP_API_KEY || process.env.FMPCLOUD_KEY || process.env.FMP || '';
+const FMP  = process.env.FMP_KEY || '';
 
 // ─── DB PATH — prefer Render persistent disk, fall back to local ./data ──────
 // /var/data exists on Render but can throw disk I/O errors if the disk is
@@ -192,8 +192,6 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date_type ON trades(trade_date DESC, type, ticker)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date_type ON trades(filing_date DESC, type, ticker)`);
 } catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── Clean up bad/invalid trade records ──────────────────────
@@ -255,7 +253,7 @@ function runSync(numQ = 4) {
   const worker = spawn(
     process.execPath,
     ['--max-old-space-size=400', path.join(__dirname, 'sync-worker.js'), String(numQ)],
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
+    { stdio: ['ignore', 'pipe', 'pipe'] }
   );
 
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog(l)));
@@ -269,8 +267,7 @@ function runSync(numQ = 4) {
 // ─── HTTP helper ──────────────────────────────────────────────
 const http = require('http');
 
-function get(url, ms=30000, _hops=0) {
-  if (_hops > 5) return Promise.reject(new Error('Too many redirects'));
+function get(url, ms=30000) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('http://') ? http : https;
     const req = mod.get(url, {
@@ -282,7 +279,7 @@ function get(url, ms=30000, _hops=0) {
         res.resume();
         const loc = res.headers.location;
         const next = loc.startsWith('http') ? loc : new URL(loc, url).href;
-        return get(next, ms, _hops + 1).then(resolve).catch(reject);
+        return get(next, ms).then(resolve).catch(reject);
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
@@ -336,7 +333,7 @@ function runDaily(daysBack = 3) {
   const worker = spawn(
     process.execPath,
     ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack), 'poll'],
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
+    { stdio: ['ignore', 'pipe', 'pipe'] }
   );
 
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ' + l)));
@@ -364,51 +361,26 @@ function msUntilNextOpen(now, etOffset) {
 
 // ─── PRICE CACHE (see full implementation near fetchPriceBars) ──────────────
 
-// ── ONE-SHOT BACKFILL (no market-hours gate) ─────────────────────────────────
-// Called when the DB is empty. Unlike runDaily() which checks market hours and
-// sleeps nights/weekends, this always runs immediately — EDGAR historical data
-// is available 24/7 and doesn't care whether the market is open.
-let backfillRunning = false;
-function runBackfillNow(daysBack = 7) {
-  if (backfillRunning || dailyRunning) return;
-  backfillRunning = true;
-  slog(`=== spawning daily-worker BACKFILL (${daysBack}d, no market-hours gate) ===`);
-  const worker = spawn(
-    process.execPath,
-    ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(daysBack), 'backfill'],
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
-  );
-  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[backfill] ' + l)));
-  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[backfill] ERR: ' + l)));
-  worker.on('exit', code => {
-    backfillRunning = false;
-    slog(`=== backfill-worker exited (code ${code}) — starting daily poll cycle ===`);
-    runDaily(2);
-  });
-}
-
+// ─── API ROUTES ───────────────────────────────────────────────
 
 // SCREENER
 app.get('/api/screener', (req, res) => {
   try {
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     if (n === 0) {
-      // DB is empty — trigger a market-hours-agnostic backfill.
-      // BUG FIX: the old runDaily() checks market hours and sleeps if called
-      // outside 7am-8pm ET on weekdays. On a weekend or evening first deploy
-      // this meant the DB never filled and the screener stayed stuck forever.
-      if (!syncRunning && !dailyRunning && !backfillRunning) {
-        slog('Screener hit empty DB — auto-triggering backfill (no market-hours gate)');
-        runBackfillNow(7);
+      // DB is empty — auto-trigger daily ingestion if not already running
+      if (!syncRunning && !dailyRunning) {
+        slog('Screener hit empty DB — auto-triggering daily ingestion');
+        runDaily(7);
       }
       return res.json({ building: true, message: 'Loading SEC data — this takes 2–3 minutes on first run…', trades: [] });
     }
 
-    const days  = Math.min(Math.max(parseInt(req.query.days,  10) || 30,  1), 1095);
+    const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
     // Scale limit by window so every range returns a meaningfully different dataset.
     // 7d → 1000, 30d → 2000, 90d → 5000, 365d → 15000
     const defaultLimit = days <= 7 ? 1000 : days <= 30 ? 2000 : days <= 90 ? 5000 : 15000;
-    const limit = Math.min(parseInt(req.query.limit, 10) || defaultLimit, 20000);
+    const limit = Math.min(parseInt(req.query.limit || String(defaultLimit)), 20000);
 
         let rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
@@ -459,8 +431,8 @@ app.get('/api/screener', (req, res) => {
 // Used by analysis tools that need historical data: drift, regime shift, first-buy
 app.get('/api/history', (req, res) => {
   try {
-    const days  = Math.min(Math.max(parseInt(req.query.days,  10) || 1095, 1), 1825);
-    const limit = Math.min(parseInt(req.query.limit, 10) || 10000, 25000);
+    const days  = Math.min(Math.max(parseInt(req.query.days || '1095'), 1), 1825);
+    const limit = Math.min(parseInt(req.query.limit || '10000'), 25000);
 
     const rows = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
@@ -577,9 +549,9 @@ app.get('/api/search', (req, res) => {
 // came after a long gap since their previous buy on that same ticker.
 app.get('/api/firstbuys', (req, res) => {
   try {
-    const minGapDays   = parseInt(req.query.mingap,   10) || 180;
-    const lookbackDays = parseInt(req.query.lookback, 10) || 90;
-    const limit        = parseInt(req.query.limit,    10) || 100;
+    const minGapDays   = parseInt(req.query.mingap   || '180');  // default 6 months
+    const lookbackDays = parseInt(req.query.lookback || '90');   // how recent must new buy be
+    const limit        = parseInt(req.query.limit    || '100');
 
     // Optimised approach: only consider insiders who have a buy in the lookback window.
     // Then for each such (insider, ticker) pair find the previous buy date.
@@ -642,7 +614,7 @@ app.get('/api/firstbuys', (req, res) => {
 // OPPORTUNITY RANKER — per-ticker aggregates for frontend scoring
 app.get('/api/ranker', (req, res) => {
   try {
-    const days = Math.min(parseInt(req.query.days, 10) || 30, 90);
+    const days = Math.min(parseInt(req.query.days || '30'), 90);
     const rows = db.prepare(`
       SELECT
         ticker,
@@ -682,7 +654,7 @@ app.get('/api/ranker', (req, res) => {
 // LEADERBOARD — top insiders by open-market buy activity (enough history to score)
 app.get('/api/leaderboard', (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 40, 80);
+    const limit = Math.min(parseInt(req.query.limit || '40'), 80);
     const rows = db.prepare(`
       SELECT
         insider,
@@ -1188,7 +1160,7 @@ function buildSectorResult(days) {
 
 app.get('/api/sectors', (req, res) => {
   try {
-    const days = [7, 30, 90].includes(parseInt(req.query.days, 10)) ? parseInt(req.query.days, 10) : 30;
+    const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 30;
     const now  = Date.now();
     const entry = _sectorResultCache[days];
     if (entry && now - entry.time < SECTOR_RESULT_TTL) {
@@ -1234,29 +1206,6 @@ app.get('/api/debug', (req, res) => {
       screenerTest = { ok: true, rows: rows.length };
     } catch(e) { screenerError = e.message; }
 
-    // Sample of actual insider names + titles from recent trades — for debugging gov filter
-    const nameSample = db.prepare(`
-      SELECT DISTINCT insider, MAX(title) AS title, MAX(company) AS company, COUNT(*) AS n
-      FROM trades
-      WHERE filing_date >= date('now','-365 days')
-      GROUP BY insider
-      ORDER BY n DESC
-      LIMIT 300
-    `).all();
-
-    // Look for anything that might be a gov official by keyword
-    const govSearch = db.prepare(`
-      SELECT DISTINCT insider, MAX(title) AS title, MAX(company) AS company
-      FROM trades
-      WHERE (
-        insider LIKE '%pelosi%' OR insider LIKE '%tuberville%' OR insider LIKE '%warren%'
-        OR insider LIKE '%schumer%' OR insider LIKE '%mcconnell%' OR insider LIKE '%senator%'
-        OR title LIKE '%senator%' OR title LIKE '%representative%' OR title LIKE '%congress%'
-        OR company LIKE '%senate%' OR company LIKE '%house of rep%' OR company LIKE '%congress%'
-      )
-      LIMIT 50
-    `).all();
-
     res.json({
       db_path: DB_PATH,
       total_rows: total,
@@ -1269,12 +1218,9 @@ app.get('/api/debug', (req, res) => {
       tickers_filed_30d: ranker30,
       history_3yr_buys: history1095,
       screener_query_test: screenerTest || { ok: false, error: screenerError },
-      name_sample: nameSample.slice(0, 20),
-      gov_search: govSearch,
-      server_version: 'v1.2',
+      server_version: '2026-03-11',
       sync_running: syncRunning,
       daily_running: dailyRunning,
-      backfill_running: backfillRunning,
     });
   } catch(e) { res.status(500).json({ error: e.message, db_path: DB_PATH }); }
 });
@@ -1654,12 +1600,12 @@ app.get('/api/proximity', async (req, res) => {
 // price returns at D+30 / D+90 / D+180. Uses the warm price cache.
 let _scoreboardCache     = null;
 let _scoreboardCacheTime = 0;
+let _scoreboardRunning   = false;   // C3: prevent parallel precompute runs
 const SCOREBOARD_TTL = 6 * 60 * 60 * 1000;
 
-let _scoreboardRunning = false;
 async function preComputeScoreboard() {
-  if (_scoreboardRunning) return;
-  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) return;
+  if (_scoreboardCache) return;
+  if (_scoreboardRunning) return;   // already in-flight — don't double-run
   _scoreboardRunning = true;
   try {
     slog('Pre-computing scoreboard...');
@@ -1685,23 +1631,12 @@ async function preComputeScoreboard() {
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
     )].slice(0, 120);
 
-    // Use already-cached price data first (warmPriceCache covers top 180 tickers).
-    // For any missing tickers the scoreboard specifically needs, fetch them now.
-    const priceCache = {};
-    const missing = [];
-    for (const sym of allTickers) {
-      const cached = getPC(sym);
-      if (cached) priceCache[sym] = cached;
-      else missing.push(sym);
-    }
-    // Fetch up to 40 missing tickers in parallel (keep it fast)
-    if (missing.length) {
-      const toFetch = missing.slice(0, 40);
-      const fetched = await Promise.allSettled(toFetch.map(async sym => [sym, await fetchPriceBars(sym)]));
-      for (const r of fetched) {
-        if (r.status === 'fulfilled' && r.value[1]) priceCache[r.value[0]] = r.value[1];
-      }
-    }
+    const priceEntries = await Promise.allSettled(
+      allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
+    );
+    const priceCache = Object.fromEntries(
+      priceEntries.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
+    );
 
     const accuracyResults = [], timingResults = [];
 
@@ -1825,54 +1760,36 @@ async function preComputeScoreboard() {
     _scoreboardCacheTime = Date.now();
     slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
   } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
-  finally { _scoreboardRunning = false; }
+  finally { _scoreboardRunning = false; }   // C3: always release lock
 }
 
-app.get('/api/scoreboard', async (req, res) => {
-  // Always return immediately — either cached data or empty placeholder
-  // Never block the request waiting for precompute (precompute runs in background)
+// C2: Non-blocking route — never awaits preCompute inline.
+// Returns {computing:true} immediately if not ready; client retries.
+app.get('/api/scoreboard', (req, res) => {
   if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
     return res.json(_scoreboardCache);
   }
-  // Return empty and trigger background precompute — client will retry
-  res.json(_scoreboardCache || { accuracy: [], timing: [], computing: true });
-  if (!_scoreboardCache && !_scoreboardRunning) {
-    preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
-  }
+  // Trigger compute in background (guard prevents double-runs)
+  preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
+  // If a previous run already populated partial results, return them
+  if (_scoreboardCache) return res.json(_scoreboardCache);
+  // Still computing — tell client to retry
+  return res.json({ computing: true, accuracy: [], timing: [] });
 });
 
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
 
-// Startup: warm price cache first (60s), then run all precomputes sequentially.
-// Scoreboard now uses only cached prices so it runs in seconds after warm-up.
+// H5: Sequential chain — price warm → drift → proximity → scoreboard
+// Prevents all three from hammering external price APIs simultaneously.
 setTimeout(() => {
   warmPriceCache()
-    .then(() => preComputeScoreboard().catch(e => slog('scoreboard startup err: ' + e.message)))
-    .then(() => preComputeDrift().catch(e => slog('drift startup err: ' + e.message)))
-    .then(() => preComputeProximity().catch(e => slog('proximity startup err: ' + e.message)))
-    .catch(e => slog('warmPriceCache startup err: ' + e.message));
+    .then(() => preComputeDrift())
+    .then(() => preComputeProximity())
+    .then(() => preComputeScoreboard())
+    .catch(e => slog('startup precompute err: ' + e.message));
 }, 60000);
-
-// Pre-warm stock-lists cache immediately on boot (pure DB, no external calls)
-setTimeout(() => {
-  try {
-    const req = { path: '/api/stock-lists', query: {} };
-    // Fire-and-forget by hitting the route logic directly
-    if (!_stockListsCache) {
-      // Inline warm — just run the same queries
-      const hotBuys = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val FROM trades WHERE trade_date>=date('now','-30 days') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') AND TRIM(type)='P' GROUP BY ticker HAVING buyers>=1 AND buy_val>=50000 ORDER BY buy_val DESC LIMIT 16`).all();
-      const clusterBuys = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT insider) AS buyer_count,SUM(COALESCE(value,0)) AS total_val FROM trades WHERE trade_date>=date('now','-14 days') AND TRIM(type)='P' AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') GROUP BY ticker HAVING buyer_count>=3 ORDER BY buyer_count DESC,total_val DESC LIMIT 12`).all();
-      const freshBuys = db.prepare(`SELECT ticker,MAX(company) AS company,MAX(insider) AS insider,MAX(value) AS val,MAX(trade_date) AS date FROM trades WHERE filing_date>=date('now','-2 days') AND TRIM(type)='P' AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') AND COALESCE(value,0)>=25000 GROUP BY ticker ORDER BY val DESC LIMIT 16`).all();
-      const heavySells = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT insider) AS seller_count,SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val FROM trades WHERE trade_date>=date('now','-14 days') AND TRIM(type) IN ('S','S-') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') GROUP BY ticker HAVING seller_count>=2 AND sell_val>=500000 ORDER BY sell_val DESC LIMIT 12`).all();
-      const mostActive = db.prepare(`SELECT ticker,MAX(company) AS company,COUNT(DISTINCT insider) AS insiders,SUM(COALESCE(value,0)) AS total_val FROM trades WHERE trade_date>=date('now','-7 days') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--') GROUP BY ticker HAVING insiders>=2 ORDER BY total_val DESC LIMIT 20`).all();
-      _stockListsCache = { hotBuys, clusterBuys, freshBuys, heavySells, mostActive };
-      _stockListsCacheTime = Date.now();
-      slog('stock-lists cache pre-warmed');
-    }
-  } catch(e) { slog('stock-lists warm err: ' + e.message); }
-}, 5000);
 
 // Refresh every 12h
 setInterval(() => {
@@ -1889,10 +1806,7 @@ setInterval(() => {
 // Call as: /api/admin/sync?secret=YOUR_SECRET
 function requireAdminSecret(req, res) {
   const secret = process.env.ADMIN_SECRET;
-  if (!secret) {
-    res.status(403).json({ error: 'Admin routes disabled — set ADMIN_SECRET env var to enable them.' });
-    return true;
-  }
+  if (!secret) return false; // if not set, allow (backwards compat on first deploy)
   if (req.query.secret !== secret) {
     res.status(403).json({ error: 'Forbidden — set ?secret=YOUR_ADMIN_SECRET' });
     return true;
@@ -1902,7 +1816,7 @@ function requireAdminSecret(req, res) {
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 app.get('/api/admin/sync', (req, res) => {
   if (requireAdminSecret(req, res)) return;
-  runSync(parseInt(req.query.q, 10) || 4);
+  runSync(parseInt(req.query.q || '4'));
   res.json({ ok: true, message: 'Sync triggered' });
 });
 // POST /api/admin/daily — trigger daily ingestion now regardless of market hours
@@ -1913,7 +1827,7 @@ app.get('/api/admin/daily', (req, res) => {
   const worker = spawn(
     process.execPath,
     ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), '7', 'poll'],
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
+    { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ' + l)));
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[manual-daily] ERR: ' + l)));
@@ -1921,7 +1835,7 @@ app.get('/api/admin/daily', (req, res) => {
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
 });
 
-
+// GET /api/admin/free-disk — delete the bloated /var/data/trades.db to free disk space.
 app.get('/api/admin/free-disk', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   const varDb = '/var/data/trades.db';
@@ -1953,8 +1867,11 @@ app.get('/api/admin/free-disk', (req, res) => {
 });
 
 
-let _stockListsCache = null, _stockListsCacheTime = 0;
-const STOCK_LISTS_TTL = 15 * 60 * 1000; // 15 min
+// H1: 15-min server-side cache — prevents 5 heavy GROUP BY queries on every Stock View open
+let _stockListsCache     = null;
+let _stockListsCacheTime = 0;
+const STOCK_LISTS_TTL    = 15 * 60 * 1000;
+
 app.get('/api/stock-lists', (req, res) => {
   if (_stockListsCache && Date.now() - _stockListsCacheTime < STOCK_LISTS_TTL) {
     return res.json(_stockListsCache);
@@ -2052,9 +1969,10 @@ app.get('/api/stock-lists', (req, res) => {
       LIMIT 12
     `).all();
 
-    const result = { hotBuys, clusterBuys, freshBuys, heavySells, mostActive };
-    _stockListsCache = result; _stockListsCacheTime = Date.now();
-    res.json(result);
+    const payload = { hotBuys, clusterBuys, freshBuys, heavySells, mostActive };
+    _stockListsCache     = payload;
+    _stockListsCacheTime = Date.now();
+    res.json(payload);
   } catch(e) {
     slog('stock-lists error: ' + e.message);
     res.status(500).json({ error: e.message });
