@@ -2098,8 +2098,14 @@ function getSubscription(userId) {
 function isPremium(session) {
   if (!session) return false;
   if (session.is_admin) return true;
-  if (session.email === ADMIN_EMAIL) return true;
-  const sub = getSubscription(session.user_id || session.id);
+  // ADMIN_EMAIL bypass — normalize both sides for safe comparison
+  const adminEmail = (ADMIN_EMAIL || '').trim().toLowerCase();
+  const sessEmail  = (session.email || '').trim().toLowerCase();
+  if (adminEmail && sessEmail && sessEmail === adminEmail) return true;
+  // session row: s.* gives s.id (session id), s.user_id (the user's id)
+  const userId = session.user_id;
+  if (!userId) return false;
+  const sub = getSubscription(userId);
   if (!sub) return false;
   if (sub.status === 'active') return true;
   // Grace: allow access if period_end is in the future (covers annual cancel-at-period-end)
@@ -2201,7 +2207,8 @@ app.get('/api/auth/verify', (req, res) => {
 
     // If already premium or admin, go straight to app
     const sub = getSubscription(user.id);
-    const alreadyPremium = user.is_admin || user.email === ADMIN_EMAIL ||
+    const adminEmail = (ADMIN_EMAIL || '').trim().toLowerCase();
+    const alreadyPremium = user.is_admin || (adminEmail && (user.email||'').toLowerCase() === adminEmail) ||
       (sub && (sub.status === 'active' || (sub.current_period_end && sub.current_period_end > new Date().toISOString())));
 
     if (alreadyPremium) return res.redirect('/?auth=1');
@@ -2305,7 +2312,7 @@ app.get('/api/stripe/success', async (req, res) => {
 app.get('/api/stripe/portal', async (req, res) => {
   if (!req.session || !STRIPE_SECRET) return res.redirect('/account');
   try {
-    const sub = getSubscription(req.session.user_id || req.session.id);
+    const sub = getSubscription(req.session.user_id);
     if (!sub?.stripe_customer_id) return res.redirect('/account');
     const Stripe = require('stripe');
     const stripe = Stripe(STRIPE_SECRET);
