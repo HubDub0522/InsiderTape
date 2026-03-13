@@ -7881,89 +7881,242 @@ function loadPremiumPage() {
   const el = document.getElementById('premiumPageBody');
   if (!el) return;
 
-  // Mini SVG mockups of key features
-  const screenerMockup = `<svg viewBox="0 0 340 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
-    <rect width="340" height="160" fill="#080b0f"/>
-    <rect x="0" y="0" width="340" height="32" fill="#0d1421"/>
-    <text x="12" y="20" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1">SCREENER</text>
-    <text x="100" y="20" fill="#00d4ff" font-family="monospace" font-size="8">30D</text>
-    <text x="130" y="20" fill="#4a6580" font-family="monospace" font-size="8">90D</text>
-    <text x="158" y="20" fill="#4a6580" font-family="monospace" font-size="8">1Y</text>
-    <rect x="8" y="38" width="324" height="18" fill="#0d1421" rx="2"/>
-    <text x="14" y="50" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="0.5">TICKER</text>
-    <text x="80" y="50" fill="#4a6580" font-family="monospace" font-size="7">INSIDER</text>
-    <text x="200" y="50" fill="#4a6580" font-family="monospace" font-size="7">VALUE</text>
-    <text x="270" y="50" fill="#4a6580" font-family="monospace" font-size="7">DATE</text>
-    ${[[0,'NVDA','Jensen Huang','$4.2M','Mar 11','#22c55e'],[1,'META','Mark Zuckerberg','$12.8M','Mar 10','#22c55e'],[2,'AAPL','Tim Cook','$2.1M','Mar 09','#22c55e'],[3,'MSFT','Satya Nadella','$8.4M','Mar 08','#22c55e'],[4,'AMZN','Andy Jassy','$6.7M','Mar 07','#22c55e'],[5,'GOOGL','Sundar Pichai','$3.3M','Mar 06','#ef4444']].map(([i,t,n,v,d,c])=>`
-    <rect x="8" y="${60+i*16}" width="324" height="15" fill="${i%2===0?'#080b0f':'#0a0f16'}" rx="1"/>
-    <text x="14" y="${71+i*16}" fill="#00d4ff" font-family="monospace" font-size="8" font-weight="700">${t}</text>
-    <text x="80" y="${71+i*16}" fill="#e0e6ed" font-family="monospace" font-size="7">${n}</text>
-    <text x="200" y="${71+i*16}" fill="${c}" font-family="monospace" font-size="8">${v}</text>
-    <text x="270" y="${71+i*16}" fill="#4a6580" font-family="monospace" font-size="7">${d}</text>`).join('')}
+  // ── SVG mockups — accurate representations of each feature ──
+
+  // SCREENER: table rows with ticker/insider/value/date + period tabs
+  const screenerMockup = `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="170" fill="#080b0f"/>
+    <rect width="340" height="30" fill="#0d1421"/>
+    <text x="12" y="12" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">PERIOD</text>
+    <rect x="10" y="16" width="22" height="10" rx="2" fill="rgba(0,212,255,0.12)" stroke="#00d4ff" stroke-width="0.5"/>
+    <text x="14" y="24" fill="#00d4ff" font-family="monospace" font-size="7">7D</text>
+    <rect x="36" y="16" width="24" height="10" rx="2" fill="transparent" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="40" y="24" fill="#4a6580" font-family="monospace" font-size="7">30D</text>
+    <rect x="64" y="16" width="24" height="10" rx="2" fill="transparent" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="68" y="24" fill="#4a6580" font-family="monospace" font-size="7">90D</text>
+    <rect x="92" y="16" width="18" height="10" rx="2" fill="transparent" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="96" y="24" fill="#4a6580" font-family="monospace" font-size="7">1Y</text>
+    <rect x="0" y="30" width="340" height="14" fill="#0a0e16"/>
+    <text x="12" y="40" fill="#4a6580" font-family="monospace" font-size="7">TICKER</text>
+    <text x="72" y="40" fill="#4a6580" font-family="monospace" font-size="7">INSIDER</text>
+    <text x="192" y="40" fill="#4a6580" font-family="monospace" font-size="7">TYPE</text>
+    <text x="224" y="40" fill="#4a6580" font-family="monospace" font-size="7">VALUE</text>
+    <text x="292" y="40" fill="#4a6580" font-family="monospace" font-size="7">DATE</text>
+    ${[['NVDA','Jensen Huang','BUY','$4.2M','Mar 11','#22c55e'],['META','Mark Zuckerberg','BUY','$12.8M','Mar 10','#22c55e'],['AAPL','Tim Cook','BUY','$2.1M','Mar 09','#22c55e'],['MSFT','Satya Nadella','BUY','$8.4M','Mar 08','#22c55e'],['AMZN','Andy Jassy','SELL','$6.7M','Mar 07','#ef4444'],['GOOGL','Sundar Pichai','SELL','$3.3M','Mar 06','#ef4444'],['TSLA','Elon Musk','BUY','$28.1M','Mar 05','#22c55e'],['JPM','Jamie Dimon','BUY','$5.5M','Mar 04','#22c55e']].map(([t,n,type,v,d,c],i)=>`
+    <rect x="0" y="${44+i*15}" width="340" height="14" fill="${i%2===0?'#080b0f':'#0a0f16'}"/>
+    <text x="12" y="${54+i*15}" fill="#00d4ff" font-family="monospace" font-size="8" font-weight="700">${t}</text>
+    <text x="72" y="${54+i*15}" fill="#c0ccd8" font-family="monospace" font-size="7">${n.split(' ')[1]||n}</text>
+    <rect x="188" y="${46+i*15}" width="${type==='BUY'?20:24}" height="9" rx="1" fill="${type==='BUY'?'rgba(34,197,94,0.15)':'rgba(239,68,68,0.15)'}"/>
+    <text x="${type==='BUY'?191:190}" y="${54+i*15}" fill="${c}" font-family="monospace" font-size="6.5" font-weight="700">${type}</text>
+    <text x="224" y="${54+i*15}" fill="${c}" font-family="monospace" font-size="8">${v}</text>
+    <text x="292" y="${54+i*15}" fill="#4a6580" font-family="monospace" font-size="7">${d}</text>`).join('')}
   </svg>`;
 
-  const analysisMockup = `<svg viewBox="0 0 340 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
-    <rect width="340" height="160" fill="#080b0f"/>
-    <rect x="8" y="8" width="100" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
-    <text x="18" y="26" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">BUY PRESSURE</text>
-    <text x="18" y="46" fill="#22c55e" font-family="monospace" font-size="18" font-weight="700">74%</text>
-    <text x="18" y="64" fill="#22c55e" font-family="monospace" font-size="7">▲ STRONG BUY</text>
-    <rect x="118" y="8" width="100" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
-    <text x="128" y="26" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">CONVICTION</text>
-    <text x="128" y="46" fill="#00d4ff" font-family="monospace" font-size="18" font-weight="700">8.4</text>
-    <text x="128" y="64" fill="#4a6580" font-family="monospace" font-size="7">of 10 score</text>
-    <rect x="228" y="8" width="104" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
-    <text x="238" y="26" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">CLUSTER BUYS</text>
-    <text x="238" y="46" fill="#f59e0b" font-family="monospace" font-size="18" font-weight="700">12</text>
-    <text x="238" y="64" fill="#4a6580" font-family="monospace" font-size="7">last 30 days</text>
-    <rect x="8" y="84" width="324" height="68" fill="#0d1421" rx="4" stroke="#1e2d3d" stroke-width="1"/>
-    <text x="18" y="100" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">SECTOR BREAKDOWN</text>
-    ${[['Technology','62%','#00d4ff',62],['Healthcare','18%','#22c55e',18],['Energy','12%','#f59e0b',12],['Finance','8%','#8b5cf6',8]].map(([s,p,c,w],i)=>`
-    <text x="18" y="${116+i*9}" fill="#e0e6ed" font-family="monospace" font-size="7">${s}</text>
-    <rect x="110" y="${109+i*9}" width="${w*1.8}" height="6" fill="${c}" rx="2" opacity="0.8"/>
-    <text x="${115+w*1.8}" y="${116+i*9}" fill="${c}" font-family="monospace" font-size="7"> ${p}</text>`).join('')}
+  // PRESSURE CHART: histogram bars above/below zero line (accurate to actual implementation)
+  const pressureMockup = `<svg viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="180" fill="#080b0f"/>
+    <text x="12" y="14" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">PRICE</text>
+    <polyline points="12,60 40,55 65,58 90,45 115,42 140,38 165,44 190,35 215,40 230,32 255,36 280,28 305,22 330,18" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity="0.9"/>
+    <circle cx="90" cy="45" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
+    <circle cx="140" cy="38" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
+    <circle cx="190" cy="35" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
+    <circle cx="255" cy="36" r="3.5" fill="#22c55e" stroke="#080b0f" stroke-width="1"/>
+    <circle cx="165" cy="44" r="3.5" fill="#ef4444" stroke="#080b0f" stroke-width="1"/>
+    <circle cx="305" cy="22" r="3.5" fill="#ef4444" stroke="#080b0f" stroke-width="1"/>
+    <line x1="8" y1="78" x2="332" y2="78" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="12" y="90" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">INSIDER PRESSURE</text>
+    <line x1="8" y1="138" x2="332" y2="138" stroke="#1e2d3d" stroke-width="1"/>
+    ${[
+      [12,30,'#22c55e'],[24,18,'#22c55e'],[36,8,'#22c55e'],[48,24,'#22c55e'],
+      [60,5,'#22c55e'],[72,0,null],[84,42,'#22c55e'],[96,35,'#22c55e'],
+      [108,0,null],[120,0,null],[132,12,'#ef4444'],[144,8,'#ef4444'],
+      [156,0,null],[168,55,'#22c55e'],[180,48,'#22c55e'],[192,60,'#22c55e'],
+      [204,40,'#22c55e'],[216,0,null],[228,22,'#ef4444'],[240,15,'#ef4444'],
+      [252,0,null],[264,38,'#22c55e'],[276,45,'#22c55e'],[288,52,'#22c55e'],
+      [300,30,'#22c55e'],[312,0,null],[324,18,'#22c55e']
+    ].filter(([x,h,c])=>c).map(([x,h,c])=>`
+    <rect x="${x}" y="${h>0&&c==='#22c55e'?138-h:138}" width="9" height="${Math.abs(h)||2}" fill="${c}" opacity="0.85"/>`).join('')}
+    <text x="12" y="165" fill="#4a6580" font-family="monospace" font-size="6">STRONG BUY WEEKS</text>
+    <rect x="12" y="168" width="50" height="5" rx="1" fill="#22c55e" opacity="0.3"/>
+    <rect x="66" y="168" width="18" height="5" rx="1" fill="#ef4444" opacity="0.3"/>
+    <rect x="88" y="168" width="40" height="5" rx="1" fill="#22c55e" opacity="0.3"/>
+    <rect x="132" y="168" width="60" height="5" rx="1" fill="#22c55e" opacity="0.5"/>
+    <rect x="196" y="168" width="22" height="5" rx="1" fill="#ef4444" opacity="0.3"/>
+    <rect x="222" y="168" width="80" height="5" rx="1" fill="#22c55e" opacity="0.4"/>
   </svg>`;
 
-  const pressureMockup = `<svg viewBox="0 0 340 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
-    <rect width="340" height="160" fill="#080b0f"/>
-    <text x="12" y="20" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1">PRICE</text>
-    ${Array.from({length:60},(_,i)=>{const x=12+i*5.3;const h=20+Math.sin(i/6)*18+Math.random()*8;const y=85-h;return`<rect x="${x}" y="${y}" width="4" height="${h}" fill="#00d4ff" opacity="${0.4+i/120}"/>`}).join('')}
-    ${[8,22,35,48].map(i=>`<circle cx="${12+i*5.3+2}" cy="${85-(20+Math.sin(i/6)*18+4)}" r="4" fill="#22c55e" stroke="#080b0f" stroke-width="1.5"/>`).join('')}
-    ${[15,29,42].map(i=>`<circle cx="${12+i*5.3+2}" cy="${85-(20+Math.sin(i/6)*18+4)}" r="4" fill="#ef4444" stroke="#080b0f" stroke-width="1.5"/>`).join('')}
-    <line x1="8" y1="100" x2="332" y2="100" stroke="#1e2d3d" stroke-width="1"/>
-    <text x="12" y="112" fill="#4a6580" font-family="monospace" font-size="7" letter-spacing="1">INSIDER PRESSURE</text>
-    ${Array.from({length:60},(_,i)=>{const x=12+i*5.3;const v=(Math.sin(i/5)*0.7+Math.random()*0.3);const h=Math.abs(v)*28;const isPos=v>0;return`<rect x="${x}" y="${isPos?128-h:128}" width="4" height="${h}" fill="${isPos?'#22c55e':'#ef4444'}" opacity="0.85"/>`}).join('')}
+  // ANALYSIS: accurate 3-stat header row + sector bar chart
+  const analysisMockup = `<svg viewBox="0 0 340 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="175" fill="#080b0f"/>
+    <rect width="340" height="12" fill="#0d1421"/>
+    <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">ANALYSIS — LAST 30 DAYS</text>
+    <rect x="4" y="14" width="100" height="44" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="12" y="25" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="0.5">BUY PRESSURE</text>
+    <text x="12" y="42" fill="#22c55e" font-family="monospace" font-size="16" font-weight="700">74%</text>
+    <text x="12" y="53" fill="#22c55e" font-family="monospace" font-size="6">▲ STRONG BUY</text>
+    <rect x="118" y="14" width="100" height="44" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="126" y="25" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="0.5">AVG CONVICTION</text>
+    <text x="126" y="42" fill="#00d4ff" font-family="monospace" font-size="16" font-weight="700">8.4</text>
+    <text x="126" y="53" fill="#4a6580" font-family="monospace" font-size="6">of 10</text>
+    <rect x="232" y="14" width="104" height="44" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="240" y="25" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="0.5">CLUSTER BUYS</text>
+    <text x="240" y="42" fill="#f59e0b" font-family="monospace" font-size="16" font-weight="700">12</text>
+    <text x="240" y="53" fill="#4a6580" font-family="monospace" font-size="6">tickers · 30D</text>
+    <rect x="4" y="64" width="332" height="107" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="14" y="77" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">SECTOR BREAKDOWN</text>
+    <line x1="4" y1="82" x2="336" y2="82" stroke="#1e2d3d" stroke-width="0.5"/>
+    ${[
+      ['Technology','62%','#00d4ff',168],['Healthcare','18%','#22c55e',49],
+      ['Energy','12%','#f59e0b',33],['Financials','5%','#8b5cf6',14],['Other','3%','#4a6580',8]
+    ].map(([s,p,c,w],i)=>`
+    <text x="14" y="${97+i*15}" fill="#c0ccd8" font-family="monospace" font-size="7">${s}</text>
+    <rect x="100" y="${89+i*15}" width="${w}" height="8" rx="1" fill="${c}" opacity="0.75"/>
+    <text x="${106+w}" y="${97+i*15}" fill="${c}" font-family="monospace" font-size="7"> ${p}</text>`).join('')}
+  </svg>`;
+
+  // MONITOR: tab bar + signal list rows
+  const monitorMockup = `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="170" fill="#080b0f"/>
+    <rect width="340" height="12" fill="#0d1421"/>
+    <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">MONITOR — TODAY'S NOTABLE</text>
+    <rect x="4" y="14" width="68" height="13" rx="2" fill="rgba(0,212,255,0.12)" stroke="#00d4ff" stroke-width="0.5"/>
+    <text x="10" y="23" fill="#00d4ff" font-family="monospace" font-size="6.5">📅 TODAY</text>
+    <rect x="76" y="14" width="62" height="13" rx="2" fill="transparent" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="82" y="23" fill="#4a6580" font-family="monospace" font-size="6.5">📆 THIS WEEK</text>
+    <rect x="142" y="14" width="70" height="13" rx="2" fill="transparent" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="148" y="23" fill="#4a6580" font-family="monospace" font-size="6.5">🗓 THIS MONTH</text>
+    ${[
+      ['NVDA','⚡ CLUSTER BUY','3 insiders bought within 5 days','#f59e0b','HIGH'],
+      ['META','🎯 FIRST BUY','CEO first open-market purchase','#22c55e','HIGH'],
+      ['AAPL','📈 CONVICTION','Score 9.2 — size vs salary outlier','#00d4ff','MED'],
+      ['MSFT','⚡ CLUSTER BUY','4 insiders · $18.4M combined','#f59e0b','HIGH'],
+      ['AMZN','🔄 REPEAT BUYER','3rd consecutive quarter buying','#8b5cf6','MED'],
+      ['TSLA','💰 LARGE TRADE','$28M single purchase — top 1%','#22c55e','HIGH'],
+    ].map(([t,sig,desc,c,lvl],i)=>`
+    <rect x="0" y="${30+i*23}" width="340" height="22" fill="${i%2===0?'#080b0f':'#0a0f16'}"/>
+    <rect x="6" y="${35+i*23}" width="28" height="12" rx="1" fill="rgba(0,212,255,0.08)" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="10" y="${44+i*23}" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">${t}</text>
+    <text x="40" y="${40+i*23}" fill="${c}" font-family="monospace" font-size="7">${sig}</text>
+    <text x="40" y="${49+i*23}" fill="#4a6580" font-family="monospace" font-size="6">${desc}</text>
+    <rect x="${304}" y="${34+i*23}" width="${lvl==='HIGH'?28:24}" height="10" rx="1" fill="${lvl==='HIGH'?'rgba(245,158,11,0.15)':'rgba(0,212,255,0.10)'}"/>
+    <text x="${307}" y="${42+i*23}" fill="${lvl==='HIGH'?'#f59e0b':'#00d4ff'}" font-family="monospace" font-size="6">${lvl}</text>`).join('')}
+  </svg>`;
+
+  // SECTORS: horizontal bar chart per sector
+  const sectorsMockup = `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="170" fill="#080b0f"/>
+    <rect width="340" height="12" fill="#0d1421"/>
+    <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">SECTORS — BUY FLOW · LAST 30D</text>
+    ${[
+      ['Technology','$142M','#00d4ff',0.88],['Healthcare','$41M','#22c55e',0.62],
+      ['Financials','$38M','#8b5cf6',0.58],['Energy','$27M','#f59e0b',0.44],
+      ['Consumer','$19M','#06b6d4',0.32],['Industrials','$14M','#6366f1',0.25],
+      ['Real Estate','$9M','#ec4899',0.18],['Materials','$6M','#14b8a6',0.12],
+    ].map(([s,v,c,ratio],i)=>{
+      const barW = Math.round(ratio * 200);
+      return `
+    <rect x="0" y="${14+i*19}" width="340" height="18" fill="${i%2===0?'#080b0f':'#0a0f16'}"/>
+    <text x="10" y="${26+i*19}" fill="#c0ccd8" font-family="monospace" font-size="7">${s}</text>
+    <rect x="110" y="${18+i*19}" width="${barW}" height="9" rx="2" fill="${c}" opacity="0.75"/>
+    <text x="${116+barW}" y="${26+i*19}" fill="${c}" font-family="monospace" font-size="7"> ${v}</text>`;
+    }).join('')}
+  </svg>`;
+
+  // COMPARE: two ticker columns side by side
+  const compareMockup = `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="170" fill="#080b0f"/>
+    <rect width="340" height="12" fill="#0d1421"/>
+    <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">COMPARE</text>
+    <rect x="4" y="14" width="160" height="152" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <rect x="176" y="14" width="160" height="152" rx="3" fill="#0d1421" stroke="#00d4ff44" stroke-width="1"/>
+    <text x="14" y="28" fill="#00d4ff" font-family="monospace" font-size="10" font-weight="700">NVDA</text>
+    <text x="186" y="28" fill="#00d4ff" font-family="monospace" font-size="10" font-weight="700">META</text>
+    <text x="14" y="39" fill="#22c55e" font-family="monospace" font-size="7">▲ BUY PRESSURE</text>
+    <text x="186" y="39" fill="#22c55e" font-family="monospace" font-size="7">▲ BUY PRESSURE</text>
+    ${[['30D BUY $','$8.4M','$12.1M'],['BUYERS','3','5'],['TRADES','4','7'],['AVG SIZE','$2.1M','$1.7M'],['LAST BUY','Mar 11','Mar 10'],['CONVICTION','8.2','9.1'],['CLUSTER','YES','YES']].map(([l,a,b],i)=>`
+    <text x="14" y="${53+i*14}" fill="#4a6580" font-family="monospace" font-size="6.5">${l}</text>
+    <text x="100" y="${53+i*14}" fill="#c0ccd8" font-family="monospace" font-size="7">${a}</text>
+    <text x="186" y="${53+i*14}" fill="#4a6580" font-family="monospace" font-size="6.5">${l}</text>
+    <text x="272" y="${53+i*14}" fill="#c0ccd8" font-family="monospace" font-size="7">${b}</text>`).join('')}
+  </svg>`;
+
+  // WATCHLIST: ticker cards with 90D pressure bars
+  const watchlistMockup = `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <rect width="340" height="170" fill="#080b0f"/>
+    <rect width="340" height="12" fill="#0d1421"/>
+    <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">WATCHLIST</text>
+    ${[
+      ['NVDA','NVIDIA Corp','$4.2M','ACTIVE THIS WEEK','#22c55e',0.82],
+      ['META','Meta Platforms','$12.8M','ACTIVE THIS MONTH','#00d4ff',0.65],
+      ['AAPL','Apple Inc','$2.1M','ACTIVE 90D','#f59e0b',0.44],
+      ['MSFT','Microsoft Corp','—','QUIET · 4 MO SINCE LAST BUY','#4a6580',0.12],
+    ].map(([t,n,v,badge,c,ratio],i)=>{
+      const barW = Math.round(ratio * 180);
+      const sellW = Math.round((1-ratio) * 60);
+      return `
+    <rect x="4" y="${14+i*38}" width="332" height="35" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="14" y="${28+i*38}" fill="#00d4ff" font-family="monospace" font-size="9" font-weight="700">${t}</text>
+    <text x="14" y="${38+i*38}" fill="#4a6580" font-family="monospace" font-size="6">${n}</text>
+    <rect x="100" y="${22+i*38}" width="${barW}" height="7" rx="1" fill="${c}" opacity="0.7"/>
+    <rect x="${100+barW}" y="${22+i*38}" width="${Math.min(sellW,80)}" height="7" rx="1" fill="#ef4444" opacity="${ratio>0.3?0.3:0.15}"/>
+    <text x="100" y="${38+i*38}" fill="${c}" font-family="monospace" font-size="6">${badge}</text>
+    <text x="282" y="${28+i*38}" fill="${c}" font-family="monospace" font-size="7" text-anchor="end">${v}</text>`;
+    }).join('')}
   </svg>`;
 
   const featureCards = [
-    { icon: '📊', title: 'Extended Screener', desc: 'Filter by 30D, 90D, or 1Y windows. Add value thresholds, trade types, and roles to surface the exact signals you need.', mock: screenerMockup },
-    { icon: '🔬', title: 'Analysis Dashboard', desc: 'Sector breakdowns, conviction scoring, cluster detection, and trend analysis — all in one dashboard.', mock: analysisMockup },
-    { icon: '📈', title: 'Insider Pressure', desc: 'A unique indicator that overlays buy/sell pressure from insider filings directly on the price chart.', mock: pressureMockup },
+    {
+      icon: '🔍', title: 'EXTENDED SCREENER',
+      desc: 'Go beyond 7 days. Filter by 30D, 90D, or a full year of insider filings. Add minimum trade value, role filters, and trade type to zero in on the signals that matter.',
+      mock: screenerMockup
+    },
+    {
+      icon: '📊', title: 'ANALYSIS DASHBOARD',
+      desc: 'Sector-level breakdowns, conviction scoring, cluster detection, and trend analysis. See where the buy pressure is concentrated and how strong the signal is.',
+      mock: analysisMockup
+    },
+    {
+      icon: '📈', title: 'INSIDER PRESSURE INDICATOR',
+      desc: 'A histogram below the price chart showing net weekly buy/sell pressure from insider filings — green bars for net buying weeks, red for net selling. Spot accumulation patterns before they show up in price.',
+      mock: pressureMockup
+    },
+    {
+      icon: '🚨', title: 'MONITOR',
+      desc: 'Signal alerts sorted by strength across all analysis engines — cluster buys, first-time CEO purchases, conviction outliers, repeat buyers, and large trade alerts. Today, this week, or this month.',
+      mock: monitorMockup
+    },
+    {
+      icon: '🏭', title: 'SECTORS',
+      desc: 'See which industries are attracting the most insider buying. Ranked by total buy flow with drill-down into individual tickers within each sector.',
+      mock: sectorsMockup
+    },
+    {
+      icon: '⚔️', title: 'COMPARE & WATCHLIST',
+      desc: 'Compare two tickers side-by-side across every insider metric. Or build a personal watchlist to track your holdings and get a quick read on insider sentiment for each.',
+      mock: compareMockup
+    },
   ];
 
   el.innerHTML = `
-    <div style="max-width:900px;margin:0 auto;padding:48px 24px">
+    <div style="max-width:960px;margin:0 auto;padding:48px 24px">
 
-      <!-- Hero -->
       <div style="text-align:center;margin-bottom:56px">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
-        <div style="font-size:15px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.8">Corporate insiders file legally required disclosures when they buy or sell their own stock. InsiderTape Premium gives you every tool to act on that signal before the crowd does.</div>
+        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required disclosures when they buy or sell their own stock. InsiderTape Premium gives you every tool to act on that signal before the crowd does.</div>
       </div>
 
-      <!-- Feature showcase -->
-      <div style="display:flex;flex-direction:column;gap:48px;margin-bottom:64px">
+      <div style="display:flex;flex-direction:column;gap:56px;margin-bottom:72px">
         ${featureCards.map((f, i) => `
-          <div style="display:grid;grid-template-columns:${i%2===0?'1fr 1fr':'1fr 1fr'};gap:32px;align-items:center${i%2!==0?';direction:rtl':''}">
-            <div style="${i%2!==0?'direction:ltr':''}">
-              <div style="font-size:28px;margin-bottom:12px">${f.icon}</div>
-              <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:var(--text);margin-bottom:10px">${f.title}</div>
-              <div style="font-size:13px;color:var(--muted);line-height:1.8">${f.desc}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center${i%2!==0?';direction:rtl':''}">
+            <div style="${i%2!==0?'direction:ltr;':''}">
+              <div style="font-size:26px;margin-bottom:10px">${f.icon}</div>
+              <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;color:var(--text);margin-bottom:10px">${f.title}</div>
+              <div style="font-size:13px;color:var(--muted);line-height:1.9">${f.desc}</div>
             </div>
-            <div style="${i%2!==0?'direction:ltr':''}border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#080b0f">${f.mock}</div>
+            <div style="${i%2!==0?'direction:ltr;':''}border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#080b0f">${f.mock}</div>
           </div>`).join('')}
       </div>
 
-      <!-- Pricing -->
       <div style="text-align:center;margin-bottom:32px">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--text)">SIMPLE PRICING</div>
       </div>
@@ -7984,7 +8137,6 @@ function loadPremiumPage() {
         </div>
       </div>
 
-      <!-- Feature table -->
       <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;overflow:hidden;max-width:600px;margin:0 auto">
         <div style="padding:14px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto auto;gap:16px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted)">
           <span>FEATURE</span><span style="text-align:center">FREE</span><span style="text-align:center;color:var(--accent)">PREMIUM</span>
@@ -8005,8 +8157,8 @@ function loadPremiumPage() {
         ].map(([feat, free, prem], i) => `
           <div style="padding:12px 24px;border-bottom:1px solid var(--border)22;display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:center;background:${i%2===0?'':'rgba(255,255,255,0.01)'}">
             <span style="font-size:12px;color:var(--text)">${feat}</span>
-            <span style="text-align:center;font-size:14px;color:${free?'var(--muted)':'var(--border)'}">${free ? '✓' : '—'}</span>
-            <span style="text-align:center;font-size:14px;color:var(--accent)">${prem ? '✓' : '—'}</span>
+            <span style="text-align:center;font-size:14px;color:${free?'var(--muted)':'#1e2d3d'}">${free ? '✓' : '—'}</span>
+            <span style="text-align:center;font-size:14px;color:var(--accent)">✓</span>
           </div>`).join('')}
       </div>
 
