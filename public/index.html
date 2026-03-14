@@ -694,7 +694,7 @@ function isGovOfficial(titleOrName) {
 }
 
 function switchView(view, btn, opts={}) {
-  window.scrollTo(0, 0);
+  scrollTop();
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-' + view).classList.add('active');
@@ -883,6 +883,16 @@ document.addEventListener('click', e => { if (!e.target.closest('.search-wrap'))
     _origScrollTo(x, y);
   };
 })();
+
+// scrollTop() — always scrolls to top, works after async innerHTML updates
+// Uses requestAnimationFrame to ensure DOM has painted before scrolling
+function scrollTop() {
+  requestAnimationFrame(() => {
+    scrollTop();
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  });
+}
 
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
@@ -1172,7 +1182,7 @@ function renderConvictionCards(trades) {
 
 
 function renderScreener() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const data = state.screenerData;
   const buys = data.filter(t => t.type==='P'), sells = data.filter(t => t.type==='S'||t.type==='S-');
   const totalBuyVal = buys.reduce((s,t)=>s+t.value,0), totalSellVal = sells.reduce((s,t)=>s+t.value,0);
@@ -1444,7 +1454,7 @@ function buildCapitalAtRiskData(trades) {
 let _carCache = null;
 
 function renderCapitalAtRiskSubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body    = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -1837,7 +1847,7 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 let _regimeCache = null;
 
 function renderRegimeShiftSubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body      = document.getElementById('analysisViewBody');
   const backBtn   = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -2015,7 +2025,7 @@ async function buildPostBuyDrift(longTrades, onProgress) {
 }
 
 function renderDriftSubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body    = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -2250,7 +2260,7 @@ async function buildEventProximityData(trades, onProgress) {
 }
 
 function renderProximitySubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body    = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -2500,7 +2510,7 @@ async function loadStockLanding() {
 }
 
 function renderStockLanding(lists) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const content = document.getElementById('stockContent');
   if (!content) return;
   const { hotBuys=[], clusterBuys=[], freshBuys=[], heavySells=[], mostActive=[] } = lists;
@@ -3118,7 +3128,7 @@ function renderStockTradesTable(trades) {
 
 // ── INSIDER PROFILE ───────────────────────────────────────────────
 async function openInsiderProfile(name, title, opts={}) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const tab=document.getElementById('insiderTab');
   document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active')); tab.classList.add('active');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -3134,7 +3144,7 @@ async function openInsiderProfile(name, title, opts={}) {
 }
 
 async function renderInsiderProfile(name, title, trades, opts={}) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const buys=trades.filter(t=>t.type==='P'), sells=trades.filter(t=>t.type==='S'||t.type==='S-');
   const buyVal=buys.reduce((s,t)=>s+t.value,0), sellVal=sells.reduce((s,t)=>s+t.value,0), netVal=buyVal-sellVal;
   const tickerMap={};
@@ -3814,7 +3824,7 @@ function goBack() {
 
 // ── INSIDER SEARCH / DASHBOARD ────────────────────────────────────
 function insiderLanding(opts={}) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body=document.getElementById('insiderViewBody'); if(!body)return;
   body.dataset.showing = 'dashboard';
   if (!opts.fromPopstate) {
@@ -4079,7 +4089,7 @@ function renderLeaderboardTiles(el, data, opts={}) {
 }
 
 function openLeaderboardFull(type) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('insiderViewBody');
   if (!body) return;
   const data = _scoreboardData;
@@ -4152,7 +4162,7 @@ async function runInsiderSearch() {
 }
 
 async function openInsiderProfileFull(name, title, opts={}) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body=document.getElementById('insiderViewBody');
   body.dataset.showing = 'profile';
   body.innerHTML=`<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
@@ -4211,7 +4221,7 @@ async function loadAnalysisPage(subpage) {
     showBlurGate('analysisViewBody', 'ANALYSIS', 'Sector breakdowns, conviction scores, trend detection & more.', 'Analysis — sector breakdowns, conviction scores & trends');
     return;
   }
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
 
@@ -4268,7 +4278,7 @@ async function loadAnalysisPage(subpage) {
 }
 
 function renderAnalysisDashboard() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
   const longTrades = _analysisDataLong || trades;
@@ -4564,7 +4574,7 @@ function renderAnalysisTile(tool) {
 }
 
 function renderAnalysisSubpage(id) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
 
@@ -4722,7 +4732,7 @@ function renderTimingLeadersList(ranked) {
 }
 
 function renderTopScoresSubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
   if (_insiderScoreCache === null) computeLeaderboardScores();
@@ -4752,7 +4762,7 @@ function renderTopScoresSubpage() {
 }
 
 function renderTimingLeadersSubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
   if (_timingAlphaCache === null) computeLeaderboardScores();
@@ -4785,7 +4795,7 @@ function renderTimingLeadersSubpage() {
 // ── INSIDER OPPORTUNITY RANKER ────────────────────────────────────
 
 async function renderRankerSubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -5144,7 +5154,7 @@ function renderRankerCard(r, idx) {
 // ── INSIDER EXIT WARNING SYSTEM ───────────────────────────────────
 
 function renderExitWarningSubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
@@ -5429,7 +5439,7 @@ const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
 // ── FIRST BUY IN YEARS SCANNER ────────────────────────────────────
 
 async function renderFirstBuySubpage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
@@ -5641,7 +5651,7 @@ function renderFirstBuyCard(s) {
 }
 
 function renderClusterEngine(trades) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const clusters = detectAdvancedClusters(trades);
   if (!clusters.length) return `<div style="color:var(--muted);font-size:12px;padding:20px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;text-align:center">No qualifying clusters detected in the last 30 days. Try a broader time window.</div>`;
 
@@ -5948,7 +5958,7 @@ async function loadSectorsPage() {
     showBlurGate('sectorsViewBody', 'SECTORS', 'Industry-level insider activity — see which sectors smart money is targeting.', 'Sectors — industry-level insider activity');
     return;
   }
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
 
@@ -5977,8 +5987,8 @@ async function loadSectorsPage() {
 }
 
 function renderSectorsPage(data) {
-  window.scrollTo(0, 0);
   const body = document.getElementById('sectorsViewBody');
+  if (body) { body.dataset.blurGated = ''; body.style.position = ''; }
   if (!body) return;
   const { sectors = [], total_buy_val = 0, days = 30 } = data;
   const totalBuyVal = total_buy_val || sectors.reduce((s,x) => s + x.buy_val, 0) || 1;
@@ -6090,6 +6100,7 @@ function renderSectorsPage(data) {
         Sector classification via FMP · Includes only P/S/S- open-market transactions · Cache refreshes every 4 hours
       </div>
     </div>`;
+  scrollTop();
 }
 
 function renderSectorCard(s, maxBuy, rank) {
@@ -6180,16 +6191,16 @@ function renderSectorCard(s, maxBuy, rank) {
 
 function openSectorSubpage(sectorName) {
   _sectorSubpage = sectorName;
-  if (_sectorCache) renderSectorsPage(_sectorCache);
+  if (_sectorCache) { renderSectorsPage(_sectorCache); scrollTop(); }
 }
 
 function closeSectorSubpage() {
   _sectorSubpage = null;
-  if (_sectorCache) renderSectorsPage(_sectorCache);
+  if (_sectorCache) { renderSectorsPage(_sectorCache); scrollTop(); }
 }
 
 function renderSectorSubpage(s, data) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
 
@@ -6410,12 +6421,12 @@ function loadComparePage() {
     showBlurGate('compareViewBody', 'COMPARE', 'Side-by-side insider activity comparison across any two tickers.', 'Compare — side-by-side insider activity');
     return;
   }
-  window.scrollTo(0, 0);
+  scrollTop();
   renderComparePage();
 }
 
 function renderComparePage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('compareViewBody');
   if (!body) return;
 
@@ -6781,7 +6792,7 @@ let _watchlistLoaded = false;
 let _followedData    = {};   // { name: trades[] }
 
 function loadWatchlistPage() {
-  window.scrollTo(0, 0);
+  scrollTop();
   const list     = wlLoad();
   const followed = fiLoad();
 
@@ -6851,7 +6862,7 @@ function watchlistHeader() {
 }
 
 function renderWatchlistPage(data, followedData={}) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('watchlistViewBody');
   if (!body) return;
   const list     = wlLoad();
@@ -7316,7 +7327,7 @@ async function loadMonitorPage() {
     showBlurGate('monitorViewBody', 'MONITOR', 'Real-time filing alerts, watchdog signals & unusual activity detection.', 'Monitor — real-time alerts & watchdog signals');
     return;
   }
-  window.scrollTo(0, 0);
+  scrollTop();
   const body = document.getElementById('monitorViewBody');
   if (!body) return;
   renderMonitorShell(body);
@@ -7400,7 +7411,7 @@ async function switchMonitorTab(tab) {
 }
 
 async function runMonitorWindow(tab, body) {
-  window.scrollTo(0, 0);
+  scrollTop();
   const label = tab === 'today' ? 'today' : tab === 'week' ? 'this week' : 'this month';
 
   // Helper: get current week start (Monday) as ISO string
@@ -7998,6 +8009,7 @@ function showBlurGate(bodyId, title, desc, featureName) {
     </div>`).join('');
 
   el.style.position = 'relative';
+  el.dataset.blurGated = '1';
   el.innerHTML = `
     <!-- blurred skeleton content -->
     <div style="filter:blur(4px);pointer-events:none;user-select:none;opacity:0.4;padding:24px 20px">
@@ -8061,6 +8073,22 @@ async function loadAuth() {
   auth.loaded = true;
   renderAuthHeader();
   checkUrlAuthParams();
+  // Re-render any page that was gated before auth loaded
+  if (auth.isPremium) {
+    ['analysisViewBody','monitorViewBody','sectorsViewBody','compareViewBody','watchlistViewBody'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.dataset.blurGated === '1' && el.closest('.view.active')) {
+        el.dataset.blurGated = '';
+        // Re-trigger the appropriate load function
+        const view = id.replace('ViewBody','').replace('View','');
+        if (view === 'sectors')  loadSectorsPage();
+        if (view === 'analysis') loadAnalysisPage();
+        if (view === 'monitor')  loadMonitorPage();
+        if (view === 'compare')  loadComparePage();
+        if (view === 'watchlist') loadWatchlistPage();
+      }
+    });
+  }
 }
 
 function renderAuthHeader() {
