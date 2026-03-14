@@ -2621,6 +2621,13 @@ function renderStockLanding(lists) {
 }
 
 // ── STOCK VIEW ────────────────────────────────────────────────────
+// Force-refresh price data by busting server cache
+async function loadStockViewBust(ticker) {
+  // Pre-bust the server cache then load normally
+  try { await fetch('/api/price?symbol=' + encodeURIComponent(ticker) + '&bust=1'); } catch(_) {}
+  loadStockView(ticker);
+}
+
 async function loadStockView(ticker, opts={}) {
   window.scrollTo(0, 0);
   // Activate the stock view + nav tab
@@ -2638,7 +2645,7 @@ async function loadStockView(ticker, opts={}) {
   state.currentTicker = ticker;
   document.getElementById('stockContent').innerHTML = `<div class="loading-state" style="height:400px"><div class="spinner"></div><span>Loading ${ticker}...</span></div>`;
   const [priceData, insiderData] = await Promise.all([
-    apiFetch('/api/price?symbol='+encodeURIComponent(ticker)).catch(()=>[]),
+    apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]),
     fetchInsiderForTicker(ticker).catch(()=>[]),
   ]);
   state.tickerTrades = insiderData; state.currentPriceData = priceData;
@@ -2715,7 +2722,7 @@ async function loadStockView(ticker, opts={}) {
               ${ticker} may be OTC, pink sheet, or recently delisted.
               Insider trade history is still shown below.
             </div>
-            <button onclick="loadStockView('${ticker}')" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:6px 16px;font-family:'Space Mono',monospace;font-size:10px;cursor:pointer">&#x21BA; RETRY</button>
+            <button onclick="loadStockViewBust('${ticker}')" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:6px 16px;font-family:'Space Mono',monospace;font-size:10px;cursor:pointer">&#x21BA; RETRY</button>
           </div>`:''}
         </div>
         <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
