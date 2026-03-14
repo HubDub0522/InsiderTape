@@ -1275,6 +1275,7 @@ function setPC(sym, bars) {
 async function fetchPriceBars(sym) {
   const cached = getPC(sym);
   if (cached !== null) return cached.length ? cached : null;
+  let _rateLimited = false;  // track 429s so we don't cache misses caused by rate limits
 
   function parseYahoo(body) {
     const data   = JSON.parse(body.toString());
@@ -1300,6 +1301,7 @@ async function fetchPriceBars(sym) {
       const start = new Date(Date.now() - 6 * 365 * 86400000).toISOString().slice(0, 10);
       const url   = 'https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO;
       const { status, body } = await get(url, 10000);
+      if (status === 429) _rateLimited = true;
       if (status === 200) {
         const data = JSON.parse(body.toString());
         if (Array.isArray(data) && data.length >= 2) {
@@ -1365,7 +1367,7 @@ async function fetchPriceBars(sym) {
     }
   } catch(_) {}
 
-  setPC(sym, []);  // cache the miss — 12h TTL prevents hammering sources repeatedly
+  if (!_rateLimited) setPC(sym, []);  // only cache miss if not rate-limited — retry next time
   return null;
 }
 
@@ -1393,6 +1395,8 @@ async function warmPriceCache() {
 app.get('/api/price', async (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
+  // ?bust=1 forces a fresh fetch by clearing the cache entry first
+  if (req.query.bust === '1') { delete _priceCache[sym]; }
   const bars = await fetchPriceBars(sym);
   if (res.headersSent) return;
   bars ? res.json(bars) : res.status(404).json({ error: `No price data for ${sym}` });
