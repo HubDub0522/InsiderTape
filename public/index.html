@@ -6126,7 +6126,7 @@ function renderSectorCard(s, maxBuy, rank) {
       <!-- Heat bg glow -->
       <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at top left, rgba(${heatR},${Math.min(255,heatG)},${Math.max(0,heatB)},${heatAlpha}) 0%, transparent 70%);pointer-events:none"></div>
 
-      <div style="padding:16px 18px;position:relative">
+      <div style="padding:16px 18px;position:relative" onclick="openSectorSubpage(${JSON.stringify(s.sector)})">
         <!-- Sector header -->
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px">
           <div>
@@ -6181,7 +6181,7 @@ function renderSectorCard(s, maxBuy, rank) {
               padding:3px 8px;font-family:'Space Mono',monospace;font-size:10px;
               color:var(--accent);cursor:pointer;transition:all .12s
             " onmouseover="this.style.background='rgba(0,212,255,0.1)'" onmouseout="this.style.background='var(--bg3)'">${t.ticker}</span>`).join('')}
-          <span style="background:transparent;border:none;font-size:10px;color:var(--muted);padding:3px 4px;align-self:center">VIEW ALL →</span>
+          <span onclick="event.stopPropagation();openSectorSubpage(${JSON.stringify(s.sector)})" style="background:transparent;border:none;font-size:10px;color:var(--accent);padding:3px 4px;align-self:center;cursor:pointer">VIEW ALL →</span>
         </div>
       </div>
     </div>`;
