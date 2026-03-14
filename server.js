@@ -2380,6 +2380,49 @@ app.get('/api/dedup-check', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ── PRICE DEBUG — /api/price-debug?symbol=KRRO ───────────────
+app.get('/api/price-debug', async (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'symbol required' });
+  const results = {};
+  const end   = new Date().toISOString().slice(0, 10);
+  const start = new Date(Date.now() - 6 * 365 * 86400000).toISOString().slice(0, 10);
+
+  // Tiingo
+  try {
+    if (TIINGO) {
+      const url = 'https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO;
+      const { status, body } = await get(url, 10000);
+      const data = status === 200 ? JSON.parse(body.toString()) : null;
+      results.tiingo = { status, bars: Array.isArray(data) ? data.length : 0, sample: Array.isArray(data) ? data.slice(-2) : data };
+    }
+  } catch(e) { results.tiingo = { error: e.message }; }
+
+  // Polygon
+  try {
+    if (POLYGON) {
+      const url = 'https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=2200&apiKey=' + POLYGON;
+      const { status, body } = await get(url, 10000);
+      const data = status === 200 ? JSON.parse(body.toString()) : null;
+      results.polygon = { status, bars: data?.results?.length || 0, resultsCount: data?.resultsCount, ticker: data?.ticker };
+    }
+  } catch(e) { results.polygon = { error: e.message }; }
+
+  // Yahoo
+  try {
+    const endTs = Math.floor(Date.now() / 1000);
+    const startTs = endTs - 6 * 365 * 86400;
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs;
+    const { status, body } = await get(url, 8000);
+    const data = status === 200 ? JSON.parse(body.toString()) : null;
+    const ts = data?.chart?.result?.[0]?.timestamp || [];
+    results.yahoo = { status, bars: ts.length };
+  } catch(e) { results.yahoo = { error: e.message }; }
+
+  res.json({ sym, start, end, results });
+});
+
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
