@@ -1297,7 +1297,7 @@ async function fetchPriceBars(sym) {
   try {
     if (TIINGO) {
       const end   = new Date().toISOString().slice(0, 10);
-      const start = new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10);
+      const start = new Date(Date.now() - 6 * 365 * 86400000).toISOString().slice(0, 10);
       const url   = 'https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO;
       const { status, body } = await get(url, 10000);
       if (status === 200) {
@@ -1321,8 +1321,8 @@ async function fetchPriceBars(sym) {
   try {
     if (POLYGON) {
       const end   = new Date().toISOString().slice(0, 10);
-      const start = new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10);
-      const url   = 'https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=730&apiKey=' + POLYGON;
+      const start = new Date(Date.now() - 6 * 365 * 86400000).toISOString().slice(0, 10);
+      const url   = 'https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=2200&apiKey=' + POLYGON;
       const { status, body } = await get(url, 10000);
       if (status === 200) {
         const data = JSON.parse(body.toString());
@@ -1344,7 +1344,7 @@ async function fetchPriceBars(sym) {
   // --- Yahoo Finance query1 (keyless fallback — unreliable but free) ---
   try {
     const end   = Math.floor(Date.now() / 1000);
-    const start = end - 2 * 365 * 86400;
+    const start = end - 6 * 365 * 86400;
     const url   = 'https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + start + '&period2=' + end;
     const { status, body } = await get(url, 8000);
     if (status === 200) {
@@ -1356,7 +1356,7 @@ async function fetchPriceBars(sym) {
   // --- Yahoo Finance query2 (different host) ---
   try {
     const end   = Math.floor(Date.now() / 1000);
-    const start = end - 2 * 365 * 86400;
+    const start = end - 6 * 365 * 86400;
     const url   = 'https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + start + '&period2=' + end;
     const { status, body } = await get(url, 8000);
     if (status === 200) {
