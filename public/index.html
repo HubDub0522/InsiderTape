@@ -4361,7 +4361,7 @@ function renderAnalysisDashboard() {
       id: 'exitwarning',
       icon: '🔴',
       name: 'Insider Exit Warning',
-      desc: 'Detects when multiple insiders sell near price highs, selling accelerates, or selling deviates from normal patterns — warning signs that a top may be forming.',
+      desc: 'Detects when multiple insiders — especially executives — are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. Warning signs of coordinated insider distribution.',
       count: (() => { try { return detectExitWarnings(trades).length; } catch(e) { return 0; } })(),
       countLabel: 'warnings active',
       top3: (() => { try { return detectExitWarnings(trades).slice(0,3).map(w => ({
@@ -5272,35 +5272,10 @@ function detectExitWarnings(trades) {
       score += 15; signals.push(`All selling concentrated in last 7 days — sudden onset`);
     }
 
-    // ── FACTOR 5: Selling near price high — most bearish context (up to 20pts) ──
-    // We don't have live price here, but we can approximate using the sell prices themselves.
-    // Compare sell prices to the highest sell price in the window — if clustered near the top, it's deliberate.
-    const sellPrices = tickerSells.map(t => t.price).filter(p => p > 0);
-    if (sellPrices.length >= 2) {
-      const maxSellPrice = Math.max(...sellPrices);
-      const minSellPrice = Math.min(...sellPrices);
-      const range = maxSellPrice - minSellPrice;
-      const avgSellPrice = sellPrices.reduce((a,b)=>a+b,0) / sellPrices.length;
-      const nearHighPct = range > 0 ? (avgSellPrice - minSellPrice) / range : 1;
-
-      // Also check: are recent sells at higher prices than older ones? (selling into strength)
-      const sortedByDate = [...tickerSells].filter(t => t.price > 0).sort((a,b) => new Date(a.trade||a.filing) - new Date(b.trade||b.filing));
-      const earlyAvg = sortedByDate.slice(0, Math.ceil(sortedByDate.length/2)).reduce((s,t)=>s+t.price,0) / Math.ceil(sortedByDate.length/2);
-      const lateAvg  = sortedByDate.slice(Math.ceil(sortedByDate.length/2)).reduce((s,t)=>s+t.price,0) / Math.floor(sortedByDate.length/2 + 0.5);
-      const sellingIntoStrength = lateAvg > earlyAvg * 1.03;
-
-      if (nearHighPct >= 0.8) {
-        score += 20;
-        signals.push(`Insiders selling near the top of the recent price range ($${maxSellPrice.toFixed(2)} high)`);
-      } else if (nearHighPct >= 0.6) {
-        score += 12;
-        signals.push(`Sells clustered in upper ${Math.round((1-nearHighPct)*100+nearHighPct*100)}% of recent range`);
-      }
-      if (sellingIntoStrength) {
-        score += 8;
-        signals.push(`Selling prices rising over time — distributing into strength`);
-      }
-    }
+    // ── FACTOR 5 (removed): Selling near price high ──
+    // Removed — comparing sell prices against each other within the window
+    // is not a valid proxy for "near all-time high" and produces false positives.
+    // Would need live price data to implement correctly.
 
     // ── FACTOR 6: Deviates from normal pattern — no selling in prior window (up to 10pts) ──
     // We only have 30d of data, so "normal" is approximated:
@@ -5320,7 +5295,7 @@ function detectExitWarnings(trades) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
-    if (score < 25 || signals.length < 2) return; // not enough signal
+    if (score < 35 || signals.length < 2) return; // not enough signal — raised threshold to reduce false positives
 
     // Severity label
     let severity, severityColor, severityBg, severityBorder;
