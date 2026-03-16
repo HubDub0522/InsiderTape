@@ -1433,12 +1433,13 @@ async function preComputeDrift() {
       FROM trades
       WHERE TRIM(type)='P'
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND trade_date >= date('now','-1825 days')
         AND trade_date <= date('now','-95 days')
         AND price > 0
       GROUP BY ticker
-      HAVING buy_count >= 2
+      HAVING buy_count >= 3
       ORDER BY buy_count DESC
-      LIMIT 80
+      LIMIT 50
     `).all();
 
     if (!rows.length) { slog('Drift pre-compute: no rows'); return; }
