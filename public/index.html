@@ -458,8 +458,8 @@
     .stat-grid { margin-left: 0; gap: 8px; flex-wrap: wrap; }
     .stat-item { text-align: left; min-width: 80px; }
     .chart-controls { flex-wrap: wrap; gap: 4px; }
-    .tf-btn { padding: 4px 7px; font-size: 10px; }
-    .cf-btn { padding: 4px 7px; font-size: 10px; }
+    .tf-btn { padding: 6px 8px; font-size: 10px; min-height: 32px; min-width: 32px; }
+    .cf-btn { padding: 6px 8px; font-size: 10px; min-height: 32px; }
     .chart-area { padding: 8px; }
     #chartContainer, .chart-container-sized { height: 280px !important; }
     /* Hide insider sidebar on mobile — full trades table is shown below instead */
@@ -2074,7 +2074,7 @@ function buildChart(priceData, trades) {
 function buildCircleOverlay(container,chart,series,trades,priceData) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
-  canvas.width=container.clientWidth; canvas.height=CHART_H; canvas.style.position='absolute'; canvas.style.top='0'; canvas.style.left='0'; container.appendChild(canvas);
+  canvas.width=container.clientWidth; canvas.height=CHART_H; container.appendChild(canvas);
   const priceMap={};
   priceData.forEach(d=>{priceMap[d.time]=d;});
   function nearestTradingDay(dateStr) {
@@ -2229,7 +2229,13 @@ function setRange(days,btn) {
   document.querySelectorAll('.tf-btn:not(.cf-btn)').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
 
-  if(!state.chart||!state.currentPriceData?.length) return;
+  // If chart not ready yet (LC still loading), retry once it's ready
+  if(!state.chart||!state.currentPriceData?.length) {
+    if(state.currentPriceData?.length) {
+      window._onLCReady(() => setRange(days, null));
+    }
+    return;
+  }
   const all = state.currentPriceData;
 
   // Determine the visible slice of price data
@@ -2241,7 +2247,13 @@ function setRange(days,btn) {
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
     const cutStr = cutoff.toISOString().split('T')[0];
     visible = all.filter(d => d.time >= cutStr);
-    if (visible.length > 0) state.chart.timeScale().setVisibleRange({from: visible[0].time, to: all[all.length-1].time});
+    if (visible.length > 0) {
+      try {
+        state.chart.timeScale().setVisibleRange({from: visible[0].time, to: all[all.length-1].time});
+      } catch(e) {
+        state.chart.timeScale().fitContent();
+      }
+    }
   }
   setTimeout(() => { if(state.drawCircles) state.drawCircles(); }, 50);
 
