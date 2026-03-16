@@ -4362,9 +4362,9 @@ function renderAnalysisDashboard() {
       icon: '🔴',
       name: 'Insider Exit Warning',
       desc: 'Detects when multiple insiders — especially executives — are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. Warning signs of coordinated insider distribution.',
-      count: (() => { try { return detectExitWarnings(trades).length; } catch(e) { return 0; } })(),
+      count: (() => { try { return detectExitWarnings(trades, window._exitWarningPriceHighs||{}).length; } catch(e) { return 0; } })(),
       countLabel: 'warnings active',
-      top3: (() => { try { return detectExitWarnings(trades).slice(0,3).map(w => ({
+      top3: (() => { try { return detectExitWarnings(trades, window._exitWarningPriceHighs||{}).slice(0,3).map(w => ({
         ticker: w.ticker,
         label: `Score ${w.score}`,
         sub: w.topSignal,
@@ -5161,15 +5161,19 @@ async function renderExitWarningSubpage() {
   // Show loading while fetching price highs
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading price context…</span></div></div>`;
 
-  // Fetch 52-week highs for all tickers with sells in the window
+  // Fetch 52-week highs — use short timeout so it never blocks the render
   const sellTickers = [...new Set(trades.filter(t => t.type === 'S' || t.type === 'S-').map(t => t.ticker))];
   let priceHighs = {};
   try {
     if (sellTickers.length) {
-      priceHighs = await apiFetch('/api/price-highs?tickers=' + sellTickers.slice(0, 50).join(','));
+      const phPromise = fetch('/api/price-highs?tickers=' + sellTickers.slice(0, 50).join(','));
+      const timeoutPromise = new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 4000));
+      const resp = await Promise.race([phPromise, timeoutPromise]);
+      if (resp.ok) priceHighs = await resp.json();
     }
   } catch(_) {}
 
+  window._exitWarningPriceHighs = priceHighs;
   const warnings = detectExitWarnings(trades, priceHighs);
 
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
@@ -5303,15 +5307,16 @@ function detectExitWarnings(trades, priceHighs={}) {
         if (nearHighPct >= 0.75) {
           // Selling in upper 25% of 52w range — near highs
           score += 25;
-          signals.push(`Avg sell price $${avgSellPrice.toFixed(2)} — in upper ${Math.round((1-nearHighPct+nearHighPct)*25)}% of 52w range (high: $${ph.high52})`);
+          signals.push(`Selling near 52w high — avg sell $\${avgSellPrice.toFixed(2)} vs 52w high $\${ph.high52}`);
         } else if (nearHighPct >= 0.55) {
           score += 12;
-          signals.push(`Sell prices in upper half of 52w range ($${ph.low52}–$${ph.high52})`);
-        } else {
-          // Selling near lows — significantly reduces bearish signal
+          signals.push(`Sell prices in upper range ($\${avgSellPrice.toFixed(2)}, 52w: $\${ph.low52}–$\${ph.high52})`);
+        } else if (nearHighPct < 0.35) {
+          // Selling near 52w lows — reduce score, weak distribution signal
           score -= 15;
-          context.push(`Selling near 52w lows, not highs — weaker distribution signal ($${avgSellPrice.toFixed(2)} vs high $${ph.high52})`);
+          context.push(`Selling near 52w lows ($\${avgSellPrice.toFixed(2)} vs high $\${ph.high52}) — weaker exit signal`);
         }
+        // Middle zone (0.35–0.55) — neutral, no adjustment
       }
     }
 
