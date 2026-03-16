@@ -2025,7 +2025,7 @@ async function loadStockView(ticker, opts={}) {
 }
 
 // ── CHART ─────────────────────────────────────────────────────────
-const CHART_H = 500;
+const CHART_H = window.innerWidth <= 640 ? 280 : 500;
 function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
     window._onLCReady(() => buildChart(priceData, trades));
@@ -2074,7 +2074,7 @@ function buildChart(priceData, trades) {
 function buildCircleOverlay(container,chart,series,trades,priceData) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
-  canvas.width=container.clientWidth; canvas.height=CHART_H; container.appendChild(canvas);
+  canvas.width=container.clientWidth; canvas.height=CHART_H; canvas.style.position='absolute'; canvas.style.top='0'; canvas.style.left='0'; container.appendChild(canvas);
   const priceMap={};
   priceData.forEach(d=>{priceMap[d.time]=d;});
   function nearestTradingDay(dateStr) {
@@ -2173,7 +2173,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
   if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
   const pChart=LightweightCharts.createChart(pc,{
-    width:pc.clientWidth||800,height:120,
+    width:pc.clientWidth||800,height:window.innerWidth<=640?80:120,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
     rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
