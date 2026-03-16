@@ -1545,29 +1545,38 @@ async function fetchConfirmedEarnings(ticker) {
   if (cached && Date.now() - cached.fetched < EARNINGS_CACHE_TTL) return cached;
   try {
     const today = new Date().toISOString().slice(0, 10);
-
-    // Method 1: Yahoo quoteSummary calendarEvents (most reliable for earnings dates)
     const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=calendarEvents`;
     const { status, body } = await get(url, 8000);
-    if (status === 200) {
+    if (status !== 200) {
+      slog(`Yahoo earnings ${ticker}: HTTP ${status}`);
+    } else {
       const data = JSON.parse(body.toString());
-      const cal = data?.quoteSummary?.result?.[0]?.calendarEvents;
-      if (cal) {
-        // earnings.earningsDate is an array of {raw: epochSeconds, fmt: "YYYY-MM-DD"}
-        const dates = cal?.earnings?.earningsDate || [];
-        const upcoming = dates
-          .map(d => d.fmt || new Date(d.raw * 1000).toISOString().slice(0, 10))
-          .filter(d => d && d >= today)
-          .sort()[0];
-        if (upcoming) {
-          const entry = { date: upcoming, confirmed: true, fetched: Date.now() };
-          _earningsCache[ticker] = entry;
-          return entry;
+      // Check for Yahoo's crumb/consent redirect (returns HTML or error object)
+      if (data?.quoteSummary?.error) {
+        slog(`Yahoo earnings ${ticker}: ${JSON.stringify(data.quoteSummary.error).slice(0,100)}`);
+      } else {
+        const cal = data?.quoteSummary?.result?.[0]?.calendarEvents;
+        if (cal) {
+          const dates = cal?.earnings?.earningsDate || [];
+          const upcoming = dates
+            .map(d => d.fmt || new Date(d.raw * 1000).toISOString().slice(0, 10))
+            .filter(d => d && d >= today)
+            .sort()[0];
+          if (upcoming) {
+            const entry = { date: upcoming, confirmed: true, fetched: Date.now() };
+            _earningsCache[ticker] = entry;
+            return entry;
+          } else {
+            slog(`Yahoo earnings ${ticker}: no upcoming dates (${dates.length} total)`);
+          }
+        } else {
+          slog(`Yahoo earnings ${ticker}: no calendarEvents in response`);
         }
       }
     }
-  } catch(_) {}
-  // Mark as checked so we don't retry immediately
+  } catch(e) {
+    slog(`Yahoo earnings ${ticker} error: ${e.message}`);
+  }
   const miss = { date: null, confirmed: false, fetched: Date.now() };
   _earningsCache[ticker] = miss;
   return null;
@@ -2452,6 +2461,30 @@ app.get('/api/dedup-check', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ── EARNINGS DEBUG — /api/earnings-debug?symbol=AAPL ────────────
+app.get('/api/earnings-debug', async (req, res) => {
+  const sym = (req.query.symbol || 'AAPL').toUpperCase();
+  const results = { ticker: sym, cache: _earningsCache[sym] || null };
+  try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents`;
+    const { status, body } = await get(url, 8000);
+    results.httpStatus = status;
+    const bodyStr = body.toString();
+    results.bodyPreview = bodyStr.slice(0, 500);
+    if (status === 200) {
+      try {
+        const data = JSON.parse(bodyStr);
+        results.parsed = {
+          error: data?.quoteSummary?.error,
+          hasResult: !!(data?.quoteSummary?.result?.[0]),
+          calendarEvents: data?.quoteSummary?.result?.[0]?.calendarEvents || null,
+        };
+      } catch(e) { results.parseError = e.message; }
+    }
+  } catch(e) { results.fetchError = e.message; }
+  res.json(results);
+});
 
 // ── PRICE DEBUG — /api/price-debug?symbol=KRRO ───────────────
 app.get('/api/price-debug', async (req, res) => {
