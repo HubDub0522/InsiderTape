@@ -5295,7 +5295,7 @@ function detectExitWarnings(trades) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
-    if (score < 35 || signals.length < 2) return; // not enough signal — raised threshold to reduce false positives
+    if (score < 25 || signals.length < 2) return; // require meaningful multi-factor signal
 
     // Severity label
     let severity, severityColor, severityBg, severityBorder;
@@ -5310,7 +5310,7 @@ function detectExitWarnings(trades) {
       sellerCount, execSellers: execSellers.length,
       totalSellVal, totalBuyVal,
       sellerNames: sellerNames.slice(0, 5),
-      sellPriceRange: sellPrices.length ? { lo: Math.min(...sellPrices), hi: Math.max(...sellPrices) } : null,
+      sellPriceRange: null, // price comparison removed — needs live price data
       latestSell: [...tickerSells].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0],
       topSignal: signals[0] || '',
     });
