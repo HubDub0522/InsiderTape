@@ -1530,30 +1530,48 @@ app.get('/api/drift', async (req, res) => {
 // ── INSIDER EVENT PROXIMITY ──────────────────────────────────────────────────
 // Finds insider buys within 120 days before a known upcoming event (earnings,
 // 8-K, regulatory) and scores them by proximity.
-let _proximityServerCache     = null;
+let _proximityServerCache     = null;  // cleared on deploy — will recompute with fixed logic
 let _proximityServerCacheTime = 0;
 const PROXIMITY_TTL = 3 * 60 * 60 * 1000; // 3h
 
-// Predict next quarterly earnings date based on trailing pattern
-function predictNextEarnings(ticker, today) {
-  // Pull last 4 earnings-like 8-K filing dates (form type ARS or 10-Q/10-K adjacent filings)
-  // Fallback: estimate based on fiscal quarter pattern (every ~91 days)
-  // Simple model: look at the last known filing date and add 91 days
+// Predict next quarterly earnings window based on standard fiscal calendar.
+// Quarter ends: Mar 31, Jun 30, Sep 30, Dec 31.
+// Companies typically report results ~45 days after quarter end.
+// daysTo is measured from the INSIDER'S BUY DATE to the estimated report date,
+// showing how many days before the reporting window the insider bought.
+function predictNextEarnings(ticker, buyDate) {
   try {
-    // Form 4 filing dates are NOT earnings dates — they're SEC filing deadlines.
-    // Best we can do without an earnings calendar: estimate next quarter based on
-    // the latest trade_date seen (not filing_date), which at least correlates with
-    // fiscal activity. Label honestly as an estimate.
-    const rows = db.prepare(`
-      SELECT MAX(trade_date) AS latest_trade FROM trades
-      WHERE ticker = ? AND trade_date IS NOT NULL AND TRIM(type) = 'P'
-    `).get(ticker);
-    if (!rows?.latest_trade) return null;
-    const latest = new Date(rows.latest_trade + 'T12:00:00Z');
-    // Find the next ~quarter boundary after the latest known buy
-    latest.setUTCDate(latest.getUTCDate() + 91);
-    const predicted = latest.toISOString().slice(0, 10);
-    return predicted > today ? { date: predicted, type: 'QUARTERLY', label: 'Est. Next Quarter', predicted: true } : null;
+    const buyDt  = new Date(buyDate + 'T12:00:00Z');
+    const yr     = buyDt.getUTCFullYear();
+
+    // All quarter-end dates for this year and next
+    const qEnds = [
+      new Date(Date.UTC(yr,   2, 31)),  // Q1 Mar 31
+      new Date(Date.UTC(yr,   5, 30)),  // Q2 Jun 30
+      new Date(Date.UTC(yr,   8, 30)),  // Q3 Sep 30
+      new Date(Date.UTC(yr,  11, 31)),  // Q4 Dec 31
+      new Date(Date.UTC(yr+1, 2, 31)),  // Q1 next year
+    ];
+
+    // Find next quarter end AFTER the buy date
+    const nextQEnd = qEnds.find(d => d > buyDt);
+    if (!nextQEnd) return null;
+
+    // Estimated reporting date = quarter end + 45 days
+    const estReport = new Date(nextQEnd);
+    estReport.setUTCDate(estReport.getUTCDate() + 45);
+
+    const daysTo = Math.round((estReport - buyDt) / 86400000);
+
+    // Only score buys within 120 days of estimated reporting window
+    if (daysTo <= 0 || daysTo > 120) return null;
+
+    return {
+      date: estReport.toISOString().slice(0, 10),
+      type: 'QUARTERLY',
+      label: 'Est. Earnings Window',
+      predicted: true
+    };
   } catch(_) { return null; }
 }
 
