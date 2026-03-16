@@ -1682,7 +1682,7 @@ async function preComputeScoreboard() {
   _scoreboardRunning = true;
   try {
     slog('Pre-computing scoreboard...');
-    const minBuys = 3, limit = 300;
+    const minBuys = 3, limit = 150;
     const rows = db.prepare(`
       SELECT
         insider, MAX(title) AS title, COUNT(*) AS buy_count,
@@ -1695,7 +1695,7 @@ async function preComputeScoreboard() {
         AND trade_date >= date('now', '-1825 days')
         AND trade_date <= date('now', '-95 days')
       GROUP BY insider
-      HAVING buy_count >= ? AND span_days >= 60
+      HAVING buy_count >= ? AND span_days >= 30
       ORDER BY buy_count DESC, span_days DESC LIMIT ?
     `).all(minBuys, limit);
 
@@ -1703,7 +1703,7 @@ async function preComputeScoreboard() {
 
     const allTickers = [...new Set(
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )].slice(0, 120);
+    )].slice(0, 80);
 
     const priceEntries = await Promise.allSettled(
       allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
