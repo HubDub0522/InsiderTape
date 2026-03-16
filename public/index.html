@@ -1511,6 +1511,118 @@ async function buildEventProximityData(trades, onProgress) {
   return Array.isArray(data) ? data : [];
 }
 
+
+function proxFilter(type) {
+  const results = window._proxResults || [];
+  if (!results.length) return;
+
+  // Update tile active states
+  document.querySelectorAll('[id^="proxTile-"]').forEach(t => {
+    t.classList.remove('prox-active');
+    // Reset borders
+    if (t.id === 'proxTile-abnormal') t.style.borderColor = 'rgba(255,68,102,0.2)';
+    else if (t.id === 'proxTile-imminent') t.style.borderColor = 'rgba(255,170,0,0.2)';
+    else if (t.id === 'proxTile-repeat') t.style.borderColor = 'rgba(0,212,255,0.18)';
+    else t.style.borderColor = 'var(--border)';
+  });
+  const activeTile = document.getElementById('proxTile-' + type);
+  if (activeTile) {
+    activeTile.classList.add('prox-active');
+    if (type === 'abnormal') activeTile.style.borderColor = 'rgba(255,68,102,0.6)';
+    else if (type === 'imminent') activeTile.style.borderColor = 'rgba(255,170,0,0.6)';
+    else if (type === 'repeat') activeTile.style.borderColor = 'rgba(0,212,255,0.5)';
+    else activeTile.style.borderColor = 'var(--accent)';
+  }
+
+  // Filter results
+  let filtered;
+  let sectionTitle, sectionSubtitle, sectionColor;
+  if (type === 'abnormal') {
+    filtered = results.filter(r => r.isAbnormal);
+    sectionTitle = '⚠️ ABNORMAL TIMING FLAGS';
+    sectionSubtitle = `${filtered.length} C-suite or Director buy${filtered.length!==1?'s':''} within 30 days of est. earnings`;
+    sectionColor = 'var(--sell)';
+  } else if (type === 'imminent') {
+    filtered = results.filter(r => r.daysTo <= 30);
+    sectionTitle = '🟡 WITHIN 30 DAYS';
+    sectionSubtitle = `${filtered.length} buy${filtered.length!==1?'s':''} with ≤30 days to estimated earnings window`;
+    sectionColor = 'var(--option)';
+  } else if (type === 'repeat') {
+    filtered = results.filter(r => r.repeatPattern);
+    sectionTitle = '🔁 REPEAT PATTERNS';
+    sectionSubtitle = `${filtered.length} insider${filtered.length!==1?'s':''} with history of buying before prior events`;
+    sectionColor = 'var(--accent)';
+  } else {
+    filtered = results;
+    sectionTitle = '🎯 ALL PROXIMITY SIGNALS';
+    sectionSubtitle = `${filtered.length} total signals`;
+    sectionColor = 'var(--text)';
+  }
+
+  const container = document.getElementById('proxResults');
+  if (!container) return;
+
+  if (!filtered.length) {
+    container.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">
+        No results match this filter in the current window.
+      </div>`;
+    return;
+  }
+
+  // Re-render filtered cards using same renderCard logic
+  const typeIcon  = { EARNINGS: '📊', QUARTERLY: '📊', REGULATORY: '⚖️', MATERIAL_EVENT: '📋' };
+  const typeLabel = { EARNINGS: 'Earnings', QUARTERLY: 'Est. Quarter-End', REGULATORY: 'Regulatory', MATERIAL_EVENT: 'Material Event' };
+  const PROXIMITY_WINDOW = 120;
+
+  const renderCard = r => {
+    const scoreColor  = r.score >= 75 ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : r.score >= 35 ? 'var(--accent)' : 'var(--muted)';
+    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(255,170,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
+    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(255,170,0,0.07)' : 'rgba(0,212,255,0.05)';
+    const daysBarWidth = Math.max(5, Math.min(95, Math.round((1 - r.daysTo / PROXIMITY_WINDOW) * 100)));
+    const evtIcon = typeIcon[r.nextEvent?.type] || '📅';
+    const evtDate = r.nextEvent?.date || '—';
+    const evtLabel = r.nextEvent?.label || 'Upcoming Event';
+    const badges = [];
+    if (r.isAbnormal) badges.push(`<span style="font-size:9px;background:rgba(255,68,102,0.15);color:var(--sell);border:1px solid rgba(255,68,102,0.35);border-radius:3px;padding:2px 7px;font-weight:700">⚠ ABNORMAL</span>`);
+    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(255,170,0,0.1);color:var(--option);border:1px solid rgba(255,170,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT</span>`);
+    return `<div onclick="openTickerFromScreener('${r.ticker}')" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="height:3px;background:rgba(255,255,255,0.05)"><div style="height:100%;width:${r.score}%;background:${scoreColor};opacity:0.75"></div></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:13px 16px 8px;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">
+            <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent)">${r.ticker}</span>
+            <span style="font-size:10px;color:var(--muted)">${r.company}</span>
+            ${badges.join('')}
+          </div>
+          <div style="font-size:12px;color:var(--text)">${r.insider}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.title}</div>
+        </div>
+        <div style="flex-shrink:0;text-align:center">
+          <div style="background:${scoreBg};border:1px solid ${scoreBorder};border-radius:7px;padding:5px 11px">
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${scoreColor};line-height:1">${r.score}</div>
+            <div style="font-family:'Space Mono',monospace;font-size:7px;color:${scoreColor};letter-spacing:1px">PROXIMITY</div>
+          </div>
+          <div style="font-family:'Space Mono',monospace;font-size:8px;color:${r.proximityColor};margin-top:4px">${r.daysTo <= 30 ? '🔴 IMMINENT' : r.daysTo <= 60 ? '🟡 SOON' : '🔵 UPCOMING'}</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
+        <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal||r.buyValue||0)}</span></div>
+        <div style="font-size:10px;color:var(--muted)">Est. earnings in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
+      </div>
+    </div>`;
+  };
+
+  container.innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:2px;color:${sectionColor}">${sectionTitle}</div>
+      <div style="font-size:10px;color:var(--muted)">${sectionSubtitle}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:13px">
+      ${filtered.map(renderCard).join('')}
+    </div>`;
+}
+
 function renderProximitySubpage() {
   window.scrollTo(0, 0);
   const body    = document.getElementById('analysisViewBody');
@@ -1574,6 +1686,7 @@ function _renderProximityResults(body, backBtn, results) {
     return;
   }
 
+  window._proxResults = results;  // store for filter tiles
   const abnormal = results.filter(r => r.isAbnormal);
   const normal   = results.filter(r => !r.isAbnormal);
 
@@ -1671,7 +1784,7 @@ function _renderProximityResults(body, backBtn, results) {
         <span style="font-size:16px">⚠️</span>
         <div>
           <div style="font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:2px;color:var(--sell)">ABNORMAL TIMING FLAGS</div>
-          <div style="font-size:10px;color:var(--muted)">${abnormal.length} buy${abnormal.length>1?'s':''} within 14 days of event by C-suite or Director</div>
+          <div style="font-size:10px;color:var(--muted)">${abnormal.length} buy${abnormal.length>1?'s':''} within 30 days of est. earnings by C-suite or Director</div>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:13px">
@@ -1697,42 +1810,48 @@ function _renderProximityResults(body, backBtn, results) {
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider buys scored by proximity to estimated quarterly periods · Last 90D</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider buys within 30 days of estimated earnings window · Last 90D</div>
     </div>
 
-    <!-- Summary strip -->
-    <div style="display:flex;gap:10px;margin:16px 0 20px;flex-wrap:wrap">
-      <div style="background:rgba(255,68,102,0.06);border:1px solid rgba(255,68,102,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px">
+    <!-- Summary strip — each tile is clickable to filter results -->
+    <div style="display:flex;gap:10px;margin:16px 0 20px;flex-wrap:wrap" id="proxFilterStrip">
+      <div onclick="proxFilter('abnormal')" id="proxTile-abnormal" style="background:rgba(255,68,102,0.06);border:1px solid rgba(255,68,102,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,68,102,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(255,68,102,0.2)'">
         <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--sell)">${abnormal.length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Abnormal flags</div>
+        ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:Space Mono,monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">C-suite ≤30d</div>'}
       </div>
-      <div style="background:rgba(255,170,0,0.06);border:1px solid rgba(255,170,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=14).length}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Within 14 days</div>
+      <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(255,170,0,0.06);border:1px solid rgba(255,170,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,170,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(255,170,0,0.2)'">
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=30).length}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Within 30 days</div>
+        ${results.filter(r=>r.daysTo<=30).length ? '<div style="font-size:9px;color:var(--option);margin-top:4px;font-family:Space Mono,monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">≤30d to earnings</div>'}
       </div>
-      <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:100px">
+      <div onclick="proxFilter('repeat')" id="proxTile-repeat" style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(0,212,255,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(0,212,255,0.18)'">
         <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)">${results.filter(r=>r.repeatPattern).length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Repeat patterns</div>
+        ${results.filter(r=>r.repeatPattern).length ? '<div style="font-size:9px;color:var(--accent);margin-top:4px;font-family:Space Mono,monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">Bought before prior events</div>'}
       </div>
-      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:100px">
+      <div onclick="proxFilter('all')" id="proxTile-all" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s;border-color:var(--accent)" class="prox-active" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='var(--border)'">
         <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--text)">${results.length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Total signals</div>
+        <div style="font-size:9px;color:var(--accent);margin-top:4px;font-family:Space Mono,monospace">SHOWING ALL</div>
       </div>
     </div>
 
     <div style="background:rgba(255,68,102,0.04);border:1px solid rgba(255,68,102,0.12);border-radius:7px;padding:11px 15px;margin-bottom:24px;font-size:11px;color:var(--muted);line-height:1.7">
       Scores insider buys by <span style="color:var(--text)">how many days before the next known event</span> they occurred.
-      <span style="color:var(--sell)">Abnormal</span> = C-suite or Director buying within 14 days of an estimated quarter-end.
+      <span style="color:var(--sell)">Abnormal</span> = C-suite or Director buying within 30 days of an estimated quarter-end.
       <span style="color:var(--option)">Repeat pattern</span> = same insider has done this before prior events.
       Event data: FMP earnings calendar + SEC 8-K filings.
     </div>
 
+    <div id="proxResults">
     ${abnormalHtml}
     ${normalHtml}
+    </div>
 
     <div style="font-size:10px;color:var(--muted);margin-top:16px;opacity:0.6;line-height:1.6">
       ⚠ This tool identifies statistical proximity, not insider knowledge. Insiders are legally prohibited from trading on material non-public information.
-      All data sourced from public SEC filings and FMP earnings calendars.
+      All data sourced from public SEC filings and estimated earnings calendar.
     </div>
   </div>`;
 }
@@ -2105,7 +2224,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       const isBuy=g.tc==='buy',isSell=g.tc==='sell';
       const refPrice=isBuy?pd.low*0.995:isSell?pd.high*1.005:pd.close;
       const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
-      const r=8+14*Math.log1p(g.value)/Math.log1p(maxVal);
+      const _mob=window.innerWidth<=640; const r=(_mob?5:8)+(_mob?8:14)*Math.log1p(g.value)/Math.log1p(maxVal);
       const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(255,170,0,';
       ctx.beginPath(); ctx.arc(ts,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=color+'0.08)'; ctx.fill();
       ctx.beginPath(); ctx.arc(ts,yCoord,r,0,Math.PI*2); ctx.fillStyle=color+'0.20)'; ctx.strokeStyle=color+'0.85)'; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
@@ -3916,7 +4035,7 @@ function renderAnalysisDashboard() {
     id: 'proximity',
     icon: '🎯',
     name: 'Event Proximity Scanner',
-    desc: 'Detects insider buying relative to estimated quarterly reporting periods over the last 5 years. Scores timing signals — buying close to a quarter-end by a CEO is a stronger signal than buying earlier in the quarter.',
+    desc: 'Detects insider buying within 30 days of an estimated quarterly earnings window. Only the tightest signals — C-suite and director buys in the final stretch before results.',
     count: _proximityCache ? _proximityCache.length : '…',
     countLabel: 'proximity signals',
     top3: proxTop3.map(r => ({
