@@ -1745,7 +1745,12 @@ async function preComputeProximity() {
 
         score = Math.min(100, score);
 
-        const isAbnormal = (isCsuite || isDir) && daysTo <= 30 && event.type === 'QUARTERLY';
+        // Abnormal: any insider buying within 21 days of confirmed earnings
+        // OR C-suite/Director buying within 45 days of confirmed earnings
+        const isAbnormal = event.confirmed && (
+          daysTo <= 21 ||
+          ((isCsuite || isDir) && daysTo <= 45)
+        );
         const proximityColor = daysTo <= 7 ? 'var(--sell)' : daysTo <= 14 ? 'var(--option)' : daysTo <= 30 ? 'var(--accent)' : 'var(--muted)';
 
         results.push({
