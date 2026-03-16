@@ -206,7 +206,7 @@
   .tf-btn { padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--muted); font-family: 'Space Mono', monospace; font-size: 11px; cursor: pointer; transition: all .15s; }
   .tf-btn:hover { color: var(--text); }
   .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
-  #chartContainer { width: 100%; height: 480px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+  #chartContainer, .chart-container-sized { width: 100%; height: 480px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
   .insider-sidebar { background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; height: calc(100vh - var(--header-h) - 110px); overflow: hidden; }
   .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .sidebar-tab { flex: 1; padding: 12px 8px; text-align: center; font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 1px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; text-transform: uppercase; }
@@ -450,6 +450,7 @@
     td, th { padding: 8px 6px; font-size: 11px; word-break: break-word; }
 
     /* ── Stock View ── */
+    .pressure-container { height: 80px !important; }
     .stock-layout { grid-template-columns: 1fr !important; }
     .stock-header-bar { flex-direction: column; gap: 10px; padding: 12px; }
     .stock-ticker-big { font-size: 30px; }
@@ -460,12 +461,10 @@
     .tf-btn { padding: 4px 7px; font-size: 10px; }
     .cf-btn { padding: 4px 7px; font-size: 10px; }
     .chart-area { padding: 8px; }
-    #chartContainer { height: 280px !important; }
-    .insider-sidebar {
-      height: auto !important; min-height: 280px; max-height: 380px;
-      border-left: none !important; border-top: 1px solid var(--border);
-    }
-    .stock-trades-section { padding: 0 8px 16px; }
+    #chartContainer, .chart-container-sized { height: 280px !important; }
+    /* Hide insider sidebar on mobile — full trades table is shown below instead */
+    .insider-sidebar { display: none !important; }
+    .stock-trades-section { padding: 0 8px 16px; overflow-x: hidden; }
     /* Stock trades: keep DATE, INSIDER, TYPE, VALUE only */
     /* Col order: 1=date 2=insider 3=title 4=type 5=shares 6=price 7=value 8=owned 9=filing */
     .stock-trades-section thead th:nth-child(3),
@@ -563,7 +562,7 @@
   @media (max-width: 380px) {
     .logo { font-size: 16px; }
     .nav-tab { padding: 4px 6px; font-size: 9px; }
-    #chartContainer { height: 240px !important; }
+    #chartContainer, .chart-container-sized { height: 240px !important; }
     main { padding-top: 112px; }
   }
 
@@ -1976,8 +1975,8 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
           </div>
         </div>
-        <div id="chartContainer" style="position:relative;width:100%;height:500px;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
-          ${!priceData.length?`<div class="empty-state" style="height:500px;flex-direction:column;gap:10px">
+        <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
+          ${!priceData.length?`<div class="empty-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px">
             <div class="empty-icon">📡</div>
             <div style="font-size:13px;color:var(--text)">Price chart unavailable</div>
             <div style="font-size:11px;color:var(--muted);max-width:280px;text-align:center;line-height:1.6">
@@ -1988,7 +1987,7 @@ async function loadStockView(ticker, opts={}) {
           </div>`:''}
         </div>
         <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
-          <div id="pressureContainer" style="width:100%;height:120px;"></div>
+          <div id="pressureContainer" style="width:100%;height:120px;" class="pressure-container"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
         <div id="insiderActivityAnalysis" style="margin-top:10px"></div>
