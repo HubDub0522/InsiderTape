@@ -4278,7 +4278,7 @@ function scoreOpportunityRanker(rows) {
       clusterTickers.has(r.ticker)      ? ['CLUSTER',   'var(--accent)',  'rgba(0,212,255,0.1)']   : null,
       regimeBullish.has(r.ticker)        ? ['REGIME↑',  'var(--buy)',     'rgba(0,255,136,0.08)']  : null,
       regimeBearish.has(r.ticker)        ? ['REGIME↓',  'var(--sell)',    'rgba(255,68,102,0.08)'] : null,
-      drift >= 55                        ? [`DRIFT ${drift}`, 'var(--buy)', 'rgba(0,255,136,0.06)'] : null,
+
       prox && prox.daysTo <= 14          ? ['EVENT PROX','var(--sell)',    'rgba(255,68,102,0.08)'] : null,
       firstBuyTickers.has(r.ticker)      ? ['1ST BUY',   'var(--accent)', 'rgba(0,212,255,0.08)']  : null,
     ].filter(Boolean);
