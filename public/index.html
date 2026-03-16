@@ -890,7 +890,7 @@ async function apiFetch(path, opts={}) {
   // Scoreboard does many parallel price fetches — give it extra time
   // Monitor fetches screener + firstbuys (heavy CTE) — also needs extra time
   const ms = path.startsWith('/api/scoreboard') ? 90000
-           : (path.startsWith('/api/drift') || path.startsWith('/api/proximity')) ? 45000
+           : (path.startsWith('/api/drift') || path.startsWith('/api/proximity')) ? 90000
            : path.startsWith('/api/firstbuys') ? 45000
            : 45000;
   const timer = setTimeout(() => controller.abort(), ms);
@@ -4236,17 +4236,23 @@ async function loadAnalysisPage(subpage) {
   // Pre-fetch drift and proximity in background so tiles are instant when clicked
   if (!_driftCache) {
     apiFetch('/api/drift').then(results => {
-      _driftCache = Array.isArray(results) ? results : [];
-      const b = document.getElementById('analysisViewBody');
-      if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _driftCache = []; });
+      const arr = Array.isArray(results) ? results : [];
+      if (arr.length > 0) {  // only cache non-empty results — let subpage retry if empty
+        _driftCache = arr;
+        const b = document.getElementById('analysisViewBody');
+        if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+      }
+    }).catch(() => {}); // silent fail — subpage will fetch directly
   }
   if (!_proximityCache) {
     apiFetch('/api/proximity').then(results => {
-      _proximityCache = Array.isArray(results) ? results : [];
-      const b = document.getElementById('analysisViewBody');
-      if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _proximityCache = []; });
+      const arr = Array.isArray(results) ? results : [];
+      if (arr.length > 0) {
+        _proximityCache = arr;
+        const b = document.getElementById('analysisViewBody');
+        if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+      }
+    }).catch(() => {});
   }
 
   // Kick off leaderboard scores in background so tiles show counts when dashboard renders
