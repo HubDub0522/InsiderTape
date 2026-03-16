@@ -2427,6 +2427,28 @@ app.get('/api/price-debug', async (req, res) => {
   res.json({ sym, start, end, results });
 });
 
+
+// ── PRICE HIGHS — batch 52-week high/low/current for exit warning scoring ──
+app.get('/api/price-highs', (req, res) => {
+  const syms = (req.query.tickers || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 50);
+  if (!syms.length) return res.json({});
+  const result = {};
+  syms.forEach(sym => {
+    const bars = getPC(sym);
+    if (!bars || !bars.length) return;
+    const last = bars[bars.length - 1];
+    const bars52 = bars.slice(-252);
+    const high52 = Math.max(...bars52.map(b => b.high));
+    const low52  = Math.min(...bars52.map(b => b.low));
+    const current = last.close;
+    // How far is current price from 52w high (0=at high, 1=at low)
+    const range52 = high52 - low52 || 1;
+    const pctFromHigh = (high52 - current) / range52; // 0 = at high, 1 = at low
+    result[sym] = { high52: +high52.toFixed(2), low52: +low52.toFixed(2), current: +current.toFixed(2), pctFromHigh: +pctFromHigh.toFixed(3) };
+  });
+  res.json(result);
+});
+
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
