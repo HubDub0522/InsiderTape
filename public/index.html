@@ -330,89 +330,166 @@
     .stat-grid { margin-left: 0; gap: 14px; }
     .profile-grid { grid-template-columns: 1fr; }
   }
+  /* ═══════════════════════════════════════════════════════════
+     MOBILE — max-width 640px
+     Desktop styles are untouched. All overrides are here only.
+     ═══════════════════════════════════════════════════════════ */
   @media (max-width: 640px) {
     :root { --header-h: auto; }
     html, body { overflow-x: hidden; width: 100%; max-width: 100vw; }
+
+    /* ── Header ── */
     header {
       flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px;
-      align-items: center; position: fixed; top: 0; left: 0; right: 0;
+      align-items: center; position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     }
-    .logo { font-size: 19px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
-    .nav-tabs { order: 1; margin-left: auto; gap: 2px; flex-shrink: 0; overflow-x: auto; max-width: calc(100vw - 120px); -webkit-overflow-scrolling: touch; }
-    .nav-tab { padding: 5px 9px; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+    .logo { font-size: 18px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
+    .nav-tabs {
+      order: 1; margin-left: auto; gap: 2px; flex-shrink: 0;
+      overflow-x: auto; max-width: calc(100vw - 110px);
+      -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .nav-tabs::-webkit-scrollbar { display: none; }
+    .nav-tab { padding: 5px 8px; font-size: 9px; white-space: nowrap; flex-shrink: 0; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
-    main { padding-top: 100px; }
-    /* Screener */
-    .filter-panel { padding: 10px 12px; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 12px; align-items: flex-start; -webkit-overflow-scrolling: touch; }
-    .filter-section { margin-bottom: 0; flex-shrink: 0; min-width: 140px; }
+    #authHeaderBtn { order: 1; flex-shrink: 0; }
+    main { padding-top: 108px; }
+
+    /* ── Global: no horizontal overflow ── */
+    main > .view { overflow-x: hidden; }
+    main > .view > * { max-width: 100vw; box-sizing: border-box; }
+    * { box-sizing: border-box; }
+
+    /* ── Screener ── */
+    .filter-panel {
+      padding: 10px 12px; display: flex; flex-direction: row;
+      flex-wrap: nowrap; overflow-x: auto; gap: 12px;
+      align-items: flex-start; -webkit-overflow-scrolling: touch;
+    }
+    .filter-section { margin-bottom: 0; flex-shrink: 0; min-width: 130px; }
     .apply-btn { width: auto; white-space: nowrap; flex-shrink: 0; align-self: flex-end; }
-    .screener-content { padding: 10px; }
+    .screener-content { padding: 8px; }
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
-    table { min-width: 480px; }
-    td, th { padding: 9px 8px; font-size: 11px; }
-    /* Stock view */
-    .stock-header-bar { flex-direction: column; gap: 12px; padding: 12px; }
-    .stock-ticker-big { font-size: 32px; }
-    .stock-price { font-size: 22px; }
-    .stat-grid { margin-left: 0; gap: 10px; }
-    .stat-item { text-align: left; }
+    /* Screener table: show only key cols — date, ticker, insider, type, value */
+    #screenerBody tr td:nth-child(3),
+    #screenerBody tr td:nth-child(5),
+    #screenerBody tr td:nth-child(6),
+    #screenerBody tr td:nth-child(8),
+    #screenerBody tr th:nth-child(3),
+    #screenerBody tr th:nth-child(5),
+    #screenerBody tr th:nth-child(6),
+    #screenerBody tr th:nth-child(8) { display: none; }
+    table { min-width: 0; width: 100%; table-layout: fixed; }
+    td, th { padding: 8px 6px; font-size: 11px; word-break: break-word; }
+
+    /* ── Stock View ── */
+    .stock-layout { grid-template-columns: 1fr !important; }
+    .stock-header-bar { flex-direction: column; gap: 10px; padding: 12px; }
+    .stock-ticker-big { font-size: 30px; }
+    .stock-price { font-size: 20px; }
+    .stat-grid { margin-left: 0; gap: 8px; flex-wrap: wrap; }
+    .stat-item { text-align: left; min-width: 80px; }
     .chart-controls { flex-wrap: wrap; gap: 4px; }
-    .tf-btn { padding: 4px 8px; font-size: 10px; }
-    .chart-area { padding: 10px; }
-    #chartContainer { height: 300px !important; }
-    .insider-sidebar { height: 260px; }
-    .stock-trades-section { padding: 0 10px 16px; overflow-x: auto; }
-    /* Insider profile */
-    .insider-profile-layout { padding: 12px; }
-    .summary-bar { gap: 8px; }
-    .summary-card { min-width: 90px; padding: 10px 10px; }
-    .summary-card-val { font-size: 14px; }
-    /* Scorecard trade rows */
+    .tf-btn { padding: 4px 7px; font-size: 10px; }
+    .cf-btn { padding: 4px 7px; font-size: 10px; }
+    .chart-area { padding: 8px; }
+    #chartContainer { height: 280px !important; }
+    .insider-sidebar {
+      height: auto !important; min-height: 280px; max-height: 380px;
+      border-left: none !important; border-top: 1px solid var(--border);
+    }
+    .stock-trades-section { padding: 0 8px 16px; }
+    /* Stock trades table: hide less critical cols */
+    #stockTradesBody tr td:nth-child(3),
+    #stockTradesBody tr td:nth-child(5),
+    #stockTradesBody tr td:nth-child(6),
+    #stockTradesBody tr td:nth-child(8),
+    #stockTradesBody tr td:nth-child(9) { display: none; }
+    .stock-trades-section table { min-width: 0; width: 100%; table-layout: fixed; }
+    .stock-trades-section thead th:nth-child(3),
+    .stock-trades-section thead th:nth-child(5),
+    .stock-trades-section thead th:nth-child(6),
+    .stock-trades-section thead th:nth-child(8),
+    .stock-trades-section thead th:nth-child(9) { display: none; }
+    /* Insider activity analysis summary */
+    #insiderActivityAnalysis { font-size: 11px; }
+
+    /* ── Insider Profile ── */
+    .insider-profile-layout { padding: 10px; }
+    .summary-bar { gap: 6px; flex-wrap: wrap; }
+    .summary-card { min-width: 80px; flex: 1; padding: 8px; }
+    .summary-card-val { font-size: 13px; }
+    /* Scorecard trade rows — hide close price, sell date cols */
     .scorer-trade-row-header,
-    .scorer-trade-row { grid-template-columns: 60px 44px 1fr 60px 60px; }
+    .scorer-trade-row { grid-template-columns: 60px 50px 1fr 60px; }
+    .scorer-trade-row-header > *:nth-child(5),
+    .scorer-trade-row > *:nth-child(5),
     .scorer-trade-row-header > *:nth-child(6),
     .scorer-trade-row > *:nth-child(6),
     .scorer-trade-row-header > *:nth-child(7),
     .scorer-trade-row > *:nth-child(7) { display: none; }
-    /* Timing quality grid 2-col → 1-col */
     .timing-quality-grid { grid-template-columns: 1fr !important; }
-    /* Conviction + analysis grids */
-    .conviction-grid { grid-template-columns: 1fr; }
+
+    /* ── Analysis Page ── */
     .analysis-tool-grid { grid-template-columns: 1fr !important; }
-    /* Insider dashboard 2-col → 1-col */
-    .insider-dash-grid { grid-template-columns: 1fr !important; }
-    /* Cluster card body */
+    .conviction-grid { grid-template-columns: 1fr !important; }
     .cluster-card-body { grid-template-columns: 1fr !important; }
-    /* Profile grid */
     .profile-grid { grid-template-columns: 1fr !important; }
-    /* Auth header */
-    #authHeaderBtn button { font-size: 9px !important; padding: 4px 8px !important; }
-    /* Utility classes for JS-rendered inline grids */
-    .mob-1col { grid-template-columns: 1fr !important; direction: ltr !important; }
+
+    /* ── Insider Dashboard ── */
+    .insider-dash-grid { grid-template-columns: 1fr !important; }
+
+    /* ── Monitor ── */
+    .mob-monitor-tabs {
+      overflow-x: auto !important; -webkit-overflow-scrolling: touch;
+      flex-wrap: nowrap !important; scrollbar-width: none;
+    }
+    .mob-monitor-tabs::-webkit-scrollbar { display: none; }
+    /* Monitor alert cards — stack value/date row */
+    .monitor-card-meta { flex-wrap: wrap; gap: 4px; }
+
+    /* ── Sectors ── */
+    .mob-sector-row { grid-template-columns: minmax(80px,1fr) 1fr 70px !important; gap: 6px !important; }
+
+    /* ── Watchlist / Compare ── */
     .mob-compare-layout { grid-template-columns: 1fr !important; }
+    .mob-watchlist-stats { grid-template-columns: 1fr 1fr !important; }
+
+    /* ── Premium / Pricing pages ── */
     .mob-feature-card { grid-template-columns: 1fr !important; direction: ltr !important; }
     .mob-feature-card > div { direction: ltr !important; }
     .mob-pricing-grid { grid-template-columns: 1fr !important; }
-    .mob-3col-grid { grid-template-columns: 1fr !important; }
-    .mob-watchlist-stats { grid-template-columns: 1fr 1fr !important; }
-    .mob-sector-row { grid-template-columns: minmax(80px,130px) 1fr 60px !important; gap: 6px !important; }
-    .mob-monitor-tabs { overflow-x: auto !important; -webkit-overflow-scrolling: touch; flex-wrap: nowrap !important; }
-    /* Hide less critical table cols */
+    .mob-1col { grid-template-columns: 1fr !important; direction: ltr !important; }
+    .mob-3col-grid { grid-template-columns: 1fr 1fr !important; }
+
+    /* ── Auth header btn ── */
+    #authHeaderBtn button { font-size: 9px !important; padding: 4px 8px !important; }
+
+    /* ── Universal hide on mobile ── */
     .hide-mobile { display: none !important; }
-    #screenerBody tr td:nth-child(5),
-    #screenerBody tr td:nth-child(6),
-    #screenerBody tr td:nth-child(8) { display: none; }
-    #stockTradesBody tr td:nth-child(3),
-    #stockTradesBody tr td:nth-child(6),
-    #stockTradesBody tr td:nth-child(8),
-    #stockTradesBody tr td:nth-child(9) { display: none; }
-    /* Prevent any child from busting viewport width */
-    main > .view > * { max-width: 100vw; }
+
+    /* ── Inline style overrides for JS-rendered content ── */
+    /* Make sure no inner div busts the viewport */
+    .view > div { max-width: 100vw; overflow-x: hidden; }
+    /* Padding reduction on padded containers */
+    [style*="padding:24px 20px"] { padding: 16px 12px !important; }
+    [style*="padding: 24px 20px"] { padding: 16px 12px !important; }
+    /* Ranker cards */
+    [style*="grid-template-columns:1fr 320px"] { grid-template-columns: 1fr !important; }
+    /* Sector subpage two-col layout */
+    [style*="grid-template-columns:1fr 300px"] { grid-template-columns: 1fr !important; }
+    [style*="grid-template-columns: 1fr 300px"] { grid-template-columns: 1fr !important; }
+    /* Analysis dashboard max-width containers */
+    [style*="max-width:1200px"], [style*="max-width:1300px"], [style*="max-width:900px"] {
+      padding-left: 12px !important; padding-right: 12px !important;
+    }
   }
+
   @media (max-width: 380px) {
-    .logo { font-size: 17px; }
-    .nav-tab { padding: 4px 7px; font-size: 10px; }
-    #chartContainer { height: 260px !important; }
+    .logo { font-size: 16px; }
+    .nav-tab { padding: 4px 6px; font-size: 9px; }
+    #chartContainer { height: 240px !important; }
+    main { padding-top: 112px; }
   }
 
 
@@ -1759,7 +1836,7 @@ async function loadStockView(ticker, opts={}) {
           <div class="stock-price">${last?'$'+last.close.toFixed(2):'—'}</div>
           <div class="stock-change" style="color:${chgColor}">${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today</div>
         </div>
-        <div class="stat-grid">
+        <div class="stat-grid" style="flex-wrap:wrap">
           <div class="stat-item"><div class="stat-label" id="statHighLabel">1Y High</div><div class="stat-val" id="statHigh">$${h52.toFixed(2)}</div></div>
           <div class="stat-item"><div class="stat-label" id="statLowLabel">1Y Low</div><div class="stat-val" id="statLow">${l52===Infinity?'—':'$'+l52.toFixed(2)}</div></div>
           <div class="stat-item"><div class="stat-label" id="statBuysLabel">Buys (1Y)</div><div class="stat-val" style="color:var(--buy)" id="statBuys">${buys}</div></div>
