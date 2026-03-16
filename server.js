@@ -1534,45 +1534,85 @@ let _proximityServerCache     = null;  // cleared on deploy — will recompute w
 let _proximityServerCacheTime = 0;
 const PROXIMITY_TTL = 3 * 60 * 60 * 1000; // 3h
 
-// Predict next quarterly earnings window based on standard fiscal calendar.
-// Quarter ends: Mar 31, Jun 30, Sep 30, Dec 31.
-// Companies typically report results ~45 days after quarter end.
-// daysTo is measured from the INSIDER'S BUY DATE to the estimated report date,
-// showing how many days before the reporting window the insider bought.
-function predictNextEarnings(ticker, buyDate) {
+// Earnings date cache: ticker -> { date, confirmed, fetched }
+const _earningsCache = {};
+const EARNINGS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
+// Fetch earnings dates from Yahoo Finance chart API — same source as price data
+// Yahoo returns result[0].events.earnings with upcoming earnings dates at no extra cost
+async function fetchConfirmedEarnings(ticker) {
+  const cached = _earningsCache[ticker];
+  if (cached && Date.now() - cached.fetched < EARNINGS_CACHE_TTL) return cached;
   try {
-    const buyDt  = new Date(buyDate + 'T12:00:00Z');
-    const yr     = buyDt.getUTCFullYear();
+    const now  = Math.floor(Date.now() / 1000);
+    const end  = now + 365 * 86400;  // look 1 year forward for upcoming dates
+    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${now - 7 * 86400}&period2=${end}&events=earnings`;
+    const { status, body } = await get(url, 8000);
+    if (status === 200) {
+      const data = JSON.parse(body.toString());
+      const result = data?.chart?.result?.[0];
+      const earningsEvents = result?.events?.earnings;
+      if (earningsEvents) {
+        // earningsEvents is an object keyed by epoch seconds
+        const today = new Date().toISOString().slice(0, 10);
+        const upcoming = Object.values(earningsEvents)
+          .map(e => {
+            // Yahoo uses 'startdatetime' or 'date' field
+            const raw = e.startdatetime || e.date || '';
+            return raw.slice(0, 10);
+          })
+          .filter(d => d && d >= today)
+          .sort()[0]; // take the nearest upcoming date
+        if (upcoming) {
+          const entry = { date: upcoming, confirmed: true, fetched: Date.now() };
+          _earningsCache[ticker] = entry;
+          return entry;
+        }
+      }
+    }
+  } catch(_) {}
+  // Mark as checked so we don't retry immediately
+  const miss = { date: null, confirmed: false, fetched: Date.now() };
+  _earningsCache[ticker] = miss;
+  return null;
+}
 
-    // All quarter-end dates for this year and next
+// Estimate next earnings from fiscal calendar (fallback)
+function estimateNextEarnings(buyDate) {
+  try {
+    const buyDt = new Date(buyDate + 'T12:00:00Z');
+    const yr    = buyDt.getUTCFullYear();
     const qEnds = [
-      new Date(Date.UTC(yr,   2, 31)),  // Q1 Mar 31
-      new Date(Date.UTC(yr,   5, 30)),  // Q2 Jun 30
-      new Date(Date.UTC(yr,   8, 30)),  // Q3 Sep 30
-      new Date(Date.UTC(yr,  11, 31)),  // Q4 Dec 31
-      new Date(Date.UTC(yr+1, 2, 31)),  // Q1 next year
+      new Date(Date.UTC(yr,   2, 31)),
+      new Date(Date.UTC(yr,   5, 30)),
+      new Date(Date.UTC(yr,   8, 30)),
+      new Date(Date.UTC(yr,  11, 31)),
+      new Date(Date.UTC(yr+1, 2, 31)),
     ];
-
-    // Find next quarter end AFTER the buy date
     const nextQEnd = qEnds.find(d => d > buyDt);
     if (!nextQEnd) return null;
-
-    // Estimated reporting date = quarter end + 45 days
     const estReport = new Date(nextQEnd);
     estReport.setUTCDate(estReport.getUTCDate() + 45);
-
-    const daysTo = Math.round((estReport - buyDt) / 86400000);
-
-    // Only score buys within 120 days of estimated reporting window
-    if (daysTo <= 0 || daysTo > 120) return null;
-
-    return {
-      date: estReport.toISOString().slice(0, 10),
-      type: 'QUARTERLY',
-      label: 'Est. Earnings Window',
-      predicted: true
-    };
+    return { date: estReport.toISOString().slice(0,10), confirmed: false };
   } catch(_) { return null; }
+}
+
+// Get next earnings date for a ticker — uses cache populated by preComputeProximity
+function predictNextEarnings(ticker, buyDate) {
+  const cached = _earningsCache[ticker];
+  const src = (cached?.date) ? cached : estimateNextEarnings(buyDate);
+  if (!src?.date) return null;
+  const buyDt  = new Date(buyDate + 'T12:00:00Z');
+  const evtDt  = new Date(src.date + 'T12:00:00Z');
+  const daysTo = Math.round((evtDt - buyDt) / 86400000);
+  if (daysTo <= 0 || daysTo > 120) return null;
+  return {
+    date: src.date,
+    type: 'QUARTERLY',
+    label: src.confirmed ? '✓ Confirmed Earnings' : 'Est. Earnings',
+    predicted: !src.confirmed,
+    confirmed: src.confirmed || false,
+  };
 }
 
 async function preComputeProximity() {
@@ -1597,6 +1637,14 @@ async function preComputeProximity() {
       ORDER BY t.trade_date DESC
       LIMIT 400
     `).all(since, today);
+
+    // Pre-fetch earnings dates from Yahoo Finance for all unique tickers
+    // Uses the same Yahoo source as price data — no extra API key needed
+    const uniqueTickers = [...new Set(rows.map(r => r.ticker))].slice(0, 80);
+    slog(`Fetching earnings dates for ${uniqueTickers.length} tickers from Yahoo...`);
+    await Promise.allSettled(uniqueTickers.map(t => fetchConfirmedEarnings(t)));
+    const confirmed = Object.values(_earningsCache).filter(e => e.confirmed && e.date).length;
+    slog(`Earnings dates: ${confirmed}/${uniqueTickers.length} confirmed from Yahoo, rest estimated`);
 
     const results = [];
     const seenPairs = new Set(); // deduplicate ticker+insider
