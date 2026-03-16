@@ -316,23 +316,23 @@ function runSync(numQ = 4) {
 // ─── HTTP helper ──────────────────────────────────────────────
 const http = require('http');
 
-function get(url, ms=30000) {
+function get(url, ms=30000, opts={}) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('http://') ? http : https;
-    const req = mod.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InsiderTape/1.0)' },
-      timeout: ms,
-    }, res => {
+    const reqHeaders = Object.assign(
+      { 'User-Agent': 'Mozilla/5.0 (compatible; InsiderTape/1.0)' },
+      opts.headers || {}
+    );
+    const req = mod.get(url, { headers: reqHeaders, timeout: ms }, res => {
       if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
-        // Drain the redirect response body before following
         res.resume();
         const loc = res.headers.location;
         const next = loc.startsWith('http') ? loc : new URL(loc, url).href;
-        return get(next, ms).then(resolve).catch(reject);
+        return get(next, ms, opts).then(resolve).catch(reject);
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks), headers: res.headers }));
       res.on('error', reject);
     });
     req.on('error', reject);
@@ -1540,39 +1540,75 @@ const EARNINGS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 
 // Fetch earnings dates from Yahoo Finance quote summary API
 // Uses /quoteSummary with calendarEvents module — more reliable than chart events
+// Yahoo crumb/cookie state — refreshed every 12h
+let _yahooCrumb   = null;
+let _yahooCookie  = null;
+let _yahooCrumbTs = 0;
+const CRUMB_TTL   = 12 * 60 * 60 * 1000;
+
+async function getYahooCrumb() {
+  if (_yahooCrumb && Date.now() - _yahooCrumbTs < CRUMB_TTL) return _yahooCrumb;
+  try {
+    // Step 1: hit fc.yahoo.com to get the consent cookie
+    const r1 = await get('https://fc.yahoo.com', 8000);
+    const raw = Array.isArray(r1.headers?.['set-cookie'])
+      ? r1.headers['set-cookie'].join('; ')
+      : (r1.headers?.['set-cookie'] || '');
+    // Extract A3 cookie value which is what Yahoo needs
+    const cookieMatch = raw.match(/A3=[^;]+/);
+    _yahooCookie = cookieMatch ? cookieMatch[0] : null;
+
+    // Step 2: fetch the crumb using the cookie
+    const crumbOpts = _yahooCookie
+      ? { headers: { 'Cookie': _yahooCookie, 'User-Agent': 'Mozilla/5.0' } }
+      : { headers: { 'User-Agent': 'Mozilla/5.0' } };
+    const r2 = await get('https://query1.finance.yahoo.com/v1/test/getcrumb', 8000, crumbOpts);
+    if (r2.status === 200) {
+      _yahooCrumb   = r2.body.toString().trim();
+      _yahooCrumbTs = Date.now();
+      slog(`Yahoo crumb acquired: ${_yahooCrumb.slice(0,8)}...`);
+      return _yahooCrumb;
+    }
+    slog(`Yahoo crumb HTTP ${r2.status}`);
+  } catch(e) {
+    slog(`Yahoo crumb error: ${e.message}`);
+  }
+  return null;
+}
+
 async function fetchConfirmedEarnings(ticker) {
   const cached = _earningsCache[ticker];
   if (cached && Date.now() - cached.fetched < EARNINGS_CACHE_TTL) return cached;
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=calendarEvents`;
-    const { status, body } = await get(url, 8000);
-    if (status !== 200) {
-      slog(`Yahoo earnings ${ticker}: HTTP ${status}`);
-    } else {
+    const today  = new Date().toISOString().slice(0, 10);
+    const crumb  = await getYahooCrumb();
+    const crumbQ = crumb ? `&crumb=${encodeURIComponent(crumb)}` : '';
+    const cookie = _yahooCookie ? _yahooCookie : '';
+    const url    = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=calendarEvents${crumbQ}`;
+    const opts   = cookie ? { headers: { 'Cookie': cookie, 'User-Agent': 'Mozilla/5.0' } } : {};
+    const { status, body } = await get(url, 8000, opts);
+    if (status === 200) {
       const data = JSON.parse(body.toString());
-      // Check for Yahoo's crumb/consent redirect (returns HTML or error object)
-      if (data?.quoteSummary?.error) {
-        slog(`Yahoo earnings ${ticker}: ${JSON.stringify(data.quoteSummary.error).slice(0,100)}`);
-      } else {
-        const cal = data?.quoteSummary?.result?.[0]?.calendarEvents;
-        if (cal) {
-          const dates = cal?.earnings?.earningsDate || [];
-          const upcoming = dates
-            .map(d => d.fmt || new Date(d.raw * 1000).toISOString().slice(0, 10))
-            .filter(d => d && d >= today)
-            .sort()[0];
-          if (upcoming) {
-            const entry = { date: upcoming, confirmed: true, fetched: Date.now() };
-            _earningsCache[ticker] = entry;
-            return entry;
-          } else {
-            slog(`Yahoo earnings ${ticker}: no upcoming dates (${dates.length} total)`);
-          }
-        } else {
-          slog(`Yahoo earnings ${ticker}: no calendarEvents in response`);
+      const cal  = data?.quoteSummary?.result?.[0]?.calendarEvents;
+      if (cal) {
+        const dates = cal?.earnings?.earningsDate || [];
+        const upcoming = dates
+          .map(d => d.fmt || new Date(d.raw * 1000).toISOString().slice(0, 10))
+          .filter(d => d && d >= today)
+          .sort()[0];
+        if (upcoming) {
+          const entry = { date: upcoming, confirmed: true, fetched: Date.now() };
+          _earningsCache[ticker] = entry;
+          return entry;
         }
       }
+    } else if (status === 401) {
+      // Crumb expired — force refresh on next call
+      _yahooCrumb = null;
+      _yahooCrumbTs = 0;
+      slog(`Yahoo earnings ${ticker}: 401, crumb reset`);
+    } else {
+      slog(`Yahoo earnings ${ticker}: HTTP ${status}`);
     }
   } catch(e) {
     slog(`Yahoo earnings ${ticker} error: ${e.message}`);
@@ -2465,13 +2501,19 @@ app.get('/api/dedup-check', (req, res) => {
 // ── EARNINGS DEBUG — /api/earnings-debug?symbol=AAPL ────────────
 app.get('/api/earnings-debug', async (req, res) => {
   const sym = (req.query.symbol || 'AAPL').toUpperCase();
-  const results = { ticker: sym, cache: _earningsCache[sym] || null };
+  const results = { ticker: sym, cache: _earningsCache[sym] || null, crumb: _yahooCrumb, hasCookie: !!_yahooCookie };
   try {
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents`;
-    const { status, body } = await get(url, 8000);
+    // Force fresh crumb
+    _yahooCrumb = null; _yahooCrumbTs = 0;
+    const crumb = await getYahooCrumb();
+    results.freshCrumb = crumb;
+    const crumbQ = crumb ? `&crumb=${encodeURIComponent(crumb)}` : '';
+    const opts = _yahooCookie ? { headers: { 'Cookie': _yahooCookie, 'User-Agent': 'Mozilla/5.0' } } : {};
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=calendarEvents${crumbQ}`;
+    const { status, body } = await get(url, 8000, opts);
     results.httpStatus = status;
     const bodyStr = body.toString();
-    results.bodyPreview = bodyStr.slice(0, 500);
+    results.bodyPreview = bodyStr.slice(0, 800);
     if (status === 200) {
       try {
         const data = JSON.parse(bodyStr);
