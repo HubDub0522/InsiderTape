@@ -2729,6 +2729,7 @@ async function loadStockView(ticker, opts={}) {
           <div id="pressureContainer" style="width:100%;height:120px;"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div id="insiderActivityAnalysis" style="margin-top:10px"></div>
       </div>
       <div class="insider-sidebar">
         <div class="sidebar-tabs">
@@ -2754,6 +2755,7 @@ async function loadStockView(ticker, opts={}) {
   renderStockTradesTable(insiderData);
   renderTradeMarkerList(insiderData);
   if (priceData.length) buildChart(priceData, insiderData);
+  renderInsiderActivityAnalysis(ticker, insiderData, priceData);
   ['P','S','O','X'].forEach(g => {
     chartActiveFilters.add(g);
     const btn = document.getElementById('chartFilter-'+g);
@@ -3048,6 +3050,106 @@ function toggleChartFilter(group,btn) {
   buildPressureChartGated(state.chart,filtered,state.currentPriceData);
 }
 
+
+// ── INSIDER ACTIVITY ANALYSIS — written summary below pressure chart ──
+// Uses only already-loaded trade data and price bars. No API calls.
+function renderInsiderActivityAnalysis(ticker, trades, priceData) {
+  const el = document.getElementById('insiderActivityAnalysis');
+  if (!el) return;
+
+  const now = Date.now();
+  const days = n => now - n * 86400000;
+
+  const buys  = trades.filter(t => t.type === 'P');
+  const sells = trades.filter(t => t.type === 'S' || t.type === 'S-');
+
+  if (!buys.length && !sells.length) { el.innerHTML = ''; return; }
+
+  // Recency buckets
+  const buys30  = buys.filter(t  => new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z') >= days(30));
+  const sells30 = sells.filter(t => new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z') >= days(30));
+  const buys90  = buys.filter(t  => new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z') >= days(90));
+  const sells90 = sells.filter(t => new Date((t.trade||t.filing||'').slice(0,10)+'T12:00:00Z') >= days(90));
+
+  const buyVal30  = buys30.reduce((s,t)  => s+(t.value||0), 0);
+  const sellVal30 = sells30.reduce((s,t) => s+(t.value||0), 0);
+  const buyVal90  = buys90.reduce((s,t)  => s+(t.value||0), 0);
+
+  const uniqueBuyers30  = new Set(buys30.map(t=>t.insider)).size;
+  const uniqueSellers30 = new Set(sells30.map(t=>t.insider)).size;
+  const uniqueBuyers90  = new Set(buys90.map(t=>t.insider)).size;
+
+  // Price context
+  const currentPrice = priceData.length ? priceData[priceData.length-1].close : null;
+  const bars52 = priceData.slice(-252);
+  const high52 = bars52.length ? Math.max(...bars52.map(b=>b.high)) : null;
+  const low52  = bars52.length ? Math.min(...bars52.map(b=>b.low))  : null;
+
+  let priceContext = '';
+  if (currentPrice && high52 && low52) {
+    const range = high52 - low52 || 1;
+    const pctFromLow  = ((currentPrice - low52) / range * 100).toFixed(0);
+    const pctFromHigh = ((high52 - currentPrice) / high52 * 100).toFixed(1);
+    if (currentPrice >= high52 * 0.95) {
+      priceContext = `Trading near its 52-week high ($${high52.toFixed(2)}).`;
+    } else if (currentPrice <= low52 * 1.05) {
+      priceContext = `Trading near its 52-week low ($${low52.toFixed(2)}).`;
+    } else {
+      priceContext = `Currently $${pctFromHigh}% below its 52-week high of $${high52.toFixed(2)}.`;
+    }
+  }
+
+  // Build sentence-level analysis
+  const sentences = [];
+
+  // Overall posture
+  if (buys30.length > 0 && sells30.length === 0) {
+    sentences.push(`Insiders have been <strong style="color:var(--buy)">active buyers</strong> in the last 30 days — ${uniqueBuyers30} insider${uniqueBuyers30>1?'s':''} purchased ${fmt(buyVal30)} worth of shares with no selling.`);
+  } else if (sells30.length > 0 && buys30.length === 0) {
+    sentences.push(`Insiders have been <strong style="color:var(--sell)">net sellers</strong> over the last 30 days — ${uniqueSellers30} insider${uniqueSellers30>1?'s':''} sold ${fmt(sellVal30)} with no open-market buying.`);
+  } else if (buys30.length > 0 && sells30.length > 0) {
+    const net = buyVal30 - sellVal30;
+    const dir = net >= 0 ? `<strong style="color:var(--buy)">net buying</strong>` : `<strong style="color:var(--sell)">net selling</strong>`;
+    sentences.push(`Insider activity is mixed over the last 30 days — ${fmt(buyVal30)} in purchases vs ${fmt(sellVal30)} in sales, a ${dir} position of ${fmt(Math.abs(net))}.`);
+  } else if (buys90.length > 0) {
+    sentences.push(`No insider transactions in the last 30 days. Looking out 90 days, ${uniqueBuyers90} insider${uniqueBuyers90>1?'s':''} bought ${fmt(buyVal90)} — activity has slowed recently.`);
+  } else {
+    sentences.push(`No insider buying or selling activity recorded in the last 90 days.`);
+  }
+
+  // Cluster signal
+  if (uniqueBuyers30 >= 3) {
+    sentences.push(`The concentration of ${uniqueBuyers30} distinct buyers in a short window is a <strong style="color:var(--option)">cluster buy signal</strong> — historically one of the stronger indicators of insider conviction.`);
+  } else if (uniqueBuyers30 >= 2) {
+    sentences.push(`With ${uniqueBuyers30} separate insiders buying, this reflects coordinated accumulation rather than a single executive's discretionary move.`);
+  }
+
+  // Price context sentence
+  if (priceContext) {
+    if (buys30.length > 0 && currentPrice && low52 && currentPrice <= low52 * 1.15) {
+      sentences.push(`${priceContext} Buying near 52-week lows is generally the most meaningful insider signal — they are deploying capital at depressed prices.`);
+    } else if (buys30.length > 0 && currentPrice && high52 && currentPrice >= high52 * 0.90) {
+      sentences.push(`${priceContext} Insider buying near annual highs suggests they believe the stock has further to run despite the elevated price.`);
+    } else if (priceContext) {
+      sentences.push(priceContext);
+    }
+  }
+
+  // Historical context
+  const allTimebuys = buys.length;
+  if (allTimebuys >= 10) {
+    sentences.push(`This insider group has ${allTimebuys} total buy transactions on record — a deep history of accumulation in ${ticker}.`);
+  }
+
+  el.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:2px">
+      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">INSIDER ACTIVITY SUMMARY</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.8">
+        ${sentences.map(s => `<p style="margin:0 0 6px 0">${s}</p>`).join('')}
+      </div>
+    </div>`;
+}
+
 function renderTradeMarkerList(trades) {
   const el=document.getElementById('tradeMarkerList'); if(!el)return;
   const sorted=[...trades].sort((a,b)=>new Date(b.trade||b.filing)-new Date(a.trade||a.filing));
@@ -3266,11 +3368,11 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
         </div>
       </div>
     </div>`;
-  computeAndRenderScore(name, buys, trades);
+  computeAndRenderScore(name, buys, trades, opts);
 }
 
 // ── SCORER ENGINE ─────────────────────────────────────────────────
-async function computeAndRenderScore(insiderName, buyTrades, allTrades) {
+async function computeAndRenderScore(insiderName, buyTrades, allTrades, opts={}) {
   const scorerBody = document.querySelector('#scorerSection .scorer-body');
   if (!scorerBody) return;
   const scoreable = buyTrades.filter(t => t.type==='P' && t.price>0 && (t.trade||t.filing));
@@ -3375,53 +3477,9 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades) {
   // Render immediately with timing data, no AI yet
   scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, null);
 
-  // AI summary + insights
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key': '',   // handled by proxy
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514', max_tokens:600,
-        messages:[{role:'user', content:
-          `You are a financial analyst specializing in SEC Form 4 insider trading data.
-Analyze this insider's ACTUAL computed trade performance and return a JSON object.
-
-INSIDER: ${statsForAI.name}
-TRADES ANALYZED: ${statsForAI.tradeCount} completed buys (${statsForAI.pendingCount} too recent)
-TICKERS: ${statsForAI.tickers}
-ACCURACY SCORE: ${statsForAI.accuracyScore}/100 (${statsForAI.tier})
-WIN RATE: ${statsForAI.winRate}%
-AVG 30D RETURN: ${statsForAI.avgRet30!==null?statsForAI.avgRet30+'%':'N/A'}
-AVG 60D RETURN: ${statsForAI.avgRet60!==null?statsForAI.avgRet60+'%':'N/A'}
-AVG 90D RETURN: ${statsForAI.avgRet90}%
-TIMING ALPHA SCORE: ${timing ? timing.timingAlpha + '/100 — ' + timing.verdict : 'N/A'}
-BUYS NEAR 12M LOW: ${timing ? timing.nearLowPct + '%' : 'N/A'}
-SELLS NEAR 12M HIGH: ${timing ? (timing.nearHighSellPct !== null ? timing.nearHighSellPct + '%' : 'no sells') : 'N/A'}
-FWD RETURNS: ${timing ? `+30d avg ${timing.avgRet30 !== null ? timing.avgRet30+'%' : '—'} · +90d avg ${timing.avgRet90 !== null ? timing.avgRet90+'%' : '—'} · +180d avg ${timing.avgRet180 !== null ? timing.avgRet180+'%' : '—'}` : 'N/A'}
-TIMING EDGE VS MARKET: ${statsForAI.timingEdge>0?'+':''}${statsForAI.timingEdge}%
-BEST TRADE: +${statsForAI.bestTrade}%   WORST: ${statsForAI.worstTrade}%
-CONSISTENCY: ${statsForAI.consistency}/100
-
-Respond ONLY with valid JSON (no markdown, no backticks):
-{"summary":"<2 sentences assessing this insider's track record and timing quality>","insights":[{"type":"good|bad|info","icon":"<emoji>","text":"<specific insight about their pattern>"},{"type":"...","icon":"...","text":"..."},{"type":"...","icon":"...","text":"..."}]}`
-        }]
-      })
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const raw = (data.content||[]).map(b=>b.text||'').join('');
-    const clean = raw.replace(/```json|```/g,'').trim();
-    const ai = JSON.parse(clean);
-    scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, ai);
-  } catch(e) {
-    // Score + timing already rendered — silently keep what we have
-    console.warn('Scorecard AI error:', e.message);
-  }
+  // Build data-driven insights from computed stats — no AI needed
+  const insights = buildScorecardInsights(statsForAI, timing, scored);
+  scorerBody.innerHTML = buildScorerHTML(statsForAI, tier, tierColor, followRec, timingEdge, scored, timing, insights);
 }
 
 // ── TIMING QUALITY ENGINE ─────────────────────────────────────────
@@ -3600,6 +3658,86 @@ function computeTimingQuality(scored, priceCache, allTrades) {
     avgPosInRange: Math.round(avgPos*100),
     n, nSell,
   };
+}
+
+
+// ── DATA-DRIVEN SCORECARD INSIGHTS ───────────────────────────
+// Generates summary + insights purely from pre-computed trade stats.
+// No AI calls — all logic is deterministic from the numbers.
+function buildScorecardInsights(stats, timing, scored) {
+  const { accuracyScore, tier, winRate, avgRet90, avgRet30, avgRet60,
+          avgMagnitude, timingEdge, bestTrade, worstTrade, consistency,
+          tradeCount, pendingCount, tickers } = stats;
+
+  // ── Summary sentence ──────────────────────────────────────
+  let summary = '';
+  const tickerList = tickers ? tickers.split(', ').slice(0, 3).join(', ') : 'multiple stocks';
+
+  if (tier === 'ELITE') {
+    summary = `${stats.name.split(' ')[0]} is an elite-tier insider trader with a ${winRate}% win rate and avg ${avgRet90 > 0 ? '+' : ''}${avgRet90.toFixed(1)}% return 90 days after buying — consistently beating the market across ${tradeCount} tracked trades.`;
+  } else if (tier === 'STRONG') {
+    summary = `${stats.name.split(' ')[0]} shows a strong track record with a ${winRate}% win rate and ${avgRet90 > 0 ? '+' : ''}${avgRet90.toFixed(1)}% avg 90-day return across ${tradeCount} trades. A reliable signal worth monitoring.`;
+  } else if (tier === 'AVERAGE') {
+    summary = `${stats.name.split(' ')[0]} has a mixed track record — ${winRate}% win rate and ${avgRet90 > 0 ? '+' : ''}${avgRet90.toFixed(1)}% avg 90-day return across ${tradeCount} trades. Follow with caution and look for confirming signals.`;
+  } else {
+    summary = `${stats.name.split(' ')[0]}'s buying history shows a ${winRate}% win rate with ${avgRet90 > 0 ? '+' : ''}${avgRet90.toFixed(1)}% avg 90-day return — below the market average. Their trades are a weak signal on their own.`;
+  }
+
+  // ── Insights array ────────────────────────────────────────
+  const insights = [];
+
+  // Win rate assessment
+  if (winRate >= 70) {
+    insights.push({ type: 'good', icon: '🎯', text: `${winRate}% of their buys were profitable at 90 days — well above the typical 50% market baseline.` });
+  } else if (winRate >= 50) {
+    insights.push({ type: 'info', icon: '📊', text: `${winRate}% win rate at 90 days — roughly in line with market averages.` });
+  } else {
+    insights.push({ type: 'bad', icon: '⚠️', text: `Only ${winRate}% of buys were profitable at 90 days — below market average. Consider as a contrarian indicator.` });
+  }
+
+  // Return magnitude
+  if (avgRet90 >= 15) {
+    insights.push({ type: 'good', icon: '📈', text: `Average +${avgRet90.toFixed(1)}% return 90 days post-buy — strong alpha generation vs market.` });
+  } else if (avgRet90 >= 5) {
+    insights.push({ type: 'good', icon: '📈', text: `Average +${avgRet90.toFixed(1)}% at 90 days — modest but consistent positive drift after their buys.` });
+  } else if (avgRet90 < 0) {
+    insights.push({ type: 'bad', icon: '📉', text: `Average ${avgRet90.toFixed(1)}% at 90 days — stocks have drifted lower following their purchases historically.` });
+  }
+
+  // Timing quality
+  if (timing) {
+    if (timing.nearLowPct >= 60) {
+      insights.push({ type: 'good', icon: '⏱️', text: `${timing.nearLowPct}% of buys landed in the lower half of the 12-month range — they tend to buy weakness, not chase strength.` });
+    } else if (timing.nearLowPct <= 30) {
+      insights.push({ type: 'bad', icon: '⏱️', text: `Only ${timing.nearLowPct}% of buys near annual lows — they tend to buy after the stock has already moved.` });
+    }
+    if (timing.timingAlpha >= 70) {
+      insights.push({ type: 'good', icon: '🔬', text: `Timing Alpha ${timing.timingAlpha}/100 — among the best at identifying entry points before meaningful moves.` });
+    }
+  }
+
+  // Consistency
+  if (consistency >= 70) {
+    insights.push({ type: 'good', icon: '🔄', text: `High consistency score (${consistency}/100) — returns are stable across trades, not driven by one lucky pick.` });
+  } else if (consistency < 40) {
+    insights.push({ type: 'info', icon: '🔄', text: `Low consistency (${consistency}/100) — returns vary widely. Best trade: +${bestTrade.toFixed(1)}%, worst: ${worstTrade.toFixed(1)}%.` });
+  }
+
+  // Return trajectory (30d vs 90d momentum)
+  if (avgRet30 !== null && avgRet90 !== null) {
+    if (avgRet90 > avgRet30 * 1.5 && avgRet90 > 0) {
+      insights.push({ type: 'good', icon: '🚀', text: `Returns improve over time — avg ${avgRet30 > 0 ? '+' : ''}${avgRet30.toFixed(1)}% at 30 days growing to +${avgRet90.toFixed(1)}% at 90. The thesis takes time to play out.` });
+    } else if (avgRet30 > 0 && avgRet90 < avgRet30 * 0.5) {
+      insights.push({ type: 'info', icon: '⚡', text: `Early mover — stocks pop quickly after their buys (+${avgRet30.toFixed(1)}% at 30d) but gains fade by 90 days.` });
+    }
+  }
+
+  // Pending trades note
+  if (pendingCount > 0) {
+    insights.push({ type: 'info', icon: '🕐', text: `${pendingCount} recent trade${pendingCount > 1 ? 's are' : ' is'} still within the 90-day window and excluded from the score — score may change as they mature.` });
+  }
+
+  return { summary, insights: insights.slice(0, 4) };
 }
 
 function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, timing, ai) {
