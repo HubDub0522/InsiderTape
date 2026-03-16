@@ -1543,9 +1543,9 @@ function proxFilter(type) {
     sectionSubtitle = `${filtered.length} C-suite or Director buy${filtered.length!==1?'s':''} within 30 days of est. earnings`;
     sectionColor = 'var(--sell)';
   } else if (type === 'imminent') {
-    filtered = results.filter(r => r.daysTo <= 30);
-    sectionTitle = '🟡 WITHIN 30 DAYS';
-    sectionSubtitle = `${filtered.length} buy${filtered.length!==1?'s':''} with ≤30 days to estimated earnings window`;
+    filtered = results.filter(r => r.daysTo <= 60);
+    sectionTitle = '🟡 WITHIN 60 DAYS';
+    sectionSubtitle = `${filtered.length} buy${filtered.length!==1?'s':''} with ≤60 days to earnings window`;
     sectionColor = 'var(--option)';
   } else if (type === 'repeat') {
     filtered = results.filter(r => r.repeatPattern);
@@ -1773,7 +1773,7 @@ function _renderProximityResults(body, backBtn, results) {
       <!-- Footer stats -->
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
         <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal || r.buyValue || 0)}</span></div>
-        <div style="font-size:10px;color:var(--muted)">Next: <span style="color:${r.proximityColor}">${evtLabel}</span> in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
+        <div style="font-size:10px;color:var(--muted)">${r.nextEvent?.confirmed?'<span style="color:var(--buy);font-size:9px">✓ CONFIRMED</span>':'<span style="color:var(--muted);font-size:9px">EST.</span>'} <span style="color:${r.proximityColor}">${evtLabel}</span> in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
       </div>
     </div>`;
   };
@@ -1821,9 +1821,9 @@ function _renderProximityResults(body, backBtn, results) {
         ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:Space Mono,monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">C-suite ≤30d</div>'}
       </div>
       <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(255,170,0,0.06);border:1px solid rgba(255,170,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,170,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(255,170,0,0.2)'">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=30).length}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Within 30 days</div>
-        ${results.filter(r=>r.daysTo<=30).length ? '<div style="font-size:9px;color:var(--option);margin-top:4px;font-family:Space Mono,monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">≤30d to earnings</div>'}
+        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=60).length}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Within 60 days</div>
+        ${results.filter(r=>r.daysTo<=60).length ? '<div style="font-size:9px;color:var(--option);margin-top:4px;font-family:Space Mono,monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">≤60d to earnings</div>'}
       </div>
       <div onclick="proxFilter('repeat')" id="proxTile-repeat" style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(0,212,255,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(0,212,255,0.18)'">
         <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)">${results.filter(r=>r.repeatPattern).length}</div>
