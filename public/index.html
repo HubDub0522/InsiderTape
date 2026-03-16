@@ -890,7 +890,7 @@ async function apiFetch(path, opts={}) {
   // Scoreboard does many parallel price fetches — give it extra time
   // Monitor fetches screener + firstbuys (heavy CTE) — also needs extra time
   const ms = path.startsWith('/api/scoreboard') ? 90000
-           : (path.startsWith('/api/drift') || path.startsWith('/api/proximity')) ? 90000
+           : (path.startsWith('/api/proximity')) ? 90000
            : path.startsWith('/api/firstbuys') ? 45000
            : 45000;
   const timer = setTimeout(() => controller.abort(), ms);
@@ -1312,911 +1312,6 @@ function getMarketCapTier(ownedShares, price) {
   if (holdingValue > 50000000)  return 2; // large
   if (holdingValue > 5000000)   return 1; // mid
   return 0; // small
-}
-
-function buildCapitalAtRiskData(trades) {
-  const buys = trades.filter(t => t.type === 'P');
-  if (!buys.length) return [];
-
-  // Group by insider+ticker — one entry per insider/stock combo
-  const byKey = {};
-  buys.forEach(t => {
-    const key = `${t.insider}::${t.ticker}`;
-    if (!byKey[key]) byKey[key] = [];
-    byKey[key].push(t);
-  });
-
-  const results = [];
-
-  Object.entries(byKey).forEach(([key, keyBuys]) => {
-    const [insiderName, ticker] = key.split('::');
-    
-    // Use the most recent buy for reference values
-    const sorted     = [...keyBuys].sort((a,b) => (b.trade||b.filing||'').localeCompare(a.trade||a.filing||''));
-    const latest     = sorted[0];
-    const title      = latest.title || '';
-    const price      = latest.price || 0;
-    const ownedAfter = latest.owned || 0;
-    const tradeQty   = latest.qty   || 0;
-    const tradeVal   = latest.value || 0;
-
-    // Est. pre-trade position
-    const ownedBefore = Math.max(0, ownedAfter - tradeQty);
-
-    // Est. net worth: aggregate ALL known holdings for this insider across all tickers
-    // Then apply a diversification multiplier (insiders typically have 20-40% in employer stock)
-    const holdingValue = ownedAfter * price;
-    // Sum all known holdings for this insider across all tickers from the full trade history
-    const insiderAllTrades = (trades || []).filter(x => x.insider === insiderName && (x.owned||0) > 0 && (x.price||0) > 0);
-    const knownHoldingsVal = insiderAllTrades.reduce((s, x) => {
-      // Use most recent owned × price per ticker
-      return s + (x.owned * x.price);
-    }, 0);
-    const totalKnownHoldings = Math.max(holdingValue, knownHoldingsVal);
-    // Insiders typically hold 20-50% of net worth in company stock → multiply by 2.5
-    const estNetWorth = totalKnownHoldings > 0 ? totalKnownHoldings * 2.5 : 0;
-
-    // Market cap tier from holding size
-    const mcTier   = getMarketCapTier(ownedAfter, price);
-    const estSalary = estimateSalary(title, mcTier);
-
-    // Existing position value before this trade
-    const existingPosValue = ownedBefore * price;
-
-    // ── Scoring ──────────────────────────────────────────────────
-    let score = 0;
-    const factors = [];
-
-    // (1) Trade as % of estimated net worth — most powerful signal
-    let nwPct = 0;
-    if (estNetWorth > 0) {
-      nwPct = (tradeVal / estNetWorth) * 100;
-      if      (nwPct >= 20) { score += 40; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'EXTREME',  color: 'var(--buy)' }); }
-      else if (nwPct >= 10) { score += 32; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'VERY HIGH', color: 'var(--buy)' }); }
-      else if (nwPct >= 5)  { score += 24; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'HIGH',     color: 'var(--accent)' }); }
-      else if (nwPct >= 2)  { score += 14; factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'MODERATE', color: 'var(--option)' }); }
-      else if (nwPct >= 0.5){ score += 6;  factors.push({ label: `${nwPct.toFixed(1)}% of est. net worth`, strength: 'MINOR',    color: 'var(--muted)' }); }
-    }
-
-    // (2) Trade as multiple of annual salary
-    let salaryMult = 0;
-    if (estSalary > 0) {
-      salaryMult = tradeVal / estSalary;
-      if      (salaryMult >= 5)  { score += 30; factors.push({ label: `${salaryMult.toFixed(1)}× annual salary`, strength: 'EXTREME',  color: 'var(--buy)' }); }
-      else if (salaryMult >= 2)  { score += 22; factors.push({ label: `${salaryMult.toFixed(1)}× annual salary`, strength: 'VERY HIGH', color: 'var(--buy)' }); }
-      else if (salaryMult >= 1)  { score += 15; factors.push({ label: `${salaryMult.toFixed(1)}× annual salary`, strength: 'HIGH',     color: 'var(--accent)' }); }
-      else if (salaryMult >= 0.5){ score += 8;  factors.push({ label: `${(salaryMult*100).toFixed(0)}% of annual salary`, strength: 'MODERATE', color: 'var(--option)' }); }
-      else if (salaryMult >= 0.1){ score += 3;  factors.push({ label: `${(salaryMult*100).toFixed(0)}% of annual salary`, strength: 'MINOR',    color: 'var(--muted)' }); }
-    }
-
-    // (3) Trade relative to existing position size
-    let posPct = 0;
-    if (existingPosValue > 0) {
-      posPct = (tradeVal / existingPosValue) * 100;
-      if      (posPct >= 100) { score += 20; factors.push({ label: `Doubled existing position (+${posPct.toFixed(0)}%)`, strength: 'EXTREME',  color: 'var(--buy)' }); }
-      else if (posPct >= 50)  { score += 16; factors.push({ label: `+${posPct.toFixed(0)}% added to position`,            strength: 'VERY HIGH', color: 'var(--buy)' }); }
-      else if (posPct >= 20)  { score += 11; factors.push({ label: `+${posPct.toFixed(0)}% added to position`,            strength: 'HIGH',     color: 'var(--accent)' }); }
-      else if (posPct >= 5)   { score += 5;  factors.push({ label: `+${posPct.toFixed(0)}% added to position`,            strength: 'MODERATE', color: 'var(--option)' }); }
-    } else if (ownedBefore === 0 && tradeVal > 0) {
-      // Brand new position — always high conviction
-      score += 15;
-      factors.push({ label: 'New position established', strength: 'HIGH', color: 'var(--accent)' });
-    }
-
-    // (4) Seniority bonus — C-suite put MORE on the line
-    const tUpper = title.toUpperCase();
-    const isCLevel = tUpper.includes('CEO') || tUpper.includes('CFO') || tUpper.includes('PRESIDENT') || tUpper.includes('CHAIRMAN') || tUpper.includes('COO');
-    if (isCLevel && score > 20) {
-      score += 10;
-      factors.push({ label: `${title} — full information advantage`, strength: 'BONUS', color: 'var(--accent)' });
-    }
-
-    score = Math.min(100, Math.max(0, Math.round(score)));
-    if (score < 25) return; // filter noise
-
-    // Risk tier label
-    let tier, tierColor;
-    if      (score >= 80) { tier = 'EXTREME RISK';    tierColor = 'var(--buy)'; }
-    else if (score >= 65) { tier = 'VERY HIGH RISK';  tierColor = 'var(--buy)'; }
-    else if (score >= 50) { tier = 'HIGH RISK';       tierColor = 'var(--accent)'; }
-    else if (score >= 35) { tier = 'MODERATE RISK';   tierColor = 'var(--option)'; }
-    else                  { tier = 'LOW RISK';         tierColor = 'var(--muted)'; }
-
-    results.push({
-      insider: insiderName,
-      title, ticker,
-      company:       latest.company || ticker,
-      tradeDate:     latest.trade   || latest.filing || '',
-      tradeVal,
-      estNetWorth,
-      estSalary,
-      existingPosValue,
-      nwPct, salaryMult, posPct,
-      holdingValue,
-      mcTier,
-      score, tier, tierColor,
-      factors: factors.slice(0, 4),
-    });
-  });
-
-  return results.sort((a, b) => b.score - a.score);
-}
-
-let _carCache = null;
-
-function renderCapitalAtRiskSubpage() {
-  window.scrollTo(0, 0);
-  const body    = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  if (!_analysisDataLong) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading trade history…</span></div>
-    </div>`;
-    ensureAnalysisDataLong(() => renderCapitalAtRiskSubpage());
-    return;
-  }
-
-  const trades  = _analysisDataLong || _analysisData || [];
-
-  _carCache = buildCapitalAtRiskData(trades);
-
-  if (!_carCache.length) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">No qualifying trades in the current window.</div>
-    </div>`;
-    return;
-  }
-
-  const mcLabels = ['Small-Cap', 'Mid-Cap', 'Large-Cap'];
-  const salaryLabel = (s) => s >= 1000000 ? `$${(s/1000000).toFixed(1)}M` : `$${(s/1000).toFixed(0)}K`;
-
-  const cards = _carCache.map(r => {
-    const scoreColor  = r.score >= 80 ? 'var(--buy)' : r.score >= 65 ? 'var(--buy)' : r.score >= 50 ? 'var(--accent)' : r.score >= 35 ? 'var(--option)' : 'var(--muted)';
-    const scoreBg     = r.score >= 65 ? 'rgba(0,255,136,0.08)' : r.score >= 50 ? 'rgba(0,212,255,0.07)' : 'rgba(255,170,0,0.06)';
-    const scoreBorder = r.score >= 65 ? 'rgba(0,255,136,0.28)' : r.score >= 50 ? 'rgba(0,212,255,0.22)' : 'rgba(255,170,0,0.2)';
-    const barWidth    = Math.round(r.score);
-
-    const statsRow = [
-      r.estNetWorth > 0 ? `<div style="flex:1;min-width:0">
-        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">EST. NET WORTH</div>
-        <div style="font-size:13px;color:var(--text);font-family:'Space Mono',monospace">${fmt(r.estNetWorth)}</div>
-        <div style="font-size:9px;color:var(--muted);margin-top:1px">${r.nwPct > 0 ? r.nwPct.toFixed(1) + '% used' : '—'}</div>
-      </div>` : '',
-
-      `<div style="flex:1;min-width:0">
-        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">EST. SALARY</div>
-        <div style="font-size:13px;color:var(--text);font-family:'Space Mono',monospace">${salaryLabel(r.estSalary)}<span style="font-size:9px;color:var(--muted)">/yr</span></div>
-        <div style="font-size:9px;color:var(--muted);margin-top:1px">${r.salaryMult >= 0.1 ? r.salaryMult.toFixed(2) + '× salary' : '< 0.1×'}</div>
-      </div>`,
-
-      r.existingPosValue > 0 ? `<div style="flex:1;min-width:0">
-        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">PRIOR POSITION</div>
-        <div style="font-size:13px;color:var(--text);font-family:'Space Mono',monospace">${fmt(r.existingPosValue)}</div>
-        <div style="font-size:9px;color:var(--muted);margin-top:1px">${r.posPct > 0 ? '+' + r.posPct.toFixed(0) + '% added' : 'new position'}</div>
-      </div>` : `<div style="flex:1;min-width:0">
-        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">PRIOR POSITION</div>
-        <div style="font-size:13px;color:var(--buy);font-family:'Space Mono',monospace">NEW</div>
-        <div style="font-size:9px;color:var(--muted);margin-top:1px">first purchase</div>
-      </div>`,
-
-      `<div style="flex:1;min-width:0">
-        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:3px">TRADE SIZE</div>
-        <div style="font-size:13px;color:${scoreColor};font-family:'Space Mono',monospace">${fmt(r.tradeVal)}</div>
-        <div style="font-size:9px;color:var(--muted);margin-top:1px">${mcLabels[r.mcTier]}</div>
-      </div>`,
-    ].filter(Boolean).join('');
-
-    const factorsHtml = r.factors.map(f => `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
-        <span style="font-size:11px;color:var(--text)">${f.label}</span>
-        <span style="font-family:'Space Mono',monospace;font-size:9px;color:${f.color};flex-shrink:0;background:rgba(255,255,255,0.04);padding:2px 6px;border-radius:3px;border:1px solid ${f.color}33">${f.strength}</span>
-      </div>`).join('');
-
-    return `
-    <div onclick="openTickerFromScreener('${r.ticker}')"
-         style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-         onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
-
-      <!-- Score bar top -->
-      <div style="height:3px;background:rgba(255,255,255,0.05)">
-        <div style="height:100%;width:${barWidth}%;background:${scoreColor};transition:width .4s;opacity:0.8"></div>
-      </div>
-
-      <!-- Header -->
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 16px 12px;gap:12px;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
-          <div>
-            <div style="font-family:'Space Mono',monospace;font-size:16px;font-weight:700;color:var(--accent)">${r.ticker}</div>
-            <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${r.company}</div>
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.insider}</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.title}</div>
-          </div>
-        </div>
-        <!-- Score badge -->
-        <div style="display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0">
-          <div style="background:${scoreBg};border:1px solid ${scoreBorder};border-radius:8px;padding:6px 12px;text-align:center">
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;color:${scoreColor};line-height:1">${r.score}</div>
-            <div style="font-family:'Space Mono',monospace;font-size:8px;color:${scoreColor};letter-spacing:1px;margin-top:1px">RISK SCORE</div>
-          </div>
-          <div style="font-family:'Space Mono',monospace;font-size:8px;color:${scoreColor};letter-spacing:1px;margin-top:5px;text-align:right">${r.tier}</div>
-        </div>
-      </div>
-
-      <!-- Stats row -->
-      <div style="display:flex;gap:0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
-        ${['EST. NET WORTH', 'EST. SALARY', 'PRIOR POSITION', 'TRADE SIZE'].map((label, i) => {
-          const vals = [
-            r.estNetWorth > 0 ? { val: fmt(r.estNetWorth), sub: r.nwPct > 0 ? r.nwPct.toFixed(1) + '% at risk' : '—', color: 'var(--text)' } : null,
-            { val: salaryLabel(r.estSalary) + '/yr', sub: r.salaryMult >= 0.1 ? r.salaryMult.toFixed(2) + '× salary' : '< 0.1×', color: 'var(--text)' },
-            r.existingPosValue > 0
-              ? { val: fmt(r.existingPosValue), sub: r.posPct > 0 ? '+' + r.posPct.toFixed(0) + '% added' : '—', color: 'var(--text)' }
-              : { val: 'NEW', sub: 'first purchase', color: 'var(--buy)' },
-            { val: fmt(r.tradeVal), sub: mcLabels[r.mcTier], color: scoreColor },
-          ];
-          const v = vals[i];
-          if (!v) return '';
-          return `<div style="flex:1;padding:10px 12px;${i > 0 ? 'border-left:1px solid var(--border)' : ''}">
-            <div style="font-size:8px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:4px">${label}</div>
-            <div style="font-size:12px;color:${v.color};font-family:'Space Mono',monospace;font-weight:700">${v.val}</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px">${v.sub}</div>
-          </div>`;
-        }).join('')}
-      </div>
-
-      <!-- Factors -->
-      <div style="padding:12px 16px">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.5px;color:var(--muted);margin-bottom:6px">RISK FACTORS</div>
-        ${factorsHtml || '<div style="font-size:11px;color:var(--muted)">Insufficient data for full scoring</div>'}
-        <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:right">${r.tradeDate}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">💎 CAPITAL AT RISK SCORE</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Conviction scored by personal financial risk — not raw dollar value · Last 30D</div>
-    </div>
-    <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.15);border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:11px;color:var(--muted);line-height:1.7">
-      A <span style="color:var(--text)">$500K buy</span> by a billionaire CEO is noise.
-      The same <span style="color:var(--text)">$500K buy</span> by a small-cap CFO earning $350K/yr, doubling their existing position, represents <span style="color:var(--buy)">~1.4× their annual salary and ~7% of estimated net worth</span> — an entirely different level of conviction.
-      <span style="color:var(--accent)">This tool measures that difference.</span>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px">
-      ${cards}
-    </div>
-    <div style="font-size:10px;color:var(--muted);margin-top:20px;line-height:1.6;opacity:0.7">
-      ⚠ Net worth and salary estimates are inferred from SEC filing data, known holding values, and title-based compensation benchmarks.
-      They are approximations only and should not be taken as precise figures.
-    </div>
-  </div>`;
-}
-
-
-// ── INSIDER BEHAVIOR REGIME SHIFT DETECTOR ─────────────────────────
-// Detects when an insider's behavior changes materially vs their own baseline.
-// Four signal types:
-//   SELLER_FLIPS_BUY   — chronic seller makes open-market purchase
-//   DORMANT_ACTIVATES  — insider silent 6m+ suddenly trades
-//   SELL_SPIKE         — selling intensity far exceeds personal baseline
-//   BUY_ACCELERATION   — buying pace significantly above personal norm
-//
-// Each signal is scored 0–100 and classified by regime type.
-// Uses _analysisDataLong (365d) for baseline, _analysisData (30d) for recent.
-
-function buildRegimeShiftData(longTrades, recentTrades) {
-  if (!longTrades || longTrades.length < 10) return [];
-
-  const now = new Date();
-  const RECENT_DAYS  = 30;
-  const BASELINE_DAYS = 365;  // 1-year baseline window (excludes most recent 30d)
-  const recentCutoff   = new Date(now); recentCutoff.setDate(recentCutoff.getDate() - RECENT_DAYS);
-  const baselineEnd    = new Date(recentCutoff);
-  const baselineStart  = new Date(now); baselineStart.setDate(baselineStart.getDate() - BASELINE_DAYS);
-
-  // Partition all trades into baseline vs recent per insider
-  const byInsider = {};
-  longTrades.forEach(t => {
-    if (!t.insider || !t.ticker) return;
-    const key = t.insider;
-    if (!byInsider[key]) byInsider[key] = { baseline: [], recent: [], tickers: new Set() };
-    const d = new Date(t.trade || t.filing || '');
-    if (isNaN(d)) return;
-    if (d >= recentCutoff)   byInsider[key].recent.push(t);
-    else if (d >= baselineStart && d < baselineEnd) byInsider[key].baseline.push(t);
-    byInsider[key].tickers.add(t.ticker);
-  });
-
-  const signals = [];
-
-  Object.entries(byInsider).forEach(([insider, data]) => {
-    const { baseline, recent } = data;
-    if (!recent.length) return;  // must have recent activity to flag
-
-    const recentBuys  = recent.filter(t => t.type === 'P');
-    const recentSells = recent.filter(t => t.type === 'S' || t.type === 'S-');
-    const baseBuys    = baseline.filter(t => t.type === 'P');
-    const baseSells   = baseline.filter(t => t.type === 'S' || t.type === 'S-');
-
-    const recentTickers = [...new Set(recent.map(t => t.ticker))];
-    // Use the ticker with highest recent activity value for the card
-    const primaryTicker = recentTickers.reduce((best, tk) => {
-      const val = recent.filter(t => t.ticker === tk).reduce((s, t) => s + (t.value || 0), 0);
-      return val > (best.val || 0) ? { tk, val } : best;
-    }, {}).tk || recentTickers[0];
-
-    const primaryTrade = recent.filter(t => t.ticker === primaryTicker).sort((a,b) =>
-      (b.trade||b.filing||'').localeCompare(a.trade||a.filing||'')
-    )[0] || recent[0];
-
-    const title   = primaryTrade.title   || '';
-    const company = primaryTrade.company || primaryTicker;
-
-    // ── Signal 1: SELLER FLIPS BUYER ───────────────────────────────
-    // Had ≥2 sells in baseline, zero buys in baseline, now buying
-    if (baseSells.length >= 3 && baseBuys.length === 0 && recentBuys.length >= 1) {
-      const sellVal  = baseSells.reduce((s, t) => s + (t.value || 0), 0);
-      const buyVal   = recentBuys.reduce((s, t) => s + (t.value || 0), 0);
-      const sellSpan = baseSells.length;
-
-      let score = 50;
-      if (sellSpan >= 5)       score += 20;
-      else if (sellSpan >= 3)  score += 12;
-      if (buyVal >= sellVal * 0.5) score += 15;
-      if (buyVal >= 500000)    score += 10;
-      if (buyVal >= 1000000)   score += 5;
-      if (recentBuys.length >= 2) score += 8;
-      const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
-      if (isCLevel) score += 7;
-      score = Math.min(100, score);
-
-      const totalRecentBuyVal = recentBuys.reduce((s,t) => s+(t.value||0), 0);
-      signals.push({
-        insider, title, ticker: primaryTicker, company,
-        regimeType: 'SELLER_FLIPS_BUY',
-        regimeLabel: 'Chronic Seller → Buyer',
-        icon: '🔄',
-        accentColor: 'var(--buy)',
-        accentBg: 'rgba(0,255,136,0.07)',
-        accentBorder: 'rgba(0,255,136,0.28)',
-        score,
-        tradeDate: primaryTrade.trade || primaryTrade.filing || '',
-        metrics: [
-          { label: 'Sells in baseline',  value: `${sellSpan} trades · ${fmt(sellVal)}` },
-          { label: 'Recent buy',         value: fmt(totalRecentBuyVal), highlight: true },
-          { label: 'Buy count (30d)',     value: `${recentBuys.length} transaction${recentBuys.length > 1 ? 's' : ''}` },
-        ],
-        narrative: `${insider} had ${sellSpan} sell transaction${sellSpan>1?'s':''} and zero buys over the prior 6 months — now making open-market purchases.`,
-      });
-    }
-
-    // ── Signal 2: DORMANT INSIDER ACTIVATES ────────────────────────
-    // No trades in baseline period at all, now active
-    if (baseline.length === 0 && recent.length >= 1) {
-      const recentVal = recent.reduce((s, t) => s + (t.value || 0), 0);
-      const isBuying  = recentBuys.length > recentSells.length;
-
-      // Require at least some buy activity for dormant — pure sells less interesting
-      if (!recentBuys.length && recentSells.length > recentBuys.length) return;
-      let score = 45;
-      if (recent.length >= 3)    score += 15;
-      if (recentVal >= 500000)   score += 15;
-      if (recentVal >= 1000000)  score += 10;
-      if (isBuying)              score += 12;
-      if (recentBuys.length >= 2) score += 8;
-      const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
-      if (isCLevel) score += 10;
-      if (!isCLevel) score -= 10; // non-exec dormant activation is less signal
-      score = Math.min(100, score);
-
-      signals.push({
-        insider, title, ticker: primaryTicker, company,
-        regimeType: 'DORMANT_ACTIVATES',
-        regimeLabel: 'Dormant → Active',
-        icon: '⚡',
-        accentColor: 'var(--accent)',
-        accentBg: 'rgba(0,212,255,0.06)',
-        accentBorder: 'rgba(0,212,255,0.25)',
-        score,
-        tradeDate: primaryTrade.trade || primaryTrade.filing || '',
-        metrics: [
-          { label: 'Inactive for',       value: '6+ months' },
-          { label: 'Recent activity',    value: `${recent.length} trade${recent.length>1?'s':''} · ${fmt(recentVal)}`, highlight: true },
-          { label: 'Direction',          value: isBuying ? '↑ Net Buyer' : '↓ Net Seller' },
-        ],
-        narrative: `${insider} had no SEC filings in the prior 6 months — now filing ${recent.length} transaction${recent.length>1?'s':''} totaling ${fmt(recentVal)}.`,
-      });
-    }
-
-    // ── Signal 3: SELL SPIKE vs BASELINE ───────────────────────────
-    // Recent sell intensity significantly above personal baseline rate
-    if (baseSells.length >= 1 && recentSells.length >= 1) {
-      const baseRate   = baseSells.length / 6;   // avg sells per month over baseline
-      const recentRate = recentSells.length;       // sells in last month
-      const ratio      = recentRate / Math.max(baseRate, 0.1);
-
-      const baseVal    = baseSells.reduce((s,t)=>s+(t.value||0),0) / 6;
-      const recentVal  = recentSells.reduce((s,t)=>s+(t.value||0),0);
-
-      if (ratio >= 3.0) {
-        let score = 35;
-        if (ratio >= 5)      score += 25;
-        else if (ratio >= 3) score += 15;
-        if (recentVal >= baseVal * 3)  score += 15;
-        if (recentVal >= 1000000)      score += 10;
-        if (recentSells.length >= 3)   score += 8;
-        const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
-        if (isCLevel) score += 7;
-        score = Math.min(100, score);
-
-        signals.push({
-          insider, title, ticker: primaryTicker, company,
-          regimeType: 'SELL_SPIKE',
-          regimeLabel: 'Sell Spike vs Baseline',
-          icon: '🔴',
-          accentColor: 'var(--sell)',
-          accentBg: 'rgba(255,68,102,0.06)',
-          accentBorder: 'rgba(255,68,102,0.28)',
-          score,
-          tradeDate: primaryTrade.trade || primaryTrade.filing || '',
-          metrics: [
-            { label: 'Baseline rate',    value: `${baseRate.toFixed(1)} sells/mo` },
-            { label: 'Recent rate',      value: `${recentSells.length} sells this month`, highlight: true },
-            { label: 'Intensity ratio',  value: `${ratio.toFixed(1)}× above normal`, highlight: true },
-          ],
-          narrative: `${insider}'s sell rate is ${ratio.toFixed(1)}× their 6-month baseline — ${recentSells.length} sell${recentSells.length>1?'s':''} in 30 days vs avg ${baseRate.toFixed(1)}/mo.`,
-        });
-      }
-    }
-
-    // ── Signal 4: BUY ACCELERATION ─────────────────────────────────
-    // Recent buy pace materially above personal baseline
-    if (baseBuys.length >= 1 && recentBuys.length >= 1) {
-      const baseRate   = baseBuys.length / 6;
-      const recentRate = recentBuys.length;
-      const ratio      = recentRate / Math.max(baseRate, 0.1);
-
-      const baseVal   = baseBuys.reduce((s,t)=>s+(t.value||0),0) / 6;
-      const recentVal = recentBuys.reduce((s,t)=>s+(t.value||0),0);
-      const valRatio  = recentVal / Math.max(baseVal, 1);
-
-      if (ratio >= 3.0 || valRatio >= 4) {
-        let score = 35;
-        if (ratio >= 5)       score += 20;
-        else if (ratio >= 3)  score += 12;
-        if (valRatio >= 5)    score += 18;
-        else if (valRatio >= 3) score += 10;
-        if (recentVal >= 500000)  score += 8;
-        if (recentVal >= 1000000) score += 7;
-        const isCLevel = /CEO|CFO|PRESIDENT|CHAIRMAN|COO/.test(title.toUpperCase());
-        if (isCLevel) score += 10;
-        score = Math.min(100, score);
-
-        signals.push({
-          insider, title, ticker: primaryTicker, company,
-          regimeType: 'BUY_ACCELERATION',
-          regimeLabel: 'Buy Acceleration',
-          icon: '🚀',
-          accentColor: '#ffd700',
-          accentBg: 'rgba(255,215,0,0.06)',
-          accentBorder: 'rgba(255,215,0,0.28)',
-          score,
-          tradeDate: primaryTrade.trade || primaryTrade.filing || '',
-          metrics: [
-            { label: 'Baseline rate',   value: `${baseRate.toFixed(1)} buys/mo` },
-            { label: 'Recent rate',     value: `${recentBuys.length} buys this month`, highlight: true },
-            { label: 'Value vs norm',   value: `${valRatio.toFixed(1)}× normal buy value`, highlight: true },
-          ],
-          narrative: `${insider}'s buying pace is ${Math.max(ratio,valRatio).toFixed(1)}× their 6-month norm — ${recentBuys.length} buy${recentBuys.length>1?'s':''} in 30 days totaling ${fmt(recentVal)}.`,
-        });
-      }
-    }
-  });
-
-  // Deduplicate: if same insider appears with multiple signal types, keep highest score per type
-  // but allow at most 1 signal per insider (strictest dedup)
-  const byInsiderCount = {};
-  const deduped = signals
-    .sort((a, b) => b.score - a.score)
-    .filter(s => {
-      if (s.score < 40) return false; // require meaningful score
-      const n = (byInsiderCount[s.insider] || 0);
-      if (n >= 1) return false;
-      byInsiderCount[s.insider] = n + 1;
-      return true;
-    });
-
-  return deduped.sort((a, b) => b.score - a.score);
-}
-
-let _regimeCache = null;
-
-function renderRegimeShiftSubpage() {
-  window.scrollTo(0, 0);
-  const body      = document.getElementById('analysisViewBody');
-  const backBtn   = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  if (!_analysisDataLong) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div class="loading-state" style="height:200px"><div class="spinner"></div><span>Loading 12-month history for baseline comparison…</span></div>
-    </div>`;
-    ensureAnalysisDataLong(() => renderRegimeShiftSubpage());
-    return;
-  }
-
-  const longT     = _analysisDataLong || _analysisData || [];
-  const recentT   = _analysisData || [];
-
-  _regimeCache = buildRegimeShiftData(longT, recentT);
-
-  const TYPE_ORDER = ['SELLER_FLIPS_BUY', 'DORMANT_ACTIVATES', 'BUY_ACCELERATION', 'SELL_SPIKE'];
-
-  const regimeLabels = {
-    SELLER_FLIPS_BUY:  { label: 'Seller → Buyer',    color: 'var(--buy)',    bg: 'rgba(0,255,136,0.08)',   border: 'rgba(0,255,136,0.2)' },
-    DORMANT_ACTIVATES: { label: 'Dormant → Active',  color: 'var(--accent)', bg: 'rgba(0,212,255,0.08)',  border: 'rgba(0,212,255,0.2)' },
-    BUY_ACCELERATION:  { label: 'Buy Acceleration',  color: '#ffd700',       bg: 'rgba(255,215,0,0.08)',  border: 'rgba(255,215,0,0.2)' },
-    SELL_SPIKE:        { label: 'Sell Spike',         color: 'var(--sell)',   bg: 'rgba(255,68,102,0.08)', border: 'rgba(255,68,102,0.2)' },
-  };
-
-  if (!_regimeCache.length) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;margin-bottom:20px">📡 REGIME SHIFT DETECTOR</div>
-      <div style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">No regime shifts detected in the current window.<br><span style="font-size:11px">Requires sufficient baseline history. Try again after more data loads.</span></div>
-    </div>`;
-    return;
-  }
-
-  // Group by regime type
-  const byType = {};
-  TYPE_ORDER.forEach(t => { byType[t] = _regimeCache.filter(s => s.regimeType === t); });
-
-  const sectionHtml = TYPE_ORDER.map(type => {
-    const group = byType[type];
-    if (!group.length) return '';
-    const meta = regimeLabels[type];
-    const icon = group[0].icon;
-
-    const cards = group.map(s => {
-      const scoreColor  = s.score >= 75 ? s.accentColor : s.score >= 55 ? s.accentColor : 'var(--muted)';
-      const barWidth    = s.score;
-
-      const metricsHtml = s.metrics.map(m => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(30,45,61,0.5)">
-          <span style="font-size:10px;color:var(--muted)">${m.label}</span>
-          <span style="font-family:'Space Mono',monospace;font-size:10px;color:${m.highlight ? s.accentColor : 'var(--text)'};font-weight:${m.highlight?'700':'400'}">${m.value}</span>
-        </div>`).join('');
-
-      return `
-      <div onclick="openTickerFromScreener('${s.ticker}')"
-           style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-           onmouseover="this.style.borderColor='${s.accentBorder}'" onmouseout="this.style.borderColor='var(--border)'">
-
-        <!-- Score bar -->
-        <div style="height:3px;background:rgba(255,255,255,0.05)">
-          <div style="height:100%;width:${barWidth}%;background:${s.accentColor};opacity:0.75"></div>
-        </div>
-
-        <!-- Header -->
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:13px 16px 10px;gap:10px">
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-              <span style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:var(--accent)">${s.ticker}</span>
-              <span style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${s.company}</span>
-            </div>
-            <div style="font-size:12px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.insider}</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:1px">${s.title}</div>
-          </div>
-          <!-- Score -->
-          <div style="flex-shrink:0;text-align:right">
-            <div style="background:${s.accentBg};border:1px solid ${s.accentBorder};border-radius:7px;padding:5px 10px;display:inline-block">
-              <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${s.accentColor};line-height:1">${s.score}</div>
-              <div style="font-family:'Space Mono',monospace;font-size:7px;color:${s.accentColor};letter-spacing:1px">SHIFT SCORE</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Narrative -->
-        <div style="padding:0 16px 10px">
-          <div style="font-size:11px;color:var(--muted);line-height:1.6;font-style:italic">${s.narrative}</div>
-        </div>
-
-        <!-- Metrics -->
-        <div style="padding:0 16px 12px">
-          ${metricsHtml}
-          <div style="font-size:9px;color:var(--muted);text-align:right;margin-top:6px">${s.tradeDate}</div>
-        </div>
-      </div>`;
-    }).join('');
-
-    return `
-    <div style="margin-bottom:32px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-        <span style="font-size:18px">${icon}</span>
-        <div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:${meta.color}">${meta.label.toUpperCase()}</div>
-          <div style="font-size:10px;color:var(--muted)">${group.length} insider${group.length>1?'s':''} flagged</div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px">
-        ${cards}
-      </div>
-    </div>`;
-  }).join('');
-
-  const totalBullish = _regimeCache.filter(s => s.regimeType === 'SELLER_FLIPS_BUY' || s.regimeType === 'BUY_ACCELERATION' || s.regimeType === 'DORMANT_ACTIVATES').length;
-  const totalBearish = _regimeCache.filter(s => s.regimeType === 'SELL_SPIKE').length;
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">📡 INSIDER BEHAVIOR REGIME SHIFT DETECTOR</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Detects material changes vs each insider's own 6-month behavioral baseline · Last 30D</div>
-    </div>
-
-    <!-- Summary bar -->
-    <div style="display:flex;gap:10px;margin:16px 0 24px;flex-wrap:wrap">
-      <div style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:120px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${totalBullish}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Bullish Regime Shifts</div>
-      </div>
-      <div style="background:rgba(255,68,102,0.05);border:1px solid rgba(255,68,102,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:120px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--sell)">${totalBearish}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Bearish Regime Shifts</div>
-      </div>
-      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:120px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--text)">${_regimeCache.length}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Total Signals</div>
-      </div>
-    </div>
-
-    <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:7px;padding:11px 15px;margin-bottom:24px;font-size:11px;color:var(--muted);line-height:1.7">
-      Each insider is scored against <span style="color:var(--text)">their own 6-month behavioral baseline</span> — not the market.
-      A chronic seller making one purchase scores higher than a neutral insider making ten.
-      <span style="color:var(--accent)">Regime changes catch inflection before price.</span>
-    </div>
-
-    ${sectionHtml}
-  </div>`;
-}
-
-
-// ── POST-BUY DRIFT ANALYZER ────────────────────────────────────────────────
-// Measures actual forward return paths after every insider buy event in history.
-// For each ticker, averages returns at D+1, D+5, D+20, D+60 across all buy events.
-// Drift score uses ALL four periods weighted by signal reliability:
-//   D+1  — immediate reaction      (weight 0.10)
-//   D+5  — short-term follow-thru  (weight 0.20)
-//   D+20 — medium-term drift       (weight 0.30)
-//   D+60 — full thesis play-out    (weight 0.40)
-// Consistency bonus: win rate ≥60% at D+60 adds meaningful lift.
-// Acceleration bonus: drift that builds across all periods scores higher.
-// More buy events = more reliable sample = score multiplier.
-
-let _driftCache       = null;
-let _driftPriceCache  = {};
-let _driftRunning     = false;
-
-// calendar-day offsets for each checkpoint (trading days × ~1.4)
-const DRIFT_OFFSETS = { 1: 2, 5: 8, 20: 29, 60: 87 };
-const DRIFT_WEIGHTS = { 1: 0.10, 5: 0.20, 20: 0.30, 60: 0.40 };
-
-async function buildPostBuyDrift(longTrades, onProgress) {
-  // All computation is now server-side via /api/drift
-  if (onProgress) onProgress(1, 1);
-  const data = await apiFetch('/api/drift');
-  return Array.isArray(data) ? data : [];
-}
-
-function renderDriftSubpage() {
-  window.scrollTo(0, 0);
-  const body    = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  if (_driftCache) { _renderDriftResults(body, backBtn, _driftCache); return; }
-  if (_driftRunning) {
-    // Computation already in progress (user navigated away and back) — show progress UI
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:6px">📈 POST-BUY DRIFT ANALYZER</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:32px">Measuring forward return paths after every insider buy event</div>
-      <div style="max-width:460px;margin:0 auto;text-align:center;padding:40px 0">
-        <div style="font-size:13px;color:var(--text);margin-bottom:14px">Computing drift data… please wait</div>
-        <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
-          <div style="height:100%;width:60%;background:var(--accent);border-radius:4px;animation:pulse 1.5s ease-in-out infinite"></div>
-        </div>
-        <div style="font-size:11px;color:var(--muted)">This was started in the background — results will appear shortly</div>
-      </div>
-    </div>`;
-    const poll = setInterval(() => { if (_driftCache || !_driftRunning) { clearInterval(poll); renderDriftSubpage(); } }, 800);
-    return;
-  }
-  _driftRunning = true;
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:6px">📈 POST-BUY DRIFT ANALYZER</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:32px">Measuring forward return paths after every insider buy event</div>
-    <div style="max-width:460px;margin:0 auto;text-align:center;padding:40px 0">
-      <div style="font-size:13px;color:var(--text);margin-bottom:14px">Loading drift analysis…</div>
-      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:5px;overflow:hidden;margin-bottom:10px">
-        <div style="height:100%;width:60%;background:var(--accent);border-radius:4px;animation:pulse 1.5s ease-in-out infinite"></div>
-      </div>
-      <div style="font-size:11px;color:var(--muted)">Computing D+1 · D+5 · D+20 · D+60 return paths per ticker</div>
-    </div>
-  </div>`;
-
-  apiFetch('/api/drift').then(results => {
-    _driftRunning = false;
-    _driftCache   = Array.isArray(results) ? results : [];
-    if (_rankerCache) { try { _rankerCache = scoreOpportunityRanker(_rankerCache.map(r => ({...r}))); } catch(e) {} }
-    _renderDriftResults(body, backBtn, _driftCache);
-  }).catch(e => {
-    _driftRunning = false;
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}
-      <div style="color:var(--sell);font-size:13px;padding:30px 0">Error loading drift: ${e.message}</div>
-    </div>`;
-  });
-}
-
-function _renderDriftResults(body, backBtn, results) {
-  if (!results.length) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-      ${backBtn}
-      <div style="color:var(--muted);font-size:13px;text-align:center;padding:40px 0">Not enough buy history with matching price data to compute drift.</div>
-    </div>`;
-    return;
-  }
-
-  const top = results.slice(0, 25);
-
-  // Colour an individual return value
-  const retColor = r => r >= 8 ? 'var(--buy)' : r >= 2 ? '#7ecb7e' : r >= 0 ? 'var(--accent)' : r >= -3 ? 'var(--option)' : 'var(--sell)';
-  const fmtR = r => r === null ? '<span style="color:var(--muted);font-size:10px">—</span>'
-    : `<span style="color:${retColor(r)};font-weight:700">${r >= 0 ? '+' : ''}${r.toFixed(1)}%</span>`;
-
-  // Mini SVG sparkline for the four-point drift curve
-  const sparkSvg = (avg) => {
-    const pts = [1, 5, 20, 60].map(cp => avg[cp]);
-    if (pts.some(v => v === null)) return '';
-    const W = 80, H = 28, PAD = 4;
-    const minV = Math.min(0, ...pts) - 1;
-    const maxV = Math.max(0, ...pts) + 1;
-    const range = maxV - minV || 1;
-    const xs = [0, 0.18, 0.52, 1].map(f => PAD + f * (W - PAD * 2));
-    const ys = pts.map(v => H - PAD - ((v - minV) / range) * (H - PAD * 2));
-    // zero line
-    const zy = H - PAD - ((0 - minV) / range) * (H - PAD * 2);
-    const color = pts[3] >= 0 ? '#00ff88' : '#ff4466';
-    const path = xs.map((x, i) => `${i===0?'M':'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ');
-    const area = `M${xs[0].toFixed(1)},${zy.toFixed(1)} ` + xs.map((x,i) => `L${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ') + ` L${xs[3].toFixed(1)},${zy.toFixed(1)} Z`;
-    return `<svg width="${W}" height="${H}" style="overflow:visible;flex-shrink:0">
-      <line x1="${PAD}" y1="${zy.toFixed(1)}" x2="${W-PAD}" y2="${zy.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-      <path d="${area}" fill="${color}" fill-opacity="0.12"/>
-      <path d="${path}" stroke="${color}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-      ${pts.map((v,i) => `<circle cx="${xs[i].toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.5" fill="${color}"/>`).join('')}
-    </svg>`;
-  };
-
-  // Return path cells
-  const cpLabels = { 1:'D+30', 5:'D+90', 20:'D+180', 60:'D+365' };
-
-  const cards = top.map((r, idx) => {
-    const scoreColor  = r.score >= 75 ? 'var(--buy)' : r.score >= 55 ? 'var(--accent)' : 'var(--option)';
-    const scoreBorder = r.score >= 75 ? 'rgba(0,255,136,0.28)' : r.score >= 55 ? 'rgba(0,212,255,0.25)' : 'rgba(255,170,0,0.2)';
-    const scoreBg     = r.score >= 75 ? 'rgba(0,255,136,0.07)' : r.score >= 55 ? 'rgba(0,212,255,0.07)' : 'rgba(255,170,0,0.06)';
-    const spark       = sparkSvg(r.avg);
-
-    const cpCells = [1, 5, 20].map((cp, i) => `
-      <div style="flex:1;text-align:center;padding:9px 4px;${i < 2 ? 'border-right:1px solid var(--border)' : ''}">
-        <div style="font-family:'Space Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:5px">${cpLabels[cp]}</div>
-        <div style="font-size:13px;font-family:'Space Mono',monospace">${fmtR(r.avg[cp])}</div>
-      </div>`).join('');
-
-    const badges = [];
-    if (r.accelerates) badges.push(`<span style="font-size:9px;background:rgba(0,255,136,0.1);color:var(--buy);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:2px 6px">↗ ACCELERATING</span>`);
-    if (r.winRate >= 60) badges.push(`<span style="font-size:9px;background:rgba(0,212,255,0.08);color:var(--accent);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:2px 6px">${r.winRate}% WIN RATE</span>`);
-    if (r.buyCount >= 6) badges.push(`<span style="font-size:9px;background:rgba(255,255,255,0.04);color:var(--muted);border:1px solid var(--border);border-radius:3px;padding:2px 6px">${r.buyCount} EVENTS</span>`);
-
-    return `
-    <div onclick="openTickerFromScreener('${r.ticker}')"
-         style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-         onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
-
-      <!-- Rank bar -->
-      <div style="height:3px;background:rgba(255,255,255,0.05)">
-        <div style="height:100%;width:${r.score}%;background:${scoreColor};opacity:0.75"></div>
-      </div>
-
-      <!-- Header row -->
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px 10px;gap:10px">
-        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
-          <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);min-width:20px">#${idx+1}</div>
-          <div style="min-width:0">
-            <div style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--accent)">${r.ticker}</div>
-            <div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">${r.company}</div>
-          </div>
-          <div style="flex:1;display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-start">
-            ${badges.join('')}
-          </div>
-        </div>
-        <!-- Score + spark -->
-        <div style="display:flex;align-items:center;gap:14px;flex-shrink:0">
-          ${spark}
-          <div style="background:${scoreBg};border:1px solid ${scoreBorder};border-radius:7px;padding:5px 11px;text-align:center">
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:${scoreColor};line-height:1">${r.score}</div>
-            <div style="font-family:'Space Mono',monospace;font-size:7px;color:${scoreColor};letter-spacing:1px">DRIFT</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Return path cells -->
-      <div style="display:flex;border-top:1px solid var(--border)">
-        ${cpCells}
-      </div>
-
-      <!-- Footer -->
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
-        <div style="font-size:10px;color:var(--muted)">${r.buyCount} buy event${r.buyCount!==1?'s':''} · last ${r.lastBuy}</div>
-        <div style="font-size:10px;color:var(--muted)">weighted avg: <span style="color:${retColor(r.weightedAvg)};font-weight:700">${r.weightedAvg>=0?'+':''}${r.weightedAvg.toFixed(1)}%</span></div>
-      </div>
-    </div>`;
-  }).join('');
-
-  // Summary stats
-  const avgD60 = results.filter(r => r.avg[5] !== null).map(r => r.avg[5]);
-  const overallWin = avgD60.length ? Math.round(avgD60.filter(v => v > 0).length / avgD60.length * 100) : 0;
-  const medD60 = avgD60.length ? [...avgD60].sort((a,b)=>a-b)[Math.floor(avgD60.length/2)] : 0;
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:8px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">📈 POST-BUY DRIFT ANALYZER</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Average return path after insider buys · Ranked by all-period drift strength · ${results.length} tickers scored</div>
-    </div>
-
-    <!-- Summary bar -->
-    <div style="display:flex;gap:10px;margin:16px 0 20px;flex-wrap:wrap">
-      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--text)">${results.length}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Tickers scored</div>
-      </div>
-      <div style="background:rgba(0,255,136,0.05);border:1px solid rgba(0,255,136,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${overallWin}%</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Win rate at D+90</div>
-      </div>
-      <div style="background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.18);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)">${medD60>=0?'+':''}${medD60.toFixed(1)}%</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Median D+90 return</div>
-      </div>
-      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:110px">
-        <div style="font-family:'Space Mono',monospace;font-size:18px;font-weight:700;color:var(--buy)">${results.filter(r=>r.accelerates).length}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Accelerating drift</div>
-      </div>
-    </div>
-
-    <div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:7px;padding:11px 15px;margin-bottom:22px;font-size:11px;color:var(--muted);line-height:1.7">
-      Ranked by <span style="color:var(--text)">composite drift score</span> — a weighted average of returns at D+30, D+90, and D+180 days
-      after each insider buy, using prices already recorded in the DB. Bonuses for <span style="color:var(--text)">win rate consistency</span> and <span style="color:var(--text)">progressive acceleration</span>.
-      Click any ticker to view its full trade history.
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px">
-      ${cards}
-    </div>
-
-    <div style="font-size:10px;color:var(--muted);margin-top:18px;opacity:0.65;line-height:1.6">
-      ⚠ Past drift is not a guarantee of future performance. Returns measured from filing date using next available close price.
-      Tickers with fewer than 2 measurable buy events are excluded.
-    </div>
-  </div>`;
 }
 
 // ── INSIDER EVENT PROXIMITY SCANNER ────────────────────────────────────────
@@ -4372,16 +3467,6 @@ async function loadAnalysisPage(subpage) {
   }
 
   // Pre-fetch drift and proximity in background so tiles are instant when clicked
-  if (!_driftCache) {
-    apiFetch('/api/drift').then(results => {
-      const arr = Array.isArray(results) ? results : [];
-      if (arr.length > 0) {  // only cache non-empty results — let subpage retry if empty
-        _driftCache = arr;
-        const b = document.getElementById('analysisViewBody');
-        if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-      }
-    }).catch(() => {}); // silent fail — subpage will fetch directly
-  }
   if (!_proximityCache) {
     apiFetch('/api/proximity').then(results => {
       const arr = Array.isArray(results) ? results : [];
@@ -4449,7 +3534,7 @@ function renderAnalysisDashboard() {
       id: 'ranker',
       icon: '🏆',
       name: 'Insider Opportunity Ranker',
-      desc: 'The master score. Combines signals from every tool on this page — clusters, CAR scores, regime shifts, post-buy drift, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
+      desc: 'The master score. Combines signals from every tool on this page — clusters, regime shifts, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
       count: _rankerCache ? _rankerCache.length : '…',
       countLabel: 'tickers ranked',
       loading: rankerLoading,
@@ -4572,26 +3657,6 @@ function renderAnalysisDashboard() {
     accentBorder: 'rgba(255,68,102,0.25)',
   };
 
-  // Post-Buy Drift (uses cached results if available, otherwise shows loading state)
-  const driftTop3 = (_driftCache || []).slice(0, 3);
-  const driftTool = {
-    id: 'driftanalyzer',
-    icon: '📈',
-    name: 'Post-Buy Drift Analyzer',
-    desc: 'Measures actual forward return paths after every historical insider buy. Ranks tickers by composite drift strength across D+1, D+5, D+20, and D+60 — not just one period.',
-    count: _driftCache ? _driftCache.length : '…',
-    countLabel: 'tickers ranked',
-    top3: driftTop3.map(r => ({
-      ticker: r.ticker,
-      label: `Score ${r.score}`,
-      sub: [1,5,20,60].filter(cp => r.avg[cp]!==null).map(cp => `D+${cp}: ${r.avg[cp]>=0?'+':''}${r.avg[cp].toFixed(1)}%`).join(' · '),
-      color: r.score >= 75 ? 'var(--buy)' : r.score >= 55 ? 'var(--accent)' : 'var(--option)',
-    })),
-    accentColor: '#81c784',
-    accentBg: 'rgba(129,199,132,0.06)',
-    accentBorder: 'rgba(129,199,132,0.25)',
-  };
-
   // Regime Shift (uses longTrades for baseline)
   const regimeTop3 = buildRegimeShiftData(longTrades, trades).slice(0, 3);
   const regimeTool = {
@@ -4610,26 +3675,6 @@ function renderAnalysisDashboard() {
     accentColor: '#64b5f6',
     accentBg: 'rgba(100,181,246,0.06)',
     accentBorder: 'rgba(100,181,246,0.25)',
-  };
-
-  // Capital at Risk
-  const carTop3 = buildCapitalAtRiskData(trades).slice(0, 3);
-  const carTool = {
-    id: 'capitalrisk',
-    icon: '💎',
-    name: 'Capital at Risk Score',
-    desc: 'Scores conviction by personal financial risk taken over the last 5 years — not raw trade value. A $500K buy means very different things for a billionaire vs a small-cap CFO. Measures salary multiples, net worth %, and position doubling.',
-    count: buildCapitalAtRiskData(trades).length,
-    countLabel: 'insiders scored',
-    top3: carTop3.map(r => ({
-      ticker: r.ticker,
-      label: `Score ${r.score}`,
-      sub: r.factors[0] ? r.factors[0].label : r.tier,
-      color: r.score >= 65 ? 'var(--buy)' : r.score >= 50 ? 'var(--accent)' : 'var(--option)',
-    })),
-    accentColor: '#b39ddb',
-    accentBg: 'rgba(179,157,219,0.06)',
-    accentBorder: 'rgba(179,157,219,0.25)',
   };
 
   // First Buy always rendered last regardless of array order
@@ -4659,7 +3704,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, driftTool, regimeTool, carTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
 }
@@ -4766,17 +3811,11 @@ function renderAnalysisSubpage(id) {
     renderProximitySubpage();
   }
 
-  else if (id === 'driftanalyzer') {
-    renderDriftSubpage();
-  }
 
   else if (id === 'regimeshift') {
     renderRegimeShiftSubpage();
   }
 
-  else if (id === 'capitalrisk') {
-    renderCapitalAtRiskSubpage();
-  }
 
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
@@ -5030,13 +4069,6 @@ function scoreOpportunityRanker(rows) {
     (detectAdvancedClusters(_analysisData || [])).map(c => c.ticker)
   );
 
-  // Capital-at-Risk: tickers where an insider has a high CAR score (≥50)
-  const carMap = {};  // ticker → best CAR score
-  try {
-    buildCapitalAtRiskData(_analysisData || []).forEach(c => {
-      if (!carMap[c.ticker] || c.score > carMap[c.ticker]) carMap[c.ticker] = c.score;
-    });
-  } catch(e) {}
 
   // Regime Shift: tickers with a bullish regime signal (buyer flip or buy accel)
   const regimeBullish = new Set();
@@ -5051,9 +4083,6 @@ function scoreOpportunityRanker(rows) {
       });
   } catch(e) {}
 
-  // Post-Buy Drift: tickers with historically strong drift (score ≥ 60)
-  const driftMap = {};  // ticker → drift score
-  (_driftCache || []).forEach(d => { driftMap[d.ticker] = d.score; });
 
   // Event Proximity: tickers with an upcoming event signal
   const proximityMap = {};  // ticker → { score, daysTo, isAbnormal }
@@ -5123,9 +4152,6 @@ function scoreOpportunityRanker(rows) {
     }
 
     // ── 9. Capital-at-Risk signal (+4–8 pts) ─────────────────────
-    const carScore = carMap[r.ticker] || 0;
-    if (carScore >= 75)      { score += 8; factors.push(`High personal capital at risk (CAR ${carScore})`); }
-    else if (carScore >= 50) { score += 4; factors.push(`Elevated capital at risk (CAR ${carScore})`); }
 
     // ── 10. Regime Shift signal (+8 pts bullish / −8 pts bearish) ─
     if (regimeBullish.has(r.ticker)) {
@@ -5135,10 +4161,6 @@ function scoreOpportunityRanker(rows) {
       score -= 8; factors.push(`⚠ Sell spike regime detected`);
     }
 
-    // ── 11. Post-Buy Drift: historical tailwind (+4–8 pts) ───────
-    const drift = driftMap[r.ticker] || 0;
-    if (drift >= 75)      { score += 8; factors.push(`Strong historical drift (score ${drift})`); }
-    else if (drift >= 55) { score += 4; factors.push(`Moderate historical drift (score ${drift})`); }
 
     // ── 12. Event Proximity: catalyst coming (+6–10 pts) ─────────
     const prox = proximityMap[r.ticker];
@@ -5169,7 +4191,6 @@ function scoreOpportunityRanker(rows) {
     // Cross-tool badges for card display
     const crossToolBadges = [
       clusterTickers.has(r.ticker)      ? ['CLUSTER',   'var(--accent)',  'rgba(0,212,255,0.1)']   : null,
-      carScore >= 50                     ? ['HIGH CAR',  'var(--option)',  'rgba(255,170,0,0.08)']  : null,
       regimeBullish.has(r.ticker)        ? ['REGIME↑',  'var(--buy)',     'rgba(0,255,136,0.08)']  : null,
       regimeBearish.has(r.ticker)        ? ['REGIME↓',  'var(--sell)',    'rgba(255,68,102,0.08)'] : null,
       drift >= 55                        ? [`DRIFT ${drift}`, 'var(--buy)', 'rgba(0,255,136,0.06)'] : null,
@@ -7416,9 +6437,7 @@ const MONITOR_TYPES = [
   { key: 'CONVICTION',      label: '⚡ CONVICTION'  },
   { key: 'FIRST BUY',       label: '🚨 FIRST BUY'  },
   { key: 'EXIT WARNING',    label: '⚠️ EXIT'        },
-  { key: 'HIGH CAR',        label: '💰 HIGH CAR'    },
   { key: 'EVENT PROXIMITY', label: '🎯 PROXIMITY'   },
-  { key: 'STRONG DRIFT',    label: '📈 DRIFT'       },
 ];
 
 // Returns true if US markets are currently open (9:30–16:00 ET, Mon–Fri)
@@ -7665,9 +6684,8 @@ async function runMonitorWindow(tab, body) {
     } catch(e) {}
 
     const proximity = _proximityCache || [];
-    const drift     = _driftCache     || [];
 
-    const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, drift, displayCutStr);
+    const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, displayCutStr);
     _monitorCache[tab] = alerts;
     if (tab === 'week')  _monitorCache['_weekKey']  = currentWeekStart();
     if (tab === 'month') _monitorCache['_monthKey'] = currentMonthKey();
@@ -7684,7 +6702,7 @@ async function runMonitorWindow(tab, body) {
   }
 }
 
-function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
+function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
   const alerts = [];
 
   // ── 1. Cluster Buys ──────────────────────────────────────────
@@ -7747,23 +6765,6 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
     });
   } catch(e) {}
 
-  // ── 5. Capital at Risk ────────────────────────────────────────
-  // buildCapitalAtRiskData returns: { ticker, company, insider, title, score, tradeDate, tradeVal, tier, factors }
-  try {
-    buildCapitalAtRiskData(trades).filter(c => c.score >= 60).forEach(c => {
-      const latestDate = (c.tradeDate || '').slice(0,10);
-      if (!latestDate || latestDate < cutStr) return;
-      const topFactor = (c.factors||[])[0]?.label || '';
-      alerts.push({
-        ticker: c.ticker, company: c.company || c.ticker,
-        type: 'HIGH CAR', icon: '💰', color: 'var(--buy)',
-        headline: `${c.insider} putting serious capital at risk · CAR ${c.score}`,
-        detail: `${c.title||'Insider'} · ${fmt(c.tradeVal)} · ${topFactor}`,
-        score: c.score, date: latestDate,
-      });
-    });
-  } catch(e) {}
-
   // ── 6. Event Proximity ────────────────────────────────────────
   // _proximityCache entries: { ticker, company, score, latestBuy, daysTo, nextEvent, topInsiders }
   proximity.filter(p => p.score >= 55).forEach(p => {
@@ -7775,25 +6776,6 @@ function buildMonitorAlerts(trades, firstBuys, proximity, drift, cutStr) {
       headline: `${p.insider||'Insider'} buying ${p.daysTo != null ? p.daysTo+'d before' : 'near'} est. quarter-end`,
       detail: `${p.title||''} · ${fmt(p.buyVal||0)} · ${p.repeatPattern?'repeat pattern':'single buy'}`,
       score: p.score, date: d,
-    });
-  });
-
-  // ── 7. Strong Drift + new buy in window ──────────────────────
-  // _driftCache entries: { ticker, company, score, winRate, avg }
-  const driftTickers = new Set(trades.filter(t => t.type==='P').map(t => t.ticker));
-  drift.filter(d => d.score >= 60 && driftTickers.has(d.ticker)).forEach(d => {
-    const t = trades
-      .filter(tr => tr.ticker===d.ticker && tr.type==='P')
-      .sort((a,b)=>(b.trade||b.filing||'').localeCompare(a.trade||a.filing||''))[0];
-    const latestDate = (t?.trade || t?.filing || '').slice(0,10);
-    if (!latestDate || latestDate < cutStr) return;
-    const avg90 = d.avg?.[5];
-    alerts.push({
-      ticker: d.ticker, company: d.company || d.ticker,
-      type: 'STRONG DRIFT', icon: '📈', color: 'var(--buy)',
-      headline: `Strong post-buy drift history · Score ${d.score}`,
-      detail: `${d.winRate}% win rate · avg D+90: ${avg90!=null?(avg90>=0?'+':'')+avg90.toFixed(1)+'%':'—'}`,
-      score: d.score, date: latestDate,
     });
   });
 
