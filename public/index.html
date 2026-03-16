@@ -7517,7 +7517,7 @@ function renderMonitorShell(body) {
   body.innerHTML = `
   <div style="max-width:1100px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:20px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div>
+      <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div><div class="live-badge" title="Monitor refreshes automatically every 5 minutes"><div class="live-dot"></div>AUTO-REFRESH · 5 MIN</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap" class="mob-monitor-tabs">
@@ -7978,6 +7978,11 @@ function routeFromPath(path, fromPopstate) {
     // Auto-refresh screener every 5 minutes while on the screener page
     setInterval(() => {
       if (document.getElementById('view-screener').classList.contains('active')) loadScreener();
+    }, 5 * 60 * 1000);
+
+    // Auto-refresh monitor every 5 minutes while on the monitor page
+    setInterval(() => {
+      if (document.getElementById('view-monitor').classList.contains('active')) loadMonitorPage();
     }, 5 * 60 * 1000);
   }
 })();
