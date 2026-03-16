@@ -3502,6 +3502,87 @@ async function loadAnalysisPage(subpage) {
   }
 }
 
+
+// ── REGIME SHIFT DETECTOR ─────────────────────────────────────────────────
+// Detects when insider behavior changes materially vs their own 6-month baseline.
+// Catches: chronic sellers suddenly buying, dormant insiders activating, sell spikes.
+function buildRegimeShiftData(longTrades, recentTrades) {
+  if (!longTrades || longTrades.length < 10) return [];
+
+  const now = new Date();
+  const RECENT_DAYS   = 30;
+  const BASELINE_DAYS = 180;
+
+  const msDay = 86400000;
+  const cutRecent   = now.getTime() - RECENT_DAYS   * msDay;
+  const cutBaseline = now.getTime() - BASELINE_DAYS * msDay;
+
+  // Group trades by insider
+  const byInsider = {};
+  longTrades.forEach(t => {
+    if (!t.insider || !t.ticker) return;
+    const key = t.insider + '|' + t.ticker;
+    if (!byInsider[key]) byInsider[key] = { insider: t.insider, ticker: t.ticker, company: t.company || t.ticker, title: t.title || '', baseline: [], recent: [] };
+    const ms = new Date((t.trade || t.filing || '').slice(0, 10) + 'T12:00:00Z').getTime();
+    if (isNaN(ms)) return;
+    if (ms >= cutRecent) byInsider[key].recent.push(t);
+    else if (ms >= cutBaseline) byInsider[key].baseline.push(t);
+  });
+
+  const results = [];
+  Object.values(byInsider).forEach(g => {
+    if (!g.recent.length) return;
+
+    const recentBuys  = g.recent.filter(t => t.type === 'P');
+    const recentSells = g.recent.filter(t => t.type === 'S' || t.type === 'S-');
+    const baseBuys    = g.baseline.filter(t => t.type === 'P');
+    const baseSells   = g.baseline.filter(t => t.type === 'S' || t.type === 'S-');
+
+    let score = 0, regimeType = null, regimeLabel = '', factors = [];
+
+    // SELLER_FLIPS_BUY: was a seller in baseline, now buying
+    if (recentBuys.length >= 1 && baseSells.length >= 2 && baseBuys.length === 0) {
+      score = 75; regimeType = 'SELLER_FLIPS_BUY';
+      regimeLabel = 'Seller flipped to buyer';
+      factors.push(`${baseSells.length} sells in baseline → ${recentBuys.length} buys now`);
+    }
+    // BUY_ACCELERATION: buying pace has increased significantly
+    else if (recentBuys.length >= 2 && baseBuys.length >= 1) {
+      const baseRate = baseBuys.length / (BASELINE_DAYS / RECENT_DAYS);
+      const recentRate = recentBuys.length;
+      if (recentRate >= baseRate * 2.5) {
+        score = 65; regimeType = 'BUY_ACCELERATION';
+        regimeLabel = 'Buy acceleration';
+        factors.push(`${recentBuys.length} buys in ${RECENT_DAYS}d vs ${baseBuys.length} in prior ${BASELINE_DAYS}d`);
+      }
+    }
+    // DORMANT_ACTIVATES: no activity in baseline, now buying
+    else if (recentBuys.length >= 1 && baseBuys.length === 0 && baseSells.length === 0) {
+      score = 60; regimeType = 'DORMANT_ACTIVATES';
+      regimeLabel = 'Dormant insider activated';
+      factors.push(`First activity after ${BASELINE_DAYS}d of inactivity`);
+    }
+    // SELL_SPIKE: sudden sell surge vs baseline
+    else if (recentSells.length >= 2 && recentBuys.length === 0) {
+      const baseRate = baseSells.length / (BASELINE_DAYS / RECENT_DAYS);
+      if (recentSells.length >= baseRate * 2 || (recentSells.length >= 2 && baseSells.length === 0)) {
+        score = 55; regimeType = 'SELL_SPIKE';
+        regimeLabel = 'Sell spike detected';
+        factors.push(`${recentSells.length} sells in ${RECENT_DAYS}d — unusual acceleration`);
+      }
+    }
+
+    if (!regimeType || score < 50) return;
+
+    results.push({
+      ticker: g.ticker, company: g.company, insider: g.insider,
+      title: g.title, score, regimeType, regimeLabel, factors,
+    });
+  });
+
+  return results.sort((a, b) => b.score - a.score);
+}
+
 function renderAnalysisDashboard() {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
@@ -6965,12 +7046,12 @@ function routeFromPath(path, fromPopstate) {
     setInterval(() => {
       if (document.getElementById('view-screener').classList.contains('active')) loadScreener();
     }, 5 * 60 * 1000);
-
-    // Auto-refresh monitor every 5 minutes while on the monitor page
-    setInterval(() => {
-      if (document.getElementById('view-monitor').classList.contains('active')) loadMonitorPage();
-    }, 5 * 60 * 1000);
   }
+
+  // Auto-refresh monitor every 5 minutes while on the monitor page (any entry point)
+  setInterval(() => {
+    if (document.getElementById('view-monitor').classList.contains('active')) loadMonitorPage();
+  }, 5 * 60 * 1000);
 })();
 
 function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; if(p.startsWith('/premium'))return'premium'; if(p.startsWith('/signup'))return'signup'; if(p.startsWith('/account'))return'account'; return'screener'; }
