@@ -345,15 +345,15 @@
     }
     .logo { font-size: 18px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
     .nav-tabs {
-      order: 1; margin-left: auto; gap: 2px; flex-shrink: 0;
-      overflow-x: auto; max-width: calc(100vw - 110px);
-      -webkit-overflow-scrolling: touch; scrollbar-width: none;
+      order: 2; width: 100%; margin-left: 0; gap: 2px;
+      flex-wrap: wrap; justify-content: flex-start;
+      overflow: visible; max-width: 100%;
     }
-    .nav-tabs::-webkit-scrollbar { display: none; }
-    .nav-tab { padding: 5px 8px; font-size: 9px; white-space: nowrap; flex-shrink: 0; }
+    .nav-tab { padding: 4px 8px; font-size: 9px; white-space: nowrap; flex-shrink: 0; }
+    #authHeaderBtn { order: 1; margin-left: auto; flex-shrink: 0; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
     #authHeaderBtn { order: 1; flex-shrink: 0; }
-    main { padding-top: 108px; }
+    main { padding-top: 130px; }
 
     /* ── Global: no horizontal overflow ── */
     main > .view { overflow-x: hidden; }
@@ -361,13 +361,46 @@
     * { box-sizing: border-box; }
 
     /* ── Screener ── */
+    #mobFilterToggle { display: flex !important; }
+    .filter-panel .filter-data-source { display: none; }
     .filter-panel {
-      padding: 10px 12px; display: flex; flex-direction: row;
-      flex-wrap: nowrap; overflow-x: auto; gap: 12px;
-      align-items: flex-start; -webkit-overflow-scrolling: touch;
+      padding: 0;
+      display: grid;
+      grid-template-columns: 1fr;
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.3s ease, padding 0.3s ease;
     }
-    .filter-section { margin-bottom: 0; flex-shrink: 0; min-width: 130px; }
-    .apply-btn { width: auto; white-space: nowrap; flex-shrink: 0; align-self: flex-end; }
+    .filter-panel.mob-open {
+      max-height: 600px;
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .filter-panel-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 16px;
+      width: 100%;
+    }
+    .filter-section { margin-bottom: 0; }
+    .filter-section:last-of-type { grid-column: 1 / -1; }
+    .apply-btn { width: 100%; grid-column: 1 / -1; margin-top: 4px; }
+    /* Mobile filter toggle button */
+    .mob-filter-toggle { display: none; }
+    .mob-filter-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      font-family: 'Space Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 1px;
+    }
+    .mob-filter-toggle.active { color: var(--accent); }
     .screener-content { padding: 8px; }
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
     /* Screener table: keep DATE, TICKER, INSIDER, TYPE, VALUE only */
@@ -543,7 +576,18 @@
 
 <div id="view-screener" class="view active">
   <div class="screener-layout">
+    <div class="mob-filter-toggle" id="mobFilterToggle" onclick="
+      const p=document.querySelector('.filter-panel');
+      const t=document.getElementById('mobFilterToggle');
+      p.classList.toggle('mob-open');
+      t.classList.toggle('active');
+      t.querySelector('.mob-filter-arrow').textContent=p.classList.contains('mob-open')?'▲':'▼';
+    " style="display:none">
+      <span>⚙ FILTERS</span>
+      <span class="mob-filter-arrow">▼</span>
+    </div>
     <aside class="filter-panel">
+      <div class="filter-panel-inner">
       <span class="filter-label">Trade Type</span>
       <div class="filter-chips" style="margin-bottom:20px">
         <div class="chip buy-chip active"  data-type="P"  onclick="toggleChip(this)">Buy</div>
@@ -595,7 +639,8 @@
         <div id="tickerFilterTags" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>
       </div>
       <button class="apply-btn" onclick="loadScreener()">APPLY FILTERS</button>
-      <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+      </div><!-- end filter-panel-inner -->
+      <div class="filter-data-source" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
         <p style="font-size:11px;color:var(--muted);line-height:1.6">
           Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
@@ -2406,7 +2451,11 @@ function renderSidebarSummary(trades) {
 function renderStockTradesTable(trades) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
   if(!trades.length){el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;return;}
-  el.innerHTML=trades.map(t=>`
+  el.innerHTML=trades.map(t=>{
+    const secLink = t.accession
+      ? `<a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=&owner=include&count=10&search_text=&accession=${encodeURIComponent(t.accession.replace(/-/g,''))}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
+      : '';
+    return `
     <tr>
       <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
       <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
@@ -2416,8 +2465,9 @@ function renderStockTradesTable(trades) {
       <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
       <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</td>
-      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
-    </tr>`).join('');
+      <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}<br>${secLink}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── INSIDER PROFILE ───────────────────────────────────────────────
