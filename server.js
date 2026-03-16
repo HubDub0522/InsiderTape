@@ -1680,14 +1680,15 @@ async function preComputeProximity() {
     `).all(since, today);
 
     // Pre-fetch earnings dates from Yahoo Finance for all unique tickers
-    // Stagger requests to avoid Yahoo rate limiting (5 at a time with small delay)
+    // Pre-warm the crumb once so all ticker requests use it immediately
     const uniqueTickers = [...new Set(rows.map(r => r.ticker))].slice(0, 80);
     slog(`Fetching earnings dates for ${uniqueTickers.length} tickers from Yahoo...`);
+    await getYahooCrumb();  // warm crumb before batch
     const BATCH = 5;
     for (let i = 0; i < uniqueTickers.length; i += BATCH) {
       const batch = uniqueTickers.slice(i, i + BATCH);
       await Promise.allSettled(batch.map(t => fetchConfirmedEarnings(t)));
-      if (i + BATCH < uniqueTickers.length) await new Promise(r => setTimeout(r, 200));
+      if (i + BATCH < uniqueTickers.length) await new Promise(r => setTimeout(r, 150));
     }
     const confirmed = Object.values(_earningsCache).filter(e => e.confirmed && e.date).length;
     slog(`Earnings dates: ${confirmed}/${uniqueTickers.length} confirmed from Yahoo, rest estimated`);
