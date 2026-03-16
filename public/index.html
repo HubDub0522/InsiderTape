@@ -377,7 +377,7 @@
     main { padding-top: 130px; }
 
     /* ── Global: no horizontal overflow ── */
-    main > .view { overflow-x: hidden; }
+    main > .view { overflow-x: clip; }
     main > .view > * { max-width: 100vw; box-sizing: border-box; }
     * { box-sizing: border-box; }
 
@@ -451,16 +451,16 @@
 
     /* ── Stock View ── */
     .pressure-container { height: 80px !important; }
-    .stock-layout { grid-template-columns: 1fr !important; }
+    .stock-layout { grid-template-columns: 1fr !important; width: 100%; overflow: visible; }
     .stock-header-bar { flex-direction: column; gap: 10px; padding: 12px; }
     .stock-ticker-big { font-size: 30px; }
     .stock-price { font-size: 20px; }
     .stat-grid { margin-left: 0; gap: 8px; flex-wrap: wrap; }
     .stat-item { text-align: left; min-width: 80px; }
-    .chart-controls { flex-wrap: wrap; gap: 4px; }
+    .chart-controls { flex-wrap: wrap; gap: 4px; position: relative; z-index: 20; }
     .tf-btn { padding: 6px 8px; font-size: 10px; min-height: 32px; min-width: 32px; }
     .cf-btn { padding: 6px 8px; font-size: 10px; min-height: 32px; }
-    .chart-area { padding: 8px; }
+    .chart-area { padding: 8px; overflow: visible; width: 100%; }
     #chartContainer, .chart-container-sized { height: 280px !important; }
     /* Hide insider sidebar on mobile — full trades table is shown below instead */
     .insider-sidebar { display: none !important; }
@@ -544,7 +544,7 @@
 
     /* ── Inline style overrides for JS-rendered content ── */
     /* Make sure no inner div busts the viewport */
-    .view > div { max-width: 100vw; overflow-x: hidden; }
+    .view > div { max-width: 100vw; }
     /* Padding reduction on padded containers */
     [style*="padding:24px 20px"] { padding: 16px 12px !important; }
     [style*="padding: 24px 20px"] { padding: 16px 12px !important; }
