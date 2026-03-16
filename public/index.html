@@ -8,10 +8,24 @@
 <meta http-equiv="Expires" content="0">
 <title>INSIDERTAPE — Follow the Smart Money</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<!-- Preconnect to critical external origins to reduce latency -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://unpkg.com">
+<!-- Fonts: load non-blocking -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap"></noscript>
+<!-- lightweight-charts: load async so it doesn't block rendering -->
+<script>
+  window._lcLoaded = false;
+  window._lcCallbacks = [];
+  window._onLCReady = function(cb) {
+    if (window._lcLoaded) cb();
+    else window._lcCallbacks.push(cb);
+  };
+</script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer onload="window._lcLoaded=true;window._lcCallbacks.forEach(function(f){f()});window._lcCallbacks=[];"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
-
   :root {
     --bg:        #080b0f;
     --bg2:       #0d1117;
@@ -111,6 +125,8 @@
   main { margin-top: var(--header-h); min-height: calc(100vh - var(--header-h)); }
   .view { display: none; }
   .view.active { display: block; }
+  /* Improve rendering performance for inactive views */
+  .view:not(.active) { content-visibility: hidden; }
 
   .screener-layout { display: grid; grid-template-columns: 260px 1fr; gap: 0; min-height: calc(100vh - var(--header-h)); }
 
@@ -402,7 +418,7 @@
     }
     .mob-filter-toggle.active { color: var(--accent); }
     .screener-content { padding: 8px; }
-    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; min-height: 200px; }
     /* Screener table: keep DATE, TICKER, INSIDER, TYPE, VALUE only */
     /* Col order: 1=date 2=ticker 3=insider 4=title 5=type 6=shares 7=price 8=value 9=owned 10=filing */
     #screenerTable thead tr th:nth-child(4),
@@ -2004,6 +2020,10 @@ async function loadStockView(ticker, opts={}) {
 // ── CHART ─────────────────────────────────────────────────────────
 const CHART_H = 500;
 function buildChart(priceData, trades) {
+  if (!window.LightweightCharts) {
+    window._onLCReady(() => buildChart(priceData, trades));
+    return;
+  }
   const container = document.getElementById('chartContainer');
   if (!container||!priceData.length) return;
   if (state.chart) { try{state.chart.remove();}catch(e){} state.chart=null; }
@@ -2144,6 +2164,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   // Green bar = net buying that week, red bar = net selling.
   // No baseline line, no price line, no last-value line — just bars.
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
+  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
   const pChart=LightweightCharts.createChart(pc,{
     width:pc.clientWidth||800,height:120,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
@@ -7176,14 +7197,6 @@ function routeFromPath(path, fromPopstate) {
   const path = location.pathname;
   history.replaceState({view: _viewFromPath(path), ticker: _tickerFromPath(path), name: _nameFromPath(path)}, '', path);
   routeFromPath(path, true);
-  // Always silently pre-load screener data (needed for all analysis tools)
-  apiFetch('/api/screener?days=' + (state.days || 7)).then(resp => {
-    let trades = Array.isArray(resp) ? resp : (resp.trades || []);
-    if (!trades.length) return;
-    if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-    if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
-    state.screenerData = trades;
-  }).catch(()=>{});
   // Only render the screener table when actually on the screener view
   const isScreenerView = !path.startsWith('/stock') && !path.startsWith('/insider') &&
     !path.startsWith('/analysis') && !path.startsWith('/monitor') &&
