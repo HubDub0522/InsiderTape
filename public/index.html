@@ -4240,7 +4240,6 @@ async function loadAnalysisPage(subpage) {
       const b = document.getElementById('analysisViewBody');
       if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _driftCache = []; });
-    setTimeout(() => { if (!_driftCache) { _driftCache = []; } }, 50000);
   }
   if (!_proximityCache) {
     apiFetch('/api/proximity').then(results => {
@@ -4248,7 +4247,6 @@ async function loadAnalysisPage(subpage) {
       const b = document.getElementById('analysisViewBody');
       if (b && b.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _proximityCache = []; });
-    setTimeout(() => { if (!_proximityCache) { _proximityCache = []; } }, 50000);
   }
 
   // Kick off leaderboard scores in background so tiles show counts when dashboard renders
@@ -4266,13 +4264,6 @@ async function loadAnalysisPage(subpage) {
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _rankerCache = []; });
-    // Safety: stop ranker spinning after 45s
-    setTimeout(() => {
-      if (!_rankerCache) { _rankerCache = [];
-        const body = document.getElementById('analysisViewBody');
-        if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-      }
-    }, 45000);
   }
 
   if (subpage) {
@@ -4303,13 +4294,7 @@ function renderAnalysisDashboard() {
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _firstBuyCache = []; });
-    // Safety: stop firstbuy spinning after 45s
-    setTimeout(() => {
-      if (_firstBuyCache === null) { _firstBuyCache = [];
-        const body = document.getElementById('analysisViewBody');
-        if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-      }
-    }, 45000);
+
   }
 
   const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
@@ -4657,16 +4642,8 @@ function renderAnalysisSubpage(id) {
 // ── INSIDER LEADERBOARDS ──────────────────────────────────────────
 
 async function computeLeaderboardScores() {
-  // Safety: if scoreboard never resolves, stop spinning after 90s
-  const safetyTimer = setTimeout(() => {
-    if (_insiderScoreCache === null) _insiderScoreCache = [];
-    if (_timingAlphaCache  === null) _timingAlphaCache  = [];
-    const body = document.getElementById('analysisViewBody');
-    if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-  }, 90000);
   try {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
-    clearTimeout(safetyTimer);
     // Server returns {computing:true} when still warming up — retry in 30s
     if (data.computing && !data.accuracy.length) {
       setTimeout(computeLeaderboardScores, 30000);
@@ -4675,7 +4652,6 @@ async function computeLeaderboardScores() {
     _insiderScoreCache = data.accuracy || [];
     _timingAlphaCache  = data.timing   || [];
   } catch(e) {
-    clearTimeout(safetyTimer);
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
   }
@@ -5358,7 +5334,7 @@ function detectExitWarnings(trades, priceHighs={}) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
-    if (score < 25 || signals.length < 2) return; // require meaningful multi-factor signal
+    if (score < 30 || signals.length < 2 || sellerCount < 2) return; // require 2+ sellers and multi-factor
 
     // Severity label
     let severity, severityColor, severityBg, severityBorder;
