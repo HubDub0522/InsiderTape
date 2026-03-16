@@ -3241,7 +3241,7 @@ async function openInsiderProfile(name, title, opts={}) {
   } else {
     updateTitle('insider', name);
   }
-  await openInsiderProfileFull(name, title);
+  await openInsiderProfileFull(name, title, opts);
 }
 
 async function renderInsiderProfile(name, title, trades, opts={}) {
@@ -4822,7 +4822,7 @@ function renderTopScoresList(ranked) {
     const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openInsiderProfileFull('${escName(r.name)}','${escName(r.title)}',{serverScore:${sc},serverScoreType:'accuracy'})">
+                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}',{serverScore:${sc},serverScoreType:'accuracy'})">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
@@ -4851,7 +4851,7 @@ function renderTimingLeadersList(ranked) {
     const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${taBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openInsiderProfileFull('${escName(r.name)}','${escName(r.title)}',{serverScore:${ta},serverScoreType:'timing'})">
+                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}',{serverScore:${ta},serverScoreType:'timing'})">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
