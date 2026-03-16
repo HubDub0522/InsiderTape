@@ -1538,31 +1538,27 @@ const PROXIMITY_TTL = 3 * 60 * 60 * 1000; // 3h
 const _earningsCache = {};
 const EARNINGS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 
-// Fetch earnings dates from Yahoo Finance chart API — same source as price data
-// Yahoo returns result[0].events.earnings with upcoming earnings dates at no extra cost
+// Fetch earnings dates from Yahoo Finance quote summary API
+// Uses /quoteSummary with calendarEvents module — more reliable than chart events
 async function fetchConfirmedEarnings(ticker) {
   const cached = _earningsCache[ticker];
   if (cached && Date.now() - cached.fetched < EARNINGS_CACHE_TTL) return cached;
   try {
-    const now  = Math.floor(Date.now() / 1000);
-    const end  = now + 365 * 86400;  // look 1 year forward for upcoming dates
-    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${now - 7 * 86400}&period2=${end}&events=earnings`;
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Method 1: Yahoo quoteSummary calendarEvents (most reliable for earnings dates)
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=calendarEvents`;
     const { status, body } = await get(url, 8000);
     if (status === 200) {
       const data = JSON.parse(body.toString());
-      const result = data?.chart?.result?.[0];
-      const earningsEvents = result?.events?.earnings;
-      if (earningsEvents) {
-        // earningsEvents is an object keyed by epoch seconds
-        const today = new Date().toISOString().slice(0, 10);
-        const upcoming = Object.values(earningsEvents)
-          .map(e => {
-            // Yahoo uses 'startdatetime' or 'date' field
-            const raw = e.startdatetime || e.date || '';
-            return raw.slice(0, 10);
-          })
+      const cal = data?.quoteSummary?.result?.[0]?.calendarEvents;
+      if (cal) {
+        // earnings.earningsDate is an array of {raw: epochSeconds, fmt: "YYYY-MM-DD"}
+        const dates = cal?.earnings?.earningsDate || [];
+        const upcoming = dates
+          .map(d => d.fmt || new Date(d.raw * 1000).toISOString().slice(0, 10))
           .filter(d => d && d >= today)
-          .sort()[0]; // take the nearest upcoming date
+          .sort()[0];
         if (upcoming) {
           const entry = { date: upcoming, confirmed: true, fetched: Date.now() };
           _earningsCache[ticker] = entry;
@@ -1639,10 +1635,15 @@ async function preComputeProximity() {
     `).all(since, today);
 
     // Pre-fetch earnings dates from Yahoo Finance for all unique tickers
-    // Uses the same Yahoo source as price data — no extra API key needed
+    // Stagger requests to avoid Yahoo rate limiting (5 at a time with small delay)
     const uniqueTickers = [...new Set(rows.map(r => r.ticker))].slice(0, 80);
     slog(`Fetching earnings dates for ${uniqueTickers.length} tickers from Yahoo...`);
-    await Promise.allSettled(uniqueTickers.map(t => fetchConfirmedEarnings(t)));
+    const BATCH = 5;
+    for (let i = 0; i < uniqueTickers.length; i += BATCH) {
+      const batch = uniqueTickers.slice(i, i + BATCH);
+      await Promise.allSettled(batch.map(t => fetchConfirmedEarnings(t)));
+      if (i + BATCH < uniqueTickers.length) await new Promise(r => setTimeout(r, 200));
+    }
     const confirmed = Object.values(_earningsCache).filter(e => e.confirmed && e.date).length;
     slog(`Earnings dates: ${confirmed}/${uniqueTickers.length} confirmed from Yahoo, rest estimated`);
 
