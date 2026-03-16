@@ -5152,13 +5152,25 @@ function renderRankerCard(r, idx) {
 
 // ── INSIDER EXIT WARNING SYSTEM ───────────────────────────────────
 
-function renderExitWarningSubpage() {
+async function renderExitWarningSubpage() {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
-  const warnings = detectExitWarnings(trades);
+  // Show loading while fetching price highs
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading price context…</span></div></div>`;
+
+  // Fetch 52-week highs for all tickers with sells in the window
+  const sellTickers = [...new Set(trades.filter(t => t.type === 'S' || t.type === 'S-').map(t => t.ticker))];
+  let priceHighs = {};
+  try {
+    if (sellTickers.length) {
+      priceHighs = await apiFetch('/api/price-highs?tickers=' + sellTickers.slice(0, 50).join(','));
+    }
+  } catch(_) {}
+
+  const warnings = detectExitWarnings(trades, priceHighs);
 
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     ${backBtn}
@@ -5169,9 +5181,10 @@ function renderExitWarningSubpage() {
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:700px">
       Insider selling alone isn't a signal — executives sell for many reasons. This system only flags when
       <span style="color:var(--text)">multiple insiders sell near the 52-week high</span>,
-      <span style="color:var(--text)">selling volume accelerates</span> vs their historical baseline,
-      or <span style="color:var(--text)">selling deviates sharply from their normal pattern</span>.
-      High scores warrant caution. Not a short signal — a <em>caution flag</em>.
+      <span style="color:var(--text)">selling accelerates</span> vs recent pace,
+      <span style="color:var(--text)">executives are among the sellers</span>,
+      or <span style="color:var(--text)">sell volume heavily outweighs buying</span>.
+      Selling near lows reduces the score. High scores warrant caution. Not a short signal — a <em>caution flag</em>.
     </div>
     ${warnings.length === 0
       ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No exit warnings detected in the last 30 days.<br><span style="font-size:11px">This is actually a bullish sign — insiders aren't rushing for the exits.</span></div>`
@@ -5180,7 +5193,7 @@ function renderExitWarningSubpage() {
   </div>`;
 }
 
-function detectExitWarnings(trades) {
+function detectExitWarnings(trades, priceHighs={}) {
   if (!trades || !trades.length) return [];
 
   const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && (t.trade || t.filing));
@@ -5272,10 +5285,35 @@ function detectExitWarnings(trades) {
       score += 15; signals.push(`All selling concentrated in last 7 days — sudden onset`);
     }
 
-    // ── FACTOR 5 (removed): Selling near price high ──
-    // Removed — comparing sell prices against each other within the window
-    // is not a valid proxy for "near all-time high" and produces false positives.
-    // Would need live price data to implement correctly.
+    // ── FACTOR 5: Selling near 52-week high — bearish context (up to 25pts) ──
+    // Uses actual 52-week high from price cache. Only fires when sell price
+    // is within the upper 25% of the 52-week range — meaningful proximity to highs.
+    const ph = priceHighs[ticker];
+    if (ph && ph.high52 > 0 && ph.low52 > 0) {
+      const range52 = ph.high52 - ph.low52 || 1;
+      // Average sell price from Form 4 filings
+      const sellPrices52 = tickerSells.map(t => t.price).filter(p => p > 0);
+      if (sellPrices52.length) {
+        const avgSellPrice = sellPrices52.reduce((a,b)=>a+b,0) / sellPrices52.length;
+        // How close is avg sell price to the 52w high? 0=at low, 1=at high
+        const nearHighPct = (avgSellPrice - ph.low52) / range52;
+        // pctFromHigh: 0=at high, 1=at low (from the endpoint)
+        const pctFromHigh = ph.pctFromHigh;
+
+        if (nearHighPct >= 0.75) {
+          // Selling in upper 25% of 52w range — near highs
+          score += 25;
+          signals.push(`Avg sell price $${avgSellPrice.toFixed(2)} — in upper ${Math.round((1-nearHighPct+nearHighPct)*25)}% of 52w range (high: $${ph.high52})`);
+        } else if (nearHighPct >= 0.55) {
+          score += 12;
+          signals.push(`Sell prices in upper half of 52w range ($${ph.low52}–$${ph.high52})`);
+        } else {
+          // Selling near lows — significantly reduces bearish signal
+          score -= 15;
+          context.push(`Selling near 52w lows, not highs — weaker distribution signal ($${avgSellPrice.toFixed(2)} vs high $${ph.high52})`);
+        }
+      }
+    }
 
     // ── FACTOR 6: Deviates from normal pattern — no selling in prior window (up to 10pts) ──
     // We only have 30d of data, so "normal" is approximated:
