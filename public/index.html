@@ -1349,7 +1349,7 @@ function renderScreener() {
   if (!page.length) { tbody.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
   tbody.innerHTML = page.map(t => {
     const edgarLink = t.accession
-      ? `<a href="https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(t.accession)}%22&forms=4" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
+      ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
       : '';
     return `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
@@ -2453,7 +2453,7 @@ function renderStockTradesTable(trades) {
   if(!trades.length){el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;return;}
   el.innerHTML=trades.map(t=>{
     const secLink = t.accession
-      ? `<a href="https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(t.accession)}%22&forms=4" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
+      ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
       : '';
     return `
     <tr>
