@@ -630,6 +630,79 @@
   #watchlistViewBody [style*="font-size:9px"],  #watchlistViewBody [style*="font-size: 9px"]  { font-size: 11px !important; }
   #watchlistViewBody [style*="font-size:11px"], #watchlistViewBody [style*="font-size: 11px"] { font-size: 13px !important; }
 
+
+  /* ── INTERMEDIATE RESPONSIVE (641px – 1100px) ──────────────────────────
+     Handles the "medium window" case — browser at ~60-80% width.
+     Tiles wrap, charts shrink, sidebars collapse gracefully.
+  ──────────────────────────────────────────────────────────────────────── */
+  @media (max-width: 1100px) {
+    /* Stock layout: collapse sidebar on medium screens */
+    .stock-layout { grid-template-columns: 1fr; }
+    .insider-sidebar { display: none; }
+
+    /* Screener: hide less critical columns */
+    #screenerBody td:nth-child(5),
+    #screenerBody th:nth-child(5),
+    #screenerBody td:nth-child(6),
+    #screenerBody th:nth-child(6) { display: none; }
+
+    /* Analysis cards: 2 columns instead of 3+ */
+    .analysis-tool-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important; }
+    .conviction-grid    { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important; }
+
+    /* Sector tiles: 2 cols */
+    .sector-tile-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+    /* Insider profile: stack layout */
+    .insider-hero { flex-direction: column; }
+    .insider-profile-layout { padding: 16px; }
+  }
+
+  @media (max-width: 900px) {
+    /* Chart height reduces */
+    #chartContainer, .chart-container-sized { height: 340px !important; }
+
+    /* Stock header: wrap stats */
+    .stock-header-bar .stat-grid { grid-template-columns: repeat(3, 1fr); }
+
+    /* Analysis tiles: single col */
+    .analysis-tool-grid { grid-template-columns: 1fr !important; }
+
+    /* All max-width containers: full width with padding */
+    [style*="max-width:1200px"],
+    [style*="max-width: 1200px"],
+    [style*="max-width:1300px"],
+    [style*="max-width:1100px"] {
+      max-width: 100% !important;
+      padding-left: 16px !important;
+      padding-right: 16px !important;
+    }
+
+    /* Compare page: stack */
+    .compare-layout { flex-direction: column; }
+
+    /* Watchlist: 2 col grid */
+    .watchlist-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  }
+
+  /* Ensure all views don't overflow their container */
+  .view.active { width: 100%; overflow-x: hidden; }
+  main { width: 100%; overflow-x: hidden; }
+  * { max-width: 100%; }
+  img, canvas, iframe { max-width: 100%; }
+
+  /* Chart container always respects its parent width */
+  #chartContainer, .chart-container-sized {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* Tables: always scrollable */
+  .table-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
 </style>
 </head>
 <body>
@@ -2211,7 +2284,9 @@ async function loadStockView(ticker, opts={}) {
 }
 
 // ── CHART ─────────────────────────────────────────────────────────
-const CHART_H = window.innerWidth <= 640 ? 280 : 500;
+// Recalculate chart height on resize (CHART_H is const so we use a function)
+function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
+const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
 function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
@@ -2225,7 +2300,7 @@ function buildChart(priceData, trades) {
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
   container.innerHTML = '';
   const chart = LightweightCharts.createChart(container, {
-    width:container.clientWidth, height:CHART_H,
+    width:container.clientWidth, height:getChartH(),
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
@@ -2275,7 +2350,13 @@ function buildChart(priceData, trades) {
   const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
   const cutStr=cutoff.toISOString().split('T')[0];
   const visible=priceData.filter(d=>d.time>=cutStr);
-  if (visible.length>0) chart.timeScale().setVisibleRange({from:visible[0].time,to:priceData[priceData.length-1].time});
+  if (visible.length>0) {
+    try {
+      const fromTs = Math.floor(new Date(visible[0].time+'T00:00:00Z').getTime()/1000);
+      const toTs   = Math.floor(new Date(priceData[priceData.length-1].time+'T23:59:59Z').getTime()/1000);
+      chart.timeScale().setVisibleRange({from:fromTs,to:toTs});
+    } catch(e) { chart.timeScale().fitContent(); }
+  }
   else chart.timeScale().fitContent();
   buildCircleOverlay(container,chart,mainSeries,trades,priceData);
   buildPressureChartGated(chart,trades,priceData);
@@ -2309,7 +2390,7 @@ function setChartType(type) {
 function buildCircleOverlay(container,chart,series,trades,priceData) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
-  canvas.width=container.clientWidth; canvas.height=CHART_H; container.appendChild(canvas);
+  canvas.width=container.clientWidth; canvas.height=getChartH(); container.appendChild(canvas);
   const priceMap={};
   priceData.forEach(d=>{priceMap[d.time]=d;});
   function nearestTradingDay(dateStr) {
@@ -2480,12 +2561,15 @@ function setRange(days,btn) {
     state.chart.timeScale().fitContent();
     visible = all;
   } else {
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - days);
     const cutStr = cutoff.toISOString().split('T')[0];
     visible = all.filter(d => d.time >= cutStr);
     if (visible.length > 0) {
       try {
-        state.chart.timeScale().setVisibleRange({from: visible[0].time, to: all[all.length-1].time});
+        // LightweightCharts requires epoch seconds (not date strings) when timeVisible:true
+        const fromTs = Math.floor(new Date(visible[0].time + 'T00:00:00Z').getTime() / 1000);
+        const toTs   = Math.floor(new Date(all[all.length-1].time + 'T23:59:59Z').getTime() / 1000);
+        state.chart.timeScale().setVisibleRange({from: fromTs, to: toTs});
       } catch(e) {
         state.chart.timeScale().fitContent();
       }
