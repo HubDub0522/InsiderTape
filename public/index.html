@@ -2362,10 +2362,14 @@ function buildChart(priceData, trades) {
   buildPressureChartGated(chart,trades,priceData);
   // Initialise stat bar to match the active 1Y range button
   setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
-  function _syncChartSize() {
-    const c = document.getElementById('chartContainer');
-    if (!c) return;
-    const w = c.offsetWidth;
+  // ResizeObserver on the chart-area parent — fires when the layout changes
+  // Observe chart-area (parent) not container itself, so we get the correct
+  // available width before the chart has already expanded to fill it
+  const chartArea = container.closest('.chart-area') || container.parentElement;
+  new ResizeObserver(entries => {
+    const entry = entries[0];
+    // Use contentRect width which is the correct available width
+    const w = Math.floor(entry.contentRect.width);
     if (w > 0 && state.chart) {
       state.chart.applyOptions({width: w});
       const cv = document.getElementById('markerCanvas');
@@ -2373,22 +2377,9 @@ function buildChart(priceData, trades) {
     }
     if (state.pressureChart) {
       const pc = document.getElementById('pressureContainer');
-      if (pc) state.pressureChart.applyOptions({width: pc.offsetWidth});
+      if (pc) state.pressureChart.applyOptions({width: Math.floor(entry.contentRect.width)});
     }
-  }
-
-  // Watch container directly for any layout changes
-  new ResizeObserver(_syncChartSize).observe(container);
-
-  // Also watch window resize — fires when user resizes browser window
-  // Debounced so it doesn't thrash during continuous drag
-  let _chartResizeTimer;
-  window._chartResizeHandler = () => {
-    clearTimeout(_chartResizeTimer);
-    _chartResizeTimer = setTimeout(_syncChartSize, 30);
-  };
-  window.removeEventListener('resize', window._chartResizeHandler);
-  window.addEventListener('resize', window._chartResizeHandler, {passive: true});
+  }).observe(chartArea || container);
 }
 
 function setChartType(type) {
