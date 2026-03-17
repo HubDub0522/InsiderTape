@@ -2300,7 +2300,7 @@ function buildChart(priceData, trades) {
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
   container.innerHTML = '';
   const chart = LightweightCharts.createChart(container, {
-    width:container.clientWidth, height:getChartH(),
+    autoSize:true, height:getChartH(),
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
@@ -2362,24 +2362,13 @@ function buildChart(priceData, trades) {
   buildPressureChartGated(chart,trades,priceData);
   // Initialise stat bar to match the active 1Y range button
   setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
-  // ResizeObserver on the chart-area parent — fires when the layout changes
-  // Observe chart-area (parent) not container itself, so we get the correct
-  // available width before the chart has already expanded to fill it
-  const chartArea = container.closest('.chart-area') || container.parentElement;
-  new ResizeObserver(entries => {
-    const entry = entries[0];
-    // Use contentRect width which is the correct available width
-    const w = Math.floor(entry.contentRect.width);
-    if (w > 0 && state.chart) {
-      state.chart.applyOptions({width: w});
-      const cv = document.getElementById('markerCanvas');
-      if (cv) { cv.width = w; if (state.drawCircles) state.drawCircles(); }
-    }
-    if (state.pressureChart) {
-      const pc = document.getElementById('pressureContainer');
-      if (pc) state.pressureChart.applyOptions({width: Math.floor(entry.contentRect.width)});
-    }
-  }).observe(chartArea || container);
+  // LightweightCharts handles its own resizing via autoSize
+  // Sync our marker canvas width and redraw when container size changes
+  new ResizeObserver(() => {
+    const cv = document.getElementById('markerCanvas');
+    if (cv && container.clientWidth > 0) cv.width = container.clientWidth;
+    if (state.drawCircles) setTimeout(state.drawCircles, 50);
+  }).observe(container);
 }
 
 function setChartType(type) {
@@ -2403,7 +2392,7 @@ function setChartType(type) {
 function buildCircleOverlay(container,chart,series,trades,priceData) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
-  canvas.width=container.clientWidth; canvas.height=getChartH(); container.appendChild(canvas);
+  canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
   const priceMap={};
   priceData.forEach(d=>{priceMap[d.time]=d;});
   function nearestTradingDay(dateStr) {
@@ -2503,7 +2492,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
   if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
   const pChart=LightweightCharts.createChart(pc,{
-    width:pc.clientWidth||800,height:window.innerWidth<=640?80:120,
+    autoSize:true, height:window.innerWidth<=640?80:120,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
     rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
