@@ -2277,7 +2277,7 @@ function buildChart(priceData, trades) {
   const visible=priceData.filter(d=>d.time>=cutStr);
   if (visible.length>0) chart.timeScale().setVisibleRange({from:visible[0].time,to:priceData[priceData.length-1].time});
   else chart.timeScale().fitContent();
-  buildCircleOverlay(container,chart,candles,trades,priceData);
+  buildCircleOverlay(container,chart,mainSeries,trades,priceData);
   buildPressureChartGated(chart,trades,priceData);
   // Initialise stat bar to match the active 1Y range button
   setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
