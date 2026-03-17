@@ -2156,8 +2156,8 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
             <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
             <div style="margin-left:auto;display:flex;gap:4px">
-              <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn active" title="Candlestick chart" style="padding:4px 10px;font-size:13px">🕯</button>
-              <button id="chartTypeLine" onclick="setChartType('line')" class="tf-btn" title="Line chart" style="padding:4px 10px;font-size:13px">📈</button>
+              <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn ct-btn active" title="Candlestick chart" style="padding:4px 10px;font-size:13px">🕯</button>
+              <button id="chartTypeLine" onclick="setChartType('line')" class="tf-btn ct-btn" title="Line chart" style="padding:4px 10px;font-size:13px">📈</button>
             </div>
           </div>
         </div>
@@ -2265,6 +2265,7 @@ function buildChart(priceData, trades) {
     btnCandle.classList.toggle('active', _chartType === 'candle');
     btnLine.classList.toggle('active',   _chartType === 'line');
   }
+  // Also sync setRange's call — don't override ct-btn state
 
   // Watermark — near top, centered
   const wm = document.createElement('div');
@@ -2337,7 +2338,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
       const isBuy=g.tc==='buy',isSell=g.tc==='sell';
-      const refPrice=isBuy?pd.low*0.995:isSell?pd.high*1.005:pd.close;
+      // In line mode, pd.low/high are the same as close visually — use close with slight offset
+      const refPrice=isBuy?(pd.low||pd.close)*0.995:isSell?(pd.high||pd.close)*1.005:pd.close;
       const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
       const _mob=window.innerWidth<=640; const r=(_mob?5:8)+(_mob?8:14)*Math.log1p(g.value)/Math.log1p(maxVal);
       const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(255,170,0,';
@@ -2347,7 +2349,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
     });
   }
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
-  drawCircles(); state.drawCircles=drawCircles;
+  setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
   canvas.style.pointerEvents='auto';
   canvas.addEventListener('mousemove',e=>{
     const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left,my=e.clientY-rect.top;
@@ -2371,7 +2373,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   // Wipe the wrapper completely on every build — prevents stale canvases and
   // duplicate labels from accumulating across ticker navigations.
   const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
-  pw.innerHTML='<div id="pressureContainer" style="width:100%;height:120px;"></div>';
+  pw.innerHTML='<div id="pressureContainer" style="width:100%;height:'+(window.innerWidth<=640?'80':'120')+'px;" class="pressure-container"></div>';
   const pc=document.getElementById('pressureContainer');
 
   // Aggregate net buy/sell $ value by week (Monday anchor).
@@ -2460,7 +2462,7 @@ function buildPressureChart(mainChart,trades,priceData) {
 function setRange(days,btn) {
   _activeRangeDays = days;
   // Update active button — but only for the RANGE row, not the SHOW row (cf-btns)
-  document.querySelectorAll('.tf-btn:not(.cf-btn)').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tf-btn:not(.cf-btn):not(.ct-btn)').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
 
   // If chart not ready yet (LC still loading), retry once it's ready
