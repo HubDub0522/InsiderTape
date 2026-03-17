@@ -2155,6 +2155,10 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
             <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
             <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
+            <div style="margin-left:auto;display:flex;gap:4px">
+              <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn active" title="Candlestick chart" style="padding:4px 10px;font-size:13px">🕯</button>
+              <button id="chartTypeLine" onclick="setChartType('line')" class="tf-btn" title="Line chart" style="padding:4px 10px;font-size:13px">📈</button>
+            </div>
           </div>
         </div>
         <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
@@ -2208,6 +2212,7 @@ async function loadStockView(ticker, opts={}) {
 
 // ── CHART ─────────────────────────────────────────────────────────
 const CHART_H = window.innerWidth <= 640 ? 280 : 500;
+let _chartType = 'candle'; // 'candle' | 'line'
 function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
     window._onLCReady(() => buildChart(priceData, trades));
@@ -2226,11 +2231,40 @@ function buildChart(priceData, trades) {
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
     rightPriceScale:{borderColor:'#1e2d3d'},timeScale:{borderColor:'#1e2d3d',timeVisible:true},
   });
-  const candles = chart.addCandlestickSeries({upColor:'#00ff88',downColor:'#ff4466',borderUpColor:'#00ff88',borderDownColor:'#ff4466',wickUpColor:'#00ff88',wickDownColor:'#ff4466'});
-  candles.setData(priceData.map(d=>({time:d.time,open:d.open,high:d.high,low:d.low,close:d.close})));
+  // Store price data and trades for chart type switching
+  state.currentChartPriceData = priceData;
+  state.currentChartTrades = trades;
+
+  let mainSeries;
+  if (_chartType === 'line') {
+    // Area/line series — blue gradient fill like the mockup
+    mainSeries = chart.addAreaSeries({
+      lineColor: '#00d4ff',
+      lineWidth: 2,
+      topColor: 'rgba(0,212,255,0.18)',
+      bottomColor: 'rgba(0,212,255,0.0)',
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: '#00d4ff',
+      crosshairMarkerBackgroundColor: '#00d4ff',
+    });
+    mainSeries.setData(priceData.map(d=>({time:d.time,value:d.close})));
+  } else {
+    // Candlestick series (default)
+    mainSeries = chart.addCandlestickSeries({upColor:'#00ff88',downColor:'#ff4466',borderUpColor:'#00ff88',borderDownColor:'#ff4466',wickUpColor:'#00ff88',wickDownColor:'#ff4466'});
+    mainSeries.setData(priceData.map(d=>({time:d.time,open:d.open,high:d.high,low:d.low,close:d.close})));
+  }
   const volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',scaleMargins:{top:0.82,bottom:0}});
   volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
-  state.chart=chart; state.candleSeries=candles;
+  state.chart=chart; state.candleSeries=mainSeries;
+
+  // Sync toggle button states
+  const btnCandle = document.getElementById('chartTypeCandle');
+  const btnLine   = document.getElementById('chartTypeLine');
+  if (btnCandle && btnLine) {
+    btnCandle.classList.toggle('active', _chartType === 'candle');
+    btnLine.classList.toggle('active',   _chartType === 'line');
+  }
 
   // Watermark — near top, centered
   const wm = document.createElement('div');
@@ -2251,6 +2285,24 @@ function buildChart(priceData, trades) {
     if(w>0&&state.chart){state.chart.applyOptions({width:w});const cv=document.getElementById('markerCanvas');if(cv){cv.width=w;if(state.drawCircles)state.drawCircles();}}
     if(state.pressureChart){const pc=document.getElementById('pressureContainer');if(pc)state.pressureChart.applyOptions({width:pc.clientWidth});}
   }).observe(container);
+}
+
+function setChartType(type) {
+  if (_chartType === type) return;
+  _chartType = type;
+  // Rebuild chart with new type, preserving current data
+  const priceData = state.currentChartPriceData;
+  const trades    = state.currentChartTrades;
+  if (priceData && trades) {
+    // Remember visible range before rebuild
+    const visRange = state.chart ? (() => { try { return state.chart.timeScale().getVisibleRange(); } catch(e) { return null; } })() : null;
+    buildChart(priceData, trades);
+    // Restore visible range after rebuild
+    if (visRange) setTimeout(() => { try { state.chart.timeScale().setVisibleRange(visRange); } catch(e) {} }, 60);
+    // Re-apply active range button so stats stay correct
+    const activeBtn = document.querySelector('.tf-btn.active:not(.cf-btn)');
+    if (activeBtn && _activeRangeDays) setTimeout(() => setRange(_activeRangeDays, activeBtn), 80);
+  }
 }
 
 function buildCircleOverlay(container,chart,series,trades,priceData) {
