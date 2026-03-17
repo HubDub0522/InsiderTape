@@ -6998,6 +6998,7 @@ function renderMonitorShell(body) {
       ${tabBtn('today','📅','TODAY\'S NOTABLE')}
       ${tabBtn('week', '📆','THIS WEEK')}
       ${tabBtn('month','🗓','THIS MONTH')}
+      ${tabBtn('quarter','📊','THIS QUARTER')}
     </div>
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:24px;flex-wrap:wrap;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
       <span style="font-size:10px;color:var(--muted);font-family:'Space Mono',monospace;margin-right:2px">FILTER:</span>
@@ -7025,7 +7026,7 @@ function _redrawMonitorAlerts() {
   const cached = _monitorCache[_monitorTab];
   renderMonitorShell(body);
   if (cached) {
-    const label = _monitorTab === 'today' ? 'today' : _monitorTab === 'week' ? 'this week' : 'this month';
+    const label = _monitorTab === 'today' ? 'today' : _monitorTab === 'week' ? 'this week' : _monitorTab === 'month' ? 'this month' : 'this quarter';
     renderMonitorAlerts(cached, label, body);
   } else {
     runMonitorWindow(_monitorTab, body);
@@ -7042,7 +7043,7 @@ async function switchMonitorTab(tab) {
 
 async function runMonitorWindow(tab, body) {
   window.scrollTo(0, 0);
-  const label = tab === 'today' ? 'today' : tab === 'week' ? 'this week' : 'this month';
+  const label = tab === 'today' ? 'today' : tab === 'week' ? 'this week' : tab === 'month' ? 'this month' : 'this quarter';
 
   // Helper: get current week start (Monday) as ISO string
   function currentWeekStart() {
@@ -7093,13 +7094,26 @@ async function runMonitorWindow(tab, body) {
     }
   }
 
+  // Invalidate quarter-tab cache when the quarter changes
+  function currentQuarterKey() {
+    const now = new Date();
+    const q = Math.ceil((now.getMonth() + 1) / 3);
+    return `${now.getFullYear()}-Q${q}`;
+  }
+  if (tab === 'quarter' && _monitorCache['quarter']) {
+    if (_monitorCache['_quarterKey'] !== currentQuarterKey()) {
+      delete _monitorCache['quarter'];
+      delete _monitorCache['_quarterKey'];
+    }
+  }
+
   if (_monitorCache[tab]) {
     renderMonitorAlerts(_monitorCache[tab], label, body);
     return;
   }
 
   try {
-    const fetchDays = tab === 'month' ? 45 : 21;
+    const fetchDays = tab === 'quarter' ? 92 : tab === 'month' ? 45 : 21;
     const resp = await apiFetch('/api/screener?days=' + fetchDays);
     const allTrades = Array.isArray(resp) ? resp : (resp.trades || []);
 
@@ -7120,7 +7134,7 @@ async function runMonitorWindow(tab, body) {
       const monday = new Date(etUTC);
       monday.setUTCDate(etUTC.getUTCDate() - daysSinceMonday);
       displayCutStr = etLocalISO(monday);
-    } else {
+    } else if (tab === 'month') {
       const etParts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
       }).formatToParts(new Date());
@@ -7129,11 +7143,17 @@ async function runMonitorWindow(tab, body) {
       const etUTC = new Date(Date.UTC(parseInt(ep.year), parseInt(ep.month)-1, parseInt(ep.day)));
       etUTC.setUTCDate(etUTC.getUTCDate() - 30);
       displayCutStr = etLocalISO(etUTC);
+    } else {
+      // Quarter: start of current calendar quarter
+      const now = new Date();
+      const qStartMonth = Math.floor(now.getMonth() / 3) * 3; // 0, 3, 6, or 9
+      const qStart = new Date(Date.UTC(now.getFullYear(), qStartMonth, 1));
+      displayCutStr = etLocalISO(qStart);
     }
 
     let firstBuys = [];
     try {
-      const lookback = tab === 'today' ? 3 : tab === 'week' ? 14 : 45;
+      const lookback = tab === 'today' ? 3 : tab === 'week' ? 14 : tab === 'month' ? 45 : 92;
       const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${lookback}&limit=50`);
       firstBuys = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
     } catch(e) {}
@@ -7144,11 +7164,14 @@ async function runMonitorWindow(tab, body) {
     _monitorCache[tab] = alerts;
     if (tab === 'week')  _monitorCache['_weekKey']  = currentWeekStart();
     if (tab === 'month') _monitorCache['_monthKey'] = currentMonthKey();
+    if (tab === 'quarter') _monitorCache['_quarterKey'] = currentQuarterKey();
 
     const displayLabel = tab === 'today'
       ? `on ${fmtDate(displayCutStr)}${isMarketOpen() ? ' (live)' : ''}`
       : tab === 'week'
       ? `week of ${fmtDate(displayCutStr)}`
+      : tab === 'quarter'
+      ? `since ${fmtDate(displayCutStr)} (Q${Math.ceil((new Date().getMonth()+1)/3)})`
       : label;
     renderMonitorAlerts(alerts, displayLabel, body);
   } catch(e) {
