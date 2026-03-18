@@ -2110,7 +2110,7 @@ app.get('/api/stock-lists', (req, res) => {
         MAX(CASE WHEN TRIM(type)='P' AND (
           UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR
           UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%' OR
-          UPPER(title) LIKE '%10%'
+          UPPER(title) LIKE '%10%%'
         ) THEN 1 ELSE 0 END) AS exec_buy
       FROM trades
       WHERE trade_date >= date('now','-7 days')
