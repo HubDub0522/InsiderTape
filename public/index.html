@@ -2457,7 +2457,9 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
   trades.forEach(t=>{
     const raw=(t.trade||t.filing||'').slice(0,10); const d=nearestTradingDay(raw); if(!d)return;
     const tc=tradeClass(t.type); const k=d+'|'+tc;
-    if(!groups[k])groups[k]={date:d,tc,trades:[],value:0};
+    if(!groups[k])groups[k]={date:d,tc,trades:[],value:0,tradeDate:raw};
+    // Keep the earliest actual trade date for display
+    if(raw < groups[k].tradeDate) groups[k].tradeDate=raw;
     groups[k].trades.push(t); groups[k].value+=t.value||0;
   });
   state.markerGroups=Object.values(groups);
@@ -2495,7 +2497,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       const color=tc==='buy'?'#00ff88':tc==='sell'?'#ff4466':'#ffaa00';
       const label=tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'◆ OPTION/AWARD';
       const rows=g.trades.slice(0,5).map(t=>`<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${t.insider||'—'}</span>${t.title?`<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>`:''}<span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span></div>`).join('');
-      tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>${rows}${g.trades.length>5?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Total: <span style="color:${color}">${fmt(g.value)}</span></div>`;
+      tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.tradeDate||g.date}</div>${rows}${g.trades.length>5?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Total: <span style="color:${color}">${fmt(g.value)}</span></div>`;
       tooltip.style.display='block';
       const tx=e.clientX+16,ty=e.clientY-10;
       tooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; tooltip.style.top=ty+'px';
@@ -7589,10 +7591,32 @@ function renderMonitorAlerts(allAlerts, label, body) {
               ${a.detail?`<div style="font-size:11px;color:var(--muted);margin-top:4px">${a.detail}</div>`:''}
               ${(()=>{const n=buildSignalNarrative(a);return n?`<div style="font-size:12px;color:var(--text);opacity:0.72;margin-top:7px;line-height:1.6;font-style:italic;border-left:2px solid ${a.color}44;padding-left:10px">${n}</div>`:''})()}
             </div>
-            <div style="font-family:'Space Mono',monospace;font-size:11px;color:${a.color};flex-shrink:0;padding-top:2px">${a.score}</div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
+              <div style="font-family:'Space Mono',monospace;font-size:11px;color:${a.color};padding-top:2px">${a.score}</div>
+              <button onclick="event.stopPropagation();shareSignal('${ticker}','${a.headline.replace(/'/g,"\\'")}','${(a.detail||'').replace(/'/g,"\\'")}','${a.type}')"
+                style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:3px 8px;border:1px solid ${a.color}44;border-radius:3px;background:transparent;color:${a.color};opacity:0.7;cursor:pointer;white-space:nowrap"
+                onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">
+                ↗ SHARE
+              </button>
+            </div>
           </div>`).join('')}
       </div>`;
     }).join('')}`;
+}
+
+
+// ── SHARE SIGNAL ──────────────────────────────────────────────────
+function shareSignal(ticker, headline, detail, type) {
+  const url = 'https://insidertape.com/stock/' + encodeURIComponent(ticker);
+  const text = headline + (detail ? '\n' + detail : '') + '\n\n$' + ticker + ' — insidertape.com';
+  // Try Web Share API first (mobile)
+  if (navigator.share) {
+    navigator.share({ title: 'InsiderTape · ' + ticker, text, url }).catch(()=>{});
+    return;
+  }
+  // Fall back to Twitter/X intent
+  const tweetText = encodeURIComponent(text + '\n' + url);
+  window.open('https://twitter.com/intent/tweet?text=' + tweetText, '_blank', 'width=600,height=400');
 }
 
 // ── URL ROUTING ───────────────────────────────────────────────────
