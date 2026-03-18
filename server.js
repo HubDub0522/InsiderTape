@@ -278,6 +278,11 @@ try {
 } catch(e) { console.warn('Startup cleanup skipped (disk busy?):', e.message); }
 
 try {
+  db.exec(`CREATE TABLE IF NOT EXISTS price_cache (
+    symbol    TEXT PRIMARY KEY,
+    bars_json TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
     quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
   )`);
@@ -1256,16 +1261,32 @@ app.get('/api/debug', (req, res) => {
 // ── PRICE FETCH HELPER ──────────────────────────────────────────────────────
 // In-memory LRU-style price cache: ticker → { bars, fetchedAt }
 // bars = [{time:'YYYY-MM-DD', open, high, low, close, volume}, ...]
-const _priceCache = {};
+const _priceCache = {}; // in-memory layer on top of DB
 const PRICE_TTL   = 12 * 60 * 60 * 1000; // 12h
 
 function getPC(sym) {
-  const e = _priceCache[sym];
-  if (!e || Date.now() - e.fetchedAt > PRICE_TTL) return null;
-  return e.bars;
+  // Check memory first
+  const m = _priceCache[sym];
+  if (m && Date.now() - m.fetchedAt <= PRICE_TTL) return m.bars;
+  // Fall back to DB
+  try {
+    const row = db.prepare('SELECT bars_json, fetched_at FROM price_cache WHERE symbol=?').get(sym);
+    if (row && Date.now() - row.fetched_at <= PRICE_TTL) {
+      const bars = JSON.parse(row.bars_json);
+      _priceCache[sym] = { bars, fetchedAt: row.fetched_at }; // warm memory
+      return bars;
+    }
+  } catch(e) {}
+  return null;
 }
 function setPC(sym, bars) {
-  _priceCache[sym] = { bars, fetchedAt: Date.now() };
+  const fetchedAt = Date.now();
+  _priceCache[sym] = { bars, fetchedAt };
+  // Persist to DB asynchronously — don't block the response
+  try {
+    db.prepare('INSERT OR REPLACE INTO price_cache (symbol, bars_json, fetched_at) VALUES (?,?,?)')
+      .run(sym, JSON.stringify(bars), fetchedAt);
+  } catch(e) {}
 }
 
 // Fetch 2 years of daily OHLCV bars.
