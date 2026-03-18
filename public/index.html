@@ -2114,14 +2114,23 @@ function renderStockLanding(lists) {
     `openTickerFromScreener('${r.ticker}')`
   ));
 
-  const activeCards = mostActive.map(r => stockCard(
-    r.ticker, r.company,
-    [
-      ...(r.buys > r.sells ? [['NET BUY', 'var(--buy)', 'rgba(0,255,136,0.1)']] : r.sells > r.buys ? [['NET SELL', 'var(--sell)', 'rgba(255,68,102,0.1)']] : [['MIXED', 'var(--muted)', 'rgba(74,101,128,0.15)']]),
-    ],
-    [[`${r.insiders}`, 'insiders'], [`${r.buys}B/${r.sells}S`, 'trades']],
-    `openTickerFromScreener('${r.ticker}')`
-  ));
+  const activeCards = mostActive.map(r => {
+    // Net direction based on VALUE not trade count — avoids PSU noise flipping the label
+    const isNetBuy  = (r.buy_val||0) >= (r.sell_val||0);
+    const hasBoth   = (r.buy_val||0) > 0 && (r.sell_val||0) > 0;
+    const badges = [];
+    if (r.exec_buy) badges.push(['EXEC BUY', 'var(--buy)', 'rgba(0,255,136,0.12)']);
+    if (isNetBuy && !hasBoth) badges.push(['NET BUY', 'var(--buy)', 'rgba(0,255,136,0.1)']);
+    else if (!isNetBuy && !hasBoth) badges.push(['NET SELL', 'var(--sell)', 'rgba(255,68,102,0.1)']);
+    else if (hasBoth && isNetBuy) badges.push(['MIXED · NET BUY', 'var(--buy)', 'rgba(0,255,136,0.08)']);
+    else badges.push(['MIXED · NET SELL', 'var(--sell)', 'rgba(255,68,102,0.08)']);
+    // Stats: show buy value if any buys, sell value if any sells, insider count
+    const stats = [];
+    if ((r.buy_val||0) > 0)  stats.push([fmt(r.buy_val), `${r.buys} buy${r.buys!==1?'s':''}`]);
+    if ((r.sell_val||0) > 0) stats.push([fmt(r.sell_val), `${r.sells} sell${r.sells!==1?'s':''}`]);
+    stats.push([`${r.insiders}`, `insider${r.insiders!==1?'s':''}`]);
+    return stockCard(r.ticker, r.company, badges, stats, `openTickerFromScreener('${r.ticker}')`);
+  });
 
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:28px">
