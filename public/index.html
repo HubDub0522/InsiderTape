@@ -7602,7 +7602,7 @@ function renderMonitorAlerts(allAlerts, label, body) {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
               <div style="font-family:'Space Mono',monospace;font-size:11px;color:${a.color};padding-top:2px">${a.score}</div>
-              <button onclick="event.stopPropagation();shareSignal('${ticker}','${a.headline.replace(/'/g,"\\'")}','${(a.detail||'').replace(/'/g,"\\'")}','${a.type}')"
+              <button onclick="event.stopPropagation();shareSignal('${ticker}',encodeURIComponent(JSON.stringify({type:${JSON.stringify(a.type)},_val:${a._val||0},_gapYears:${a._gapYears||0},_count:${a._count||0},_daySpan:${a._daySpan!=null?a._daySpan:'null'},_daysTo:${a._daysTo!=null?a._daysTo:'null'},_sellerCount:${a._sellerCount||0},ticker:'${ticker}'})))"
                 style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:3px 8px;border:1px solid ${a.color}44;border-radius:3px;background:transparent;color:${a.color};opacity:0.7;cursor:pointer;white-space:nowrap"
                 onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">
                 ↗ SHARE
@@ -7615,7 +7615,57 @@ function renderMonitorAlerts(allAlerts, label, body) {
 
 
 // ── SHARE SIGNAL ──────────────────────────────────────────────────
-function shareSignal(ticker, headline, detail, type) {
+function buildTweetNarrative(alert) {
+  const val    = alert._val || 0;
+  const valStr = val > 0 ? fmt(val) : null;
+
+  switch (alert.type) {
+    case 'FIRST BUY': {
+      const gap   = alert._gapYears ? alert._gapYears.toFixed(1) : '?';
+      const vp    = valStr ? ` ${valStr}.` : '.';
+      return `First recorded open-market purchase by this insider in ${gap} years.${vp} Filed with the SEC.`;
+    }
+    case 'CLUSTER': {
+      const count = alert._count || 2;
+      const span  = alert._daySpan != null ? (alert._daySpan === 0 ? ' — same filing date' : ` — ${alert._daySpan}-day window`) : '';
+      const vp    = valStr ? ` ${valStr} combined.` : '';
+      return `${count} separate Form 4 filings from distinct insiders at $${alert.ticker}${span}.${vp}`;
+    }
+    case 'EVENT PROXIMITY': {
+      const days = alert._daysTo;
+      const vp   = valStr ? ` ${valStr}.` : '';
+      return `Open-market purchase filed${days != null ? ` ~${days}d` : ''} before est. earnings window.${vp} Public SEC record.`;
+    }
+    case 'EXIT WARNING': {
+      const n  = alert._sellerCount || 1;
+      const vp = valStr ? ` ${valStr}.` : '';
+      return `${n} insider${n !== 1 ? 's' : ''} at $${alert.ticker} filed open-market sale disclosures.${vp} SEC Form 4.`;
+    }
+    case 'CONVICTION': {
+      const vp = valStr ? ` ${valStr}.` : '';
+      return `High-conviction insider buy signal at $${alert.ticker}.${vp} Source: SEC Form 4.`;
+    }
+    default:
+      return null;
+  }
+}
+
+function shareSignal(ticker, alertJson) {
+  let a;
+  try { a = JSON.parse(decodeURIComponent(alertJson)); } catch(e) { a = {}; }
+  const narrative = buildTweetNarrative(a) || '';
+  const url       = 'https://insidertape.com/stock/' + encodeURIComponent(ticker);
+  // Build tweet within 280 chars: narrative + newline + $TICKER + space + URL
+  // URL counts as 23 chars on Twitter regardless of length
+  const suffix  = '\n$' + ticker + ' ' + url;
+  const maxText = 280 - 23 - ('\n$' + ticker + ' ').length; // chars left for narrative
+  const text    = (narrative.length <= maxText ? narrative : narrative.slice(0, maxText - 1) + '…') + suffix;
+  if (navigator.share) {
+    navigator.share({ title: 'InsiderTape · ' + ticker, text, url }).catch(()=>{});
+    return;
+  }
+  window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text), '_blank', 'width=600,height=400');
+}
   const url = 'https://insidertape.com/stock/' + encodeURIComponent(ticker);
   const text = headline + (detail ? '\n' + detail : '') + '\n\n$' + ticker + ' — insidertape.com';
   // Try Web Share API first (mobile)
