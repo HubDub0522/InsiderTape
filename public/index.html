@@ -7135,6 +7135,7 @@ function renderMonitorShell(body) {
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div><div class="live-badge" title="Monitor refreshes automatically every 5 minutes"><div class="live-dot"></div>AUTO-REFRESH · 5 MIN</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap" class="mob-monitor-tabs">
       ${tabBtn('today','📅','TODAY\'S NOTABLE')}
@@ -7322,6 +7323,58 @@ async function runMonitorWindow(tab, body) {
   }
 }
 
+
+// ── SIGNAL NARRATIVE GENERATOR ───────────────────────────────────────
+// Produces factual, observational sentences derived from SEC filing data.
+// No opinions, no buy/sell implications — data description only.
+function buildSignalNarrative(alert) {
+  const val    = alert._val || 0;
+  const valStr = val > 0 ? fmt(val) : null;
+
+  switch (alert.type) {
+
+    case 'FIRST BUY': {
+      const gap     = alert._gapYears;
+      const title   = alert._title || 'This insider';
+      const gapStr  = gap ? gap.toFixed(1) : '?';
+      const valPart = valStr ? ` The disclosed transaction value was ${valStr}.` : '';
+      return `According to SEC Form 4 filings, this is the first open-market purchase recorded for this insider in ${gapStr} years.${valPart}`;
+    }
+
+    case 'CLUSTER': {
+      const count   = alert._count || 2;
+      const daySpan = alert._daySpan;
+      const window  = daySpan != null
+        ? (daySpan === 0 ? ' on the same filing date' : ` across a ${daySpan}-day window`)
+        : '';
+      const valPart = valStr ? ` Combined disclosed value: ${valStr}.` : '';
+      return `${count} separate Form 4 filings were submitted by distinct insiders at this company${window}.${valPart} Each filing is an independent SEC disclosure.`;
+    }
+
+    case 'EVENT PROXIMITY': {
+      const days    = alert._daysTo;
+      const daysPart = days != null ? `${days} days` : 'a short period';
+      const valPart  = valStr ? ` Disclosed transaction value: ${valStr}.` : '';
+      return `This Form 4 purchase was filed approximately ${daysPart} before the company's estimated quarterly reporting window, based on historical filing patterns.${valPart}`;
+    }
+
+    case 'EXIT WARNING': {
+      const sellers = alert._sellerCount || 1;
+      const count   = sellers > 1 ? `${sellers} insiders` : '1 insider';
+      const valPart = valStr ? ` Total disclosed sell value: ${valStr}.` : '';
+      return `SEC Form 4 filings show ${count} at this company reported open-market sales in this period.${valPart} Insider sales are disclosed under Section 16 reporting requirements.`;
+    }
+
+    case 'CONVICTION': {
+      const valPart = valStr ? ` Total disclosed purchase value: ${valStr}.` : '';
+      return `This signal is based on disclosed purchase size, timing relative to prior transactions, and reported position changes — all sourced from SEC Form 4 filings.${valPart}`;
+    }
+
+    default:
+      return null;
+  }
+}
+
 function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
   const alerts = [];
 
@@ -7336,6 +7389,7 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
         headline: `${c.insiderCount} insider${c.insiderCount !== 1 ? 's' : ''} buying in cluster`,
         detail: `${c.insiderCount} unique insiders · ${fmt(c.totalVal)} total · ${c.daySpan}d window`,
         score: Math.max(c.score, 60), date: latestDate,
+        _count: c.insiderCount, _daySpan: c.daySpan, _val: c.totalVal||0,
       });
     });
   } catch(e) {}
@@ -7352,6 +7406,7 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
         headline: `High conviction buy · Score ${c.score}`,
         detail: (c.reasons||[]).slice(0,2).join(' · '),
         score: c.score, date: latestDate,
+        _val: c.totalVal||0,
       });
     });
   } catch(e) {}
@@ -7366,6 +7421,7 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
       headline: `First buy in ${s.gapYears?.toFixed(1)||'?'}yr — ${s.insider}`,
       detail: `${s.title||'Insider'} · ${fmt(s.totalBuyVal||0)} · gap: ${s.gapYears?.toFixed(1)}yrs`,
       score: 85, date: s.latestDate,
+      _gapYears: s.gapYears, _title: s.title, _val: s.totalBuyVal||0,
     });
   });
 
@@ -7381,6 +7437,7 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
         headline: `Exit warning · ${w.topSignal || w.severity || 'Insider selling'}`,
         detail: `${w.sellerCount} seller${w.sellerCount!==1?'s':''} · ${fmt(w.totalSellVal)} sold`,
         score: w.score, date: latestDate,
+        _sellerCount: w.sellerCount, _val: w.totalSellVal||0,
       });
     });
   } catch(e) {}
@@ -7396,6 +7453,7 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
       headline: `${p.insider||'Insider'} buying ${p.daysTo != null ? p.daysTo+'d before' : 'near'} est. quarter-end`,
       detail: `${p.title||''} · ${fmt(p.buyVal||0)} · ${p.repeatPattern?'repeat pattern':'single buy'}`,
       score: p.score, date: d,
+      _daysTo: p.daysTo, _val: p.buyVal||0,
     });
   });
 
@@ -7479,6 +7537,7 @@ function renderMonitorAlerts(allAlerts, label, body) {
                 <span style="font-size:12px;color:var(--text);font-weight:600">${a.headline}</span>
               </div>
               ${a.detail?`<div style="font-size:11px;color:var(--muted);margin-top:4px">${a.detail}</div>`:''}
+              ${(()=>{const n=buildSignalNarrative(a);return n?`<div style="font-size:12px;color:var(--text);opacity:0.72;margin-top:7px;line-height:1.6;font-style:italic;border-left:2px solid ${a.color}44;padding-left:10px">${n}</div>`:''})()}
             </div>
             <div style="font-family:'Space Mono',monospace;font-size:11px;color:${a.color};flex-shrink:0;padding-top:2px">${a.score}</div>
           </div>`).join('')}
