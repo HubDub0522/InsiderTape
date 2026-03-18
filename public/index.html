@@ -2162,18 +2162,23 @@ async function loadStockView(ticker, opts={}) {
   }
   state.currentTicker = ticker;
   document.getElementById('stockContent').innerHTML = `<div class="loading-state" style="height:400px"><div class="spinner"></div><span>Loading ${ticker}...</span></div>`;
-  const [priceData, insiderData] = await Promise.all([
-    apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]),
-    fetchInsiderForTicker(ticker).catch(()=>[]),
-  ]);
-  state.tickerTrades = insiderData; state.currentPriceData = priceData;
+
+  // ── PHASE 1: Fetch insider data first — it's fast (local DB) ──────
+  // Render the full layout immediately with insider data.
+  // Price chart streams in separately so the user isn't waiting for
+  // an external API call before seeing anything.
+  const insiderData = await fetchInsiderForTicker(ticker).catch(()=>[]);
+  state.tickerTrades = insiderData; state.currentPriceData = [];
+
+  // Kick off price fetch in background — don't await it yet
+  const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
+
+  // Use empty price data for initial render — chart area shows spinner
+  let priceData = [];
   const buys=insiderData.filter(t=>t.type==='P').length, sells=insiderData.filter(t=>t.type==='S'||t.type==='S-').length;
   const totalVal=insiderData.reduce((s,t)=>s+t.value,0), company=insiderData[0]?.company||'';
-  const last=priceData[priceData.length-1], prev=priceData[priceData.length-2];
-  const chg=last&&prev?last.close-prev.close:0, chgPct=prev?(chg/prev.close*100):0;
-  const chgColor=chg>=0?'var(--buy)':'var(--sell)';
-  const last252=priceData.slice(-252);
-  const h52=last252.reduce((m,d)=>d.high>m?d.high:m,0), l52=last252.reduce((m,d)=>d.low<m?d.low:m,Infinity);
+  // Price fields start as placeholders — filled in Phase 2 when price data arrives
+  const last=null, chg=0, chgPct=0, chgColor='var(--muted)', h52=0, l52=Infinity;
   document.getElementById('stockContent').innerHTML = `
     <div class="stock-layout">
       <div class="stock-header-bar">
@@ -2276,8 +2281,47 @@ async function loadStockView(ticker, opts={}) {
   renderSidebarGated(insiderData);
   renderStockTradesTable(insiderData);
   renderTradeMarkerList(insiderData);
-  if (priceData.length) buildChart(priceData, insiderData);
-  renderInsiderActivityAnalysis(ticker, insiderData, priceData);
+  renderInsiderActivityAnalysis(ticker, insiderData, []);
+
+  // Show a chart loading spinner while price data arrives
+  const cc = document.getElementById('chartContainer');
+  if (cc) cc.innerHTML = `<div class="loading-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Loading price data…</span></div>`;
+
+  // ── PHASE 2: Await price data and inject chart ────────────────────
+  priceData = await pricePromise;
+  // Abort if user navigated away mid-fetch
+  if (state.currentTicker !== ticker) return;
+  state.currentPriceData = priceData;
+
+  if (priceData.length) {
+    if (cc) cc.innerHTML = ''; // clear spinner
+    buildChart(priceData, insiderData);
+    // Update stat bar and price header with real price data
+    const last    = priceData[priceData.length-1];
+    const prev    = priceData[priceData.length-2];
+    const chg     = last&&prev ? last.close-prev.close : 0;
+    const chgPct  = prev ? (chg/prev.close*100) : 0;
+    const chgColor= chg>=0 ? 'var(--buy)' : 'var(--sell)';
+    const last252 = priceData.slice(-252);
+    const h52 = last252.reduce((m,d)=>d.high>m?d.high:m,0);
+    const l52 = last252.reduce((m,d)=>d.low<m?d.low:m,Infinity);
+    const elP = document.querySelector('.stock-price');
+    if (elP && last) elP.textContent = '$'+last.close.toFixed(2);
+    const elC = document.querySelector('.stock-change');
+    if (elC) { elC.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today`; elC.style.color=chgColor; }
+    const elH = document.getElementById('statHigh'); if(elH) elH.textContent = h52>0?'$'+h52.toFixed(2):'—';
+    const elL = document.getElementById('statLow');  if(elL) elL.textContent = l52<Infinity?'$'+l52.toFixed(2):'—';
+  } else {
+    // Price unavailable — show the same "unavailable" state as before
+    if (cc) cc.innerHTML = `<div class="empty-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px">
+      <div class="empty-icon">📡</div>
+      <div style="font-size:13px;color:var(--text)">Price chart unavailable</div>
+      <div style="font-size:11px;color:var(--muted);max-width:280px;text-align:center;line-height:1.6">
+        ${ticker} may be OTC, pink sheet, or recently delisted. Insider trade history is still shown below.
+      </div>
+      <button onclick="loadStockViewBust('${ticker}')" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:6px 16px;font-family:'Space Mono',monospace;font-size:10px;cursor:pointer">&#x21BA; RETRY</button>
+    </div>`;
+  }
   ['P','S','O','X'].forEach(g => {
     chartActiveFilters.add(g);
     const btn = document.getElementById('chartFilter-'+g);
