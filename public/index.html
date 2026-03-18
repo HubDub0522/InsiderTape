@@ -2441,8 +2441,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
   canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
   const priceMap={};
   priceData.forEach(d=>{priceMap[d.time]=d;});
+  // Most recent price bar date — trades on/after this should pin to the last bar
+  const lastBarDate = priceData.length ? priceData[priceData.length-1].time : '';
   function nearestTradingDay(dateStr) {
     if(priceMap[dateStr])return dateStr;
+    // If the trade date is today or in the future (price bar not yet available),
+    // pin to the most recent available bar rather than searching forward
+    if(dateStr >= lastBarDate) return lastBarDate || null;
+    // For past dates (e.g. weekend/holiday), search forward then backward
     for(let i=1;i<=5;i++){const d=new Date(dateStr+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+i);const s=d.toISOString().slice(0,10);if(priceMap[s])return s;}
     for(let i=1;i<=5;i++){const d=new Date(dateStr+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-i);const s=d.toISOString().slice(0,10);if(priceMap[s])return s;}
     return null;
