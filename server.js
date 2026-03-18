@@ -2102,17 +2102,26 @@ app.get('/api/stock-lists', (req, res) => {
         COUNT(DISTINCT insider) AS insiders,
         COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
         COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
         SUM(COALESCE(value,0)) AS total_val,
-        MAX(trade_date) AS latest_date
+        MAX(trade_date) AS latest_date,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buy_insiders,
+        MAX(CASE WHEN TRIM(type)='P' AND (
+          UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR
+          UPPER(title) LIKE '%PRESIDENT%' OR UPPER(title) LIKE '%CHAIRMAN%' OR
+          UPPER(title) LIKE '%10%%'
+        ) THEN 1 ELSE 0 END) AS exec_buy
       FROM trades
       WHERE trade_date >= date('now','-7 days')
       AND trade_date <= date('now')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
       GROUP BY ticker
-      HAVING insiders >= 2
-      ORDER BY total_val DESC
-      LIMIT 20
+      HAVING (buys >= 1 OR sells >= 1)
+        AND (buy_val >= 50000 OR sell_val >= 50000)
+      ORDER BY (buy_val + sell_val) DESC
+      LIMIT 24
     `).all();
 
     // Top insider buying: last 30 days, sorted by total buy value
