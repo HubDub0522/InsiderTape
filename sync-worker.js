@@ -38,8 +38,8 @@ db.exec(`
 
 const insertStmt = db.prepare(`
   INSERT OR IGNORE INTO trades
-    (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 `);
 
 function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
@@ -166,6 +166,7 @@ function processTransactions(zipBuf, prefix, subMap, ownerMap) {
       qty, +price.toFixed(4), value,
       Math.round(Math.abs(parseFloat(t.SHRSOWNFOLLOWINGTRANS||'0')||0)),
       acc,
+      null, // footnote not available in bulk TSV — only in individual XML filings
     ]);
     if (batch.length >= 500) { doInsert(batch); count += batch.length; batch = []; }
   }
