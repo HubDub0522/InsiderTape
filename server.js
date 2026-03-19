@@ -2060,7 +2060,6 @@ app.get('/api/admin/daily', (req, res) => {
 // Removes likely DRIP/programmatic trades below a per-trade value threshold.
 // Without confirm=1, returns a preview of what would be deleted.
 app.get('/api/admin/purge-drip', (req, res) => {
-  if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({ error: 'forbidden' });
   const threshold = Math.min(parseInt(req.query.threshold || '3000'), 10000); // cap at $10K for safety
   const confirm   = req.query.confirm === '1';
   try {
