@@ -2056,6 +2056,55 @@ app.get('/api/admin/daily', (req, res) => {
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
 });
 
+// GET /api/admin/purge-drip?secret=X&threshold=3000&confirm=1
+// Removes likely DRIP/programmatic trades below a per-trade value threshold.
+// Without confirm=1, returns a preview of what would be deleted.
+app.get('/api/admin/purge-drip', (req, res) => {
+  if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({ error: 'forbidden' });
+  const threshold = Math.min(parseInt(req.query.threshold || '3000'), 10000); // cap at $10K for safety
+  const confirm   = req.query.confirm === '1';
+  try {
+    // Preview: find trades that would be deleted
+    const preview = db.prepare(`
+      SELECT ticker, insider, trade_date, value, title
+      FROM trades
+      WHERE TRIM(type) = 'P'
+        AND value > 0
+        AND value < ?
+      ORDER BY trade_date DESC
+      LIMIT 200
+    `).all(threshold);
+
+    if (!confirm) {
+      return res.json({
+        mode: 'preview',
+        threshold,
+        would_delete: preview.length,
+        sample: preview.slice(0, 30),
+        message: 'Add &confirm=1 to execute the deletion'
+      });
+    }
+
+    // Execute deletion
+    const result = db.prepare(`
+      DELETE FROM trades
+      WHERE TRIM(type) = 'P'
+        AND value > 0
+        AND value < ?
+    `).run(threshold);
+
+    // Invalidate stock-lists cache so it rebuilds immediately
+    _stockListsCache = null;
+
+    res.json({
+      mode: 'deleted',
+      threshold,
+      deleted: result.changes,
+      message: 'Removed ' + result.changes + ' buy trades with value < $' + threshold.toLocaleString()
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/free-disk — delete the bloated /var/data/trades.db to free disk space.
 app.get('/api/admin/free-disk', (req, res) => {
   if (requireAdminSecret(req, res)) return;
