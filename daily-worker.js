@@ -43,8 +43,8 @@ db.exec(`
 `);
 
 const insertTrade = db.prepare(`
-  INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 `);
 const doInsert = db.transaction(rows => {
   let n = 0;
@@ -130,7 +130,38 @@ function parseForm4(xml, filingDate, accession) {
     const value = Math.round(qty * price);
     if (value > 2_000_000_000) return;  // >$2B single trade = implausible, cap any edge cases
 
-    rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), value, owned, accession]);
+    // Extract footnote text — used to detect DRIP/compensation-plan purchases
+    // which are coded 'P' by the SEC but are NOT discretionary open-market buys
+    const footnoteId = xmlGet(block, 'transactionCodeFootnoteId') ||
+                       xmlGet(block, 'transactionPricePerShareFootnoteId') || '';
+    // Collect all footnote descriptions from the document
+    const fnTexts = [];
+    const fnRe = /<footnote[^>]*id="([^"]*)"[^>]*>([\s\S]*?)<\/footnote>/gi;
+    let fnMatch;
+    while ((fnMatch = fnRe.exec(block + xml)) !== null) {
+      fnTexts.push(fnMatch[2].replace(/<[^>]+>/g, '').trim());
+    }
+    const footnote = fnTexts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 500);
+
+    // Filter out DRIP and compensation-plan programmatic purchases — these are
+    // pre-elected, non-discretionary transactions that appear as 'P' on Form 4
+    // but do not reflect genuine open-market conviction.
+    if (code === 'P') {
+      const fn = footnote.toLowerCase();
+      const isDRIP = fn.includes('dividend reinvest') ||
+                     fn.includes('drip') ||
+                     fn.includes('reinvestment plan') ||
+                     fn.includes('director compensation') ||
+                     fn.includes('compensation plan') ||
+                     fn.includes('deferred compensation') ||
+                     fn.includes('prior election') ||
+                     fn.includes('stock purchase plan') ||
+                     fn.includes('employee stock purchase') ||
+                     fn.includes('espp');
+      if (isDRIP) return;
+    }
+
+    rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), value, owned, accession, footnote || null]);
   }
 
   let m;
