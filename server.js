@@ -194,8 +194,11 @@ try {
     ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
     trade_date TEXT NOT NULL, filing_date TEXT,
     type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER, accession TEXT,
+    footnote TEXT,
     UNIQUE(accession, insider, trade_date, type, qty)
   )`);
+  // v1.6: add footnote column for DRIP detection (safe to run repeatedly)
+  try { db.exec(`ALTER TABLE trades ADD COLUMN footnote TEXT`); } catch(e) {} // already exists = fine
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`);
