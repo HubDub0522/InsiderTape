@@ -165,11 +165,12 @@ function parseForm4(xml, filingDate, accession) {
     }
     const footnote = fnTexts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 500);
 
-    // Filter out DRIP and compensation-plan programmatic purchases — these are
-    // pre-elected, non-discretionary transactions that appear as 'P' on Form 4
-    // but do not reflect genuine open-market conviction.
+    // Filter out non-discretionary purchases — coded 'P' by SEC but NOT
+    // genuine open-market conviction buys. Two categories:
     if (code === 'P') {
       const fn = footnote.toLowerCase();
+
+      // 1. DRIP / compensation-plan: pre-elected, programmatic, not discretionary
       const isDRIP = fn.includes('dividend reinvest') ||
                      fn.includes('drip') ||
                      fn.includes('reinvestment plan') ||
@@ -180,7 +181,21 @@ function parseForm4(xml, filingDate, accession) {
                      fn.includes('stock purchase plan') ||
                      fn.includes('employee stock purchase') ||
                      fn.includes('espp');
-      if (isDRIP) return;
+
+      // 2. Offering participation: buying in a company's own capital raise,
+      //    not an independent open-market decision
+      const isOffering = fn.includes('public offering') ||
+                         fn.includes('underwritten offering') ||
+                         fn.includes('registered offering') ||
+                         fn.includes('private placement') ||
+                         fn.includes('subscription agreement') ||
+                         fn.includes('securities purchase agreement') ||
+                         fn.includes('placement agent') ||
+                         fn.includes('prospectus supplement') ||
+                         fn.includes('direct offering') ||
+                         fn.includes('pipe offering');
+
+      if (isDRIP || isOffering) return;
     }
 
     rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), value, owned, accession, footnote || null]);
