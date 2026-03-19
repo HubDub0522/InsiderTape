@@ -14,8 +14,26 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>INSIDERTAPE — Follow the Smart Money</title>
+<title>InsiderTape — Real-Time SEC Insider Trading Tracker</title>
+<!-- Favicon: radar icon -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<!-- SEO meta -->
+<meta name="description" content="Track what corporate insiders are buying and selling. InsiderTape surfaces SEC Form 4 filings in real time — so you can see cluster buys, conviction signals, and first buys before they become headlines.">
+<meta name="keywords" content="insider trading tracker, SEC Form 4, insider buying, insider selling, stock screener, cluster buy, corporate insider trades">
+<meta name="author" content="InsiderTape">
+<meta name="robots" content="index, follow">
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://insidertape.com">
+<meta property="og:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
+<meta property="og:description" content="Track what corporate insiders are buying and selling. SEC Form 4 filings surfaced in real time — cluster buys, conviction signals, and first buys before they make headlines.">
+<meta property="og:image" content="https://insidertape.com/og-image.png">
+<!-- Twitter/X Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@insidertape">
+<meta name="twitter:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
+<meta name="twitter:description" content="Track what corporate insiders are buying and selling. SEC Form 4 filings surfaced in real time.">
+<meta name="twitter:image" content="https://insidertape.com/og-image.png">
 <!-- Preconnect to critical external origins to reduce latency -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -7762,7 +7780,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
   <div style="max-width:1200px;margin:0 auto">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
     <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
-      InsiderTape aggregates publicly available SEC Form 4 and STOCK Act filings for informational purposes only.
+      InsiderTape tracks SEC Form 4 insider trading disclosures in real time — cluster buys, conviction signals, and first buys.
       Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
@@ -7770,7 +7788,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
       <span style="color:#1e2d3d">·</span>
       <button onclick="showPrivacy()" style="background:none;border:none;color:#3a5570;font-size:11px;cursor:pointer;font-family:'Space Mono',monospace;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Privacy Policy</button>
       <span style="color:#1e2d3d">·</span>
-      <span style="font-size:11px;color:#2e4055;font-family:'Space Mono',monospace">DATA: SEC EDGAR · STOCK ACT</span>
+      <span style="font-size:11px;color:#2e4055;font-family:'Space Mono',monospace">DATA: SEC EDGAR</span>
     </div>
     <div style="font-size:10px;color:#1e3040;font-family:'Space Mono',monospace">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
     <div style="font-size:9px;color:#1a2535;font-family:'Space Mono',monospace;margin-top:6px">build 2026-03-11.1</div>
@@ -7811,7 +7829,7 @@ function showTerms() {
     ${p('InsiderTape does not solicit investments, broker securities transactions, or act as a registered investment advisor. We are not registered with the U.S. Securities and Exchange Commission (SEC), the Financial Industry Regulatory Authority (FINRA), or any other financial regulatory body in any jurisdiction. Nothing on this Platform constitutes an offer to sell or a solicitation of an offer to buy any securities.')}
 
     ${h2('3. DATA SOURCES AND ACCURACY')}
-    ${p('Data displayed on InsiderTape is sourced from publicly available government filings including SEC Form 4 filings and STOCK Act disclosures. While we make reasonable efforts to display data accurately, we make <strong style="color:#e0e8f0">no representations or warranties</strong> — express or implied — regarding the completeness, accuracy, reliability, suitability, or timeliness of any data.')}
+    ${p('Data displayed on InsiderTape is sourced from SEC Form 4 filings submitted to the SEC's EDGAR system. While we make reasonable efforts to display data accurately, we make <strong style="color:#e0e8f0">no representations or warranties</strong> — express or implied — regarding the completeness, accuracy, reliability, suitability, or timeliness of any data.')}
     ${p('SEC filings may contain errors, omissions, or delays. Insider transactions may be reported late, amended, or restated. Price data is obtained from third-party providers and may not reflect real-time market conditions. You should independently verify all data before relying on it.')}
 
     ${h2('4. PAST PERFORMANCE')}
@@ -7828,7 +7846,7 @@ function showTerms() {
     ${p('You agree to indemnify, defend, and hold harmless InsiderTape and its operators from any claims, liabilities, damages, losses, costs, or expenses (including reasonable attorneys\' fees) arising out of or related to your use of the Platform, your violation of these Terms, or your violation of any applicable law or the rights of any third party.')}
 
     ${h2('8. INTELLECTUAL PROPERTY')}
-    ${p('All original content, design elements, scoring methodologies, and software comprising InsiderTape are the property of InsiderTape and are protected by applicable intellectual property laws. Underlying government data (SEC filings, STOCK Act disclosures) is in the public domain. You may not reproduce, distribute, modify, or create derivative works of any proprietary Platform content without express written permission.')}
+    ${p('All original content, design elements, scoring methodologies, and software comprising InsiderTape are the property of InsiderTape and are protected by applicable intellectual property laws. Underlying government data (SEC filings) is in the public domain. You may not reproduce, distribute, modify, or create derivative works of any proprietary Platform content without express written permission.')}
 
     ${h2('9. THIRD-PARTY DATA AND LINKS')}
     ${p('This Platform may display data from or link to third-party sources. InsiderTape is not responsible for the content, accuracy, or practices of any third-party provider. Inclusion of third-party data does not imply endorsement.')}
@@ -7874,7 +7892,7 @@ function showPrivacy() {
     ${p('InsiderTape may use minimal functional cookies or browser local storage to preserve your in-session preferences (e.g., selected filters or view state). We do not use third-party advertising cookies, behavioral tracking pixels, or cross-site tracking technologies. You may disable cookies in your browser settings; this may affect Platform functionality.')}
 
     ${h2('5. PUBLIC DATA DISPLAYED')}
-    ${p('The data displayed on InsiderTape — insider names, trade amounts, government official disclosures — is sourced from public government filings (SEC EDGAR and STOCK Act databases) and is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
+    ${p('The data displayed on InsiderTape — insider names, trade amounts, government official disclosures — is sourced from public government filings (SEC EDGAR) and is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
 
     ${h2('6. DATA SECURITY')}
     ${p('We implement reasonable technical and organizational measures to protect the Platform and any data it processes. However, no system is completely secure. We cannot guarantee the absolute security of any information.')}
