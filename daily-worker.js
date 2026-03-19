@@ -46,7 +46,29 @@ const insertTrade = db.prepare(`
   INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 `);
+
+// For 4/A amendments: delete original rows for this insider+ticker on the same trade dates
+// before inserting corrected data. This ensures amendments always overwrite originals.
+const deleteForAmendment = db.prepare(`
+  DELETE FROM trades
+  WHERE ticker = ? AND insider = ? AND trade_date = ? AND TRIM(type) IN ('P','S','S-')
+`);
+
 const doInsert = db.transaction(rows => {
+  let n = 0;
+  for (const r of rows) n += insertTrade.run(r).changes;
+  return n;
+});
+
+// Amendment-aware insert: wipe original rows first, then insert corrected data
+const doInsertAmendment = db.transaction(rows => {
+  // Group rows by ticker+insider+trade_date and delete originals first
+  const keys = new Set(rows.map(r => r[0] + '|' + r[2] + '|' + r[4])); // ticker|insider|trade_date
+  for (const key of keys) {
+    const [ticker, insider, trade_date] = key.split('|');
+    deleteForAmendment.run(ticker, insider, trade_date);
+  }
+  // Now insert the amended rows
   let n = 0;
   for (const r of rows) n += insertTrade.run(r).changes;
   return n;
@@ -301,7 +323,11 @@ async function fetchViaAtom(sinceDate) {
       const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
       if (!seen.has(accDash)) {
         seen.add(accDash);
-        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
+        // Extract form type from atom entry title/category — default to '4'
+        const typeMatch = entry.match(/<category[^>]*term="([^"]*4[^"]*)"/) ||
+                          entry.match(/<title[^>]*>[^<]*(4\/A)[^<]*<\/title>/i);
+        const formType  = (typeMatch?.[1] || typeMatch?.[2] || '').includes('4/A') ? '4/A' : '4';
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate, formType });
       }
       if (!oldestOnPage || filingDate < oldestOnPage) oldestOnPage = filingDate;
     }
@@ -384,14 +410,15 @@ async function searchEFTS(startDate, endDate) {
       const hits = data.hits?.hits || [];
       if (!hits.length) break;
       for (const h of hits) {
-        const raw     = h._id || '';
-        const colonAt = raw.indexOf(':');
-        const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
-        const xmlFile = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
-        const fd      = parseDate(h._source?.file_date) || endDate;
-        const ciks    = h._source?.ciks || [];
+        const raw      = h._id || '';
+        const colonAt  = raw.indexOf(':');
+        const accDash  = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
+        const xmlFile  = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
+        const fd       = parseDate(h._source?.file_date) || endDate;
+        const ciks     = h._source?.ciks || [];
+        const formType = (h._source?.form_type || '4').trim(); // '4' or '4/A'
         if (accDash.match(/^\d{10}-\d{2}-\d{6}$/))
-          filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd });
+          filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd, formType });
       }
       if (hits.length < 100) break;
     } catch(e) { log(`EFTS error: ${e.message}`); break; }
@@ -454,6 +481,7 @@ async function fetchFullIndex(startDate, endDate) {
 
         const formType = line.slice(0, 12).trim();
         if (formType !== '4' && formType !== '4/A') continue;
+        const isAmendment = formType === '4/A';
         scanned++;
 
         // Date filed — ISO format YYYY-MM-DD
@@ -476,7 +504,7 @@ async function fetchFullIndex(startDate, endDate) {
         const parts = fm[2].split('-');
         if (parts.length !== 3) continue;
         const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
-        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled });
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled, formType });
       }
       log(`  form.idx ${yr}Q${q}: scanned ${scanned} Form-4 lines, most recent date: ${maxDateSeen}, ${filings.length} total in range`);
     } catch(e) { log(`full-index error ${yr}Q${q}: ${e.message}`); }
@@ -503,9 +531,11 @@ async function processBatch(filings, label) {
     const results = await Promise.allSettled(
       batch.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks))
     );
-    for (const r of results) {
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
       if (r.status === 'fulfilled' && r.value?.length) {
-        inserted += doInsert(r.value);
+        const isAmendment = batch[j].formType === '4/A';
+        inserted += isAmendment ? doInsertAmendment(r.value) : doInsert(r.value);
       } else if (r.status === 'rejected') {
         failed++;
       }
