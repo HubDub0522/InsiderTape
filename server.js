@@ -2056,6 +2056,58 @@ app.get('/api/admin/daily', (req, res) => {
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
 });
 
+// GET /api/admin/reingest-recent?days=30&confirm=1
+// Deletes all trades from the last N days and triggers a fresh re-ingest.
+// This time footnotes are stored and DRIP/offering filters apply cleanly.
+// Without confirm=1 returns a preview of what would be deleted.
+app.get('/api/admin/reingest-recent', (req, res) => {
+  const days    = Math.min(parseInt(req.query.days || '30'), 90);
+  const confirm = req.query.confirm === '1';
+  try {
+    const count = db.prepare(`
+      SELECT COUNT(*) AS n FROM trades
+      WHERE trade_date >= date('now', '-' || ? || ' days')
+    `).get(days).n;
+
+    if (!confirm) {
+      return res.json({
+        mode: 'preview',
+        days,
+        would_delete: count,
+        message: 'Add &confirm=1 to delete and trigger re-ingest'
+      });
+    }
+
+    // Delete recent trades
+    const result = db.prepare(`
+      DELETE FROM trades WHERE trade_date >= date('now', '-' || ? || ' days')
+    `).run(days);
+
+    // Invalidate caches
+    _stockListsCache = null;
+
+    // Trigger daily worker re-ingest for the same window
+    if (!dailyRunning) {
+      dailyRunning = true;
+      const worker = spawn(
+        process.execPath,
+        ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(days), 'poll'],
+        { stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+      worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[reingest] ' + l)));
+      worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[reingest] ERR: ' + l)));
+      worker.on('exit', code => { dailyRunning = false; slog('reingest worker exited (' + code + ')'); });
+    }
+
+    res.json({
+      mode: 'deleted_and_reingesting',
+      days,
+      deleted: result.changes,
+      message: 'Deleted ' + result.changes + ' trades. Re-ingest running in background — check /api/debug in a few minutes.'
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/purge-nondiscretionary?confirm=1
 // Bulk-removes all non-discretionary 'P' trades already in the DB whose stored
 // footnote matches DRIP or offering-participation keywords.
