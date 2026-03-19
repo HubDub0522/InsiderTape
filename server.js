@@ -2056,51 +2056,38 @@ app.get('/api/admin/daily', (req, res) => {
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
 });
 
-// GET /api/admin/purge-drip?secret=X&threshold=3000&confirm=1
-// Removes likely DRIP/programmatic trades below a per-trade value threshold.
+// GET /api/admin/purge-drip?ticker=GABC&date=2026-03-17&confirm=1
+// Surgically removes confirmed DRIP trades for a specific ticker and date.
 // Without confirm=1, returns a preview of what would be deleted.
 app.get('/api/admin/purge-drip', (req, res) => {
-  const threshold = Math.min(parseInt(req.query.threshold || '3000'), 10000); // cap at $10K for safety
-  const confirm   = req.query.confirm === '1';
+  const ticker  = (req.query.ticker || '').toUpperCase().trim();
+  const date    = (req.query.date   || '').trim();
+  const confirm = req.query.confirm === '1';
+  if (!ticker || !date) return res.status(400).json({ error: 'ticker and date required' });
   try {
-    // Preview: find trades that would be deleted
     const preview = db.prepare(`
       SELECT ticker, insider, trade_date, value, title
       FROM trades
-      WHERE TRIM(type) = 'P'
-        AND value > 0
-        AND value < ?
-      ORDER BY trade_date DESC
-      LIMIT 200
-    `).all(threshold);
+      WHERE ticker = ? AND trade_date = ? AND TRIM(type) = 'P'
+      ORDER BY value DESC
+    `).all(ticker, date);
 
     if (!confirm) {
       return res.json({
         mode: 'preview',
-        threshold,
+        ticker, date,
         would_delete: preview.length,
-        sample: preview.slice(0, 30),
+        rows: preview,
         message: 'Add &confirm=1 to execute the deletion'
       });
     }
 
-    // Execute deletion
     const result = db.prepare(`
-      DELETE FROM trades
-      WHERE TRIM(type) = 'P'
-        AND value > 0
-        AND value < ?
-    `).run(threshold);
+      DELETE FROM trades WHERE ticker = ? AND trade_date = ? AND TRIM(type) = 'P'
+    `).run(ticker, date);
 
-    // Invalidate stock-lists cache so it rebuilds immediately
     _stockListsCache = null;
-
-    res.json({
-      mode: 'deleted',
-      threshold,
-      deleted: result.changes,
-      message: 'Removed ' + result.changes + ' buy trades with value < $' + threshold.toLocaleString()
-    });
+    res.json({ mode: 'deleted', ticker, date, deleted: result.changes });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
