@@ -2056,6 +2056,62 @@ app.get('/api/admin/daily', (req, res) => {
   res.json({ ok: true, message: 'Daily ingestion triggered (7-day backfill)' });
 });
 
+// GET /api/admin/purge-nondiscretionary?confirm=1
+// Bulk-removes all non-discretionary 'P' trades already in the DB whose stored
+// footnote matches DRIP or offering-participation keywords.
+// Without confirm=1 returns a preview count and sample.
+app.get('/api/admin/purge-nondiscretionary', (req, res) => {
+  const confirm = req.query.confirm === '1';
+
+  const keywords = [
+    // DRIP / compensation plan
+    'dividend reinvest', 'drip', 'reinvestment plan', 'director compensation',
+    'compensation plan', 'deferred compensation', 'prior election',
+    'stock purchase plan', 'employee stock purchase', 'espp',
+    // Offering participation
+    'public offering', 'underwritten offering', 'registered offering',
+    'private placement', 'subscription agreement', 'securities purchase agreement',
+    'placement agent', 'prospectus supplement', 'direct offering', 'pipe offering',
+  ];
+
+  // Build LIKE conditions for SQLite (case-insensitive via LOWER())
+  const conditions = keywords.map(() => "LOWER(COALESCE(footnote,'')) LIKE ?").join(' OR ');
+  const params     = keywords.map(k => '%' + k + '%');
+
+  try {
+    if (!confirm) {
+      const count = db.prepare(`
+        SELECT COUNT(*) AS n FROM trades
+        WHERE TRIM(type) = 'P' AND footnote IS NOT NULL AND (${conditions})
+      `).get(...params).n;
+
+      const sample = db.prepare(`
+        SELECT ticker, insider, trade_date, value,
+               SUBSTR(footnote, 1, 120) AS footnote_preview
+        FROM trades
+        WHERE TRIM(type) = 'P' AND footnote IS NOT NULL AND (${conditions})
+        ORDER BY trade_date DESC
+        LIMIT 30
+      `).all(...params);
+
+      return res.json({
+        mode: 'preview',
+        would_delete: count,
+        sample,
+        message: 'Add &confirm=1 to execute'
+      });
+    }
+
+    const result = db.prepare(`
+      DELETE FROM trades
+      WHERE TRIM(type) = 'P' AND footnote IS NOT NULL AND (${conditions})
+    `).run(...params);
+
+    _stockListsCache = null;
+    res.json({ mode: 'deleted', deleted: result.changes });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/purge-drip?ticker=GABC&date=2026-03-17&confirm=1
 // Surgically removes confirmed DRIP trades for a specific ticker and date.
 // Without confirm=1, returns a preview of what would be deleted.
