@@ -8678,12 +8678,228 @@ async function loadAccountPage() {
         `}
       </div>
 
+      <!-- Email Alerts -->
+      <div id="alertsCard" style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">EMAIL ALERTS</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="alertToggleLabel" style="font-size:11px;color:var(--muted)">Loading…</span>
+            <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:#1e2d3d;cursor:pointer;position:relative;transition:background 0.2s">
+              <div id="alertToggleKnob" style="position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#4a6580;transition:all 0.2s"></div>
+            </div>
+          </div>
+        </div>
+        <div id="alertsBody">
+          <div style="font-size:12px;color:var(--muted)">Loading alert settings…</div>
+        </div>
+      </div>
+
       <!-- Sign out -->
       <div style="text-align:right;margin-top:8px">
         <button onclick="logout()" style="background:transparent;border:none;font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);cursor:pointer;text-decoration:underline">Sign out</button>
       </div>
     </div>`;
+
+  // Load alerts prefs asynchronously
+  loadAlertPrefs();
 }
+
+async function loadAlertPrefs() {
+  try {
+    const r = await fetch('/api/alerts/prefs', { headers: { 'Authorization': 'Bearer ' + getSessionCookie() } });
+    if (!r.ok) return;
+    const p = await r.json();
+    renderAlertPrefs(p);
+  } catch(e) { console.error('loadAlertPrefs:', e); }
+}
+
+let _alertPrefs = { enabled: 1, min_score: 70, min_value: 0, types: 'conviction,cluster,first_buy,exit_warning', tickers: '', frequency: 'immediate' };
+
+function renderAlertPrefs(p) {
+  _alertPrefs = { ..._alertPrefs, ...p };
+  const enabled = !!p.enabled;
+
+  // Update toggle
+  const tog    = document.getElementById('alertToggle');
+  const knob   = document.getElementById('alertToggleKnob');
+  const label  = document.getElementById('alertToggleLabel');
+  if (tog && knob && label) {
+    tog.style.background   = enabled ? 'var(--accent)' : '#1e2d3d';
+    knob.style.background  = enabled ? '#000' : '#4a6580';
+    knob.style.left        = enabled ? '21px' : '3px';
+    label.textContent      = enabled ? 'On' : 'Off';
+    label.style.color      = enabled ? 'var(--accent)' : 'var(--muted)';
+  }
+
+  const types = (p.types || '').split(',').map(t => t.trim());
+  const body  = document.getElementById('alertsBody');
+  if (!body) return;
+
+  body.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.6">
+      Get an email when new insider signals match your criteria.<br>
+      Signals are checked every 5 minutes after market filings.
+    </div>
+
+    <!-- Signal types -->
+    <div style="margin-bottom:18px">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px">SIGNAL TYPES</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${[
+          { key: 'conviction',    label: '⚡ Conviction Buy' },
+          { key: 'cluster',       label: '🔵 Cluster Buy'    },
+          { key: 'first_buy',     label: '🆕 First Buy'      },
+          { key: 'exit_warning',  label: '⚠️ Exit Warning'   },
+        ].map(s => `
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text)">
+            <input type="checkbox" id="alert_type_${s.key}" ${types.includes(s.key) ? 'checked' : ''}
+              onchange="saveAlertPrefs()"
+              style="accent-color:var(--accent);width:14px;height:14px">
+            ${s.label}
+          </label>`).join('')}
+      </div>
+    </div>
+
+    <!-- Min score -->
+    <div style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px">MIN SIGNAL SCORE</div>
+        <span id="alertScoreLabel" style="font-size:12px;color:var(--accent);font-family:'Space Mono',monospace">${p.min_score || 70}</span>
+      </div>
+      <input type="range" id="alertMinScore" min="0" max="95" step="5" value="${p.min_score || 70}"
+        oninput="document.getElementById('alertScoreLabel').textContent=this.value"
+        onchange="saveAlertPrefs()"
+        style="width:100%;accent-color:var(--accent);cursor:pointer">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
+        <span>0 · All signals</span><span>70 · Recommended</span><span>95 · High only</span>
+      </div>
+    </div>
+
+    <!-- Min trade value -->
+    <div style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px">MIN TRADE VALUE</div>
+        <span id="alertValueLabel" style="font-size:12px;color:var(--accent);font-family:'Space Mono',monospace">${_fmtAlertVal(p.min_value||0)}</span>
+      </div>
+      <input type="range" id="alertMinValue" min="0" max="6" step="1" value="${_alertValIndex(p.min_value||0)}"
+        oninput="document.getElementById('alertValueLabel').textContent=_fmtAlertVal(_alertValSteps[this.value])"
+        onchange="saveAlertPrefs()"
+        style="width:100%;accent-color:var(--accent);cursor:pointer">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px">
+        <span>Any</span><span>$10K</span><span>$50K</span><span>$100K</span><span>$250K</span><span>$500K</span><span>$1M+</span>
+      </div>
+    </div>
+
+    <!-- Ticker filter -->
+    <div style="margin-bottom:18px">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:8px">TICKER FILTER <span style="font-weight:400;text-transform:none;letter-spacing:0">(leave blank for all)</span></div>
+      <input type="text" id="alertTickers" placeholder="e.g. AAPL, MSFT, NVDA"
+        value="${p.tickers || ''}"
+        onblur="saveAlertPrefs()"
+        style="width:100%;box-sizing:border-box;background:#080b0f;border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:'Space Mono',monospace;font-size:11px;color:var(--text);outline:none">
+    </div>
+
+    <!-- Frequency -->
+    <div style="margin-bottom:24px">
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:10px">FREQUENCY</div>
+      <div style="display:flex;gap:8px">
+        ${[['immediate','⚡ Immediate'],['daily','📅 Daily Digest']].map(([val,label]) => `
+          <button id="alertFreq_${val}" onclick="setAlertFreq('${val}')"
+            style="flex:1;padding:10px;border-radius:6px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;border:1px solid ${p.frequency===val?'var(--accent)':'var(--border)'};background:${p.frequency===val?'var(--accent)22':'transparent'};color:${p.frequency===val?'var(--accent)':'var(--muted)'}">
+            ${label}
+          </button>`).join('')}
+      </div>
+    </div>
+
+    <!-- Save status + test -->
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <span id="alertSaveStatus" style="font-size:11px;color:var(--muted)"></span>
+      <button onclick="sendTestAlert()" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:8px 16px;font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);cursor:pointer;letter-spacing:1px">SEND TEST EMAIL</button>
+    </div>`;
+}
+
+const _alertValSteps = [0, 10000, 50000, 100000, 250000, 500000, 1000000];
+function _alertValIndex(v) {
+  for (let i = _alertValSteps.length - 1; i >= 0; i--) if (v >= _alertValSteps[i]) return i;
+  return 0;
+}
+function _fmtAlertVal(v) {
+  if (!v) return 'Any';
+  if (v >= 1e6) return '$' + (v/1e6).toFixed(0) + 'M+';
+  if (v >= 1e3) return '$' + (v/1e3).toFixed(0) + 'K';
+  return '$' + v;
+}
+
+function toggleAlerts() {
+  _alertPrefs.enabled = _alertPrefs.enabled ? 0 : 1;
+  renderAlertPrefs(_alertPrefs);
+  saveAlertPrefs();
+}
+
+function setAlertFreq(val) {
+  _alertPrefs.frequency = val;
+  // Update button styles
+  ['immediate','daily'].forEach(v => {
+    const btn = document.getElementById('alertFreq_' + v);
+    if (!btn) return;
+    const active = v === val;
+    btn.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+    btn.style.background  = active ? 'var(--accent)22' : 'transparent';
+    btn.style.color       = active ? 'var(--accent)' : 'var(--muted)';
+  });
+  saveAlertPrefs();
+}
+
+let _alertSaveTimer;
+async function saveAlertPrefs() {
+  clearTimeout(_alertSaveTimer);
+  _alertSaveTimer = setTimeout(async () => {
+    const types = ['conviction','cluster','first_buy','exit_warning']
+      .filter(k => { const el = document.getElementById('alert_type_' + k); return el && el.checked; })
+      .join(',');
+    const min_score = parseInt(document.getElementById('alertMinScore')?.value || 70);
+    const valIdx    = parseInt(document.getElementById('alertMinValue')?.value || 0);
+    const min_value = _alertValSteps[valIdx] || 0;
+    const tickers   = document.getElementById('alertTickers')?.value || '';
+    const frequency = _alertPrefs.frequency || 'immediate';
+    const enabled   = _alertPrefs.enabled;
+
+    try {
+      const r = await fetch('/api/alerts/prefs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getSessionCookie() },
+        body: JSON.stringify({ enabled, min_score, min_value, types, tickers, frequency })
+      });
+      const stat = document.getElementById('alertSaveStatus');
+      if (stat) {
+        stat.textContent = r.ok ? '✓ Saved' : '✗ Error saving';
+        stat.style.color = r.ok ? 'var(--accent)' : '#ff4466';
+        setTimeout(() => { if (stat) stat.textContent = ''; }, 2500);
+      }
+    } catch(e) { console.error('saveAlertPrefs:', e); }
+  }, 400);
+}
+
+async function sendTestAlert() {
+  const btn = event.target;
+  btn.textContent = 'SENDING…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/alerts/test', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + getSessionCookie() }
+    });
+    const d = await r.json();
+    btn.textContent = r.ok ? '✓ CHECK YOUR INBOX' : '✗ FAILED';
+    btn.style.color = r.ok ? 'var(--accent)' : '#ff4466';
+  } catch(e) {
+    btn.textContent = '✗ ERROR';
+    btn.style.color = '#ff4466';
+  }
+  setTimeout(() => { btn.textContent = 'SEND TEST EMAIL'; btn.style.color = 'var(--muted)'; btn.disabled = false; }, 3000);
+}
+
+
 
 // Close modal on Escape key
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLegalModal(); });
