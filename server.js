@@ -2241,6 +2241,42 @@ app.get('/api/admin/reingest-accession', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/admin/insert-trade?ticker=SCM&insider=Huskinson+W.+Todd&title=CFO+and+CCO&date=2026-03-13&filing_date=2026-03-17&type=P&qty=5700&price=8.785&owned=54297
+// Manually inserts a single verified trade, bypassing all filters.
+// Use only for confirmed legitimate trades dropped by the footnote filter.
+app.get('/api/admin/insert-trade', (req, res) => {
+  const ticker      = (req.query.ticker      || '').toUpperCase().trim();
+  const insider     = (req.query.insider     || '').trim();
+  const title       = (req.query.title       || '').trim();
+  const date        = (req.query.date        || '').trim();
+  const filingDate  = (req.query.filing_date || date).trim();
+  const type        = (req.query.type        || 'P').trim();
+  const qty         = Math.round(Math.abs(parseFloat(req.query.qty   || '0')));
+  const price       = Math.abs(parseFloat(req.query.price || '0'));
+  const owned       = Math.round(Math.abs(parseFloat(req.query.owned || '0')));
+  const accession   = (req.query.accession   || 'manual-' + Date.now()).trim();
+  const company     = (req.query.company     || ticker).trim();
+
+  if (!ticker || !insider || !date || !qty) {
+    return res.status(400).json({ error: 'Required: ticker, insider, date, qty' });
+  }
+  if (!['P','S','S-'].includes(type)) {
+    return res.status(400).json({ error: 'type must be P, S, or S-' });
+  }
+
+  const value = Math.round(qty * price);
+  try {
+    const stmt = db.prepare('INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const result = stmt.run(ticker, company, insider, title, date, filingDate, type, qty, +price.toFixed(4), value, owned, accession, null);
+    _stockListsCache = null;
+    res.json({
+      inserted: result.changes,
+      ticker, insider, date, type, qty, price, value,
+      message: result.changes ? 'Trade inserted' : 'Already exists (duplicate key)'
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/purge-drip?ticker=GABC&date=2026-03-17&confirm=1
 // Surgically removes confirmed DRIP trades for a specific ticker and date.
 // Without confirm=1, returns a preview of what would be deleted.
