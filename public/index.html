@@ -7330,7 +7330,7 @@ function _redrawMonitorAlerts() {
   renderMonitorShell(body);
   if (cached) {
     const label = _monitorTab === 'today' ? 'today' : _monitorTab === 'week' ? 'this week' : _monitorTab === 'month' ? 'this month' : 'this quarter';
-    renderMonitorAlerts(cached, label, body);
+    renderMonitorAlerts(cached, label, body, _monitorCache[_monitorTab + '_trades'], _monitorCache[_monitorTab + '_cutStr']);
   } else {
     runMonitorWindow(_monitorTab, body);
   }
@@ -7411,7 +7411,7 @@ async function runMonitorWindow(tab, body) {
   }
 
   if (_monitorCache[tab]) {
-    renderMonitorAlerts(_monitorCache[tab], label, body);
+    renderMonitorAlerts(_monitorCache[tab], label, body, _monitorCache[tab + '_trades'], _monitorCache[tab + '_cutStr']);
     return;
   }
 
@@ -7465,6 +7465,8 @@ async function runMonitorWindow(tab, body) {
 
     const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, displayCutStr);
     _monitorCache[tab] = alerts;
+    _monitorCache[tab + '_trades']  = allTrades;
+    _monitorCache[tab + '_cutStr']  = displayCutStr;
     if (tab === 'week')  _monitorCache['_weekKey']  = currentWeekStart();
     if (tab === 'month') _monitorCache['_monthKey'] = currentMonthKey();
     if (tab === 'quarter') _monitorCache['_quarterKey'] = currentQuarterKey();
@@ -7476,7 +7478,7 @@ async function runMonitorWindow(tab, body) {
       : tab === 'quarter'
       ? `since ${fmtDate(displayCutStr)} (Q${Math.ceil((new Date().getMonth()+1)/3)})`
       : label;
-    renderMonitorAlerts(alerts, displayLabel, body);
+    renderMonitorAlerts(alerts, displayLabel, body, allTrades, displayCutStr);
   } catch(e) {
     const el = document.getElementById('monitorAlerts');
     if (el) el.innerHTML = `<div style="text-align:center;padding:40px 20px"><div style="font-size:28px;margin-bottom:12px">⚠️</div><div style="color:var(--sell);font-size:13px;margin-bottom:16px">Could not load monitor data — ${e.message.includes('aborted') ? 'request timed out' : e.message}</div><button onclick="runMonitorWindow('${tab}', document.getElementById('monitorViewBody'))" style="padding:8px 20px;background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.35);border-radius:6px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ RETRY</button></div>`;
@@ -7629,7 +7631,94 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
   });
 }
 
-function renderMonitorAlerts(allAlerts, label, body) {
+function buildMonitorSentiment(trades, cutStr) {
+  const inWindow = trades.filter(t => (t.trade||t.filing||'').slice(0,10) >= cutStr);
+  const buys  = inWindow.filter(t => t.type === 'P');
+  const sells = inWindow.filter(t => t.type === 'S' || t.type === 'S-');
+  const buyVal  = buys.reduce((s,t) => s + (t.value||0), 0);
+  const sellVal = sells.reduce((s,t) => s + (t.value||0), 0);
+  const totalVal = buyVal + sellVal;
+  const buyPct = totalVal > 0 ? Math.round(buyVal / totalVal * 100) : 50;
+  const uniqueBuyers  = new Set(buys.map(t => t.insider)).size;
+  const uniqueSellers = new Set(sells.map(t => t.insider)).size;
+  const ratio = sells.length > 0 ? (buys.length / sells.length).toFixed(2) : buys.length > 0 ? '∞' : '—';
+  const netFlow = buyVal - sellVal;
+  const sentiment = buyPct >= 70 ? 'BULLISH' : buyPct >= 55 ? 'LEANING BULLISH' : buyPct >= 45 ? 'NEUTRAL' : buyPct >= 30 ? 'LEANING BEARISH' : 'BEARISH';
+  const sentimentColor = buyPct >= 70 ? 'var(--buy)' : buyPct >= 55 ? '#7eff7e' : buyPct >= 45 ? 'var(--muted)' : buyPct >= 30 ? '#ff9966' : 'var(--sell)';
+  return { buyPct, buyVal, sellVal, netFlow, uniqueBuyers, uniqueSellers, ratio, sentiment, sentimentColor, buyCount: buys.length, sellCount: sells.length };
+}
+
+function renderSentimentGauge(s) {
+  // Arc gauge SVG — semi-circle from left (bearish) to right (bullish)
+  // needle angle: 0° = far left (0%), 180° = far right (100%)
+  const needleAngle = (s.buyPct / 100) * 180; // degrees
+  const toRad = d => (d - 180) * Math.PI / 180;
+  const cx = 100, cy = 90, r = 72;
+  // Needle tip
+  const nx = cx + r * Math.cos(toRad(needleAngle));
+  const ny = cy + r * Math.sin(toRad(needleAngle));
+
+  // Arc segments: red zone 0-35%, yellow 35-65%, green 65-100%
+  function arcPath(startPct, endPct) {
+    const s = toRad(startPct * 1.8), e = toRad(endPct * 1.8);
+    const x1 = cx + r * Math.cos(s), y1 = cy + r * Math.sin(s);
+    const x2 = cx + r * Math.cos(e), y2 = cy + r * Math.sin(e);
+    return `M ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2}`;
+  }
+
+  return `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin-bottom:24px">
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:24px;align-items:center" class="mob-1col">
+
+      <!-- Gauge SVG -->
+      <div style="text-align:center">
+        <svg viewBox="0 0 200 100" style="width:100%;max-width:200px;overflow:visible">
+          <!-- Track -->
+          <path d="${arcPath(0,100)}" fill="none" stroke="#1e2d3d" stroke-width="12" stroke-linecap="round"/>
+          <!-- Bearish zone -->
+          <path d="${arcPath(0,35)}" fill="none" stroke="rgba(255,68,102,0.5)" stroke-width="12" stroke-linecap="round"/>
+          <!-- Neutral zone -->
+          <path d="${arcPath(35,65)}" fill="none" stroke="rgba(255,170,0,0.5)" stroke-width="12" stroke-linecap="round"/>
+          <!-- Bullish zone -->
+          <path d="${arcPath(65,100)}" fill="none" stroke="rgba(0,255,136,0.5)" stroke-width="12" stroke-linecap="round"/>
+          <!-- Filled arc up to buyPct -->
+          <path d="${arcPath(0, s.buyPct)}" fill="none" stroke="${s.sentimentColor}" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+          <!-- Needle -->
+          <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${s.sentimentColor}" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="${cx}" cy="${cy}" r="4" fill="${s.sentimentColor}"/>
+          <!-- Labels -->
+          <text x="16" y="98" fill="#ff4466" font-family="monospace" font-size="7" opacity="0.7">BEAR</text>
+          <text x="170" y="98" fill="#00ff88" font-family="monospace" font-size="7" opacity="0.7">BULL</text>
+          <!-- Center value -->
+          <text x="${cx}" y="${cy-12}" fill="${s.sentimentColor}" font-family="monospace" font-size="18" font-weight="700" text-anchor="middle">${s.buyPct}%</text>
+          <text x="${cx}" y="${cy+4}" fill="${s.sentimentColor}" font-family="monospace" font-size="7" text-anchor="middle" letter-spacing="1">${s.sentiment}</text>
+        </svg>
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:2px;letter-spacing:1px">INSIDER BUY FLOW</div>
+      </div>
+
+      <!-- Stats grid -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px" class="mob-3col-grid">
+        <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">BUY VOLUME</div>
+          <div style="font-size:16px;font-family:'Space Mono',monospace;color:var(--buy);font-weight:700">${fmt(s.buyVal)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${s.buyCount} trades · ${s.uniqueBuyers} insiders</div>
+        </div>
+        <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">SELL VOLUME</div>
+          <div style="font-size:16px;font-family:'Space Mono',monospace;color:var(--sell);font-weight:700">${fmt(s.sellVal)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${s.sellCount} trades · ${s.uniqueSellers} insiders</div>
+        </div>
+        <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">NET FLOW</div>
+          <div style="font-size:16px;font-family:'Space Mono',monospace;color:${s.netFlow>=0?'var(--buy)':'var(--sell)'};font-weight:700">${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Buy/Sell ratio: ${s.ratio}x</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
   const el = document.getElementById('monitorAlerts');
   if (!el) return;
 
@@ -7640,6 +7729,7 @@ function renderMonitorAlerts(allAlerts, label, body) {
   if (!alerts.length) {
     const filterList = [..._monitorTypeFilters].join(' + ');
     el.innerHTML = `
+      ${trades && cutStr ? renderSentimentGauge(buildMonitorSentiment(trades, cutStr)) : ''}
       <div style="text-align:center;padding:60px 20px;color:var(--muted)">
         <div style="font-size:32px;margin-bottom:12px">🔍</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:8px">
@@ -7666,6 +7756,7 @@ function renderMonitorAlerts(allAlerts, label, body) {
     : '';
 
   el.innerHTML = `
+    ${trades && cutStr ? renderSentimentGauge(buildMonitorSentiment(trades, cutStr)) : ''}
     <div style="font-size:11px;color:var(--muted);margin-bottom:16px;font-family:'Space Mono',monospace">
       ${alerts.length} signal${alerts.length!==1?'s':''} across ${groups.length} ticker${groups.length!==1?'s':''} ${label}${activeFilters}
     </div>
