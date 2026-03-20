@@ -601,7 +601,45 @@ app.get('/api/insider-ratio-history', (req, res) => {
       ratio:  r.sells > 0 ? +(r.buys / r.sells).toFixed(3) : null,
     })).filter(r => r.ratio !== null && r.buys + r.sells >= 3);
 
-    res.json(data);
+    // Compute long-term percentile thresholds using 3 years of weekly data
+    // These calibrate the Fear/Greed zones against actual historical distribution
+    const ltRows = db.prepare(`
+      SELECT
+        strftime('%Y-%W', trade_date) AS period,
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells
+      FROM trades
+      WHERE trade_date >= date('now', '-1095 days')
+        AND trade_date <= date('now')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(value, 0) > 0
+      GROUP BY period
+      HAVING sells > 0
+      ORDER BY period ASC
+    `).all();
+
+    const ltRatios = ltRows
+      .map(r => r.sells > 0 ? r.buys / r.sells : null)
+      .filter(r => r !== null && r < 5) // exclude extreme outliers
+      .sort((a, b) => a - b);
+
+    const pct = (p) => {
+      const idx = Math.floor(p / 100 * (ltRatios.length - 1));
+      return +ltRatios[idx].toFixed(3);
+    };
+
+    const stats = ltRatios.length >= 10 ? {
+      p20:    pct(20),   // Fear threshold
+      p40:    pct(40),   // Below average
+      p60:    pct(60),   // Above average
+      p80:    pct(80),   // Greed threshold
+      median: pct(50),
+      mean:   +(ltRatios.reduce((s,v) => s+v, 0) / ltRatios.length).toFixed(3),
+      n:      ltRatios.length,
+    } : null;
+
+    res.json({ data, stats });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 // Returns buy/sell counts and values for today, week, month, quarter windows
