@@ -8133,27 +8133,7 @@ function requirePremiumForPeriod(days) {
 
 // ── Sidebar guard (blurs sidebar for free users in stock view) ─
 function renderSidebarGated(trades) {
-  if (auth.isPremium) {
-    renderSidebarTrades(trades);
-    return;
-  }
-  const content = document.getElementById('sidebarContent');
-  if (!content) return;
-  // Show first 5 trades blurred after
-  const preview = trades.slice(0, 3);
-  renderSidebarTrades(preview);
-  // Add blur overlay on sidebar
-  const wrapper = content.parentElement;
-  if (!wrapper) return;
-  let gate = wrapper.querySelector('.sidebar-gate');
-  if (!gate) {
-    gate = document.createElement('div');
-    gate.className = 'sidebar-gate';
-    gate.style.cssText = 'position:absolute;bottom:0;left:0;right:0;height:60%;background:linear-gradient(to bottom,transparent,#080b0f 60%);display:flex;align-items:flex-end;justify-content:center;padding-bottom:24px;z-index:10';
-    gate.innerHTML = `<button onclick="showPremiumOverlay('Full insider sidebar & trade history')" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:10px 20px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">🔒 UNLOCK FULL VIEW</button>`;
-    wrapper.style.position = 'relative';
-    wrapper.appendChild(gate);
-  }
+  renderSidebarTrades(trades);
 }
 
 // ── Pressure chart guard ──────────────────────────────────────
@@ -8583,8 +8563,8 @@ function loadPremiumPage() {
           ['Screener — 7 days', true, true],
           ['Screener — 30D / 90D / 1Y + filters', false, true],
           ['Stock View — price chart + trade markers', true, true],
+          ['Insider sidebar — trade history', true, true],
           ['Insider Pressure indicator', false, true],
-          ['Insider sidebar — full trade history', false, true],
           ['Cluster Buys & Largest Trades', false, true],
           ['Notable Insiders & Best Timers', false, true],
           ['Analysis dashboard', false, true],
