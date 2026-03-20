@@ -9095,9 +9095,6 @@ async function loadAccountPage() {
   }
 
   // Fetch fresh subscription state
-  let subStatus = 'Loading…';
-  let planLabel = '';
-  let periodEnd = '';
   try {
     const resp = await fetch('/api/auth/me', {
       headers: { 'Authorization': 'Bearer ' + getSessionCookie() }
@@ -9106,7 +9103,10 @@ async function loadAccountPage() {
     auth.isPremium = data.isPremium;
     auth.isAdmin   = data.isAdmin;
     renderAuthHeader();
-  } catch(_) {}
+  } catch(e) { console.warn('loadAccountPage: auth/me failed', e); }
+
+  // Snapshot isPremium NOW after the fetch resolves
+  const userIsPremium = auth.isPremium;
 
   el.innerHTML = `
     <div style="max-width:520px;margin:60px auto;padding:0 24px">
@@ -9122,7 +9122,7 @@ async function loadAccountPage() {
       <!-- Plan -->
       <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
         <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">PLAN</div>
-        ${auth.isPremium ? `
+        ${userIsPremium ? `
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
             <span style="font-size:14px;color:var(--text);font-weight:700">Premium</span>
             <span style="font-size:9px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 8px;font-family:'Space Mono',monospace">ACTIVE</span>
@@ -9148,7 +9148,7 @@ async function loadAccountPage() {
       </div>
     </div>`;
 
-  if (auth.isPremium) {
+  if (userIsPremium) {
     loadAlertPrefs();
   } else {
     const body = document.getElementById('alertsBody');
