@@ -5570,7 +5570,7 @@ function detectAdvancedClusters(trades) {
     if (bestCluster && bestCluster.score >= 30) results.push(bestCluster);
   });
 
-  return results.sort((a, b) => b.score - a.score).slice(0, 12);
+  return results.filter(r => r.totalVal > 0).sort((a, b) => b.score - a.score).slice(0, 12);
 }
 
 function scoreCluster(ticker, clusterBuys, allTicker) {
@@ -5623,7 +5623,7 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   // We DO have trade dates — compute price trajectory from the cluster's own data
   const allTickerBuys = allTicker.filter(t => t.type === 'P');
   const preBuys = allTickerBuys.filter(t => new Date(t.trade||t.filing) < new Date((clusterBuys[0].trade||clusterBuys[0].filing)));
-  const avgClusterPrice = prices.reduce((a,b)=>a+b,0) / prices.length;
+  const avgClusterPrice = prices.length > 0 ? prices.reduce((a,b)=>a+b,0) / prices.length : 0;
   if (preBuys.length > 0) {
     const recentPrePrice = preBuys.sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0].price;
     const priceDelta = (avgClusterPrice - recentPrePrice) / recentPrePrice * 100;
@@ -5716,7 +5716,7 @@ function renderClusterCard(c) {
             ${c.execCount > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
             ${c.concurrentSells > 0 ? `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--sell)">⚠ ${c.concurrentSells} SELL${c.concurrentSells>1?'S':''}</span>` : ''}
           </div>
-          <div style="font-size:10px;color:var(--muted)">${fmtDate(c.earliestDate)}${c.latestDate !== c.earliestDate ? ` – ${fmtDate(c.latestDate)}` : ''} · avg @$${c.avgPrice}</div>
+          <div style="font-size:10px;color:var(--muted)">${fmtDate(c.earliestDate)}${c.latestDate !== c.earliestDate ? ` – ${fmtDate(c.latestDate)}` : ''} · avg @${c.avgPrice > 0 ? '$' + c.avgPrice : '—'}</div>
         </div>
       </div>
       <!-- Score badge -->
