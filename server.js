@@ -2200,6 +2200,36 @@ function requireAdminSecret(req, res) {
   return false;
 }
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
+app.get('/api/admin/grant-premium', (req, res) => {
+  if (requireAdminSecret(req, res)) return;
+  const email = (req.query.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'email param required' });
+  try {
+    const user = db.prepare('SELECT id, email FROM users WHERE LOWER(email) = ?').get(email);
+    if (!user) return res.status(404).json({ error: 'User not found: ' + email });
+    const existing = db.prepare('SELECT * FROM subscriptions WHERE user_id = ?').get(user.id);
+    const periodEnd = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+    if (existing) {
+      db.prepare(`UPDATE subscriptions SET status='active', current_period_end=?, updated_at=datetime('now') WHERE user_id=?`).run(periodEnd, user.id);
+    } else {
+      db.prepare(`INSERT INTO subscriptions (user_id, plan, status, current_period_end, updated_at) VALUES (?, 'monthly', 'active', ?, datetime('now'))`).run(user.id, periodEnd);
+    }
+    res.json({ ok: true, message: `Premium granted to ${user.email} until ${periodEnd}` });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/check-user', (req, res) => {
+  if (requireAdminSecret(req, res)) return;
+  const email = (req.query.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'email param required' });
+  try {
+    const user = db.prepare('SELECT id, email, is_admin FROM users WHERE LOWER(email) = ?').get(email);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const sub = db.prepare('SELECT * FROM subscriptions WHERE user_id = ?').get(user.id);
+    res.json({ user, subscription: sub || null });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/sync', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   runSync(parseInt(req.query.q || '4'));
