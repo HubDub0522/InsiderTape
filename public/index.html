@@ -9172,10 +9172,23 @@ async function loadAccountPage() {
 async function loadAlertPrefs() {
   try {
     const r = await fetch('/api/alerts/prefs', { headers: { 'Authorization': 'Bearer ' + getSessionCookie() } });
-    if (!r.ok) return;
+    if (r.status === 401 || r.status === 403) {
+      // Not authenticated or not premium — show gate (shouldn't happen if called correctly)
+      console.warn('loadAlertPrefs: auth failed', r.status);
+      renderAlertPrefs(_alertPrefs); // render with defaults so panel is visible
+      return;
+    }
+    if (!r.ok) {
+      console.error('loadAlertPrefs: server error', r.status);
+      renderAlertPrefs(_alertPrefs); // fall back to defaults
+      return;
+    }
     const p = await r.json();
     renderAlertPrefs(p);
-  } catch(e) { console.error('loadAlertPrefs:', e); }
+  } catch(e) {
+    console.error('loadAlertPrefs:', e);
+    renderAlertPrefs(_alertPrefs); // fall back to defaults so panel is not blank
+  }
 }
 
 let _alertPrefs = { enabled: 1, min_score: 70, min_value: 0, types: 'conviction,cluster,first_buy,exit_warning', tickers: '', sectors: '', roles: '', frequency: 'immediate' };
