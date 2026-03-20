@@ -320,6 +320,8 @@ try {
     bars_json TEXT NOT NULL,
     fetched_at INTEGER NOT NULL
   )`);
+  // v1.7.1: Extended price fetch to 20yr — purge cached 6yr bars so they refresh
+  try { db.prepare(`DELETE FROM price_cache WHERE fetched_at < ?`).run(Date.now() - 1); } catch(_) {}
   db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
     quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
   )`);
@@ -1429,7 +1431,10 @@ app.get('/api/price', async (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
   // ?bust=1 forces a fresh fetch by clearing the cache entry first
-  if (req.query.bust === '1') { delete _priceCache[sym]; }
+  if (req.query.bust === '1') {
+    delete _priceCache[sym];
+    try { db.prepare('DELETE FROM price_cache WHERE symbol=?').run(sym); } catch(_) {}
+  }
   const bars = await fetchPriceBars(sym);
   if (res.headersSent) return;
   bars ? res.json(bars) : res.status(404).json({ error: `No price data for ${sym}` });
@@ -2122,6 +2127,47 @@ app.get('/api/admin/reingest-recent', (req, res) => {
       message: 'Deleted ' + result.changes + ' trades. Re-ingest running in background — check /api/debug in a few minutes.'
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/admin/deep-backfill?days=365&confirm=1
+// Fills historical gaps WITHOUT deleting existing data — safe to run anytime.
+// Uses backfill mode which does INSERT OR IGNORE so duplicates are skipped.
+app.get('/api/admin/deep-backfill', (req, res) => {
+  const days    = Math.min(parseInt(req.query.days || '365'), 730);
+  const confirm = req.query.confirm === '1';
+
+  const existing = db.prepare(`SELECT COUNT(*) AS n FROM trades`).get().n;
+  const oldest   = db.prepare(`SELECT MIN(trade_date) AS d FROM trades`).get().d;
+
+  if (!confirm) {
+    return res.json({
+      mode: 'preview',
+      days,
+      existing_trades: existing,
+      oldest_trade_date: oldest,
+      message: `Will backfill ${days} days from EDGAR form.idx. Add &confirm=1 to run. Does NOT delete existing data.`
+    });
+  }
+
+  if (dailyRunning) return res.json({ ok: false, message: 'Worker already running — try again in a few minutes.' });
+
+  dailyRunning = true;
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=300', path.join(__dirname, 'daily-worker.js'), String(days), 'backfill'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[deep-backfill] ' + l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[deep-backfill] ERR: ' + l)));
+  worker.on('exit', code => { dailyRunning = false; slog('deep-backfill worker exited (' + code + ')'); });
+
+  res.json({
+    mode: 'running',
+    days,
+    existing_trades: existing,
+    oldest_before: oldest,
+    message: `Deep backfill running for ${days} days. This may take 5–15 minutes. Check /api/debug for progress.`
+  });
 });
 
 // GET /api/admin/purge-nondiscretionary?confirm=1
