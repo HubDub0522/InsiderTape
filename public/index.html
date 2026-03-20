@@ -452,28 +452,19 @@
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; min-height: 400px; contain: layout; }
     /* Screener table: keep DATE, TICKER, INSIDER, TYPE, VALUE only */
     /* Col order: 1=date 2=ticker 3=insider 4=title 5=type 6=shares 7=price 8=value 9=owned 10=filing */
-    #screenerTable thead tr th:nth-child(4),
-    #screenerTable thead tr th:nth-child(6),
-    #screenerTable thead tr th:nth-child(7),
-    #screenerTable thead tr th:nth-child(9),
-    #screenerTable thead tr th:nth-child(10),
-    #screenerBody tr td:nth-child(4),
-    #screenerBody tr td:nth-child(6),
-    #screenerBody tr td:nth-child(7),
-    #screenerBody tr td:nth-child(9),
-    #screenerBody tr td:nth-child(10) { display: none !important; }
+    /* hide-mobile class handles Shares(5), Price(6), Owned After(8) columns */
+    /* Mobile screener: show Date(1) Ticker(2) Insider(3) Type(4) Value(7)
+       hide-mobile class already hides Shares(5) Price(6) Owned(8)
+       Remove the bad nth-child overrides that were hiding Type and Value */
     #screenerTable { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
-    #screenerTable td, #screenerTable th { padding: 7px 4px; font-size: 10px; }
-    /* Specific column widths for fixed layout screener:
-       col 1 = date (hide filed: line, just show trade date)
-       col 2 = ticker
-       col 3 = insider name
-       col 8 = value  */
-    #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 18%; }
-    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 16%; }
-    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 40%; }
-    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 26%; }
-    /* Hide the "filed:" secondary line inside date cell on mobile — saves vertical space */
+    #screenerTable td, #screenerTable th { padding: 6px 3px; font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    /* Column widths for the 5 visible columns: Date · Ticker · Insider · Type · Value */
+    #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 17%; }
+    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 13%; padding-left: 8px; }
+    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 34%; }
+    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { width: 11%; }
+    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 25%; }
+    /* Hide the "filed:" secondary line and SEC link inside date cell */
     #screenerBody td:nth-child(1) span:nth-child(2),
     #screenerBody td:nth-child(1) a { display: none !important; }
     /* Stop table-wrap from enabling horizontal scroll */
@@ -1545,10 +1536,10 @@ function renderScreener() {
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale — lower signal value" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
-      <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
-      <td style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
+      <td class="hide-mobile" style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
+      <td class="hide-mobile" style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
-      <td style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</td>
+      <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--muted)">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</td>
     </tr>`;
   }).join('');
   const pg = document.getElementById('pagination');
