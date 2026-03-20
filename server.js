@@ -2706,7 +2706,7 @@ app.get('/api/stock-lists', (req, res) => {
 
 
 // ═══════════════════════════════════════════════════════════════
-// ─── AUTH & BILLING ─────────────────────────────────────────────
+// ─── AUTH & BILLING ─────────────────────────────────════════════
 // ═══════════════════════════════════════════════════════════════
 
 const crypto = require('crypto');
@@ -2770,12 +2770,13 @@ app.use((req, res, next) => {
 
 // ── GET /api/auth/me ─────────────────────────────────────────
 app.get('/api/auth/me', (req, res) => {
-  if (!req.session) return res.json({ loggedIn: false });
+  const session = getSession(req);
+  if (!session) return res.json({ loggedIn: false });
   res.json({
-    loggedIn: true,
-    email: req.session.email,
-    isPremium: req.isPremium,
-    isAdmin: !!req.session.is_admin,
+    loggedIn:  true,
+    email:     session.email,
+    isPremium: isPremium(session),
+    isAdmin:   !!session.is_admin,
   });
 });
 
