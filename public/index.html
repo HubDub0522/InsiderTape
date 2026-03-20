@@ -7308,6 +7308,7 @@ function renderMonitorShell(body) {
       ${MONITOR_TYPES.map(t => typeBtn(t.key, t.label)).join('')}
       ${filterNote}
     </div>
+    <div id="monitorGauges" style="margin-bottom:24px"></div>
     <div id="monitorAlerts">
       <div class="loading-state"><div class="spinner"></div><span>Scanning for notable activity…</span></div>
     </div>
@@ -7330,6 +7331,7 @@ function _redrawMonitorAlerts() {
   renderMonitorShell(body);
   if (cached) {
     const label = _monitorTab === 'today' ? 'today' : _monitorTab === 'week' ? 'this week' : _monitorTab === 'month' ? 'this month' : 'this quarter';
+    renderMonitorGauges(_monitorCache[_monitorTab + '_trades'], _monitorCache[_monitorTab + '_cutStr']);
     renderMonitorAlerts(cached, label, body, _monitorCache[_monitorTab + '_trades'], _monitorCache[_monitorTab + '_cutStr']);
   } else {
     runMonitorWindow(_monitorTab, body);
@@ -7411,6 +7413,7 @@ async function runMonitorWindow(tab, body) {
   }
 
   if (_monitorCache[tab]) {
+    renderMonitorGauges(_monitorCache[tab + '_trades'], _monitorCache[tab + '_cutStr']);
     renderMonitorAlerts(_monitorCache[tab], label, body, _monitorCache[tab + '_trades'], _monitorCache[tab + '_cutStr']);
     return;
   }
@@ -7478,6 +7481,7 @@ async function runMonitorWindow(tab, body) {
       : tab === 'quarter'
       ? `since ${fmtDate(displayCutStr)} (Q${Math.ceil((new Date().getMonth()+1)/3)})`
       : label;
+    renderMonitorGauges(allTrades, displayCutStr);
     renderMonitorAlerts(alerts, displayLabel, body, allTrades, displayCutStr);
   } catch(e) {
     const el = document.getElementById('monitorAlerts');
@@ -7718,6 +7722,18 @@ function renderSentimentGauge(s) {
   </div>`;
 }
 
+function renderMonitorGauges(trades, cutStr) {
+  const el = document.getElementById('monitorGauges');
+  if (!el || !trades || !cutStr) return;
+  const s = buildMonitorSentiment(trades, cutStr);
+  el.innerHTML = `
+    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">INSIDER ACTIVITY GAUGES</div>
+      <div style="font-size:10px;color:var(--muted);opacity:0.6">· All Form 4 filings for this period</div>
+    </div>
+    ${renderSentimentGauge(s)}`;
+}
+
 function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
   const el = document.getElementById('monitorAlerts');
   if (!el) return;
@@ -7729,7 +7745,6 @@ function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
   if (!alerts.length) {
     const filterList = [..._monitorTypeFilters].join(' + ');
     el.innerHTML = `
-      ${trades && cutStr ? renderSentimentGauge(buildMonitorSentiment(trades, cutStr)) : ''}
       <div style="text-align:center;padding:60px 20px;color:var(--muted)">
         <div style="font-size:32px;margin-bottom:12px">🔍</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:8px">
@@ -7756,9 +7771,9 @@ function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
     : '';
 
   el.innerHTML = `
-    ${trades && cutStr ? renderSentimentGauge(buildMonitorSentiment(trades, cutStr)) : ''}
-    <div style="font-size:11px;color:var(--muted);margin-bottom:16px;font-family:'Space Mono',monospace">
-      ${alerts.length} signal${alerts.length!==1?'s':''} across ${groups.length} ticker${groups.length!==1?'s':''} ${label}${activeFilters}
+    <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
+      <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">NOTABLE SIGNALS</div>
+      <div style="font-size:10px;color:var(--muted);opacity:0.6">· ${alerts.length} signal${alerts.length!==1?'s':''} across ${groups.length} ticker${groups.length!==1?'s':''} ${label}${activeFilters}</div>
     </div>
     ${groups.map(([ticker, group]) => {
       const topScore   = Math.max(...group.alerts.map(a=>a.score));
