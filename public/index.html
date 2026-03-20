@@ -9135,16 +9135,8 @@ async function loadAccountPage() {
       </div>
 
       <!-- Email Alerts -->
-      <div id="alertsCard" style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-          <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">EMAIL ALERTS</div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span id="alertToggleLabel" style="font-size:11px;color:var(--muted)">Loading…</span>
-            <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:#1e2d3d;cursor:pointer;position:relative;transition:background 0.2s">
-              <div id="alertToggleKnob" style="position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#4a6580;transition:all 0.2s"></div>
-            </div>
-          </div>
-        </div>
+      <div id="alertsCard" style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px;position:relative">
+        <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:20px">EMAIL ALERTS</div>
         <div id="alertsBody">
           <div style="font-size:12px;color:var(--muted)">Loading alert settings…</div>
         </div>
@@ -9156,18 +9148,21 @@ async function loadAccountPage() {
       </div>
     </div>`;
 
-  // Load alerts prefs asynchronously — premium only
   if (auth.isPremium) {
     loadAlertPrefs();
   } else {
     const body = document.getElementById('alertsBody');
-    const tog  = document.getElementById('alertToggleLabel');
-    if (tog) { tog.textContent = 'Premium'; tog.style.color = 'var(--muted)'; }
     if (body) body.innerHTML = `
-      <div style="text-align:center;padding:20px 0 8px">
-        <div style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7">
-          Get notified within minutes of a CEO buying $500K+ in their own stock.<br>
-          Filter by sector, role, trade size, and signal type.
+      <div style="filter:blur(3px);pointer-events:none;opacity:0.4;user-select:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <div style="font-size:12px;color:var(--muted)">Signal types · Sector · Role · Min value</div>
+          <div style="width:40px;height:22px;border-radius:11px;background:#1e2d3d"></div>
+        </div>
+        <div style="height:180px;background:#080b0f;border-radius:8px"></div>
+      </div>
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border-radius:12px;background:rgba(8,11,15,0.6);backdrop-filter:blur(1px)">
+        <div style="font-size:13px;color:var(--muted);text-align:center;line-height:1.7;max-width:300px">
+          Get notified within minutes of a CEO buying $500K+ in their own stock.<br>Filter by sector, role, and signal type.
         </div>
         <button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 28px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">UPGRADE TO PREMIUM →</button>
       </div>`;
@@ -9218,17 +9213,6 @@ function renderAlertPrefs(p) {
   const enabled = !!p.enabled;
 
   // Update toggle
-  const tog   = document.getElementById('alertToggle');
-  const knob  = document.getElementById('alertToggleKnob');
-  const label = document.getElementById('alertToggleLabel');
-  if (tog && knob && label) {
-    tog.style.background  = enabled ? 'var(--accent)' : '#1e2d3d';
-    knob.style.background = enabled ? '#000' : '#4a6580';
-    knob.style.left       = enabled ? '21px' : '3px';
-    label.textContent     = enabled ? 'On' : 'Off';
-    label.style.color     = enabled ? 'var(--accent)' : 'var(--muted)';
-  }
-
   const types        = (p.types   || '').split(',').map(t => t.trim());
   const activeSectors= (p.sectors || '').split(',').map(s => s.trim()).filter(Boolean);
   const activeRoles  = (p.roles   || '').split(',').map(r => r.trim()).filter(Boolean);
@@ -9236,9 +9220,19 @@ function renderAlertPrefs(p) {
   if (!body) return;
 
   body.innerHTML = `
+    <!-- Alerts on/off -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+      <div>
+        <div style="font-size:13px;color:var(--text);font-weight:600">Alerts ${enabled ? '<span style="font-size:10px;color:var(--accent);margin-left:6px;font-family:\'Space Mono\',monospace">ON</span>' : '<span style="font-size:10px;color:var(--muted);margin-left:6px;font-family:\'Space Mono\',monospace">OFF</span>'}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Checked every 5 minutes after market filings</div>
+      </div>
+      <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:${enabled?'var(--accent)':'#1e2d3d'};cursor:pointer;position:relative;transition:background 0.2s">
+        <div id="alertToggleKnob" style="position:absolute;top:3px;left:${enabled?'21':'3'}px;width:16px;height:16px;border-radius:50%;background:${enabled?'#000':'#4a6580'};transition:all 0.2s"></div>
+      </div>
+    </div>
+
     <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.6">
-      Get an email when new insider signals match your criteria — e.g. any CEO at a biotech buying $500K+.<br>
-      Signals are checked every 5 minutes after market filings.
+      Get an email when new insider signals match your criteria — e.g. any CEO at a biotech buying $500K+.
     </div>
 
     <!-- Signal types -->
@@ -9453,13 +9447,19 @@ async function sendTestAlert() {
       headers: { 'Authorization': 'Bearer ' + getSessionCookie() }
     });
     const d = await r.json();
-    btn.textContent = r.ok ? '✓ CHECK YOUR INBOX' : '✗ FAILED';
-    btn.style.color = r.ok ? 'var(--accent)' : '#ff4466';
+    if (r.ok) {
+      btn.textContent = '✓ CHECK YOUR INBOX';
+      btn.style.color = 'var(--accent)';
+    } else {
+      btn.textContent = '✗ ' + (d.error || 'FAILED');
+      btn.style.color = '#ff4466';
+      console.error('Test alert failed:', d.error);
+    }
   } catch(e) {
     btn.textContent = '✗ ERROR';
     btn.style.color = '#ff4466';
   }
-  setTimeout(() => { btn.textContent = 'SEND TEST EMAIL'; btn.style.color = 'var(--muted)'; btn.disabled = false; }, 3000);
+  setTimeout(() => { btn.textContent = 'SEND TEST EMAIL'; btn.style.color = 'var(--muted)'; btn.disabled = false; }, 5000);
 }
 
 
