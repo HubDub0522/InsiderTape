@@ -205,6 +205,7 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_type ON trades(ticker, type, trade_date DESC)`); // speeds up /api/ticker
 } catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── AUTH / SUBSCRIPTION TABLES ──────────────────────────────
@@ -2161,6 +2162,77 @@ app.get('/api/admin/purge-nondiscretionary', (req, res) => {
 
     _stockListsCache = null;
     res.json({ mode: 'deleted', deleted: result.changes });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/admin/reingest-accession?accession=XXXX&filing_date=2026-03-17
+// Re-fetches a specific Form 4 accession from EDGAR and inserts it,
+// bypassing the footnote filter. Use for verified legitimate trades
+// that were incorrectly dropped by the DRIP/offering filter.
+app.get('/api/admin/reingest-accession', async (req, res) => {
+  const accession   = (req.query.accession || '').trim();
+  const filingDate  = (req.query.filing_date || new Date().toISOString().slice(0,10)).trim();
+  if (!accession.match(/^\d{10}-\d{2}-\d{6}$/)) {
+    return res.status(400).json({ error: 'Invalid accession format. Use XXXXXXXXXX-XX-XXXXXX' });
+  }
+  try {
+    const acc = accession.replace(/-/g, '');
+    const filerCik = parseInt(acc.slice(0, 10), 10).toString();
+    // Try to fetch the XML directly
+    async function tryUrl(url) {
+      const r = await fetch(url, { headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' } });
+      if (!r.ok) return null;
+      const text = await r.text();
+      return text.includes('ownershipDocument') ? text : null;
+    }
+    let xml = null;
+    // Try common URL patterns
+    for (const name of ['xslF345X05/form4.xml', 'form4.xml', 'wf-form4.xml', `${accession}.xml`]) {
+      xml = await tryUrl(`https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${name}`);
+      if (xml) break;
+    }
+    if (!xml) {
+      // Try index to find XML filename
+      const idx = await tryUrl(`https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${accession}-index.json`);
+      if (idx) {
+        const data = JSON.parse(idx);
+        const doc  = (data.documents || []).find(d => d.document?.match(/\.xml$/i));
+        if (doc) xml = await tryUrl(`https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${doc.document}`);
+      }
+    }
+    if (!xml) return res.status(404).json({ error: 'Could not fetch XML from EDGAR' });
+
+    // Parse WITHOUT the footnote filter — this is a manually verified clean trade
+    const ticker  = (xml.match(/<issuerTradingSymbol[^>]*>\s*([^<]+)/i) || [])[1]?.trim().toUpperCase() || '';
+    const company = (xml.match(/<issuerName[^>]*>\s*([^<]+)/i) || [])[1]?.trim() || '';
+    const insider = (xml.match(/<rptOwnerName[^>]*>\s*([^<]+)/i) || [])[1]?.trim() || '';
+    const title   = (xml.match(/<officerTitle[^>]*>\s*([^<]+)/i) || [])[1]?.trim() || '';
+
+    const rows = [];
+    const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/gi;
+    let m;
+    while ((m = ndRe.exec(xml))) {
+      const block = m[1];
+      const code  = (block.match(/<transactionCode[^>]*>\s*([^<]+)/i) || [])[1]?.trim() || '';
+      if (!['P','S','S-'].includes(code)) continue;
+      const dateStr = (block.match(/<transactionDate[^>]*>[\s\S]*?<value>\s*([^<]+)/i) || [])[1]?.trim() || filingDate;
+      const date    = dateStr.slice(0,10);
+      const qty     = Math.round(Math.abs(parseFloat((block.match(/<transactionShares[^>]*>[\s\S]*?<value>\s*([^<]+)/i) || [])[1] || '0') || 0));
+      const price   = Math.abs(parseFloat((block.match(/<transactionPricePerShare[^>]*>[\s\S]*?<value>\s*([^<]+)/i) || [])[1] || '0') || 0);
+      const owned   = Math.round(Math.abs(parseFloat((block.match(/<sharesOwnedFollowingTransaction[^>]*>[\s\S]*?<value>\s*([^<]+)/i) || [])[1] || '0') || 0));
+      const value   = Math.round(qty * price);
+      if (qty > 50000000 || price > 1500000 || value > 2000000000) continue;
+      rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), value, owned, accession, null]);
+    }
+
+    if (!rows.length) return res.json({ inserted: 0, message: 'No valid P/S/S- transactions found in filing' });
+
+    const stmt = db.prepare('INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    let inserted = 0;
+    const txn = db.transaction(rs => { for (const r of rs) inserted += stmt.run(r).changes; });
+    txn(rows);
+    _stockListsCache = null;
+    res.json({ inserted, rows: rows.length, ticker, insider, message: 'Done — no footnote filter applied' });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
