@@ -3850,35 +3850,46 @@ function renderRatioChart(el, data, grain, stats) {
   const cW = W - PAD.left - PAD.right;
   const cH = H - PAD.top  - PAD.bottom;
 
-  const ratios = data.map(d => d.ratio);
-  const maxR = Math.max(...ratios, stats ? stats.p80 * 1.3 : 0.6);
-  const yMax = Math.ceil(maxR / 0.1) * 0.1 + 0.05;
+  const ratios = [...data.map(d => d.ratio)].sort((a, b) => a - b);
+  const minR = ratios[0];
+  const maxR = ratios[ratios.length - 1];
 
-  // Fear/Greed thresholds — from server stats if available, else fallback to historical norms
-  const fearThresh  = stats ? stats.p20 : 0.15;  // bottom 20th pct = Fear
-  const greedThresh = stats ? stats.p80 : 0.50;  // top 20th pct = Greed
-  const NORM        = stats ? stats.median : 0.25;
+  // Pad the y range 20% above and below visible data
+  const yPad = Math.max((maxR - minR) * 0.25, 0.05);
+  const yMin = Math.max(0, minR - yPad);
+  const yMax = maxR + yPad;
+
+  // Fear/Greed from visible data percentiles (p20 / p80)
+  const pct = (p) => ratios[Math.floor(p / 100 * (ratios.length - 1))];
+  const fearThresh  = pct(20);
+  const greedThresh = pct(80);
+  const NORM        = pct(50);
 
   const xCoord = i => PAD.left + (i / (data.length - 1)) * cW;
-  const yCoord = v => PAD.top + cH - (v / yMax) * cH;
+  const yCoord = v => PAD.top + cH - ((v - yMin) / (yMax - yMin)) * cH;
 
   // Fear/Greed zone bands
-  const fearY  = yCoord(fearThresh).toFixed(1);
-  const greedY = yCoord(greedThresh).toFixed(1);
+  const fearY   = yCoord(fearThresh).toFixed(1);
+  const greedY  = yCoord(greedThresh).toFixed(1);
   const bottomY = (PAD.top + cH).toFixed(1);
   const topY    = PAD.top.toFixed(1);
 
-  const fearBand  = `<rect x="${PAD.left}" y="${bottomY}" width="${cW}" height="${+(bottomY) - +(fearY)}" fill="rgba(255,68,102,0.06)"/>`;
-  const greedBand = `<rect x="${PAD.left}" y="${topY}" width="${cW}" height="${+(greedY) - +(topY)}" fill="rgba(0,255,136,0.05)"/>`;
+  const fearBand  = `<rect x="${PAD.left}" y="${bottomY}" width="${cW}" height="${Math.max(0, +(bottomY) - +(fearY))}" fill="rgba(255,68,102,0.06)"/>`;
+  const greedBand = `<rect x="${PAD.left}" y="${topY}" width="${cW}" height="${Math.max(0, +(greedY) - +(topY))}" fill="rgba(0,255,136,0.05)"/>`;
 
   // Build area path
   const pts = data.map((d, i) => `${xCoord(i).toFixed(1)},${yCoord(d.ratio).toFixed(1)}`);
   const linePath = `M ${pts.join(' L ')}`;
   const areaPath = `M ${xCoord(0).toFixed(1)},${(PAD.top + cH).toFixed(1)} L ${pts.join(' L ')} L ${xCoord(data.length-1).toFixed(1)},${(PAD.top+cH).toFixed(1)} Z`;
 
-  // Y gridlines
+  // Y-axis: pick a clean step that gives ~4-6 ticks
+  const rawRange = yMax - yMin;
+  const rawStep = rawRange / 5;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const niceStep = [0.05, 0.1, 0.2, 0.25, 0.5, 1.0].find(s => s * magnitude >= rawStep * magnitude) || 0.25;
+  const tickStart = Math.ceil(yMin / niceStep) * niceStep;
   const yTicks = [];
-  for (let v = 0; v <= yMax; v = +(v + 0.1).toFixed(1)) {
+  for (let v = tickStart; v <= yMax + 0.001; v = +(v + niceStep).toFixed(4)) {
     const y = yCoord(v).toFixed(1);
     yTicks.push(`<line x1="${PAD.left}" y1="${y}" x2="${W-PAD.right}" y2="${y}" stroke="#1a2535" stroke-width="0.5"/>`);
     yTicks.push(`<text x="${PAD.left-5}" y="${+y+3}" fill="#4a6580" font-family="monospace" font-size="8" text-anchor="end">${v.toFixed(2)}</text>`);
@@ -3893,7 +3904,7 @@ function renderRatioChart(el, data, grain, stats) {
     return `<text x="${x}" y="${H-PAD.bottom+14}" fill="#4a6580" font-family="monospace" font-size="7" text-anchor="middle">${lbl}</text>`;
   }).join('');
 
-  const normY  = yCoord(NORM).toFixed(1);
+  const normY      = yCoord(NORM).toFixed(1);
   const fearLineY  = fearY;
   const greedLineY = greedY;
 
@@ -3939,8 +3950,8 @@ function renderRatioChart(el, data, grain, stats) {
       </div>
       <!-- Legend -->
       <div style="display:flex;gap:16px;margin-bottom:8px;font-size:10px;font-family:'Space Mono',monospace;flex-wrap:wrap">
-        <span style="color:rgba(255,68,102,0.7)">▬ Fear zone (≤${fearThresh.toFixed(2)})</span>
-        <span style="color:rgba(0,255,136,0.7)">▬ Greed zone (≥${greedThresh.toFixed(2)})</span>
+        <span style="color:rgba(255,68,102,0.7)">▬ Fear zone (bottom 20%)</span>
+        <span style="color:rgba(0,255,136,0.7)">▬ Greed zone (top 20%)</span>
       </div>
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible" id="ratioChartSvg">
         <defs>
