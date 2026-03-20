@@ -2091,7 +2091,7 @@ app.get('/api/admin/reingest-recent', (req, res) => {
       dailyRunning = true;
       const worker = spawn(
         process.execPath,
-        ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(days), 'poll'],
+        ['--max-old-space-size=200', path.join(__dirname, 'daily-worker.js'), String(days), 'backfill'],
         { stdio: ['ignore', 'pipe', 'pipe'] }
       );
       worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[reingest] ' + l)));
