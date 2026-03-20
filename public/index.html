@@ -3775,12 +3775,14 @@ async function loadInsiderDashboard() {
     recent.forEach(t=>{const k=t.insider;if(!k)return;countMap[k]=(countMap[k]||0)+1;if(t.type==='P')buyMap[k]=(buyMap[k]||0)+(t.value||0);if(t.type==='S'||t.type==='S-')sellMap[k]=(sellMap[k]||0)+(t.value||0);});
     const topBuyers=Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const topSellers=Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    const bigTrades=[...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+    const bigBuys=[...recent].filter(t=>t.type==='P').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+    const bigSells=[...recent].filter(t=>t.type==='S'||t.type==='S-').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
     const largestGateHtml = auth.isPremium ? `` : `
       <div onclick="showPremiumOverlay('Largest Trades — biggest single insider moves')" style="position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,11,15,0.75);cursor:pointer;backdrop-filter:blur(2px)">
         <span style="font-size:18px">🔒</span>
         <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:1px">PREMIUM FEATURE</span>
       </div>`;
+    const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:${color}">${fmt(t.value)}</span></div>`;
     dash.innerHTML=`
       <div class="insider-dash-grid">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
@@ -3793,8 +3795,13 @@ async function loadInsiderDashboard() {
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
           ${largestGateHtml}
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--accent);font-size:14px">💰</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST TRADES · LAST 30D</span></div>
-          <div>${bigTrades.map(t=>{const isBuy=t.type==='P';return`<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span><span class="badge ${isBuy?'badge-buy':'badge-sell'}" style="margin-right:6px">${isBuy?'BUY':'SELL'}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:${isBuy?'var(--buy)':'var(--sell)'}">${fmt(t.value)}</span></div>`;}).join('')}</div>
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--buy);font-size:14px">💰</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST BUY TRADES · LAST 30D</span></div>
+          <div>${bigBuys.map(t=>tradeRow(t,'var(--buy)')).join('')}</div>
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
+          ${largestGateHtml}
+          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--sell);font-size:14px">💸</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST SELL TRADES · LAST 30D</span></div>
+          <div>${bigSells.map(t=>tradeRow(t,'var(--sell)')).join('')}</div>
         </div>
       </div>`;
   } catch(e) { dash.innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`; }
@@ -3823,31 +3830,46 @@ async function loadInsiderRatioChart(grain) {
       const url = _ratioGrain === 'weekly'
         ? '/api/insider-ratio-history?grain=weekly&weeks=52'
         : '/api/insider-ratio-history?grain=monthly&months=24';
-      data = await apiFetch(url);
+      const resp = await apiFetch(url);
+      // Handle both old array format and new {data, stats} format
+      data = resp && resp.data ? resp : { data: Array.isArray(resp) ? resp : [], stats: null };
       _ratioCache[_ratioGrain] = data;
     }
-    if (!data || !data.length) { el.innerHTML = ''; return; }
+    if (!data.data || !data.data.length) { el.innerHTML = ''; return; }
 
-    renderRatioChart(el, data, _ratioGrain);
+    renderRatioChart(el, data.data, _ratioGrain, data.stats);
   } catch(e) {
     console.error('loadInsiderRatioChart:', e);
     el.innerHTML = '';
   }
 }
 
-function renderRatioChart(el, data, grain) {
+function renderRatioChart(el, data, grain, stats) {
   const W = 800, H = 200;
   const PAD = { top: 24, right: 32, bottom: 40, left: 48 };
   const cW = W - PAD.left - PAD.right;
   const cH = H - PAD.top  - PAD.bottom;
 
   const ratios = data.map(d => d.ratio);
-  const maxR = Math.max(...ratios, 0.5);
+  const maxR = Math.max(...ratios, stats ? stats.p80 * 1.3 : 0.6);
   const yMax = Math.ceil(maxR / 0.1) * 0.1 + 0.05;
-  const NORM = 0.25;
+
+  // Fear/Greed thresholds — from server stats if available, else fallback to historical norms
+  const fearThresh  = stats ? stats.p20 : 0.15;  // bottom 20th pct = Fear
+  const greedThresh = stats ? stats.p80 : 0.50;  // top 20th pct = Greed
+  const NORM        = stats ? stats.median : 0.25;
 
   const xCoord = i => PAD.left + (i / (data.length - 1)) * cW;
   const yCoord = v => PAD.top + cH - (v / yMax) * cH;
+
+  // Fear/Greed zone bands
+  const fearY  = yCoord(fearThresh).toFixed(1);
+  const greedY = yCoord(greedThresh).toFixed(1);
+  const bottomY = (PAD.top + cH).toFixed(1);
+  const topY    = PAD.top.toFixed(1);
+
+  const fearBand  = `<rect x="${PAD.left}" y="${bottomY}" width="${cW}" height="${+(bottomY) - +(fearY)}" fill="rgba(255,68,102,0.06)"/>`;
+  const greedBand = `<rect x="${PAD.left}" y="${topY}" width="${cW}" height="${+(greedY) - +(topY)}" fill="rgba(0,255,136,0.05)"/>`;
 
   // Build area path
   const pts = data.map((d, i) => `${xCoord(i).toFixed(1)},${yCoord(d.ratio).toFixed(1)}`);
@@ -3862,46 +3884,55 @@ function renderRatioChart(el, data, grain) {
     yTicks.push(`<text x="${PAD.left-5}" y="${+y+3}" fill="#4a6580" font-family="monospace" font-size="8" text-anchor="end">${v.toFixed(2)}</text>`);
   }
 
-  // X axis labels — show ~6 evenly spaced
+  // X labels
   const labelStep = Math.max(1, Math.floor(data.length / 6));
   const xLabels = data.map((d, i) => {
     if (i % labelStep !== 0 && i !== data.length - 1) return '';
     const x = xCoord(i).toFixed(1);
-    const lbl = grain === 'weekly' ? d.period.slice(5) : d.period.slice(0, 7).slice(2);
-    return `<text x="${x}" y="${H - PAD.bottom + 14}" fill="#4a6580" font-family="monospace" font-size="7" text-anchor="middle">${lbl}</text>`;
+    const lbl = grain === 'weekly' ? d.period.slice(5) : d.period.slice(0,7).slice(2);
+    return `<text x="${x}" y="${H-PAD.bottom+14}" fill="#4a6580" font-family="monospace" font-size="7" text-anchor="middle">${lbl}</text>`;
   }).join('');
 
-  // Norm line
-  const normY = yCoord(NORM).toFixed(1);
+  const normY  = yCoord(NORM).toFixed(1);
+  const fearLineY  = fearY;
+  const greedLineY = greedY;
 
-  // Dot for most recent point
   const lastX = xCoord(data.length-1).toFixed(1);
-  const lastY = yCoord(data[data.length-1].ratio).toFixed(1);
   const lastRatio = data[data.length-1].ratio;
-  const dotColor = lastRatio >= 0.6 ? 'var(--buy)' : lastRatio >= 0.35 ? 'var(--accent)' : lastRatio >= 0.15 ? '#ff9966' : 'var(--sell)';
+  const lastY = yCoord(lastRatio).toFixed(1);
 
-  // Hover dots (invisible, shown on mouseover via title)
+  // Current zone label
+  const currentZone = lastRatio <= fearThresh  ? { label: 'FEAR',    color: 'var(--sell)' }
+                    : lastRatio >= greedThresh ? { label: 'GREED',   color: 'var(--buy)'  }
+                    : lastRatio <= NORM        ? { label: 'NEUTRAL', color: 'var(--muted)'}
+                    :                            { label: 'NEUTRAL', color: 'var(--muted)'};
+
   const hoverDots = data.map((d, i) =>
-    `<circle cx="${xCoord(i).toFixed(1)}" cy="${yCoord(d.ratio).toFixed(1)}" r="4" fill="transparent" stroke="transparent">
+    `<circle cx="${xCoord(i).toFixed(1)}" cy="${yCoord(d.ratio).toFixed(1)}" r="5" fill="transparent" stroke="transparent">
       <title>${d.period} · ratio ${d.ratio} · ${d.buys} buys / ${d.sells} sells</title>
     </circle>`
   ).join('');
 
-  const grainLabel = grain === 'weekly' ? '52-WEEK' : '24-MONTH';
+  const grainLabel  = grain === 'weekly' ? '52-WEEK' : '24-MONTH';
   const toggleOther = grain === 'weekly' ? 'monthly' : 'weekly';
   const toggleLabel = grain === 'weekly' ? 'Monthly' : 'Weekly';
+
+  const statsNote = stats
+    ? `Calibrated from ${stats.n} weeks of data — Fear ≤${fearThresh.toFixed(2)} · Median ${stats.median.toFixed(2)} · Greed ≥${greedThresh.toFixed(2)}`
+    : `Historical norm ~0.25`;
 
   el.innerHTML = `
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;gap:12px;flex-wrap:wrap">
         <div>
           <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">INSIDER BUY/SELL RATIO · ${grainLabel}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">Transaction count ratio (buys ÷ sells) · All open-market Form 4 filings · <span style="color:rgba(0,212,255,0.7)">── Norm ~0.25</span></div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Transaction count ratio (buys ÷ sells) · All open-market Form 4 filings</div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-          <div style="font-size:11px;font-family:'Space Mono',monospace">
-            <span style="color:var(--muted)">Current: </span>
-            <span style="color:${dotColor};font-weight:700">${lastRatio.toFixed(2)}</span>
+        <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px;font-size:11px;font-family:'Space Mono',monospace">
+            <span style="color:var(--muted)">Current:</span>
+            <span style="color:${currentZone.color};font-weight:700">${lastRatio.toFixed(2)}</span>
+            <span style="padding:2px 8px;border-radius:3px;font-size:9px;letter-spacing:1px;border:1px solid ${currentZone.color}44;background:${currentZone.color}11;color:${currentZone.color}">${currentZone.label}</span>
           </div>
           <button onclick="loadInsiderRatioChart('${toggleOther}')"
             style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--muted);cursor:pointer">
@@ -3909,18 +3940,37 @@ function renderRatioChart(el, data, grain) {
           </button>
         </div>
       </div>
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible" id="ratioChartSvg">
+      <!-- Legend -->
+      <div style="display:flex;gap:16px;margin-bottom:8px;font-size:10px;font-family:'Space Mono',monospace;flex-wrap:wrap">
+        <span style="color:rgba(255,68,102,0.7)">▬ Fear zone (≤${fearThresh.toFixed(2)})</span>
+        <span style="color:rgba(0,212,255,0.5)">── Median (${NORM.toFixed(2)})</span>
+        <span style="color:rgba(0,255,136,0.7)">▬ Greed zone (≥${greedThresh.toFixed(2)})</span>
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible">
         <defs>
           <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="rgba(0,212,255,0.25)"/>
-            <stop offset="100%" stop-color="rgba(0,212,255,0.02)"/>
+            <stop offset="0%" stop-color="rgba(0,212,255,0.2)"/>
+            <stop offset="100%" stop-color="rgba(0,212,255,0.01)"/>
           </linearGradient>
         </defs>
         ${yTicks.join('')}
-        <!-- Norm reference line -->
+        <!-- Fear band (bottom zone) -->
+        ${fearBand}
+        <!-- Greed band (top zone) -->
+        ${greedBand}
+        <!-- Fear zone label -->
+        <text x="${PAD.left + 4}" y="${+fearLineY - 3}" fill="rgba(255,68,102,0.5)" font-family="monospace" font-size="6.5">FEAR</text>
+        <!-- Greed zone label -->
+        <text x="${PAD.left + 4}" y="${+greedLineY + 9}" fill="rgba(0,255,136,0.5)" font-family="monospace" font-size="6.5">GREED</text>
+        <!-- Fear threshold line -->
+        <line x1="${PAD.left}" y1="${fearLineY}" x2="${W-PAD.right}" y2="${fearLineY}"
+          stroke="rgba(255,68,102,0.35)" stroke-width="1" stroke-dasharray="4,3"/>
+        <!-- Greed threshold line -->
+        <line x1="${PAD.left}" y1="${greedLineY}" x2="${W-PAD.right}" y2="${greedLineY}"
+          stroke="rgba(0,255,136,0.35)" stroke-width="1" stroke-dasharray="4,3"/>
+        <!-- Median line -->
         <line x1="${PAD.left}" y1="${normY}" x2="${W-PAD.right}" y2="${normY}"
-          stroke="rgba(0,212,255,0.35)" stroke-width="1" stroke-dasharray="5,4"/>
-        <text x="${W-PAD.right+3}" y="${+normY+3}" fill="rgba(0,212,255,0.5)" font-family="monospace" font-size="7">0.25</text>
+          stroke="rgba(0,212,255,0.3)" stroke-width="1" stroke-dasharray="5,4"/>
         <!-- Area fill -->
         <path d="${areaPath}" fill="url(#areaGrad)"/>
         <!-- Line -->
@@ -3929,13 +3979,12 @@ function renderRatioChart(el, data, grain) {
         <line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${H-PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
         <line x1="${PAD.left}" y1="${H-PAD.bottom}" x2="${W-PAD.right}" y2="${H-PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
         ${xLabels}
-        <!-- Current value dot -->
-        <circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${dotColor}" stroke="var(--bg2)" stroke-width="1.5"/>
-        <!-- Hover targets -->
+        <!-- Current dot -->
+        <circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${currentZone.color}" stroke="var(--bg2)" stroke-width="1.5"/>
         ${hoverDots}
       </svg>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">
-        Norm ~0.25 means ~1 buy per 4 sells — typical for insiders who are paid in stock and regularly diversify. Ratio rising above 0.5 is historically elevated.
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
+        ${statsNote} · <span style="color:rgba(255,68,102,0.7)">Fear</span> = ratio well below norm — insiders are selling heavily relative to buying, often near market peaks. <span style="color:rgba(0,255,136,0.7)">Greed</span> = ratio well above norm — insiders buying unusually actively, often near market bottoms. Contrarian signal. Not investment advice.
       </div>
     </div>`;
 }
