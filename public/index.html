@@ -3811,7 +3811,7 @@ async function loadInsiderDashboard() {
 let _scoreboardData = null;
 
 let _ratioGrain = 'weekly';
-let _ratioCache = {};
+let _ratioCache = {}; // cleared on each page load
 
 async function loadInsiderRatioChart(grain) {
   if (grain) _ratioGrain = grain;
@@ -3828,7 +3828,7 @@ async function loadInsiderRatioChart(grain) {
     let data = _ratioCache[_ratioGrain];
     if (!data) {
       const url = _ratioGrain === 'weekly'
-        ? '/api/insider-ratio-history?grain=weekly&weeks=104'
+        ? '/api/insider-ratio-history?grain=weekly&weeks=104&bust=' + Date.now()
         : '/api/insider-ratio-history?grain=monthly&months=24';
       const resp = await apiFetch(url);
       // Handle both old array format and new {data, stats} format
