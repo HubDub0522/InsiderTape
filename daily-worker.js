@@ -171,16 +171,23 @@ function parseForm4(xml, filingDate, accession) {
       const fn = footnote.toLowerCase();
 
       // 1. DRIP / compensation-plan: pre-elected, programmatic, not discretionary
-      const isDRIP = fn.includes('dividend reinvest') ||
-                     fn.includes('drip') ||
-                     fn.includes('reinvestment plan') ||
-                     fn.includes('director compensation') ||
-                     fn.includes('compensation plan') ||
-                     fn.includes('deferred compensation') ||
-                     fn.includes('prior election') ||
-                     fn.includes('stock purchase plan') ||
-                     fn.includes('employee stock purchase') ||
-                     fn.includes('espp');
+      // Only filter if the footnote indicates THIS transaction was made via DRIP/plan
+      // (e.g. "pursuant to", "through the", "under the" plan).
+      // A footnote that merely mentions DRIP in passing (e.g. describing other holdings)
+      // should NOT cause the transaction to be dropped.
+      const isDRIPTransaction = (
+        fn.includes('pursuant to') || fn.includes('through the') ||
+        fn.includes('under the') || fn.includes('under a') ||
+        fn.includes('using a portion') || fn.includes('prior election') ||
+        fn.includes('automatic') || fn.includes('pre-elected')
+      ) && (
+        fn.includes('dividend reinvest') || fn.includes('drip') ||
+        fn.includes('reinvestment plan') || fn.includes('stock purchase plan') ||
+        fn.includes('employee stock purchase') || fn.includes('espp') ||
+        fn.includes('compensation plan') || fn.includes('deferred compensation') ||
+        fn.includes('director compensation')
+      );
+      const isDRIP = isDRIPTransaction;
 
       // 2. Offering participation: buying in a company's own capital raise,
       //    not an independent open-market decision
