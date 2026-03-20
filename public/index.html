@@ -464,14 +464,22 @@
     #screenerBody tr td:nth-child(10) { display: none !important; }
     #screenerTable { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
     #screenerTable td, #screenerTable th { padding: 7px 4px; font-size: 10px; }
-    /* Specific column widths for fixed layout screener */
-    #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 22%; }
-    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 14%; }
-    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 28%; }
-    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { width: 12%; }
-    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 24%; }
+    /* Specific column widths for fixed layout screener:
+       col 1 = date (hide filed: line, just show trade date)
+       col 2 = ticker
+       col 3 = insider name
+       col 8 = value  */
+    #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 18%; }
+    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 16%; }
+    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 40%; }
+    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 26%; }
+    /* Hide the "filed:" secondary line inside date cell on mobile — saves vertical space */
+    #screenerBody td:nth-child(1) span:nth-child(2),
+    #screenerBody td:nth-child(1) a { display: none !important; }
     /* Stop table-wrap from enabling horizontal scroll */
     .screener-content .table-wrap { overflow-x: hidden !important; }
+    table { min-width: 0; width: 100%; }
+    td, th { padding: 8px 6px; font-size: 11px; word-break: break-word; }
     table { min-width: 0; width: 100%; }
     td, th { padding: 8px 6px; font-size: 11px; word-break: break-word; }
 
