@@ -3194,6 +3194,7 @@ app.post('/api/alerts/test', async (req, res) => {
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
   if (!isPremium(session)) return res.status(403).json({ error: 'Premium required' });
   try {
+    if (!RESEND_KEY) return res.status(500).json({ error: 'Email not configured — RESEND_KEY missing on server' });
     const user = db.prepare('SELECT email FROM users WHERE id = ?').get(session.user_id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     await sendAlertEmail(user.email, [{
@@ -3214,7 +3215,10 @@ app.post('/api/alerts/test', async (req, res) => {
       date: new Date().toISOString().slice(0, 10),
     }]);
     res.json({ ok: true, message: 'Test alert sent to ' + user.email });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) {
+    slog('Test alert error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/stripe/checkout', async (req, res) => {
