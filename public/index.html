@@ -3753,11 +3753,11 @@ function insiderLanding(opts={}) {
           ${['Zuckerberg','Musk','Cook','Bezos','Pichai','Nadella','Dimon'].map(n=>`<span onclick="document.getElementById('insiderSearchInput').value='${n}';runInsiderSearch()" style="color:var(--accent);cursor:pointer;margin-left:8px">${n}</span>`).join('')}
         </div>
       </div>
+      <div id="insiderRatioChart" style="margin-bottom:24px"></div>
       <div id="insiderDashboard"><div class="loading-state"><div class="spinner"></div><span>Loading insider activity...</span></div></div>
-      <div id="insiderRatioChart" style="margin-top:28px"></div>
     </div>`;
-  loadInsiderDashboard();
   loadInsiderRatioChart();
+  loadInsiderDashboard();
 }
 
 async function loadInsiderDashboard() {
@@ -3803,93 +3803,141 @@ async function loadInsiderDashboard() {
 // Cached scoreboard data so full-list view doesn't re-fetch
 let _scoreboardData = null;
 
-async function loadInsiderRatioChart() {
+let _ratioGrain = 'weekly';
+let _ratioCache = {};
+
+async function loadInsiderRatioChart(grain) {
+  if (grain) _ratioGrain = grain;
   const el = document.getElementById('insiderRatioChart');
   if (!el) return;
+
+  // Show loading placeholder on first load only
+  if (!_ratioCache[_ratioGrain]) {
+    el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
+      <div class="loading-state" style="height:160px"><div class="spinner"></div><span>Loading ratio history…</span></div></div>`;
+  }
+
   try {
-    const data = await apiFetch('/api/insider-ratio-history?months=24');
+    let data = _ratioCache[_ratioGrain];
+    if (!data) {
+      const url = _ratioGrain === 'weekly'
+        ? '/api/insider-ratio-history?grain=weekly&weeks=52'
+        : '/api/insider-ratio-history?grain=monthly&months=24';
+      data = await apiFetch(url);
+      _ratioCache[_ratioGrain] = data;
+    }
     if (!data || !data.length) { el.innerHTML = ''; return; }
 
-    // Chart dimensions
-    const W = 800, H = 180, PAD = { top: 20, right: 20, bottom: 36, left: 44 };
-    const cW = W - PAD.left - PAD.right;
-    const cH = H - PAD.top  - PAD.bottom;
-
-    const maxRatio = Math.max(...data.map(d => d.ratio), 0.6);
-    const yMax = Math.ceil(maxRatio * 4) / 4 + 0.1; // round up to nearest 0.25
-    const xStep = cW / (data.length - 1 || 1);
-
-    const xCoord = i  => PAD.left + i * xStep;
-    const yCoord = v  => PAD.top + cH - (v / yMax) * cH;
-
-    // Build bar chart (monthly bars, colored by vs norm)
-    const BAR_NORM = 0.25;
-    const bars = data.map((d, i) => {
-      const x = PAD.left + i * (cW / data.length);
-      const bW = Math.max(cW / data.length - 2, 2);
-      const barH = (d.ratio / yMax) * cH;
-      const color = d.ratio >= 0.6 ? 'rgba(0,255,136,0.7)'
-                  : d.ratio >= 0.35 ? 'rgba(0,212,255,0.5)'
-                  : d.ratio >= 0.15 ? 'rgba(255,170,0,0.5)'
-                  : 'rgba(255,68,102,0.5)';
-      return `<rect x="${x}" y="${yCoord(d.ratio)}" width="${bW}" height="${barH}" fill="${color}" rx="1">
-        <title>${d.month}: ratio ${d.ratio} (${d.buys} buys / ${d.sells} sells)</title>
-      </rect>`;
-    }).join('');
-
-    // Norm reference line at 0.25
-    const normY = yCoord(BAR_NORM);
-    // Y-axis gridlines and labels
-    const yTicks = [];
-    for (let v = 0; v <= yMax; v += 0.25) {
-      const y = yCoord(v);
-      yTicks.push(`<line x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}" stroke="#1e2d3d" stroke-width="0.5"/>`);
-      yTicks.push(`<text x="${PAD.left - 5}" y="${y + 3}" fill="#4a6580" font-family="monospace" font-size="8" text-anchor="end">${v.toFixed(2)}</text>`);
-    }
-
-    // X-axis labels — show every 3 months
-    const xLabels = data.map((d, i) => {
-      if (i % 3 !== 0 && i !== data.length - 1) return '';
-      const x = PAD.left + i * (cW / data.length) + (cW / data.length / 2);
-      return `<text x="${x}" y="${H - PAD.bottom + 14}" fill="#4a6580" font-family="monospace" font-size="7" text-anchor="middle">${d.month.slice(2)}</text>`;
-    }).join('');
-
-    el.innerHTML = `
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
-          <div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">INSIDER BUY/SELL RATIO — MONTHLY</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">Transaction count ratio (buys ÷ sells) · All open-market Form 4 filings · <span style="color:var(--accent)">Historical norm ~0.25</span></div>
-          </div>
-          <div style="display:flex;align-items:center;gap:14px;font-size:10px;font-family:'Space Mono',monospace">
-            <span style="color:rgba(0,255,136,0.8)">■ Above norm (≥0.6)</span>
-            <span style="color:rgba(0,212,255,0.8)">■ Near norm (0.35-0.6)</span>
-            <span style="color:rgba(255,170,0,0.8)">■ Below norm (0.15-0.35)</span>
-            <span style="color:rgba(255,68,102,0.8)">■ Well below (&lt;0.15)</span>
-          </div>
-        </div>
-        <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible">
-          ${yTicks.join('')}
-          <!-- Norm reference line -->
-          <line x1="${PAD.left}" y1="${normY}" x2="${W - PAD.right}" y2="${normY}"
-            stroke="rgba(0,212,255,0.4)" stroke-width="1" stroke-dasharray="4,3"/>
-          <text x="${W - PAD.right + 3}" y="${normY + 3}" fill="rgba(0,212,255,0.6)" font-family="monospace" font-size="7">norm</text>
-          <!-- Bars -->
-          ${bars}
-          <!-- Axes -->
-          <line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${H - PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
-          <line x1="${PAD.left}" y1="${H - PAD.bottom}" x2="${W - PAD.right}" y2="${H - PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
-          ${xLabels}
-        </svg>
-        <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
-          Insiders sell far more transactions than they buy — the norm ratio of ~0.25 means roughly 1 buy for every 4 sells. A ratio rising above 0.5 is historically notable. Data sourced from SEC Form 4 filings.
-        </div>
-      </div>`;
+    renderRatioChart(el, data, _ratioGrain);
   } catch(e) {
     console.error('loadInsiderRatioChart:', e);
-    const el2 = document.getElementById('insiderRatioChart');
-    if (el2) el2.innerHTML = '';
+    el.innerHTML = '';
   }
+}
+
+function renderRatioChart(el, data, grain) {
+  const W = 800, H = 200;
+  const PAD = { top: 24, right: 32, bottom: 40, left: 48 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top  - PAD.bottom;
+
+  const ratios = data.map(d => d.ratio);
+  const maxR = Math.max(...ratios, 0.5);
+  const yMax = Math.ceil(maxR / 0.1) * 0.1 + 0.05;
+  const NORM = 0.25;
+
+  const xCoord = i => PAD.left + (i / (data.length - 1)) * cW;
+  const yCoord = v => PAD.top + cH - (v / yMax) * cH;
+
+  // Build area path
+  const pts = data.map((d, i) => `${xCoord(i).toFixed(1)},${yCoord(d.ratio).toFixed(1)}`);
+  const linePath = `M ${pts.join(' L ')}`;
+  const areaPath = `M ${xCoord(0).toFixed(1)},${(PAD.top + cH).toFixed(1)} L ${pts.join(' L ')} L ${xCoord(data.length-1).toFixed(1)},${(PAD.top+cH).toFixed(1)} Z`;
+
+  // Y gridlines
+  const yTicks = [];
+  for (let v = 0; v <= yMax; v = +(v + 0.1).toFixed(1)) {
+    const y = yCoord(v).toFixed(1);
+    yTicks.push(`<line x1="${PAD.left}" y1="${y}" x2="${W-PAD.right}" y2="${y}" stroke="#1a2535" stroke-width="0.5"/>`);
+    yTicks.push(`<text x="${PAD.left-5}" y="${+y+3}" fill="#4a6580" font-family="monospace" font-size="8" text-anchor="end">${v.toFixed(2)}</text>`);
+  }
+
+  // X axis labels — show ~6 evenly spaced
+  const labelStep = Math.max(1, Math.floor(data.length / 6));
+  const xLabels = data.map((d, i) => {
+    if (i % labelStep !== 0 && i !== data.length - 1) return '';
+    const x = xCoord(i).toFixed(1);
+    const lbl = grain === 'weekly' ? d.period.slice(5) : d.period.slice(0, 7).slice(2);
+    return `<text x="${x}" y="${H - PAD.bottom + 14}" fill="#4a6580" font-family="monospace" font-size="7" text-anchor="middle">${lbl}</text>`;
+  }).join('');
+
+  // Norm line
+  const normY = yCoord(NORM).toFixed(1);
+
+  // Dot for most recent point
+  const lastX = xCoord(data.length-1).toFixed(1);
+  const lastY = yCoord(data[data.length-1].ratio).toFixed(1);
+  const lastRatio = data[data.length-1].ratio;
+  const dotColor = lastRatio >= 0.6 ? 'var(--buy)' : lastRatio >= 0.35 ? 'var(--accent)' : lastRatio >= 0.15 ? '#ff9966' : 'var(--sell)';
+
+  // Hover dots (invisible, shown on mouseover via title)
+  const hoverDots = data.map((d, i) =>
+    `<circle cx="${xCoord(i).toFixed(1)}" cy="${yCoord(d.ratio).toFixed(1)}" r="4" fill="transparent" stroke="transparent">
+      <title>${d.period} · ratio ${d.ratio} · ${d.buys} buys / ${d.sells} sells</title>
+    </circle>`
+  ).join('');
+
+  const grainLabel = grain === 'weekly' ? '52-WEEK' : '24-MONTH';
+  const toggleOther = grain === 'weekly' ? 'monthly' : 'weekly';
+  const toggleLabel = grain === 'weekly' ? 'Monthly' : 'Weekly';
+
+  el.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">INSIDER BUY/SELL RATIO · ${grainLabel}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Transaction count ratio (buys ÷ sells) · All open-market Form 4 filings · <span style="color:rgba(0,212,255,0.7)">── Norm ~0.25</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          <div style="font-size:11px;font-family:'Space Mono',monospace">
+            <span style="color:var(--muted)">Current: </span>
+            <span style="color:${dotColor};font-weight:700">${lastRatio.toFixed(2)}</span>
+          </div>
+          <button onclick="loadInsiderRatioChart('${toggleOther}')"
+            style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--muted);cursor:pointer">
+            ${toggleLabel} →
+          </button>
+        </div>
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible" id="ratioChartSvg">
+        <defs>
+          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(0,212,255,0.25)"/>
+            <stop offset="100%" stop-color="rgba(0,212,255,0.02)"/>
+          </linearGradient>
+        </defs>
+        ${yTicks.join('')}
+        <!-- Norm reference line -->
+        <line x1="${PAD.left}" y1="${normY}" x2="${W-PAD.right}" y2="${normY}"
+          stroke="rgba(0,212,255,0.35)" stroke-width="1" stroke-dasharray="5,4"/>
+        <text x="${W-PAD.right+3}" y="${+normY+3}" fill="rgba(0,212,255,0.5)" font-family="monospace" font-size="7">0.25</text>
+        <!-- Area fill -->
+        <path d="${areaPath}" fill="url(#areaGrad)"/>
+        <!-- Line -->
+        <path d="${linePath}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <!-- Axes -->
+        <line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${H-PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
+        <line x1="${PAD.left}" y1="${H-PAD.bottom}" x2="${W-PAD.right}" y2="${H-PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
+        ${xLabels}
+        <!-- Current value dot -->
+        <circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${dotColor}" stroke="var(--bg2)" stroke-width="1.5"/>
+        <!-- Hover targets -->
+        ${hoverDots}
+      </svg>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.6">
+        Norm ~0.25 means ~1 buy per 4 sells — typical for insiders who are paid in stock and regularly diversify. Ratio rising above 0.5 is historically elevated.
+      </div>
+    </div>`;
 }
 
 async function loadNotableLeaderboard() {
