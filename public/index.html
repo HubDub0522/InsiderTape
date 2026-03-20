@@ -7339,7 +7339,7 @@ function _redrawMonitorAlerts() {
   renderMonitorShell(body);
   if (cached) {
     const label = _monitorTab === 'today' ? 'today' : _monitorTab === 'week' ? 'this week' : _monitorTab === 'month' ? 'this month' : 'this quarter';
-    renderMonitorGauges(_monitorCache[_monitorTab + '_trades'], _monitorCache[_monitorTab + '_cutStr']);
+    if (_monitorCache['_sentiment']) renderMonitorGaugesFromServer(_monitorCache['_sentiment'], _monitorTab);
     renderMonitorAlerts(cached, label, body, _monitorCache[_monitorTab + '_trades'], _monitorCache[_monitorTab + '_cutStr']);
   } else {
     runMonitorWindow(_monitorTab, body);
@@ -7424,29 +7424,53 @@ async function runMonitorWindow(tab, body) {
   }
 
   if (_monitorCache[tab]) {
-    renderMonitorGauges(_monitorCache[tab + '_trades'], _monitorCache[tab + '_cutStr']);
+    if (_monitorCache['_sentiment']) renderMonitorGaugesFromServer(_monitorCache['_sentiment'], tab);
     renderMonitorAlerts(_monitorCache[tab], label, body, _monitorCache[tab + '_trades'], _monitorCache[tab + '_cutStr']);
     return;
   }
 
   try {
-    // Fetch once for the largest window — all tabs slice from this dataset
-    // Also kick off firstbuys in parallel to avoid sequential waiting
-    let allTrades, firstBuysFull;
-    if (_monitorCache['_allTrades'] && _monitorCache['_allTradesDate'] === lastTradingDate()) {
-      allTrades    = _monitorCache['_allTrades'];
-      firstBuysFull = _monitorCache['_firstBuysFull'] || [];
+    // Gauge data: fast server-aggregated endpoint, fires immediately
+    // Signal data: heavier screener+firstbuys fetch, fires in parallel
+    let allTrades, firstBuysFull, sentimentData;
+    const today = lastTradingDate();
+
+    const needsSignalFetch = !(_monitorCache['_allTrades'] && _monitorCache['_allTradesDate'] === today);
+    const needsSentimentFetch = !(_monitorCache['_sentiment'] && _monitorCache['_allTradesDate'] === today);
+
+    if (needsSignalFetch || needsSentimentFetch) {
+      const fetches = [];
+      if (needsSignalFetch) {
+        fetches.push(apiFetch('/api/screener?days=92'));
+        fetches.push(apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []));
+      } else {
+        fetches.push(Promise.resolve(null));
+        fetches.push(Promise.resolve(null));
+      }
+      fetches.push(needsSentimentFetch ? apiFetch('/api/monitor-sentiment').catch(() => null) : Promise.resolve(_monitorCache['_sentiment']));
+
+      const [resp, fb, sent] = await Promise.all(fetches);
+
+      if (resp !== null) {
+        allTrades     = Array.isArray(resp) ? resp : (resp.trades || []);
+        firstBuysFull = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
+        _monitorCache['_allTrades']     = allTrades;
+        _monitorCache['_firstBuysFull'] = firstBuysFull;
+      } else {
+        allTrades     = _monitorCache['_allTrades'];
+        firstBuysFull = _monitorCache['_firstBuysFull'] || [];
+      }
+      sentimentData = sent;
+      _monitorCache['_sentiment']     = sentimentData;
+      _monitorCache['_allTradesDate'] = today;
     } else {
-      const [resp, fb] = await Promise.all([
-        apiFetch('/api/screener?days=92'),
-        apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []),
-      ]);
-      allTrades     = Array.isArray(resp) ? resp : (resp.trades || []);
-      firstBuysFull = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
-      _monitorCache['_allTrades']     = allTrades;
-      _monitorCache['_firstBuysFull'] = firstBuysFull;
-      _monitorCache['_allTradesDate'] = lastTradingDate();
+      allTrades     = _monitorCache['_allTrades'];
+      firstBuysFull = _monitorCache['_firstBuysFull'] || [];
+      sentimentData = _monitorCache['_sentiment'];
     }
+
+    // Render gauge from server-aggregated data (no client-side filtering needed)
+    if (sentimentData) renderMonitorGaugesFromServer(sentimentData, tab);
 
     // Slice firstBuys to match tab lookback
     const lookback = tab === 'today' ? 3 : tab === 'week' ? 14 : tab === 'month' ? 45 : 92;
@@ -7493,7 +7517,6 @@ async function runMonitorWindow(tab, body) {
       : tab === 'quarter'
       ? `since ${fmtDate(displayCutStr)} (Q${Math.ceil((new Date().getMonth()+1)/3)})`
       : label;
-    renderMonitorGauges(allTrades, displayCutStr);
     renderMonitorAlerts(alerts, displayLabel, body, allTrades, displayCutStr);
   } catch(e) {
     const el = document.getElementById('monitorAlerts');
@@ -7735,6 +7758,25 @@ function renderSentimentGauge(s) {
     </div>
     ${s.earliestActual > s.cutStr ? `<div style="margin-top:10px;font-size:10px;color:var(--muted);opacity:0.7;font-family:'Space Mono',monospace">⚠ Data from ${fmtDate(s.earliestActual)} — earlier filings not yet in DB for this window</div>` : ''}
   </div>`;
+}
+
+function renderMonitorGaugesFromServer(sentimentData, tab) {
+  const el = document.getElementById('monitorGauges');
+  if (!el || !sentimentData) return;
+  const w = sentimentData[tab] || sentimentData['today'];
+  if (!w) return;
+  const buyVal   = w.buy_val   || 0;
+  const sellVal  = w.sell_val  || 0;
+  const buyCount = w.buy_count || 0;
+  const sellCount= w.sell_count|| 0;
+  const totalVal = buyVal + sellVal;
+  const buyPct   = totalVal > 0 ? Math.round(buyVal / totalVal * 100) : 50;
+  const netFlow  = buyVal - sellVal;
+  const ratio    = sellCount > 0 ? (buyCount / sellCount).toFixed(2) : buyCount > 0 ? '∞' : '—';
+  const sentiment = buyPct >= 70 ? 'BULLISH' : buyPct >= 55 ? 'LEANING BULLISH' : buyPct >= 45 ? 'NEUTRAL' : buyPct >= 30 ? 'LEANING BEARISH' : 'BEARISH';
+  const sentimentColor = buyPct >= 70 ? 'var(--buy)' : buyPct >= 55 ? '#7eff7e' : buyPct >= 45 ? 'var(--muted)' : buyPct >= 30 ? '#ff9966' : 'var(--sell)';
+  const s = { buyPct, buyVal, sellVal, netFlow, uniqueBuyers: w.unique_buyers||0, uniqueSellers: w.unique_sellers||0, ratio, sentiment, sentimentColor, buyCount, sellCount, earliestActual: w.cutStr, cutStr: w.cutStr };
+  el.innerHTML = renderSentimentGauge(s);
 }
 
 function renderMonitorGauges(trades, cutStr) {
