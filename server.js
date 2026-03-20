@@ -2178,29 +2178,34 @@ app.get('/api/admin/reingest-accession', async (req, res) => {
   try {
     const acc = accession.replace(/-/g, '');
     const filerCik = parseInt(acc.slice(0, 10), 10).toString();
-    // Try to fetch the XML directly
+
     async function tryUrl(url) {
-      const r = await fetch(url, { headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' } });
-      if (!r.ok) return null;
-      const text = await r.text();
-      return text.includes('ownershipDocument') ? text : null;
+      try {
+        const r = await get(url, 15000, { headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' } });
+        if (r.status !== 200) return null;
+        const text = r.body.toString('utf8');
+        return text.includes('ownershipDocument') ? text : null;
+      } catch(e) { return null; }
     }
+
     let xml = null;
-    // Try common URL patterns
-    for (const name of ['xslF345X05/form4.xml', 'form4.xml', 'wf-form4.xml', `${accession}.xml`]) {
-      xml = await tryUrl(`https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${name}`);
+    // Try common filename patterns
+    for (const name of ['xslF345X05/form4.xml', 'form4.xml', 'wf-form4.xml', accession + '.xml']) {
+      xml = await tryUrl('https://www.sec.gov/Archives/edgar/data/' + filerCik + '/' + acc + '/' + name);
       if (xml) break;
     }
     if (!xml) {
-      // Try index to find XML filename
-      const idx = await tryUrl(`https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${accession}-index.json`);
-      if (idx) {
-        const data = JSON.parse(idx);
-        const doc  = (data.documents || []).find(d => d.document?.match(/\.xml$/i));
-        if (doc) xml = await tryUrl(`https://www.sec.gov/Archives/edgar/data/${filerCik}/${acc}/${doc.document}`);
-      }
+      // Try JSON index to find the XML filename
+      try {
+        const idxR = await get('https://www.sec.gov/Archives/edgar/data/' + filerCik + '/' + acc + '/' + accession + '-index.json', 10000, { headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' } });
+        if (idxR.status === 200) {
+          const data = JSON.parse(idxR.body.toString('utf8'));
+          const doc  = (data.documents || []).find(d => d.document && d.document.match(/\.xml$/i));
+          if (doc) xml = await tryUrl('https://www.sec.gov/Archives/edgar/data/' + filerCik + '/' + acc + '/' + doc.document);
+        }
+      } catch(e) {}
     }
-    if (!xml) return res.status(404).json({ error: 'Could not fetch XML from EDGAR' });
+    if (!xml) return res.status(404).json({ error: 'Could not fetch XML from EDGAR — check accession number and try again' });
 
     // Parse WITHOUT the footnote filter — this is a manually verified clean trade
     const ticker  = (xml.match(/<issuerTradingSymbol[^>]*>\s*([^<]+)/i) || [])[1]?.trim().toUpperCase() || '';
