@@ -7649,15 +7649,8 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
 
 function buildMonitorSentiment(trades, cutStr) {
   const inWindow = trades.filter(t => (t.trade||t.filing||'').slice(0,10) >= cutStr);
-  // Debug: log date distribution
-  if (window._monitorDebug) {
-    const dates = inWindow.map(t => (t.trade||t.filing||'').slice(0,10)).sort();
-    console.log(`[IAG] cutStr=${cutStr} inWindow=${inWindow.length}/${trades.length} earliest=${dates[0]} latest=${dates[dates.length-1]}`);
-    // Count by week
-    const byWeek = {};
-    inWindow.forEach(t => { const w = (t.trade||t.filing||'').slice(0,7); byWeek[w]=(byWeek[w]||0)+1; });
-    console.log('[IAG] by month:', byWeek);
-  }
+  const dates = inWindow.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean).sort();
+  const earliestActual = dates[0] || cutStr;
   const buys  = inWindow.filter(t => t.type === 'P');
   const sells = inWindow.filter(t => t.type === 'S' || t.type === 'S-');
   const buyVal  = buys.reduce((s,t) => s + (t.value||0), 0);
@@ -7670,7 +7663,7 @@ function buildMonitorSentiment(trades, cutStr) {
   const netFlow = buyVal - sellVal;
   const sentiment = buyPct >= 70 ? 'BULLISH' : buyPct >= 55 ? 'LEANING BULLISH' : buyPct >= 45 ? 'NEUTRAL' : buyPct >= 30 ? 'LEANING BEARISH' : 'BEARISH';
   const sentimentColor = buyPct >= 70 ? 'var(--buy)' : buyPct >= 55 ? '#7eff7e' : buyPct >= 45 ? 'var(--muted)' : buyPct >= 30 ? '#ff9966' : 'var(--sell)';
-  return { buyPct, buyVal, sellVal, netFlow, uniqueBuyers, uniqueSellers, ratio, sentiment, sentimentColor, buyCount: buys.length, sellCount: sells.length };
+  return { buyPct, buyVal, sellVal, netFlow, uniqueBuyers, uniqueSellers, ratio, sentiment, sentimentColor, buyCount: buys.length, sellCount: sells.length, earliestActual, cutStr };
 }
 
 function renderSentimentGauge(s) {
@@ -7740,6 +7733,7 @@ function renderSentimentGauge(s) {
         </div>
       </div>
     </div>
+    ${s.earliestActual > s.cutStr ? `<div style="margin-top:10px;font-size:10px;color:var(--muted);opacity:0.7;font-family:'Space Mono',monospace">⚠ Data from ${fmtDate(s.earliestActual)} — earlier filings not yet in DB for this window</div>` : ''}
   </div>`;
 }
 
