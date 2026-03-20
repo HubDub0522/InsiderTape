@@ -3915,9 +3915,7 @@ function renderRatioChart(el, data, grain, stats) {
   const zone = (r) => r <= fearThresh ? 'FEAR' : r >= greedThresh ? 'GREED' : 'NEUTRAL';
   const zoneColor = (r) => r <= fearThresh ? '#ff4466' : r >= greedThresh ? '#00ff88' : '#4a6580';
 
-  const grainLabel  = grain === 'weekly' ? '52-WEEK' : '24-MONTH';
-  const toggleOther = grain === 'weekly' ? 'monthly' : 'weekly';
-  const toggleLabel = grain === 'weekly' ? 'Monthly' : 'Weekly';
+  const grainLabel  = 'WEEKLY · 52 WEEKS';
 
   const statsNote = stats
     ? `Calibrated from ${stats.n} weeks of data — Fear ≤${fearThresh.toFixed(2)} · Median ${stats.median.toFixed(2)} · Greed ≥${greedThresh.toFixed(2)}`
@@ -3936,19 +3934,15 @@ function renderRatioChart(el, data, grain, stats) {
             <span style="color:${currentZone.color};font-weight:700">${lastRatio.toFixed(2)}</span>
             <span style="padding:2px 8px;border-radius:3px;font-size:9px;letter-spacing:1px;border:1px solid ${currentZone.color}44;background:${currentZone.color}11;color:${currentZone.color}">${currentZone.label}</span>
           </div>
-          <button onclick="loadInsiderRatioChart('${toggleOther}')"
-            style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1px;padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--muted);cursor:pointer">
-            ${toggleLabel} →
-          </button>
+
         </div>
       </div>
       <!-- Legend -->
       <div style="display:flex;gap:16px;margin-bottom:8px;font-size:10px;font-family:'Space Mono',monospace;flex-wrap:wrap">
         <span style="color:rgba(255,68,102,0.7)">▬ Fear zone (≤${fearThresh.toFixed(2)})</span>
-        <span style="color:rgba(0,212,255,0.5)">── Median (${NORM.toFixed(2)})</span>
         <span style="color:rgba(0,255,136,0.7)">▬ Greed zone (≥${greedThresh.toFixed(2)})</span>
       </div>
-      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible">
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible" id="ratioChartSvg">
         <defs>
           <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color="rgba(0,212,255,0.2)"/>
@@ -3970,9 +3964,7 @@ function renderRatioChart(el, data, grain, stats) {
         <!-- Greed threshold line -->
         <line x1="${PAD.left}" y1="${greedLineY}" x2="${W-PAD.right}" y2="${greedLineY}"
           stroke="rgba(0,255,136,0.35)" stroke-width="1" stroke-dasharray="4,3"/>
-        <!-- Median line -->
-        <line x1="${PAD.left}" y1="${normY}" x2="${W-PAD.right}" y2="${normY}"
-          stroke="rgba(0,212,255,0.3)" stroke-width="1" stroke-dasharray="5,4"/>
+
         <!-- Area fill -->
         <path d="${areaPath}" fill="url(#areaGrad)"/>
         <!-- Line -->
