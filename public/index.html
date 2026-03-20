@@ -2282,8 +2282,11 @@ async function loadStockView(ticker, opts={}) {
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
             <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="var(--buy)" onclick="toggleChartFilter('P',this)">BUYS</button>
             <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-O" data-color="var(--option)" onclick="toggleChartFilter('O',this)">OPTIONS</button>
-            <button class="tf-btn cf-btn active" id="chartFilter-X" data-color="var(--muted)" onclick="toggleChartFilter('X',this)">OTHER</button>
+            <span style="width:1px;background:var(--border);height:18px;display:inline-block;margin:0 2px;vertical-align:middle"></span>
+            <button class="tf-btn cf-btn rf-btn active" id="chartRole-all" data-role="all" data-color="var(--accent)" onclick="toggleRoleFilter('all',this)" title="All insiders">ALL</button>
+            <button class="tf-btn cf-btn rf-btn" id="chartRole-exec" data-role="exec" data-color="#a78bfa" onclick="toggleRoleFilter('exec',this)" title="CEO, CFO, COO, President, Chairman">EXEC</button>
+            <button class="tf-btn cf-btn rf-btn" id="chartRole-director" data-role="director" data-color="#60a5fa" onclick="toggleRoleFilter('director',this)" title="Board Directors">DIR</button>
+            <button class="tf-btn cf-btn rf-btn" id="chartRole-owner10" data-role="owner10" data-color="#f59e0b" onclick="toggleRoleFilter('owner10',this)" title="10%+ beneficial owners">10%</button>
             <div style="margin-left:auto;display:flex;gap:4px">
               <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn ct-btn active" title="Candlestick chart" style="padding:4px 10px;font-size:13px">🕯</button>
               <button id="chartTypeLine" onclick="setChartType('line')" class="tf-btn ct-btn" title="Line chart" style="padding:4px 10px;font-size:13px">📈</button>
@@ -2371,10 +2374,14 @@ async function loadStockView(ticker, opts={}) {
       <button onclick="loadStockViewBust('${ticker}')" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:6px 16px;font-family:'Space Mono',monospace;font-size:10px;cursor:pointer">&#x21BA; RETRY</button>
     </div>`;
   }
-  ['P','S','O','X'].forEach(g => {
-    chartActiveFilters.add(g);
-    const btn = document.getElementById('chartFilter-'+g);
-    if (btn) { btn.classList.add('active'); btn.style.color=btn.dataset.color||'var(--accent)'; btn.style.borderColor=btn.dataset.color||'var(--accent)'; }
+  // Reset filters to default (buys+sells, all roles) on new ticker load
+  chartActiveFilters.clear(); ['P','S'].forEach(g => chartActiveFilters.add(g));
+  chartActiveRoles.clear(); chartActiveRoles.add('all');
+  document.querySelectorAll('.cf-btn').forEach(btn => {
+    const isActive = btn.dataset.role ? btn.dataset.role === 'all' : chartActiveFilters.has(btn.id?.replace('chartFilter-',''));
+    btn.classList.toggle('active', isActive);
+    btn.style.color      = isActive ? (btn.dataset.color||'var(--accent)') : 'var(--muted)';
+    btn.style.borderColor= isActive ? (btn.dataset.color||'var(--accent)') : 'var(--border)';
   });
 }
 
@@ -2719,23 +2726,75 @@ function setRange(days,btn) {
   if (elVV) elVV.textContent = fmt(windowVal);
 }
 
-const chartActiveFilters=new Set(['P','S','O','X']);
-let _activeRangeDays = 365; // tracks current chart range for stat updates
+const chartActiveFilters=new Set(['P','S']);
+const chartActiveRoles=new Set(['all']); // 'all','exec','director','owner10'
+let _activeRangeDays = 365;
 const OPTION_TYPES=new Set(['C','X','M','A']),BUY_TYPES=new Set(['P']),SELL_TYPES=new Set(['S','D']);
 function tradeFilterGroup(type){if(BUY_TYPES.has(type))return'P';if(SELL_TYPES.has(type))return'S';if(OPTION_TYPES.has(type))return'O';return'X';}
-function toggleChartFilter(group,btn) {
+
+function tradeMatchesRoleFilter(t) {
+  if (chartActiveRoles.has('all')) return true;
+  const title = (t.title||'').toUpperCase();
+  const insider = (t.insider||'').toUpperCase();
+  if (chartActiveRoles.has('exec')) {
+    if (/\b(CEO|CFO|COO|CTO|PRESIDENT|CHAIRMAN|CHIEF)\b/.test(title)) return true;
+  }
+  if (chartActiveRoles.has('director')) {
+    if (/\bDIRECTOR\b/.test(title)) return true;
+  }
+  if (chartActiveRoles.has('owner10')) {
+    if (/10%|10 %|MAJOR SHARE|BENEFICIAL OWNER|>10|GREATER THAN 10/.test(title) ||
+        /10%/.test(insider)) return true;
+  }
+  return false;
+}
+
+function getChartFilteredTrades() {
+  return (state.tickerTrades||[]).filter(t =>
+    chartActiveFilters.has(tradeFilterGroup(t.type)) && tradeMatchesRoleFilter(t)
+  );
+}
+
+function toggleChartFilter(group, btn) {
   if(chartActiveFilters.has(group)){chartActiveFilters.delete(group);btn.classList.remove('active');btn.style.color='var(--muted)';btn.style.borderColor='var(--border)';}
   else{chartActiveFilters.add(group);btn.classList.add('active');btn.style.color=btn.dataset.color||'var(--accent)';btn.style.borderColor=btn.dataset.color||'var(--accent)';}
+  applyChartFilters();
+}
+
+function toggleRoleFilter(role, btn) {
+  if (role === 'all') {
+    chartActiveRoles.clear();
+    chartActiveRoles.add('all');
+    document.querySelectorAll('.rf-btn').forEach(b => {
+      const isAll = b.dataset.role === 'all';
+      b.classList.toggle('active', isAll);
+      b.style.color      = isAll ? (b.dataset.color||'var(--accent)') : 'var(--muted)';
+      b.style.borderColor= isAll ? (b.dataset.color||'var(--accent)') : 'var(--border)';
+    });
+  } else {
+    // Deactivate "all" when a specific role is picked
+    chartActiveRoles.delete('all');
+    if (chartActiveRoles.has(role)) { chartActiveRoles.delete(role); btn.classList.remove('active'); btn.style.color='var(--muted)'; btn.style.borderColor='var(--border)'; }
+    else { chartActiveRoles.add(role); btn.classList.add('active'); btn.style.color=btn.dataset.color||'var(--accent)'; btn.style.borderColor=btn.dataset.color||'var(--accent)'; }
+    // If nothing selected, revert to all
+    if (!chartActiveRoles.size) {
+      chartActiveRoles.add('all');
+      const allBtn = document.getElementById('chartRole-all');
+      if (allBtn) { allBtn.classList.add('active'); allBtn.style.color=allBtn.dataset.color||'var(--accent)'; allBtn.style.borderColor=allBtn.dataset.color||'var(--accent)'; }
+    }
+    const allBtn = document.getElementById('chartRole-all');
+    if (allBtn) { allBtn.classList.remove('active'); allBtn.style.color='var(--muted)'; allBtn.style.borderColor='var(--border)'; }
+  }
+  applyChartFilters();
+}
+
+function applyChartFilters() {
+  const filtered = getChartFilteredTrades();
   if(!state.tickerTrades||!state.currentPriceData)return;
-  const filtered=state.tickerTrades.filter(t=>chartActiveFilters.has(tradeFilterGroup(t.type)));
-  // Update stats respecting active date range
   const days = _activeRangeDays;
   const all = state.currentPriceData;
   let cutDate = '0000-00-00';
-  if (days < 9999) {
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
-    cutDate = cutoff.toISOString().split('T')[0];
-  }
+  if (days < 9999) { const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-days); cutDate = cutoff.toISOString().split('T')[0]; }
   const inWindow = filtered.filter(t => (t.trade||t.filing||'').slice(0,10) >= cutDate);
   const sb=document.getElementById('statBuys'),ss=document.getElementById('statSells'),sv=document.getElementById('statVal');
   if(sb)sb.textContent=inWindow.filter(t=>t.type==='P').length;
