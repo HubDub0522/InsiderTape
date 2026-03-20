@@ -1353,9 +1353,9 @@ async function fetchPriceBars(sym) {
   }
 
   const end   = new Date().toISOString().slice(0, 10);
-  const start = new Date(Date.now() - 6 * 365 * 86400000).toISOString().slice(0, 10);
+  const start = new Date(Date.now() - 20 * 365 * 86400000).toISOString().slice(0, 10);
   const endTs = Math.floor(Date.now() / 1000);
-  const startTs = endTs - 6 * 365 * 86400;
+  const startTs = endTs - 20 * 365 * 86400;
 
   // Run all sources in parallel — return whichever responds first with valid data
   // Timeouts reduced so failures fail fast instead of blocking for 10s each
@@ -1371,7 +1371,7 @@ async function fetchPriceBars(sym) {
     }) : Promise.resolve(null),
 
     // Polygon (secondary)
-    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=2200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
+    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
       if (status !== 200) return null;
       const data = JSON.parse(body.toString());
       if (!data.results || data.results.length < 2) return null;
@@ -2711,12 +2711,15 @@ async function runAlertCheck() {
   if (_alertRunning || !RESEND_KEY) return;
   _alertRunning = true;
   try {
-    // Get all users with alerts enabled
+    // Get all premium users with alerts enabled
     const users = db.prepare(`
-      SELECT u.id AS user_id, u.email, p.min_score, p.min_value, p.types, p.tickers, p.frequency
+      SELECT u.id AS user_id, u.email, p.min_score, p.min_value, p.types, p.tickers,
+             p.sectors, p.roles, p.frequency
       FROM alert_prefs p
       JOIN users u ON u.id = p.user_id
+      JOIN subscriptions s ON s.user_id = p.user_id
       WHERE p.enabled = 1
+        AND (s.status = 'active' OR (s.current_period_end IS NOT NULL AND s.current_period_end > datetime('now')))
     `).all();
     if (!users.length) return;
 
@@ -2949,6 +2952,7 @@ function formatVal(n) {
 app.get('/api/alerts/prefs', (req, res) => {
   const session = getSession(req);
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
+  if (!isPremium(session)) return res.status(403).json({ error: 'Premium required' });
   try {
     let prefs = db.prepare('SELECT * FROM alert_prefs WHERE user_id = ?').get(session.user_id);
     if (!prefs) {
@@ -2963,6 +2967,7 @@ app.get('/api/alerts/prefs', (req, res) => {
 app.post('/api/alerts/prefs', express.json(), (req, res) => {
   const session = getSession(req);
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
+  if (!isPremium(session)) return res.status(403).json({ error: 'Premium required' });
   const { enabled, min_score, min_value, types, tickers, sectors, roles, frequency } = req.body;
   try {
     db.prepare(`
@@ -2997,6 +3002,7 @@ app.post('/api/alerts/prefs', express.json(), (req, res) => {
 app.post('/api/alerts/test', async (req, res) => {
   const session = getSession(req);
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
+  if (!isPremium(session)) return res.status(403).json({ error: 'Premium required' });
   try {
     const user = db.prepare('SELECT email FROM users WHERE id = ?').get(session.user_id);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -3221,7 +3227,7 @@ app.get('/api/price-debug', async (req, res) => {
   // Polygon
   try {
     if (POLYGON) {
-      const url = 'https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=2200&apiKey=' + POLYGON;
+      const url = 'https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON;
       const { status, body } = await get(url, 10000);
       const data = status === 200 ? JSON.parse(body.toString()) : null;
       results.polygon = { status, bars: data?.results?.length || 0, resultsCount: data?.resultsCount, ticker: data?.ticker };
