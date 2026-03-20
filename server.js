@@ -550,7 +550,37 @@ app.get('/api/history', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// MONITOR SENTIMENT — lightweight aggregates for the IAG gauges
+// INSIDER BUY/SELL RATIO HISTORY — monthly rolling counts for the ratio chart
+// Transaction count based (not dollar), officers/directors only excluded 10%-only owners
+app.get('/api/insider-ratio-history', (req, res) => {
+  try {
+    const months = Math.min(parseInt(req.query.months || '24'), 60);
+    const rows = db.prepare(`
+      SELECT
+        strftime('%Y-%m', trade_date) AS month,
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells
+      FROM trades
+      WHERE trade_date >= date('now', '-' || ? || ' months')
+        AND trade_date <= date('now')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(value, 0) > 0
+      GROUP BY month
+      ORDER BY month ASC
+    `).all(months);
+
+    // Compute ratio and add context
+    const data = rows.map(r => ({
+      month: r.month,
+      buys:  r.buys,
+      sells: r.sells,
+      ratio: r.sells > 0 ? +(r.buys / r.sells).toFixed(3) : null,
+    })).filter(r => r.ratio !== null && r.buys + r.sells >= 5);
+
+    res.json(data);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 // Returns buy/sell counts and values for today, week, month, quarter windows
 // Much faster than fetching all trades client-side — does aggregation in SQL
 app.get('/api/monitor-sentiment', (req, res) => {
