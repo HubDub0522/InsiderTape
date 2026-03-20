@@ -245,6 +245,32 @@ try {
   )`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_magic_tokens_token ON magic_tokens(token)`);
+
+  // ── v1.7: Alert preferences ────────────────────────────────────
+  db.exec(`CREATE TABLE IF NOT EXISTS alert_prefs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL UNIQUE,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    min_score   INTEGER NOT NULL DEFAULT 70,   -- only fire for signals scored >= this
+    min_value   INTEGER NOT NULL DEFAULT 0,    -- only fire for trades >= this dollar value
+    types       TEXT    NOT NULL DEFAULT 'conviction,cluster,first_buy,exit_warning', -- comma-separated
+    tickers     TEXT    NOT NULL DEFAULT '',   -- comma-separated ticker filter, empty = all
+    frequency   TEXT    NOT NULL DEFAULT 'immediate', -- 'immediate' | 'daily'
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  )`);
+
+  db.exec(`CREATE TABLE IF NOT EXISTS alert_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL,
+    ticker       TEXT NOT NULL,
+    signal_type  TEXT NOT NULL,
+    signal_key   TEXT NOT NULL,  -- dedup key: ticker|type|date to prevent re-sending
+    sent_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, signal_key)
+  )`);
+
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_log_user ON alert_log(user_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_log_key  ON alert_log(signal_key)`);
 } catch(e) { console.warn('Auth schema init warning:', e.message); }
 
 // ─── Clean up bad/invalid trade records ──────────────────────
@@ -1984,6 +2010,13 @@ setTimeout(() => {
     .catch(e => slog('startup precompute err: ' + e.message));
 }, 60000);
 
+// Run alert check every 5 minutes — same cadence as RSS poll in daily-worker
+// Offset by 3 minutes so it runs after new trades are likely ingested
+setTimeout(() => {
+  runAlertCheck();
+  setInterval(runAlertCheck, 5 * 60 * 1000);
+}, 3 * 60 * 1000);
+
 // Refresh every 12h — intentionally does NOT null the cache before starting.
 // preComputeScoreboard skips if cache is still fresh; the _scoreboardRunning
 // guard prevents double-runs. Stale-but-valid data stays available to users
@@ -2619,6 +2652,318 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // ── GET /api/stripe/checkout ─────────────────────────────────
+// ── ALERT ENGINE ─────────────────────────────────────────────────────────────
+
+async function sendAlertEmail(toEmail, signals) {
+  if (!RESEND_KEY || !signals.length) return;
+  const { Resend } = require('resend');
+  const resend = new Resend(RESEND_KEY);
+
+  const signalRows = signals.map(s => {
+    const color = s.signal_type === 'EXIT_WARNING' ? '#ff4466' : s.signal_type === 'CLUSTER' ? '#00d4ff' : s.signal_type === 'FIRST_BUY' ? '#f5a623' : '#00ff88';
+    const icon  = s.signal_type === 'EXIT_WARNING' ? '⚠️' : s.signal_type === 'CLUSTER' ? '🔵' : s.signal_type === 'FIRST_BUY' ? '🆕' : '⚡';
+    return `
+      <div style="border:1px solid #1e2d3d;border-radius:6px;padding:16px;margin-bottom:12px;background:#0d1117">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <span style="font-family:'Courier New',monospace;font-size:18px;font-weight:700;color:#00d4ff">${s.ticker}</span>
+          <span style="font-family:'Courier New',monospace;font-size:11px;padding:3px 8px;background:${color}22;border:1px solid ${color}44;border-radius:3px;color:${color}">${icon} ${s.signal_type.replace('_',' ')}</span>
+        </div>
+        <div style="font-size:13px;color:#c9d8e8;margin-bottom:4px">${s.company}</div>
+        <div style="font-size:12px;color:#e0e6ed;font-weight:600;margin-bottom:4px">${s.headline}</div>
+        ${s.detail ? `<div style="font-size:11px;color:#4a6580;margin-bottom:8px">${s.detail}</div>` : ''}
+        <a href="${SITE_URL}/stock/${s.ticker}" style="font-family:'Courier New',monospace;font-size:11px;color:#00d4ff;text-decoration:none">VIEW CHART →</a>
+      </div>`;
+  }).join('');
+
+  const subject = signals.length === 1
+    ? `InsiderTape Alert: ${signals[0].ticker} — ${signals[0].signal_type.replace('_',' ')}`
+    : `InsiderTape: ${signals.length} new insider signals`;
+
+  await resend.emails.send({
+    from: FROM_EMAIL,
+    to: toEmail,
+    subject,
+    html: `
+      <div style="font-family:'Courier New',monospace;max-width:520px;margin:0 auto;background:#080b0f;color:#e0e6ed;padding:32px;border-radius:8px">
+        <div style="font-size:20px;font-weight:700;letter-spacing:3px;color:#00d4ff;margin-bottom:4px">INSIDERTAPE</div>
+        <div style="font-size:10px;color:#4a6580;letter-spacing:2px;margin-bottom:28px">INSIDER SIGNAL ALERT</div>
+        ${signalRows}
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid #1e2d3d;font-size:10px;color:#2a3d52">
+          All data sourced from SEC Form 4 filings. Not investment advice.<br>
+          <a href="${SITE_URL}/account" style="color:#2a3d52">Manage alert settings</a> · 
+          <a href="${SITE_URL}/account?unsubscribe=1" style="color:#2a3d52">Unsubscribe</a>
+        </div>
+      </div>`,
+  });
+}
+
+// Runs after each RSS poll — checks for new signals matching user alert prefs
+// and sends emails for anything not already sent
+let _alertRunning = false;
+async function runAlertCheck() {
+  if (_alertRunning || !RESEND_KEY) return;
+  _alertRunning = true;
+  try {
+    // Get all users with alerts enabled
+    const users = db.prepare(`
+      SELECT u.id AS user_id, u.email, p.min_score, p.min_value, p.types, p.tickers, p.frequency
+      FROM alert_prefs p
+      JOIN users u ON u.id = p.user_id
+      WHERE p.enabled = 1
+    `).all();
+    if (!users.length) return;
+
+    // Get recent trades from last 48h (captures anything new since last check)
+    const recentTrades = db.prepare(`
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date, MAX(filing_date) AS filing_date,
+             TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
+             MAX(value) AS value, MAX(owned) AS owned
+      FROM trades
+      WHERE filing_date >= date('now', '-2 days')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(value,0) > 0
+      GROUP BY ticker, insider, trade_date, type
+      ORDER BY filing_date DESC, value DESC
+    `).all();
+
+    if (!recentTrades.length) return;
+
+    // First-buy detection: insiders who filed a buy in last 48h AND had a 2yr+ gap
+    // Uses same CTE logic as /api/firstbuys but scoped to recent filings only
+    const firstBuyRows = db.prepare(`
+      WITH recent_buyers AS (
+        SELECT DISTINCT insider, ticker
+        FROM trades
+        WHERE TRIM(type) = 'P'
+          AND filing_date >= date('now', '-2 days')
+          AND insider IS NOT NULL AND ticker IS NOT NULL
+      ),
+      latest AS (
+        SELECT t.ticker, MAX(t.company) AS company, t.insider, MAX(t.title) AS title,
+               MAX(t.trade_date) AS latest_trade, MAX(t.filing_date) AS latest_filing,
+               MAX(t.value) AS latest_value
+        FROM trades t
+        JOIN recent_buyers rb ON t.insider = rb.insider AND t.ticker = rb.ticker
+        WHERE TRIM(t.type) = 'P' AND t.filing_date >= date('now', '-2 days')
+        GROUP BY t.insider, t.ticker
+      ),
+      prev AS (
+        SELECT t.insider, t.ticker, MAX(t.trade_date) AS prev_trade
+        FROM trades t
+        JOIN recent_buyers rb ON t.insider = rb.insider AND t.ticker = rb.ticker
+        WHERE TRIM(t.type) = 'P' AND t.filing_date < date('now', '-2 days')
+        GROUP BY t.insider, t.ticker
+      )
+      SELECT l.ticker, l.company, l.insider, l.title,
+             l.latest_trade, l.latest_filing, l.latest_value,
+             p.prev_trade,
+             CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) AS gap_days
+      FROM latest l
+      LEFT JOIN prev p ON l.insider = p.insider AND l.ticker = p.ticker
+      WHERE p.prev_trade IS NULL    -- truly first ever buy in DB
+         OR CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) >= 730
+    `).all();
+
+    // Build simple signals from trades (server-side signal detection)
+    const signals = buildSignalsFromTrades(recentTrades, firstBuyRows);
+    if (!signals.length) return;
+
+    for (const user of users) {
+      const userTickers = user.tickers ? user.tickers.split(',').map(t => t.trim()).filter(Boolean) : [];
+      const userTypes   = user.types.split(',').map(t => t.trim().toLowerCase());
+
+      const toSend = [];
+      for (const sig of signals) {
+        // Apply user filters
+        if (sig.score < user.min_score) continue;
+        if (sig.value < user.min_value) continue;
+        if (userTickers.length && !userTickers.includes(sig.ticker)) continue;
+        if (!userTypes.includes(sig.signal_type.toLowerCase().replace(' ','_'))) continue;
+
+        // Dedup — don't resend what was already sent
+        const key = sig.ticker + '|' + sig.signal_type + '|' + sig.date;
+        const already = db.prepare('SELECT 1 FROM alert_log WHERE user_id = ? AND signal_key = ?').get(user.user_id, key);
+        if (already) continue;
+
+        toSend.push(sig);
+        // Mark as sent
+        db.prepare('INSERT OR IGNORE INTO alert_log (user_id, ticker, signal_type, signal_key) VALUES (?,?,?,?)')
+          .run(user.user_id, sig.ticker, sig.signal_type, key);
+      }
+
+      if (toSend.length) {
+        await sendAlertEmail(user.email, toSend);
+        slog('Alert: sent ' + toSend.length + ' signal(s) to ' + user.email);
+      }
+    }
+  } catch(e) {
+    slog('Alert check error: ' + e.message);
+  } finally {
+    _alertRunning = false;
+  }
+}
+
+// Server-side signal builder — lightweight version of the client scoring
+function buildSignalsFromTrades(trades, firstBuyRows = []) {
+  const signals = [];
+  const byTicker = {};
+
+  // Group trades by ticker
+  for (const t of trades) {
+    if (!byTicker[t.ticker]) byTicker[t.ticker] = [];
+    byTicker[t.ticker].push(t);
+  }
+
+  for (const [ticker, tickerTrades] of Object.entries(byTicker)) {
+    const company = tickerTrades[0].company || ticker;
+    const buys    = tickerTrades.filter(t => t.type === 'P');
+    const sells   = tickerTrades.filter(t => t.type === 'S' || t.type === 'S-');
+
+    // CLUSTER: 2+ distinct insiders buying same ticker within 2 days
+    if (buys.length >= 2) {
+      const uniqueInsiders = new Set(buys.map(t => t.insider)).size;
+      if (uniqueInsiders >= 2) {
+        const totalVal = buys.reduce((s,t) => s + (t.value||0), 0);
+        const score    = Math.min(100, 50 + uniqueInsiders * 10 + (totalVal >= 500000 ? 15 : totalVal >= 100000 ? 8 : 0));
+        const date     = buys.sort((a,b) => b.filing_date.localeCompare(a.filing_date))[0].filing_date;
+        signals.push({ ticker, company, signal_type: 'CLUSTER', score, value: totalVal, date,
+          headline: uniqueInsiders + ' insiders buying in cluster',
+          detail: uniqueInsiders + ' distinct insiders · ' + formatVal(totalVal) + ' combined' });
+      }
+    }
+
+    // CONVICTION: single large buy (CEO/CFO or big value)
+    for (const t of buys) {
+      const isCsuite = /\b(CEO|CFO|President|Chairman|COO|CTO)\b/i.test(t.title || '');
+      const bigBuy   = (t.value || 0) >= 100000;
+      if (isCsuite || bigBuy) {
+        const score = Math.min(100, 55 + (isCsuite ? 15 : 0) + (t.value >= 500000 ? 15 : t.value >= 100000 ? 8 : 0));
+        signals.push({ ticker, company, signal_type: 'CONVICTION', score, value: t.value || 0, date: t.filing_date,
+          headline: 'High conviction buy · ' + (t.title || 'Insider'),
+          detail: (t.insider || '') + ' · ' + formatVal(t.value || 0) });
+      }
+    }
+
+    // EXIT_WARNING: 2+ distinct insiders selling
+    if (sells.length >= 2) {
+      const uniqueSellers = new Set(sells.map(t => t.insider)).size;
+      if (uniqueSellers >= 2) {
+        const totalSell = sells.reduce((s,t) => s + (t.value||0), 0);
+        const score     = Math.min(100, 50 + uniqueSellers * 8 + (totalSell >= 1000000 ? 15 : 0));
+        const date      = sells.sort((a,b) => b.filing_date.localeCompare(a.filing_date))[0].filing_date;
+        signals.push({ ticker, company, signal_type: 'EXIT_WARNING', score, value: totalSell, date,
+          headline: 'Exit warning · ' + uniqueSellers + ' insiders selling',
+          detail: uniqueSellers + ' distinct sellers · ' + formatVal(totalSell) + ' disclosed' });
+      }
+    }
+  }
+
+  // FIRST_BUY: insider returning after 2+ year gap (or no prior history)
+  for (const fb of firstBuyRows) {
+    const gapYears = fb.gap_days ? Math.floor(fb.gap_days / 365) : null;
+    const gapLabel = fb.prev_trade === null
+      ? 'No prior purchase on record'
+      : gapYears + '+ year gap since last buy';
+    const isCsuite = /\b(CEO|CFO|President|Chairman|COO|CTO)\b/i.test(fb.title || '');
+    const score    = Math.min(100, 60 + (isCsuite ? 15 : 0) + ((fb.latest_value||0) >= 100000 ? 10 : 0) + (!fb.prev_trade ? 8 : 0));
+    signals.push({
+      ticker:      fb.ticker,
+      company:     fb.company || fb.ticker,
+      signal_type: 'FIRST_BUY',
+      score,
+      value:       fb.latest_value || 0,
+      date:        fb.latest_filing,
+      headline:    'First buy in years · ' + (fb.title || 'Insider'),
+      detail:      (fb.insider || '') + ' · ' + gapLabel + ' · ' + formatVal(fb.latest_value || 0),
+    });
+  }
+
+  return signals.sort((a,b) => b.score - a.score);
+}
+
+function formatVal(n) {
+  if (!n) return '$0';
+  if (n >= 1e9) return '$' + (n/1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return '$' + (n/1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return '$' + (n/1e3).toFixed(0) + 'K';
+  return '$' + n.toFixed(0);
+}
+
+// ── ALERT PREFERENCES ────────────────────────────────────────────────
+// GET /api/alerts/prefs — get current user's alert preferences
+app.get('/api/alerts/prefs', (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    let prefs = db.prepare('SELECT * FROM alert_prefs WHERE user_id = ?').get(session.user_id);
+    if (!prefs) {
+      // Return defaults if never saved
+      prefs = { enabled: 1, min_score: 70, min_value: 0, types: 'conviction,cluster,first_buy,exit_warning', tickers: '', frequency: 'immediate' };
+    }
+    res.json(prefs);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/alerts/prefs — save alert preferences
+app.post('/api/alerts/prefs', express.json(), (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'Not authenticated' });
+  const { enabled, min_score, min_value, types, tickers, frequency } = req.body;
+  try {
+    db.prepare(`
+      INSERT INTO alert_prefs (user_id, enabled, min_score, min_value, types, tickers, frequency, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id) DO UPDATE SET
+        enabled    = excluded.enabled,
+        min_score  = excluded.min_score,
+        min_value  = excluded.min_value,
+        types      = excluded.types,
+        tickers    = excluded.tickers,
+        frequency  = excluded.frequency,
+        updated_at = excluded.updated_at
+    `).run(
+      session.user_id,
+      enabled ? 1 : 0,
+      Math.min(Math.max(parseInt(min_score) || 70, 0), 100),
+      Math.max(parseInt(min_value) || 0, 0),
+      (types || 'conviction,cluster,first_buy,exit_warning').slice(0, 200),
+      (tickers || '').toUpperCase().replace(/[^A-Z,\s]/g, '').slice(0, 500),
+      ['immediate', 'daily'].includes(frequency) ? frequency : 'immediate'
+    );
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/alerts/test — send a test alert email to the current user
+app.post('/api/alerts/test', async (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(session.user_id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await sendAlertEmail(user.email, [{
+      ticker: 'AAPL',
+      company: 'Apple Inc.',
+      signal_type: 'CONVICTION',
+      headline: 'High conviction buy · Score 87',
+      detail: 'CEO added to position (15% increase) · $2.4M disclosed',
+      score: 87,
+      date: new Date().toISOString().slice(0, 10),
+    }, {
+      ticker: 'NVDA',
+      company: 'NVIDIA Corporation',
+      signal_type: 'FIRST_BUY',
+      headline: 'First buy in years · Director',
+      detail: 'John Smith · 4+ year gap since last buy · $180K',
+      score: 72,
+      date: new Date().toISOString().slice(0, 10),
+    }]);
+    res.json({ ok: true, message: 'Test alert sent to ' + user.email });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/stripe/checkout', async (req, res) => {
   if (!STRIPE_SECRET) return res.redirect('/premium');
   const sessionToken = req.query.session || (req.session && req.session.token);
