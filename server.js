@@ -554,29 +554,52 @@ app.get('/api/history', (req, res) => {
 // Transaction count based (not dollar), officers/directors only excluded 10%-only owners
 app.get('/api/insider-ratio-history', (req, res) => {
   try {
+    const grain  = req.query.grain === 'monthly' ? 'monthly' : 'weekly';
+    const weeks  = Math.min(parseInt(req.query.weeks  || '52'), 156); // up to 3 years
     const months = Math.min(parseInt(req.query.months || '24'), 60);
-    const rows = db.prepare(`
-      SELECT
-        strftime('%Y-%m', trade_date) AS month,
-        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
-        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells
-      FROM trades
-      WHERE trade_date >= date('now', '-' || ? || ' months')
-        AND trade_date <= date('now')
-        AND TRIM(type) IN ('P','S','S-')
-        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-        AND COALESCE(value, 0) > 0
-      GROUP BY month
-      ORDER BY month ASC
-    `).all(months);
 
-    // Compute ratio and add context
+    let rows;
+    if (grain === 'weekly') {
+      rows = db.prepare(`
+        SELECT
+          strftime('%Y-%W', trade_date) AS period,
+          -- Use Monday of that ISO week as label date
+          date(trade_date, 'weekday 1', '-7 days') AS period_date,
+          COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+          COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells
+        FROM trades
+        WHERE trade_date >= date('now', '-' || ? || ' days')
+          AND trade_date <= date('now')
+          AND TRIM(type) IN ('P','S','S-')
+          AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+          AND COALESCE(value, 0) > 0
+        GROUP BY period
+        ORDER BY period ASC
+      `).all(weeks * 7);
+    } else {
+      rows = db.prepare(`
+        SELECT
+          strftime('%Y-%m', trade_date) AS period,
+          strftime('%Y-%m', trade_date) || '-01' AS period_date,
+          COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+          COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells
+        FROM trades
+        WHERE trade_date >= date('now', '-' || ? || ' months')
+          AND trade_date <= date('now')
+          AND TRIM(type) IN ('P','S','S-')
+          AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+          AND COALESCE(value, 0) > 0
+        GROUP BY period
+        ORDER BY period ASC
+      `).all(months);
+    }
+
     const data = rows.map(r => ({
-      month: r.month,
-      buys:  r.buys,
-      sells: r.sells,
-      ratio: r.sells > 0 ? +(r.buys / r.sells).toFixed(3) : null,
-    })).filter(r => r.ratio !== null && r.buys + r.sells >= 5);
+      period: r.period_date || r.period,
+      buys:   r.buys,
+      sells:  r.sells,
+      ratio:  r.sells > 0 ? +(r.buys / r.sells).toFixed(3) : null,
+    })).filter(r => r.ratio !== null && r.buys + r.sells >= 3);
 
     res.json(data);
   } catch(e) { res.status(500).json({ error: e.message }); }
