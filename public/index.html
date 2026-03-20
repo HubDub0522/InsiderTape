@@ -1502,7 +1502,7 @@ function renderScreener() {
     <div class="summary-card"><div class="summary-card-label">Total Trades</div><div class="summary-card-val" style="color:var(--text)">${data.length}</div></div>
     <div class="summary-card"><div class="summary-card-label">Buy Volume</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div></div>
     <div class="summary-card"><div class="summary-card-label">Sell Volume</div><div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div></div>
-    <div class="summary-card"><div class="summary-card-label">Buy/Sell Ratio</div><div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length?(buys.length/sells.length).toFixed(2):'∞'}x</div></div>
+    <div class="summary-card"><div class="summary-card-label" title="Transaction count ratio — buys ÷ sells. Historical norm ~0.25">Buy/Sell Ratio</div><div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length?(buys.length/sells.length).toFixed(2):'∞'}x</div></div>
     <div class="summary-card"><div class="summary-card-label">Unique Tickers</div><div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div></div>`;
   const latestTrade = data.reduce((best, t) => { const d = t.trade || t.filing || ''; return d > best ? d : best; }, '');
   const latestLabel = latestTrade ? `latest filing ${fmtDate(latestTrade)}` : `refreshed ${new Date().toLocaleTimeString()}`;
@@ -3754,8 +3754,10 @@ function insiderLanding(opts={}) {
         </div>
       </div>
       <div id="insiderDashboard"><div class="loading-state"><div class="spinner"></div><span>Loading insider activity...</span></div></div>
+      <div id="insiderRatioChart" style="margin-top:28px"></div>
     </div>`;
   loadInsiderDashboard();
+  loadInsiderRatioChart();
 }
 
 async function loadInsiderDashboard() {
@@ -3800,6 +3802,95 @@ async function loadInsiderDashboard() {
 
 // Cached scoreboard data so full-list view doesn't re-fetch
 let _scoreboardData = null;
+
+async function loadInsiderRatioChart() {
+  const el = document.getElementById('insiderRatioChart');
+  if (!el) return;
+  try {
+    const data = await apiFetch('/api/insider-ratio-history?months=24');
+    if (!data || !data.length) { el.innerHTML = ''; return; }
+
+    // Chart dimensions
+    const W = 800, H = 180, PAD = { top: 20, right: 20, bottom: 36, left: 44 };
+    const cW = W - PAD.left - PAD.right;
+    const cH = H - PAD.top  - PAD.bottom;
+
+    const maxRatio = Math.max(...data.map(d => d.ratio), 0.6);
+    const yMax = Math.ceil(maxRatio * 4) / 4 + 0.1; // round up to nearest 0.25
+    const xStep = cW / (data.length - 1 || 1);
+
+    const xCoord = i  => PAD.left + i * xStep;
+    const yCoord = v  => PAD.top + cH - (v / yMax) * cH;
+
+    // Build bar chart (monthly bars, colored by vs norm)
+    const BAR_NORM = 0.25;
+    const bars = data.map((d, i) => {
+      const x = PAD.left + i * (cW / data.length);
+      const bW = Math.max(cW / data.length - 2, 2);
+      const barH = (d.ratio / yMax) * cH;
+      const color = d.ratio >= 0.6 ? 'rgba(0,255,136,0.7)'
+                  : d.ratio >= 0.35 ? 'rgba(0,212,255,0.5)'
+                  : d.ratio >= 0.15 ? 'rgba(255,170,0,0.5)'
+                  : 'rgba(255,68,102,0.5)';
+      return `<rect x="${x}" y="${yCoord(d.ratio)}" width="${bW}" height="${barH}" fill="${color}" rx="1">
+        <title>${d.month}: ratio ${d.ratio} (${d.buys} buys / ${d.sells} sells)</title>
+      </rect>`;
+    }).join('');
+
+    // Norm reference line at 0.25
+    const normY = yCoord(BAR_NORM);
+    // Y-axis gridlines and labels
+    const yTicks = [];
+    for (let v = 0; v <= yMax; v += 0.25) {
+      const y = yCoord(v);
+      yTicks.push(`<line x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}" stroke="#1e2d3d" stroke-width="0.5"/>`);
+      yTicks.push(`<text x="${PAD.left - 5}" y="${y + 3}" fill="#4a6580" font-family="monospace" font-size="8" text-anchor="end">${v.toFixed(2)}</text>`);
+    }
+
+    // X-axis labels — show every 3 months
+    const xLabels = data.map((d, i) => {
+      if (i % 3 !== 0 && i !== data.length - 1) return '';
+      const x = PAD.left + i * (cW / data.length) + (cW / data.length / 2);
+      return `<text x="${x}" y="${H - PAD.bottom + 14}" fill="#4a6580" font-family="monospace" font-size="7" text-anchor="middle">${d.month.slice(2)}</text>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">INSIDER BUY/SELL RATIO — MONTHLY</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">Transaction count ratio (buys ÷ sells) · All open-market Form 4 filings · <span style="color:var(--accent)">Historical norm ~0.25</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;font-size:10px;font-family:'Space Mono',monospace">
+            <span style="color:rgba(0,255,136,0.8)">■ Above norm (≥0.6)</span>
+            <span style="color:rgba(0,212,255,0.8)">■ Near norm (0.35-0.6)</span>
+            <span style="color:rgba(255,170,0,0.8)">■ Below norm (0.15-0.35)</span>
+            <span style="color:rgba(255,68,102,0.8)">■ Well below (&lt;0.15)</span>
+          </div>
+        </div>
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible">
+          ${yTicks.join('')}
+          <!-- Norm reference line -->
+          <line x1="${PAD.left}" y1="${normY}" x2="${W - PAD.right}" y2="${normY}"
+            stroke="rgba(0,212,255,0.4)" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="${W - PAD.right + 3}" y="${normY + 3}" fill="rgba(0,212,255,0.6)" font-family="monospace" font-size="7">norm</text>
+          <!-- Bars -->
+          ${bars}
+          <!-- Axes -->
+          <line x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${H - PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
+          <line x1="${PAD.left}" y1="${H - PAD.bottom}" x2="${W - PAD.right}" y2="${H - PAD.bottom}" stroke="#1e2d3d" stroke-width="1"/>
+          ${xLabels}
+        </svg>
+        <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
+          Insiders sell far more transactions than they buy — the norm ratio of ~0.25 means roughly 1 buy for every 4 sells. A ratio rising above 0.5 is historically notable. Data sourced from SEC Form 4 filings.
+        </div>
+      </div>`;
+  } catch(e) {
+    console.error('loadInsiderRatioChart:', e);
+    const el2 = document.getElementById('insiderRatioChart');
+    if (el2) el2.innerHTML = '';
+  }
+}
 
 async function loadNotableLeaderboard() {
   const el = document.getElementById('notableLeaderboard');
@@ -7639,28 +7730,35 @@ function buildMonitorSentiment(trades, cutStr) {
   const sells = inWindow.filter(t => t.type === 'S' || t.type === 'S-');
   const buyVal  = buys.reduce((s,t) => s + (t.value||0), 0);
   const sellVal = sells.reduce((s,t) => s + (t.value||0), 0);
-  const totalVal = buyVal + sellVal;
-  const buyPct = totalVal > 0 ? Math.round(buyVal / totalVal * 100) : 50;
+  // Transaction count ratio (not dollar ratio) — matches industry standard
+  // Historical norm is ~0.2-0.35 (insiders sell 3-5x more transactions than they buy)
+  const ratio = sells.length > 0 ? (buys.length / sells.length) : buys.length > 0 ? null : null;
+  // buyPct for gauge arc: based on transaction count, not dollars
+  const totalCount = buys.length + sells.length;
+  const buyPct = totalCount > 0 ? Math.round(buys.length / totalCount * 100) : 50;
+  const netFlow = buyVal - sellVal;
   const uniqueBuyers  = new Set(buys.map(t => t.insider)).size;
   const uniqueSellers = new Set(sells.map(t => t.insider)).size;
-  const ratio = sells.length > 0 ? (buys.length / sells.length).toFixed(2) : buys.length > 0 ? '∞' : '—';
-  const netFlow = buyVal - sellVal;
-  const sentiment = buyPct >= 70 ? 'BULLISH' : buyPct >= 55 ? 'LEANING BULLISH' : buyPct >= 45 ? 'NEUTRAL' : buyPct >= 30 ? 'LEANING BEARISH' : 'BEARISH';
-  const sentimentColor = buyPct >= 70 ? 'var(--buy)' : buyPct >= 55 ? '#7eff7e' : buyPct >= 45 ? 'var(--muted)' : buyPct >= 30 ? '#ff9966' : 'var(--sell)';
-  return { buyPct, buyVal, sellVal, netFlow, uniqueBuyers, uniqueSellers, ratio, sentiment, sentimentColor, buyCount: buys.length, sellCount: sells.length, earliestActual, cutStr };
+  // Contextual label based on count ratio vs historical norm (~0.25)
+  const ratioVal = ratio !== null ? ratio : 0;
+  const ratioLabel = ratioVal >= 0.6 ? 'ABOVE NORM' : ratioVal >= 0.35 ? 'NEAR NORM' : ratioVal >= 0.15 ? 'BELOW NORM' : 'WELL BELOW NORM';
+  const ratioColor = ratioVal >= 0.6 ? 'var(--buy)' : ratioVal >= 0.35 ? 'var(--muted)' : ratioVal >= 0.15 ? '#ff9966' : 'var(--sell)';
+  return { buyPct, buyVal, sellVal, netFlow, uniqueBuyers, uniqueSellers,
+           ratio: ratio !== null ? ratio.toFixed(2) : '—',
+           ratioLabel, ratioColor,
+           buyCount: buys.length, sellCount: sells.length, earliestActual, cutStr };
 }
 
 function renderSentimentGauge(s) {
-  // Arc gauge SVG — semi-circle from left (bearish) to right (bullish)
-  // needle angle: 0° = far left (0%), 180° = far right (100%)
-  const needleAngle = (s.buyPct / 100) * 180; // degrees
+  // Gauge shows % of transactions that are buys (count-based, not dollar-based)
+  // Historical norm: ~20-25% buys (insiders sell 3-5x more than they buy)
+  // Zones calibrated to historical norms, not arbitrary bullish/bearish labels
+  const needleAngle = (s.buyPct / 100) * 180;
   const toRad = d => (d - 180) * Math.PI / 180;
   const cx = 100, cy = 90, r = 72;
-  // Needle tip
   const nx = cx + r * Math.cos(toRad(needleAngle));
   const ny = cy + r * Math.sin(toRad(needleAngle));
 
-  // Arc segments: red zone 0-35%, yellow 35-65%, green 65-100%
   function arcPath(startPct, endPct) {
     const s = toRad(startPct * 1.8), e = toRad(endPct * 1.8);
     const x1 = cx + r * Math.cos(s), y1 = cy + r * Math.sin(s);
@@ -7677,43 +7775,44 @@ function renderSentimentGauge(s) {
         <svg viewBox="0 0 200 100" style="width:100%;max-width:200px;overflow:visible">
           <!-- Track -->
           <path d="${arcPath(0,100)}" fill="none" stroke="#1e2d3d" stroke-width="12" stroke-linecap="round"/>
-          <!-- Bearish zone -->
-          <path d="${arcPath(0,35)}" fill="none" stroke="rgba(255,68,102,0.5)" stroke-width="12" stroke-linecap="round"/>
-          <!-- Neutral zone -->
-          <path d="${arcPath(35,65)}" fill="none" stroke="rgba(255,170,0,0.5)" stroke-width="12" stroke-linecap="round"/>
-          <!-- Bullish zone -->
-          <path d="${arcPath(65,100)}" fill="none" stroke="rgba(0,255,136,0.5)" stroke-width="12" stroke-linecap="round"/>
-          <!-- Filled arc up to buyPct -->
-          <path d="${arcPath(0, s.buyPct)}" fill="none" stroke="${s.sentimentColor}" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
+          <!-- Low zone (0-20%, typical/below norm) -->
+          <path d="${arcPath(0,20)}" fill="none" stroke="rgba(255,68,102,0.4)" stroke-width="12" stroke-linecap="round"/>
+          <!-- Normal zone (20-40%) -->
+          <path d="${arcPath(20,40)}" fill="none" stroke="rgba(255,170,0,0.4)" stroke-width="12" stroke-linecap="round"/>
+          <!-- Elevated zone (40-100%) -->
+          <path d="${arcPath(40,100)}" fill="none" stroke="rgba(0,255,136,0.4)" stroke-width="12" stroke-linecap="round"/>
+          <!-- Filled arc -->
+          <path d="${arcPath(0, s.buyPct)}" fill="none" stroke="${s.ratioColor}" stroke-width="4" stroke-linecap="round" opacity="0.9"/>
           <!-- Needle -->
-          <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${s.sentimentColor}" stroke-width="2.5" stroke-linecap="round"/>
-          <circle cx="${cx}" cy="${cy}" r="4" fill="${s.sentimentColor}"/>
-          <!-- Labels -->
-          <text x="16" y="98" fill="#ff4466" font-family="monospace" font-size="7" opacity="0.7">BEAR</text>
-          <text x="170" y="98" fill="#00ff88" font-family="monospace" font-size="7" opacity="0.7">BULL</text>
-          <!-- Center value -->
-          <text x="${cx}" y="${cy-12}" fill="${s.sentimentColor}" font-family="monospace" font-size="18" font-weight="700" text-anchor="middle">${s.buyPct}%</text>
-          <text x="${cx}" y="${cy+4}" fill="${s.sentimentColor}" font-family="monospace" font-size="7" text-anchor="middle" letter-spacing="1">${s.sentiment}</text>
+          <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${s.ratioColor}" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="${cx}" cy="${cy}" r="4" fill="${s.ratioColor}"/>
+          <!-- Zone labels -->
+          <text x="8" y="98" fill="rgba(255,68,102,0.6)" font-family="monospace" font-size="6">LOW</text>
+          <text x="84" y="98" fill="rgba(255,170,0,0.6)" font-family="monospace" font-size="6">NORM</text>
+          <text x="163" y="98" fill="rgba(0,255,136,0.6)" font-family="monospace" font-size="6">HIGH</text>
+          <!-- Center: ratio value -->
+          <text x="${cx}" y="${cy-10}" fill="${s.ratioColor}" font-family="monospace" font-size="20" font-weight="700" text-anchor="middle">${s.ratio}</text>
+          <text x="${cx}" y="${cy+5}" fill="${s.ratioColor}" font-family="monospace" font-size="6.5" text-anchor="middle" letter-spacing="0.5">${s.ratioLabel}</text>
         </svg>
-        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:2px;letter-spacing:1px">INSIDER BUY FLOW</div>
+        <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:2px;letter-spacing:1px">BUY/SELL RATIO · BY COUNT</div>
       </div>
 
       <!-- Stats grid -->
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px" class="mob-3col-grid">
         <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">BUY VOLUME</div>
-          <div style="font-size:16px;font-family:'Space Mono',monospace;color:var(--buy);font-weight:700">${fmt(s.buyVal)}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">${s.buyCount} trades · ${s.uniqueBuyers} insiders</div>
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">BUY TRANSACTIONS</div>
+          <div style="font-size:16px;font-family:'Space Mono',monospace;color:var(--buy);font-weight:700">${s.buyCount}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${fmt(s.buyVal)} · ${s.uniqueBuyers} insiders</div>
         </div>
         <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">SELL VOLUME</div>
-          <div style="font-size:16px;font-family:'Space Mono',monospace;color:var(--sell);font-weight:700">${fmt(s.sellVal)}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">${s.sellCount} trades · ${s.uniqueSellers} insiders</div>
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">SELL TRANSACTIONS</div>
+          <div style="font-size:16px;font-family:'Space Mono',monospace;color:var(--sell);font-weight:700">${s.sellCount}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${fmt(s.sellVal)} · ${s.uniqueSellers} insiders</div>
         </div>
         <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
-          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">NET FLOW</div>
+          <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">NET DOLLAR FLOW</div>
           <div style="font-size:16px;font-family:'Space Mono',monospace;color:${s.netFlow>=0?'var(--buy)':'var(--sell)'};font-weight:700">${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">Buy/Sell ratio: ${s.ratio}x</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Hist. norm ratio: ~0.25</div>
         </div>
       </div>
     </div>
@@ -7726,17 +7825,22 @@ function renderMonitorGaugesFromServer(sentimentData, tab) {
   if (!el || !sentimentData) return;
   const w = sentimentData[tab] || sentimentData['today'];
   if (!w) return;
-  const buyVal   = w.buy_val   || 0;
-  const sellVal  = w.sell_val  || 0;
-  const buyCount = w.buy_count || 0;
-  const sellCount= w.sell_count|| 0;
-  const totalVal = buyVal + sellVal;
-  const buyPct   = totalVal > 0 ? Math.round(buyVal / totalVal * 100) : 50;
-  const netFlow  = buyVal - sellVal;
-  const ratio    = sellCount > 0 ? (buyCount / sellCount).toFixed(2) : buyCount > 0 ? '∞' : '—';
-  const sentiment = buyPct >= 70 ? 'BULLISH' : buyPct >= 55 ? 'LEANING BULLISH' : buyPct >= 45 ? 'NEUTRAL' : buyPct >= 30 ? 'LEANING BEARISH' : 'BEARISH';
-  const sentimentColor = buyPct >= 70 ? 'var(--buy)' : buyPct >= 55 ? '#7eff7e' : buyPct >= 45 ? 'var(--muted)' : buyPct >= 30 ? '#ff9966' : 'var(--sell)';
-  const s = { buyPct, buyVal, sellVal, netFlow, uniqueBuyers: w.unique_buyers||0, uniqueSellers: w.unique_sellers||0, ratio, sentiment, sentimentColor, buyCount, sellCount, earliestActual: w.cutStr, cutStr: w.cutStr };
+  const buyCount  = w.buy_count  || 0;
+  const sellCount = w.sell_count || 0;
+  const buyVal    = w.buy_val    || 0;
+  const sellVal   = w.sell_val   || 0;
+  const netFlow   = buyVal - sellVal;
+  const totalCount = buyCount + sellCount;
+  // Count-based buyPct for gauge needle position
+  const buyPct = totalCount > 0 ? Math.round(buyCount / totalCount * 100) : 50;
+  const ratioVal = sellCount > 0 ? buyCount / sellCount : 0;
+  const ratio = sellCount > 0 ? ratioVal.toFixed(2) : buyCount > 0 ? '∞' : '—';
+  const ratioLabel = ratioVal >= 0.6 ? 'ABOVE NORM' : ratioVal >= 0.35 ? 'NEAR NORM' : ratioVal >= 0.15 ? 'BELOW NORM' : 'WELL BELOW NORM';
+  const ratioColor = ratioVal >= 0.6 ? 'var(--buy)' : ratioVal >= 0.35 ? 'var(--muted)' : ratioVal >= 0.15 ? '#ff9966' : 'var(--sell)';
+  const s = { buyPct, buyVal, sellVal, netFlow,
+              uniqueBuyers: w.unique_buyers||0, uniqueSellers: w.unique_sellers||0,
+              ratio, ratioLabel, ratioColor, buyCount, sellCount,
+              earliestActual: w.cutStr, cutStr: w.cutStr };
   el.innerHTML = renderSentimentGauge(s);
 }
 
