@@ -3854,16 +3854,15 @@ function renderRatioChart(el, data, grain, stats) {
   const minR = ratios[0];
   const maxR = ratios[ratios.length - 1];
 
-  // Pad the y range 20% above and below visible data
-  const yPad = Math.max((maxR - minR) * 0.25, 0.05);
-  const yMin = Math.max(0, minR - yPad);
-  const yMax = maxR + yPad;
+  // Fear/Greed from long-term server stats (3yr history) — stable, meaningful thresholds
+  // Fall back to GuruFocus-aligned defaults if stats unavailable
+  const fearThresh  = stats ? stats.p20 : 0.13;
+  const greedThresh = stats ? stats.p80 : 0.65;
+  const NORM        = stats ? stats.median : 0.25;
 
-  // Fear/Greed from visible data percentiles (p20 / p80)
-  const pct = (p) => ratios[Math.floor(p / 100 * (ratios.length - 1))];
-  const fearThresh  = pct(20);
-  const greedThresh = pct(80);
-  const NORM        = pct(50);
+  // Y-axis: pad to always show Fear/Greed lines even if current data is in a narrow band
+  const yMin = Math.max(0, Math.min(minR, fearThresh) - 0.03);
+  const yMax = Math.max(maxR, greedThresh) + 0.03;
 
   const xCoord = i => PAD.left + (i / (data.length - 1)) * cW;
   const yCoord = v => PAD.top + cH - ((v - yMin) / (yMax - yMin)) * cH;
@@ -3950,8 +3949,8 @@ function renderRatioChart(el, data, grain, stats) {
       </div>
       <!-- Legend -->
       <div style="display:flex;gap:16px;margin-bottom:8px;font-size:10px;font-family:'Space Mono',monospace;flex-wrap:wrap">
-        <span style="color:rgba(255,68,102,0.7)">▬ Fear zone (bottom 20%)</span>
-        <span style="color:rgba(0,255,136,0.7)">▬ Greed zone (top 20%)</span>
+        <span style="color:rgba(255,68,102,0.7)">▬ Fear (≤${fearThresh.toFixed(2)})</span>
+        <span style="color:rgba(0,255,136,0.7)">▬ Greed (≥${greedThresh.toFixed(2)})</span>
       </div>
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;overflow:visible" id="ratioChartSvg">
         <defs>
