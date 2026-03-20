@@ -1328,6 +1328,8 @@ app.get('/api/sectors', (req, res) => {
 });
 
 // ─── DEBUG ENDPOINT — shows DB stats for diagnosing data issues ───────────
+app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
+
 app.get('/api/debug', (req, res) => {
   try {
     const total = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
