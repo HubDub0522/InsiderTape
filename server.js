@@ -563,8 +563,7 @@ app.get('/api/insider-ratio-history', (req, res) => {
       rows = db.prepare(`
         SELECT
           strftime('%Y-%W', trade_date) AS period,
-          -- Use Monday of that ISO week as label date
-          date(trade_date, 'weekday 1', '-7 days') AS period_date,
+          date(trade_date, 'weekday 0', '-6 days') AS period_date,
           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
           COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells
         FROM trades
