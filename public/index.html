@@ -7297,6 +7297,15 @@ function renderMonitorShell(body) {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
       <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
     </div>
+    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">TOTAL INSIDER ACTIVITY GAUGES</div>
+      <div style="font-size:10px;color:var(--muted);opacity:0.6">· All Form 4 filings · updates per tab</div>
+    </div>
+    <div id="monitorGauges" style="margin-bottom:20px">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px 24px;opacity:0.4">
+        <div style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;text-align:center">Loading activity data…</div>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap" class="mob-monitor-tabs">
       ${tabBtn('today','📅','TODAY\'S NOTABLE')}
       ${tabBtn('week', '📆','THIS WEEK')}
@@ -7308,7 +7317,6 @@ function renderMonitorShell(body) {
       ${MONITOR_TYPES.map(t => typeBtn(t.key, t.label)).join('')}
       ${filterNote}
     </div>
-    <div id="monitorGauges" style="margin-bottom:24px"></div>
     <div id="monitorAlerts">
       <div class="loading-state"><div class="spinner"></div><span>Scanning for notable activity…</span></div>
     </div>
@@ -7380,6 +7388,9 @@ async function runMonitorWindow(tab, body) {
     if (cachedDate !== currentDate) {
       delete _monitorCache['today'];
       delete _monitorCache['_todayDate'];
+      delete _monitorCache['_allTrades'];
+      delete _monitorCache['_firstBuysFull'];
+      delete _monitorCache['_allTradesDate'];
     }
   }
 
@@ -7419,52 +7430,53 @@ async function runMonitorWindow(tab, body) {
   }
 
   try {
-    const fetchDays = tab === 'quarter' ? 92 : tab === 'month' ? 45 : 21;
-    const resp = await apiFetch('/api/screener?days=' + fetchDays);
-    const allTrades = Array.isArray(resp) ? resp : (resp.trades || []);
+    // Fetch once for the largest window — all tabs slice from this dataset
+    // Also kick off firstbuys in parallel to avoid sequential waiting
+    let allTrades, firstBuysFull;
+    if (_monitorCache['_allTrades'] && _monitorCache['_allTradesDate'] === lastTradingDate()) {
+      allTrades    = _monitorCache['_allTrades'];
+      firstBuysFull = _monitorCache['_firstBuysFull'] || [];
+    } else {
+      const [resp, fb] = await Promise.all([
+        apiFetch('/api/screener?days=92'),
+        apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []),
+      ]);
+      allTrades     = Array.isArray(resp) ? resp : (resp.trades || []);
+      firstBuysFull = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
+      _monitorCache['_allTrades']     = allTrades;
+      _monitorCache['_firstBuysFull'] = firstBuysFull;
+      _monitorCache['_allTradesDate'] = lastTradingDate();
+    }
 
+    // Slice firstBuys to match tab lookback
+    const lookback = tab === 'today' ? 3 : tab === 'week' ? 14 : tab === 'month' ? 45 : 92;
+    const fbCutStr = new Date(Date.now() - lookback * 86400000).toISOString().slice(0, 10);
+    const firstBuys = firstBuysFull.filter(s => (s.latestDate || '') >= fbCutStr);
+
+    const proximity = _proximityCache || [];
+
+    // Compute displayCutStr for this tab
     let displayCutStr;
     if (tab === 'today') {
       displayCutStr = lastTradingDate();
       _monitorCache['_todayDate'] = displayCutStr;
     } else if (tab === 'week') {
-      // Get current ET date via Intl — same approach as lastTradingDate()
-      const etParts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
-      }).formatToParts(new Date());
-      const ep = {};
-      etParts.forEach(({ type, value }) => { ep[type] = value; });
+      const etParts = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date());
+      const ep = {}; etParts.forEach(({ type, value }) => { ep[type] = value; });
       const etUTC = new Date(Date.UTC(parseInt(ep.year), parseInt(ep.month)-1, parseInt(ep.day)));
-      const dow = etUTC.getUTCDay();
-      const daysSinceMonday = dow === 0 ? 6 : dow - 1;
-      const monday = new Date(etUTC);
-      monday.setUTCDate(etUTC.getUTCDate() - daysSinceMonday);
+      const dow = etUTC.getUTCDay(); const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+      const monday = new Date(etUTC); monday.setUTCDate(etUTC.getUTCDate() - daysSinceMonday);
       displayCutStr = etLocalISO(monday);
     } else if (tab === 'month') {
-      const etParts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
-      }).formatToParts(new Date());
-      const ep = {};
-      etParts.forEach(({ type, value }) => { ep[type] = value; });
+      const etParts = new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date());
+      const ep = {}; etParts.forEach(({ type, value }) => { ep[type] = value; });
       const etUTC = new Date(Date.UTC(parseInt(ep.year), parseInt(ep.month)-1, parseInt(ep.day)));
       etUTC.setUTCDate(etUTC.getUTCDate() - 30);
       displayCutStr = etLocalISO(etUTC);
     } else {
-      // Quarter: start of current calendar quarter
-      const now = new Date();
-      const qStartMonth = Math.floor(now.getMonth() / 3) * 3; // 0, 3, 6, or 9
-      const qStart = new Date(Date.UTC(now.getFullYear(), qStartMonth, 1));
-      displayCutStr = etLocalISO(qStart);
+      const now = new Date(); const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+      displayCutStr = etLocalISO(new Date(Date.UTC(now.getFullYear(), qStartMonth, 1)));
     }
-
-    let firstBuys = [];
-    try {
-      const lookback = tab === 'today' ? 3 : tab === 'week' ? 14 : tab === 'month' ? 45 : 92;
-      const fb = await apiFetch(`/api/firstbuys?mingap=730&lookback=${lookback}&limit=50`);
-      firstBuys = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
-    } catch(e) {}
-
-    const proximity = _proximityCache || [];
 
     const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, displayCutStr);
     _monitorCache[tab] = alerts;
@@ -7726,12 +7738,7 @@ function renderMonitorGauges(trades, cutStr) {
   const el = document.getElementById('monitorGauges');
   if (!el || !trades || !cutStr) return;
   const s = buildMonitorSentiment(trades, cutStr);
-  el.innerHTML = `
-    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
-      <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">INSIDER ACTIVITY GAUGES</div>
-      <div style="font-size:10px;color:var(--muted);opacity:0.6">· All Form 4 filings for this period</div>
-    </div>
-    ${renderSentimentGauge(s)}`;
+  el.innerHTML = renderSentimentGauge(s);
 }
 
 function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
