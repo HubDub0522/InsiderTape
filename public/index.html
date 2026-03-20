@@ -461,8 +461,8 @@
     /* Column widths for the 5 visible columns: Date · Ticker · Insider · Type · Value */
     #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 17%; }
     #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 13%; padding-left: 8px; }
-    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 34%; }
-    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { width: 11%; }
+    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 30%; }
+    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { width: 14%; }
     #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 25%; }
     /* Hide the "filed:" secondary line and SEC link inside date cell */
     #screenerBody td:nth-child(1) span:nth-child(2),
@@ -948,7 +948,7 @@ function tradeClass(type) {
 }
 function tradeLabel(type) {
   if (!type) return 'Unknown';
-  const map = { P:'Open Buy', S:'Open Sell', 'S-':'Plan Sale', A:'Option Ex.', M:'Transfer', C:'Conv.', F:'Tax Sale', G:'Gift', J:'Other', L:'Gift', W:'Will', Z:'Trust' };
+  const map = { P:'Buy', S:'Sell', 'S-':'Plan Sale', A:'Option Ex.', M:'Transfer', C:'Conv.', F:'Tax Sale', G:'Gift', J:'Other', L:'Gift', W:'Will', Z:'Trust' };
   return map[type.toUpperCase()] || type;
 }
 function badgeClass(type) {
