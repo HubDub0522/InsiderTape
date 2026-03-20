@@ -3754,10 +3754,8 @@ function insiderLanding(opts={}) {
         </div>
       </div>
       <div id="insiderDashboard"><div class="loading-state"><div class="spinner"></div><span>Loading insider activity...</span></div></div>
-      <div id="notableLeaderboard" style="margin-top:28px"></div>
     </div>`;
   loadInsiderDashboard();
-  loadNotableLeaderboard();
 }
 
 async function loadInsiderDashboard() {
@@ -3776,38 +3774,6 @@ async function loadInsiderDashboard() {
     const topBuyers=Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const topSellers=Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const bigTrades=[...recent].filter(t=>t.type==='P'||t.type==='S').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
-    // Cluster detection — strict rules to reduce false positives:
-    // • Use TRADE date only (not filing date — filings can arrive weeks late)
-    // • Require ≥3 DISTINCT insiders (2 is too loose — could be coincidence)
-    // • Rolling 10-trading-day window (~2 calendar weeks)
-    // • Open-market purchases only (type P, already guaranteed by the filter above)
-    const CLUSTER_WINDOW_MS = 10 * 24 * 60 * 60 * 1000; // 10 days in ms
-    const tickerPurchases={};
-    recent.filter(t=>t.type==='P'&&t.trade).forEach(t=>{
-      if(!tickerPurchases[t.ticker])tickerPurchases[t.ticker]=[];
-      tickerPurchases[t.ticker].push(t);
-    });
-    const clusterMap={};
-    Object.entries(tickerPurchases).forEach(([ticker,trades])=>{
-      if(trades.length<3)return; // need at least 3 trades before checking insiders
-      const sorted=trades.slice().sort((a,b)=>a.trade>b.trade?1:-1);
-      for(let i=0;i<sorted.length;i++){
-        const anchor=new Date(sorted[i].trade+'T12:00:00Z').getTime();
-        const window=sorted.filter(t=>{const d=new Date(t.trade+'T12:00:00Z').getTime();return d>=anchor&&d<=anchor+CLUSTER_WINDOW_MS;});
-        const insiders=new Set(window.map(t=>t.insider));
-        // Require ≥3 distinct insiders — materially stronger signal than ≥2
-        if(insiders.size>=3){
-          if(!clusterMap[ticker]||insiders.size>clusterMap[ticker].insiders.size)
-            clusterMap[ticker]={insiders,trades:window};
-        }
-      }
-    });
-    const clusters=Object.entries(clusterMap).sort((a,b)=>b[1].insiders.size-a[1].insiders.size).slice(0,8);
-    const clusterGateHtml = auth.isPremium ? `` : `
-      <div onclick="showPremiumOverlay('Cluster Buys — coordinated insider accumulation signals')" style="position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,11,15,0.75);cursor:pointer;backdrop-filter:blur(2px)">
-        <span style="font-size:18px">🔒</span>
-        <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent);letter-spacing:1px">PREMIUM FEATURE</span>
-      </div>`;
     const largestGateHtml = auth.isPremium ? `` : `
       <div onclick="showPremiumOverlay('Largest Trades — biggest single insider moves')" style="position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,11,15,0.75);cursor:pointer;backdrop-filter:blur(2px)">
         <span style="font-size:18px">🔒</span>
@@ -3822,11 +3788,6 @@ async function loadInsiderDashboard() {
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--sell);font-size:14px">▼</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span></div>
           <div>${topSellers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
-          ${clusterGateHtml}
-          <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--option);font-size:14px">⚡</span><span style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:1.5px">CLUSTER BUYS · LAST 30D</span><span style="font-size:10px;color:var(--muted);margin-left:auto">≥3 insiders · 10-day window</span></div>
-          <div>${clusters.length?clusters.map(([ticker,{insiders,trades:clTrades}])=>{const totalVal=clTrades.reduce((s,t)=>s+(t.value||0),0);const dates=clTrades.map(t=>t.trade).filter(Boolean).sort();const dateRange=dates.length>1?`${dates[0].slice(5)} – ${dates[dates.length-1].slice(5)}`:(dates[0]||'').slice(5);return`<div onclick="openTickerFromScreener('${ticker}')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--accent);width:64px">${ticker}</span><span style="flex:1;font-size:11px;color:var(--muted)">${insiders.size} insiders · ${dateRange}</span><span style="font-family:'Space Mono',monospace;font-size:12px;color:var(--buy)">${fmt(totalVal)}</span></div>`;}).join(''):'<div style="padding:16px 18px;font-size:12px;color:var(--muted)">No clusters found matching ≥3 insiders within 10 days</div>'}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
           ${largestGateHtml}
