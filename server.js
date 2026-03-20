@@ -550,7 +550,58 @@ app.get('/api/history', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// TICKER
+// MONITOR SENTIMENT — lightweight aggregates for the IAG gauges
+// Returns buy/sell counts and values for today, week, month, quarter windows
+// Much faster than fetching all trades client-side — does aggregation in SQL
+app.get('/api/monitor-sentiment', (req, res) => {
+  try {
+    const now = new Date();
+    const etOffset = -5; // EST (close enough for date boundaries)
+    const etNow = new Date(now.getTime() + etOffset * 3600000);
+    const today = etNow.toISOString().slice(0, 10);
+
+    // Week start (Monday)
+    const dow = etNow.getUTCDay();
+    const weekStart = new Date(etNow);
+    weekStart.setUTCDate(etNow.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+    const weekStr = weekStart.toISOString().slice(0, 10);
+
+    // Month: 30 days ago
+    const monthStart = new Date(etNow);
+    monthStart.setUTCDate(etNow.getUTCDate() - 30);
+    const monthStr = monthStart.toISOString().slice(0, 10);
+
+    // Quarter start
+    const qStartMonth = Math.floor(etNow.getUTCMonth() / 3) * 3;
+    const quarterStr = `${etNow.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
+
+    function windowStats(cutStr) {
+      const row = db.prepare(`
+        SELECT
+          COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
+          COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count,
+          COALESCE(SUM(CASE WHEN TRIM(type)='P' THEN value ELSE 0 END), 0) AS buy_val,
+          COALESCE(SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN value ELSE 0 END), 0) AS sell_val,
+          COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS unique_buyers,
+          COUNT(DISTINCT CASE WHEN TRIM(type) IN ('S','S-') THEN insider END) AS unique_sellers
+        FROM trades
+        WHERE trade_date >= ?
+          AND trade_date <= date('now')
+          AND TRIM(type) IN ('P','S','S-')
+          AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+          AND COALESCE(value, 0) > 0
+      `).get(cutStr);
+      return row;
+    }
+
+    res.json({
+      today:   { cutStr: today,   ...windowStats(today)   },
+      week:    { cutStr: weekStr,  ...windowStats(weekStr)  },
+      month:   { cutStr: monthStr, ...windowStats(monthStr) },
+      quarter: { cutStr: quarterStr, ...windowStats(quarterStr) },
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 app.get('/api/ticker', (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
