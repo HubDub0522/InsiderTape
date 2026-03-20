@@ -3908,10 +3908,12 @@ function renderRatioChart(el, data, grain, stats) {
                     :                            { label: 'NEUTRAL', color: 'var(--muted)'};
 
   const hoverDots = data.map((d, i) =>
-    `<circle cx="${xCoord(i).toFixed(1)}" cy="${yCoord(d.ratio).toFixed(1)}" r="5" fill="transparent" stroke="transparent">
-      <title>${d.period} · ratio ${d.ratio} · ${d.buys} buys / ${d.sells} sells</title>
-    </circle>`
+    `<circle cx="${xCoord(i).toFixed(1)}" cy="${yCoord(d.ratio).toFixed(1)}" r="5" fill="transparent" stroke="transparent"
+      data-period="${d.period}" data-ratio="${d.ratio}" data-buys="${d.buys}" data-sells="${d.sells}"/>`
   ).join('');
+
+  const zone = (r) => r <= fearThresh ? 'FEAR' : r >= greedThresh ? 'GREED' : 'NEUTRAL';
+  const zoneColor = (r) => r <= fearThresh ? '#ff4466' : r >= greedThresh ? '#00ff88' : '#4a6580';
 
   const grainLabel  = grain === 'weekly' ? '52-WEEK' : '24-MONTH';
   const toggleOther = grain === 'weekly' ? 'monthly' : 'weekly';
@@ -3986,7 +3988,42 @@ function renderRatioChart(el, data, grain, stats) {
       <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
         ${statsNote} · <span style="color:rgba(255,68,102,0.7)">Fear</span> = ratio well below norm — insiders are selling heavily relative to buying, often near market peaks. <span style="color:rgba(0,255,136,0.7)">Greed</span> = ratio well above norm — insiders buying unusually actively, often near market bottoms. Contrarian signal. Not investment advice.
       </div>
-    </div>`;
+    </div>
+    <div id="ratioTooltip" style="position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,0.6);min-width:160px"></div>`;
+
+  // Attach hover handlers after DOM is updated
+  setTimeout(() => {
+    const svg = document.getElementById('ratioChartSvg');
+    const tip = document.getElementById('ratioTooltip');
+    if (!svg || !tip) return;
+    const circles = svg.querySelectorAll('circle[data-ratio]');
+    circles.forEach(c => {
+      c.addEventListener('mouseenter', function(e) {
+        const r = parseFloat(this.dataset.ratio);
+        const z = r <= fearThresh ? {l:'FEAR',c:'#ff4466'} : r >= greedThresh ? {l:'GREED',c:'#00ff88'} : {l:'NEUTRAL',c:'#4a6580'};
+        tip.innerHTML = `<div style="font-family:'Space Mono',monospace;font-size:10px;color:#4a6580;margin-bottom:6px">${this.dataset.period}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px">
+            <span style="color:#e0e6ed">Ratio</span>
+            <span style="font-weight:700;color:${z.c}">${r.toFixed(3)}</span>
+          </div>
+          <div style="margin-top:2px;font-size:10px;color:#4a6580">${this.dataset.buys} buys · ${this.dataset.sells} sells</div>
+          <div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;font-size:10px;letter-spacing:1px;color:${z.c}">${z.l}</div>`;
+        tip.style.display = 'block';
+        this.setAttribute('fill', z.c);
+        this.setAttribute('r', '5');
+      });
+      c.addEventListener('mousemove', function(e) {
+        const tx = e.clientX + 16, ty = e.clientY - 10;
+        tip.style.left = (tx + 180 > window.innerWidth ? e.clientX - 196 : tx) + 'px';
+        tip.style.top = ty + 'px';
+      });
+      c.addEventListener('mouseleave', function() {
+        tip.style.display = 'none';
+        this.setAttribute('fill', 'transparent');
+        this.setAttribute('r', '5');
+      });
+    });
+  }, 50);
 }
 
 async function loadNotableLeaderboard() {
