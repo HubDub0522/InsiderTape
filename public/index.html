@@ -9148,46 +9148,42 @@ async function loadAccountPage() {
       </div>
     </div>`;
 
-  if (userIsPremium) {
-    loadAlertPrefs();
-  } else {
-    const body = document.getElementById('alertsBody');
-    if (body) body.innerHTML = `
-      <div style="filter:blur(3px);pointer-events:none;opacity:0.4;user-select:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-          <div style="font-size:12px;color:var(--muted)">Signal types · Sector · Role · Min value</div>
-          <div style="width:40px;height:22px;border-radius:11px;background:#1e2d3d"></div>
-        </div>
-        <div style="height:180px;background:#080b0f;border-radius:8px"></div>
-      </div>
-      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border-radius:12px;background:rgba(8,11,15,0.6);backdrop-filter:blur(1px)">
-        <div style="font-size:13px;color:var(--muted);text-align:center;line-height:1.7;max-width:300px">
-          Get notified within minutes of a CEO buying $500K+ in their own stock.<br>Filter by sector, role, and signal type.
-        </div>
-        <button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 28px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">UPGRADE TO PREMIUM →</button>
-      </div>`;
-  }
+  // Always attempt to load — server enforces premium gate via 403
+  loadAlertPrefs();
 }
 
 async function loadAlertPrefs() {
   try {
     const r = await fetch('/api/alerts/prefs', { headers: { 'Authorization': 'Bearer ' + getSessionCookie() } });
     if (r.status === 401 || r.status === 403) {
-      // Not authenticated or not premium — show gate (shouldn't happen if called correctly)
-      console.warn('loadAlertPrefs: auth failed', r.status);
-      renderAlertPrefs(_alertPrefs); // render with defaults so panel is visible
+      // Not premium — show upgrade gate
+      const body = document.getElementById('alertsBody');
+      if (body) body.innerHTML = `
+        <div style="filter:blur(3px);pointer-events:none;opacity:0.4;user-select:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+            <div style="font-size:12px;color:var(--muted)">Signal types · Sector · Role · Min value</div>
+            <div style="width:40px;height:22px;border-radius:11px;background:#1e2d3d"></div>
+          </div>
+          <div style="height:180px;background:#080b0f;border-radius:8px"></div>
+        </div>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border-radius:12px;background:rgba(8,11,15,0.6);backdrop-filter:blur(1px)">
+          <div style="font-size:13px;color:var(--muted);text-align:center;line-height:1.7;max-width:300px">
+            Get notified within minutes of a CEO buying $500K+ in their own stock.<br>Filter by sector, role, and signal type.
+          </div>
+          <button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 28px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">UPGRADE TO PREMIUM →</button>
+        </div>`;
       return;
     }
     if (!r.ok) {
       console.error('loadAlertPrefs: server error', r.status);
-      renderAlertPrefs(_alertPrefs); // fall back to defaults
+      renderAlertPrefs(_alertPrefs);
       return;
     }
     const p = await r.json();
     renderAlertPrefs(p);
   } catch(e) {
     console.error('loadAlertPrefs:', e);
-    renderAlertPrefs(_alertPrefs); // fall back to defaults so panel is not blank
+    renderAlertPrefs(_alertPrefs);
   }
 }
 
