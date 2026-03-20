@@ -2188,7 +2188,29 @@ async function loadStockView(ticker, opts={}) {
     updateTitle('stock', ticker);
   }
   state.currentTicker = ticker;
-  document.getElementById('stockContent').innerHTML = `<div class="loading-state" style="height:400px"><div class="spinner"></div><span>Loading ${ticker}...</span></div>`;
+
+  // Show skeleton immediately — gives instant visual feedback while DB query runs
+  document.getElementById('stockContent').innerHTML = `
+    <div class="stock-layout">
+      <div class="stock-header-bar" style="display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;padding:20px 24px 16px;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--accent);letter-spacing:1px">${ticker}</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:2px">Loading...</div>
+        </div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;padding-top:6px">
+          <div class="stat-cell"><div class="stat-value" style="color:var(--muted)">—</div><div class="stat-label">PRICE</div></div>
+          <div class="stat-cell"><div class="stat-value" style="color:var(--muted)">—</div><div class="stat-label">TODAY</div></div>
+          <div class="stat-cell"><div class="stat-value" style="color:var(--muted)">—</div><div class="stat-label">52W HIGH</div></div>
+          <div class="stat-cell"><div class="stat-value" style="color:var(--muted)">—</div><div class="stat-label">52W LOW</div></div>
+        </div>
+      </div>
+      <div id="chartContainer" style="position:relative;width:100%;height:320px;display:flex;align-items:center;justify-content:center">
+        <div class="loading-state" style="flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Loading chart…</span></div>
+      </div>
+      <div style="padding:20px 24px;display:flex;align-items:center;justify-content:center;min-height:120px">
+        <div class="spinner"></div>
+      </div>
+    </div>`;
 
   // ── PHASE 1: Fetch insider data first — it's fast (local DB) ──────
   // Render the full layout immediately with insider data.
