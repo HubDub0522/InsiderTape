@@ -8420,9 +8420,8 @@ function getSessionCookie() {
 
 async function loadAuth() {
   try {
-    const resp = await fetch('/api/auth/me', {
-      headers: getSessionCookie() ? { 'Authorization': 'Bearer ' + getSessionCookie() } : {}
-    });
+    // No Authorization header needed — HttpOnly cookie is sent automatically by browser
+    const resp = await fetch('/api/auth/me');
     const data = await resp.json();
     auth.loggedIn  = data.loggedIn  || false;
     auth.email     = data.email     || null;
@@ -8489,7 +8488,7 @@ async function logout() {
   try {
     await fetch('/api/auth/logout', {
       method: 'POST',
-      headers: getSessionCookie() ? { 'Authorization': 'Bearer ' + getSessionCookie() } : {}
+      headers: {}
     });
   } catch(_) {}
   // Clear cookie client-side too
@@ -9096,9 +9095,7 @@ async function loadAccountPage() {
 
   // Fetch fresh subscription state
   try {
-    const resp = await fetch('/api/auth/me', {
-      headers: { 'Authorization': 'Bearer ' + getSessionCookie() }
-    });
+    const resp = await fetch('/api/auth/me');
     const data = await resp.json();
     auth.isPremium = data.isPremium;
     auth.isAdmin   = data.isAdmin;
@@ -9154,7 +9151,7 @@ async function loadAccountPage() {
 
 async function loadAlertPrefs() {
   try {
-    const r = await fetch('/api/alerts/prefs', { headers: { 'Authorization': 'Bearer ' + getSessionCookie() } });
+    const r = await fetch('/api/alerts/prefs');
     if (r.status === 401 || r.status === 403) {
       // Not premium — show upgrade gate
       const body = document.getElementById('alertsBody');
@@ -9433,7 +9430,7 @@ async function saveAlertPrefs() {
     try {
       const r = await fetch('/api/alerts/prefs', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getSessionCookie() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled, min_score, min_value, types, tickers, sectors, roles, frequency })
       });
       const stat = document.getElementById('alertSaveStatus');
@@ -9453,7 +9450,7 @@ async function sendTestAlert() {
   try {
     const r = await fetch('/api/alerts/test', {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + getSessionCookie() }
+      headers: {}
     });
     const d = await r.json();
     if (r.ok) {
