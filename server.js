@@ -255,6 +255,8 @@ try {
     min_value   INTEGER NOT NULL DEFAULT 0,    -- only fire for trades >= this dollar value
     types       TEXT    NOT NULL DEFAULT 'conviction,cluster,first_buy,exit_warning', -- comma-separated
     tickers     TEXT    NOT NULL DEFAULT '',   -- comma-separated ticker filter, empty = all
+    sectors     TEXT    NOT NULL DEFAULT '',   -- comma-separated sector filter, empty = all
+    roles       TEXT    NOT NULL DEFAULT '',   -- comma-separated role filter, empty = all
     frequency   TEXT    NOT NULL DEFAULT 'immediate', -- 'immediate' | 'daily'
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   )`);
@@ -271,6 +273,11 @@ try {
 
   db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_log_user ON alert_log(user_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_alert_log_key  ON alert_log(signal_key)`);
+
+  // v1.7.1 migrations — add columns if upgrading from earlier v1.7
+  for (const col of ['sectors TEXT NOT NULL DEFAULT ""', 'roles TEXT NOT NULL DEFAULT ""']) {
+    try { db.exec(`ALTER TABLE alert_prefs ADD COLUMN ${col}`); } catch(_) {}
+  }
 } catch(e) { console.warn('Auth schema init warning:', e.message); }
 
 // ─── Clean up bad/invalid trade records ──────────────────────
@@ -2668,7 +2675,7 @@ async function sendAlertEmail(toEmail, signals) {
           <span style="font-family:'Courier New',monospace;font-size:18px;font-weight:700;color:#00d4ff">${s.ticker}</span>
           <span style="font-family:'Courier New',monospace;font-size:11px;padding:3px 8px;background:${color}22;border:1px solid ${color}44;border-radius:3px;color:${color}">${icon} ${s.signal_type.replace('_',' ')}</span>
         </div>
-        <div style="font-size:13px;color:#c9d8e8;margin-bottom:4px">${s.company}</div>
+        <div style="font-size:13px;color:#c9d8e8;margin-bottom:4px">${s.company}${s.subsector ? ` <span style="font-size:10px;color:#2a4a5a;margin-left:6px">${s.subsector}</span>` : ''}</div>
         <div style="font-size:12px;color:#e0e6ed;font-weight:600;margin-bottom:4px">${s.headline}</div>
         ${s.detail ? `<div style="font-size:11px;color:#4a6580;margin-bottom:8px">${s.detail}</div>` : ''}
         <a href="${SITE_URL}/stock/${s.ticker}" style="font-family:'Courier New',monospace;font-size:11px;color:#00d4ff;text-decoration:none">VIEW CHART →</a>
@@ -2773,6 +2780,8 @@ async function runAlertCheck() {
     for (const user of users) {
       const userTickers = user.tickers ? user.tickers.split(',').map(t => t.trim()).filter(Boolean) : [];
       const userTypes   = user.types.split(',').map(t => t.trim().toLowerCase());
+      const userSectors = user.sectors ? user.sectors.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+      const userRoles   = user.roles   ? user.roles.split(',').map(r => r.trim().toLowerCase()).filter(Boolean)   : [];
 
       const toSend = [];
       for (const sig of signals) {
@@ -2781,6 +2790,22 @@ async function runAlertCheck() {
         if (sig.value < user.min_value) continue;
         if (userTickers.length && !userTickers.includes(sig.ticker)) continue;
         if (!userTypes.includes(sig.signal_type.toLowerCase().replace(' ','_'))) continue;
+
+        // Sector filter — use TICKER_SECTOR_MAP; skip if ticker not in map and sector filter is active
+        if (userSectors.length) {
+          const tickerSector = getTickerSector(sig.ticker);
+          if (!tickerSector) continue; // unknown sector — skip when filter is active
+          const [sector, subsector] = tickerSector;
+          const matchesSector = userSectors.some(s =>
+            sector.toLowerCase().includes(s) || subsector.toLowerCase().includes(s)
+          );
+          if (!matchesSector) continue;
+        }
+
+        // Role filter — check sig.role_key set during signal building
+        if (userRoles.length && sig.role_key) {
+          if (!userRoles.includes(sig.role_key)) continue;
+        }
 
         // Dedup — don't resend what was already sent
         const key = sig.ticker + '|' + sig.signal_type + '|' + sig.date;
@@ -2810,6 +2835,19 @@ function buildSignalsFromTrades(trades, firstBuyRows = []) {
   const signals = [];
   const byTicker = {};
 
+  // Helper: normalize title to role_key
+  function getRoleKey(title) {
+    const t = (title || '').toUpperCase();
+    if (/\bCEO\b|CHIEF EXECUTIVE/.test(t))  return 'ceo';
+    if (/\bCFO\b|CHIEF FINANCIAL/.test(t))  return 'cfo';
+    if (/\bCOO\b|CHIEF OPERATING/.test(t))  return 'coo';
+    if (/\bCTO\b|CHIEF TECHNOLOGY/.test(t)) return 'cto';
+    if (/\bPRESIDENT\b/.test(t))            return 'president';
+    if (/\bCHAIRMAN\b/.test(t))             return 'chairman';
+    if (/\bDIRECTOR\b/.test(t))             return 'director';
+    return 'other';
+  }
+
   // Group trades by ticker
   for (const t of trades) {
     if (!byTicker[t.ticker]) byTicker[t.ticker] = [];
@@ -2828,7 +2866,10 @@ function buildSignalsFromTrades(trades, firstBuyRows = []) {
         const totalVal = buys.reduce((s,t) => s + (t.value||0), 0);
         const score    = Math.min(100, 50 + uniqueInsiders * 10 + (totalVal >= 500000 ? 15 : totalVal >= 100000 ? 8 : 0));
         const date     = buys.sort((a,b) => b.filing_date.localeCompare(a.filing_date))[0].filing_date;
+        const sector   = getTickerSector(ticker);
         signals.push({ ticker, company, signal_type: 'CLUSTER', score, value: totalVal, date,
+          sector: sector ? sector[0] : null, subsector: sector ? sector[1] : null,
+          role_key: null, // clusters span multiple roles
           headline: uniqueInsiders + ' insiders buying in cluster',
           detail: uniqueInsiders + ' distinct insiders · ' + formatVal(totalVal) + ' combined' });
       }
@@ -2839,8 +2880,12 @@ function buildSignalsFromTrades(trades, firstBuyRows = []) {
       const isCsuite = /\b(CEO|CFO|President|Chairman|COO|CTO)\b/i.test(t.title || '');
       const bigBuy   = (t.value || 0) >= 100000;
       if (isCsuite || bigBuy) {
-        const score = Math.min(100, 55 + (isCsuite ? 15 : 0) + (t.value >= 500000 ? 15 : t.value >= 100000 ? 8 : 0));
+        const score   = Math.min(100, 55 + (isCsuite ? 15 : 0) + (t.value >= 500000 ? 15 : t.value >= 100000 ? 8 : 0));
+        const sector  = getTickerSector(ticker);
+        const roleKey = getRoleKey(t.title);
         signals.push({ ticker, company, signal_type: 'CONVICTION', score, value: t.value || 0, date: t.filing_date,
+          sector: sector ? sector[0] : null, subsector: sector ? sector[1] : null,
+          role_key: roleKey,
           headline: 'High conviction buy · ' + (t.title || 'Insider'),
           detail: (t.insider || '') + ' · ' + formatVal(t.value || 0) });
       }
@@ -2853,7 +2898,10 @@ function buildSignalsFromTrades(trades, firstBuyRows = []) {
         const totalSell = sells.reduce((s,t) => s + (t.value||0), 0);
         const score     = Math.min(100, 50 + uniqueSellers * 8 + (totalSell >= 1000000 ? 15 : 0));
         const date      = sells.sort((a,b) => b.filing_date.localeCompare(a.filing_date))[0].filing_date;
+        const sector    = getTickerSector(ticker);
         signals.push({ ticker, company, signal_type: 'EXIT_WARNING', score, value: totalSell, date,
+          sector: sector ? sector[0] : null, subsector: sector ? sector[1] : null,
+          role_key: null,
           headline: 'Exit warning · ' + uniqueSellers + ' insiders selling',
           detail: uniqueSellers + ' distinct sellers · ' + formatVal(totalSell) + ' disclosed' });
       }
@@ -2868,6 +2916,8 @@ function buildSignalsFromTrades(trades, firstBuyRows = []) {
       : gapYears + '+ year gap since last buy';
     const isCsuite = /\b(CEO|CFO|President|Chairman|COO|CTO)\b/i.test(fb.title || '');
     const score    = Math.min(100, 60 + (isCsuite ? 15 : 0) + ((fb.latest_value||0) >= 100000 ? 10 : 0) + (!fb.prev_trade ? 8 : 0));
+    const sector   = getTickerSector(fb.ticker);
+    const roleKey  = getRoleKey(fb.title);
     signals.push({
       ticker:      fb.ticker,
       company:     fb.company || fb.ticker,
@@ -2875,6 +2925,9 @@ function buildSignalsFromTrades(trades, firstBuyRows = []) {
       score,
       value:       fb.latest_value || 0,
       date:        fb.latest_filing,
+      sector:      sector ? sector[0] : null,
+      subsector:   sector ? sector[1] : null,
+      role_key:    roleKey,
       headline:    'First buy in years · ' + (fb.title || 'Insider'),
       detail:      (fb.insider || '') + ' · ' + gapLabel + ' · ' + formatVal(fb.latest_value || 0),
     });
@@ -2900,7 +2953,7 @@ app.get('/api/alerts/prefs', (req, res) => {
     let prefs = db.prepare('SELECT * FROM alert_prefs WHERE user_id = ?').get(session.user_id);
     if (!prefs) {
       // Return defaults if never saved
-      prefs = { enabled: 1, min_score: 70, min_value: 0, types: 'conviction,cluster,first_buy,exit_warning', tickers: '', frequency: 'immediate' };
+      prefs = { enabled: 1, min_score: 70, min_value: 0, types: 'conviction,cluster,first_buy,exit_warning', tickers: '', sectors: '', roles: '', frequency: 'immediate' };
     }
     res.json(prefs);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2910,17 +2963,19 @@ app.get('/api/alerts/prefs', (req, res) => {
 app.post('/api/alerts/prefs', express.json(), (req, res) => {
   const session = getSession(req);
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
-  const { enabled, min_score, min_value, types, tickers, frequency } = req.body;
+  const { enabled, min_score, min_value, types, tickers, sectors, roles, frequency } = req.body;
   try {
     db.prepare(`
-      INSERT INTO alert_prefs (user_id, enabled, min_score, min_value, types, tickers, frequency, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO alert_prefs (user_id, enabled, min_score, min_value, types, tickers, sectors, roles, frequency, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(user_id) DO UPDATE SET
         enabled    = excluded.enabled,
         min_score  = excluded.min_score,
         min_value  = excluded.min_value,
         types      = excluded.types,
         tickers    = excluded.tickers,
+        sectors    = excluded.sectors,
+        roles      = excluded.roles,
         frequency  = excluded.frequency,
         updated_at = excluded.updated_at
     `).run(
@@ -2930,6 +2985,8 @@ app.post('/api/alerts/prefs', express.json(), (req, res) => {
       Math.max(parseInt(min_value) || 0, 0),
       (types || 'conviction,cluster,first_buy,exit_warning').slice(0, 200),
       (tickers || '').toUpperCase().replace(/[^A-Z,\s]/g, '').slice(0, 500),
+      (sectors || '').slice(0, 500),
+      (roles || '').slice(0, 200),
       ['immediate', 'daily'].includes(frequency) ? frequency : 'immediate'
     );
     res.json({ ok: true });
