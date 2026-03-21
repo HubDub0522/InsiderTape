@@ -119,6 +119,7 @@ process.on('unhandledRejection', err => console.error('UNHANDLED:', err?.message
 app.use((req, res, next) => {
   const limit = req.path === '/api/scoreboard' ? 55000
               : (req.path === '/api/drift' || req.path === '/api/proximity') ? 45000
+              : (req.path === '/api/screener' || req.path === '/api/firstbuys' || req.path === '/api/monitor-sentiment') ? 45000
               : 25000;
   res.setTimeout(limit, () => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
@@ -2944,13 +2945,14 @@ async function runAlertCheck() {
     if (!users.length) return;
 
     // Get recent trades from last 48h (captures anything new since last check)
+    // Look back 72h to catch insiders who file late (SEC allows 2 business days)
     const recentTrades = db.prepare(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date, MAX(filing_date) AS filing_date,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned
       FROM trades
-      WHERE filing_date >= date('now', '-2 days')
+      WHERE filing_date >= date('now', '-3 days')
         AND TRIM(type) IN ('P','S','S-')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(value,0) > 0
@@ -3330,9 +3332,10 @@ app.get('/api/stripe/success', async (req, res) => {
 // ── GET /api/stripe/portal ───────────────────────────────────
 // Redirects logged-in user to Stripe billing portal to manage/cancel
 app.get('/api/stripe/portal', async (req, res) => {
-  if (!req.session || !STRIPE_SECRET) return res.redirect('/account');
+  const portalSession = getSession(req);
+  if (!portalSession || !STRIPE_SECRET) return res.redirect('/account');
   try {
-    const sub = getSubscription(req.session.user_id);
+    const sub = getSubscription(portalSession.user_id);
     if (!sub?.stripe_customer_id) return res.redirect('/account');
     const Stripe = require('stripe');
     const stripe = Stripe(STRIPE_SECRET);
