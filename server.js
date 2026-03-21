@@ -647,26 +647,36 @@ app.get('/api/insider-ratio-history', (req, res) => {
 app.get('/api/monitor-sentiment', (req, res) => {
   try {
     const now = new Date();
-    const etOffset = -5; // EST (close enough for date boundaries)
+    const etOffset = -5; // EST
     const etNow = new Date(now.getTime() + etOffset * 3600000);
-    const today = etNow.toISOString().slice(0, 10);
+    const dow = etNow.getUTCDay(); // 0=Sun, 6=Sat
 
-    // Week start (Monday)
-    const dow = etNow.getUTCDay();
-    const weekStart = new Date(etNow);
-    weekStart.setUTCDate(etNow.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+    // Last trading day — skip weekends
+    const lastTrade = new Date(etNow);
+    if (dow === 0) lastTrade.setUTCDate(etNow.getUTCDate() - 2); // Sun → Fri
+    else if (dow === 6) lastTrade.setUTCDate(etNow.getUTCDate() - 1); // Sat → Fri
+
+    // Use DB max trade date as ceiling (handles holidays too)
+    const dbMax = db.prepare(`SELECT MAX(trade_date) AS d FROM trades WHERE trade_date <= ? AND TRIM(type) IN ('P','S','S-')`)
+      .get(lastTrade.toISOString().slice(0, 10));
+    const todayStr = (dbMax && dbMax.d) || lastTrade.toISOString().slice(0, 10);
+
+    // Week start (Monday of the week containing lastTrade)
+    const tradeDow = lastTrade.getUTCDay();
+    const weekStart = new Date(lastTrade);
+    weekStart.setUTCDate(lastTrade.getUTCDate() - (tradeDow === 0 ? 6 : tradeDow - 1));
     const weekStr = weekStart.toISOString().slice(0, 10);
 
-    // Month: 30 days ago
-    const monthStart = new Date(etNow);
-    monthStart.setUTCDate(etNow.getUTCDate() - 30);
+    // Month: 30 days back from last trading day
+    const monthStart = new Date(lastTrade);
+    monthStart.setUTCDate(lastTrade.getUTCDate() - 30);
     const monthStr = monthStart.toISOString().slice(0, 10);
 
     // Quarter start
-    const qStartMonth = Math.floor(etNow.getUTCMonth() / 3) * 3;
-    const quarterStr = `${etNow.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
+    const qStartMonth = Math.floor(lastTrade.getUTCMonth() / 3) * 3;
+    const quarterStr = `${lastTrade.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
 
-    function windowStats(cutStr) {
+    function windowStats(cutStr, endStr) {
       const row = db.prepare(`
         SELECT
           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
@@ -677,19 +687,19 @@ app.get('/api/monitor-sentiment', (req, res) => {
           COUNT(DISTINCT CASE WHEN TRIM(type) IN ('S','S-') THEN insider END) AS unique_sellers
         FROM trades
         WHERE trade_date >= ?
-          AND trade_date <= date('now')
+          AND trade_date <= ?
           AND TRIM(type) IN ('P','S','S-')
           AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
           AND COALESCE(value, 0) > 0
-      `).get(cutStr);
+      `).get(cutStr, endStr);
       return row;
     }
 
     res.json({
-      today:   { cutStr: today,   ...windowStats(today)   },
-      week:    { cutStr: weekStr,  ...windowStats(weekStr)  },
-      month:   { cutStr: monthStr, ...windowStats(monthStr) },
-      quarter: { cutStr: quarterStr, ...windowStats(quarterStr) },
+      today:   { cutStr: todayStr,   ...windowStats(todayStr,   todayStr)   },
+      week:    { cutStr: weekStr,    ...windowStats(weekStr,    todayStr)   },
+      month:   { cutStr: monthStr,   ...windowStats(monthStr,   todayStr)   },
+      quarter: { cutStr: quarterStr, ...windowStats(quarterStr, todayStr)   },
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
