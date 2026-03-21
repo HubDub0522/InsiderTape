@@ -321,8 +321,11 @@ try {
     bars_json TEXT NOT NULL,
     fetched_at INTEGER NOT NULL
   )`);
-  // v1.7.1: Extended price fetch to 20yr — purge cached 6yr bars so they refresh
-  try { db.prepare(`DELETE FROM price_cache WHERE fetched_at < ?`).run(Date.now() - 1); } catch(_) {}
+  // Clear expired price cache entries and any empty (failed) entries older than 1 hour
+  try {
+    db.prepare(`DELETE FROM price_cache WHERE fetched_at < ?`).run(Date.now() - 12 * 60 * 60 * 1000);
+    db.prepare(`DELETE FROM price_cache WHERE bars_json = '[]' AND fetched_at < ?`).run(Date.now() - 60 * 60 * 1000);
+  } catch(_) {}
   db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
     quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
   )`);
@@ -1535,14 +1538,28 @@ async function fetchPriceBars(sym) {
       return bars.length >= 2 ? bars : null;
     }) : Promise.resolve(null),
 
-    // Yahoo query1 (fallback)
-    get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
+    // Yahoo query1 (fallback) — browser-like headers to avoid bot block
+    get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs + '&includePrePost=false', 8000, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://finance.yahoo.com/',
+        'Origin': 'https://finance.yahoo.com',
+      }
+    }).then(({ status, body }) => {
       if (status !== 200) return null;
       return parseYahoo(body);
     }).catch(() => null),
 
     // Yahoo query2 (fallback)
-    get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
+    get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs + '&includePrePost=false', 8000, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://finance.yahoo.com/',
+      }
+    }).then(({ status, body }) => {
       if (status !== 200) return null;
       return parseYahoo(body);
     }).catch(() => null),
@@ -1556,7 +1573,15 @@ async function fetchPriceBars(sym) {
     }
   }
 
-  if (!_rateLimited) setPC(sym, []);
+  if (!_rateLimited) {
+    // Cache empty result with a short TTL (30 min) so it retries sooner
+    const FAIL_TTL = 30 * 60 * 1000;
+    _priceCache[sym] = { bars: [], fetchedAt: Date.now() - (PRICE_TTL - FAIL_TTL) };
+    try {
+      db.prepare('INSERT OR REPLACE INTO price_cache (symbol, bars_json, fetched_at) VALUES (?,?,?)')
+        .run(sym, '[]', Date.now() - (PRICE_TTL - FAIL_TTL));
+    } catch(e) {}
+  }
   return null;
 }
 
