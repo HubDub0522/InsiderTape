@@ -1520,7 +1520,7 @@ async function fetchPriceBars(sym) {
   // Timeouts reduced so failures fail fast instead of blocking for 10s each
   const results = await Promise.allSettled([
     // Tiingo (primary)
-    TIINGO ? get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 5000).then(({ status, body }) => {
+    TIINGO ? get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 10000).then(({ status, body }) => {
       if (status === 429) { _rateLimited = true; return null; }
       if (status !== 200) return null;
       const data = JSON.parse(body.toString());
@@ -1530,7 +1530,7 @@ async function fetchPriceBars(sym) {
     }) : Promise.resolve(null),
 
     // Polygon (secondary)
-    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
+    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 10000).then(({ status, body }) => {
       if (status !== 200) return null;
       const data = JSON.parse(body.toString());
       if (!data.results || data.results.length < 2) return null;
@@ -3540,4 +3540,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Server on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server on port ${PORT}`);
+  console.log(`Price keys: TIINGO=${TIINGO ? 'SET('+TIINGO.slice(0,6)+'...)' : 'MISSING'} POLYGON=${POLYGON ? 'SET('+POLYGON.slice(0,6)+'...)' : 'MISSING'}`);
+});
