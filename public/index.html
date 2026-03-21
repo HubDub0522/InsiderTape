@@ -1209,11 +1209,10 @@ document.addEventListener('click', e => { if (!e.target.closest('.search-wrap'))
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
   const controller = new AbortController();
-  // Scoreboard does many parallel price fetches — give it extra time
-  // Monitor fetches screener + firstbuys (heavy CTE) — also needs extra time
   const ms = path.startsWith('/api/scoreboard') ? 90000
            : (path.startsWith('/api/proximity')) ? 90000
-           : path.startsWith('/api/firstbuys') ? 45000
+           : path.startsWith('/api/firstbuys') ? 60000
+           : path.startsWith('/api/screener')  ? 60000
            : 45000;
   const timer = setTimeout(() => controller.abort(), ms);
   try {
@@ -7451,6 +7450,8 @@ async function loadMonitorPage() {
   const body = document.getElementById('monitorViewBody');
   if (!body) return;
   renderMonitorShell(body);
+  // Warm up server before firing heavy parallel fetches (prevents cold-start timeout)
+  try { await fetch('/api/ping'); } catch(_) {}
   await runMonitorWindow(_monitorTab, body);
 }
 
