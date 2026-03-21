@@ -1616,7 +1616,10 @@ let _driftServerCache     = null;
 let _driftServerCacheTime = 0;
 const DRIFT_TTL = 6 * 60 * 60 * 1000;
 
+let _driftRunning = false;
 async function preComputeDrift() {
+  if (_driftRunning) return;
+  _driftRunning = true;
   try {
     slog('Pre-computing drift...');
     const rows = db.prepare(`
@@ -1710,14 +1713,22 @@ async function preComputeDrift() {
     _driftServerCache     = results;
     _driftServerCacheTime = Date.now();
     slog(`Drift pre-computed: ${results.length} tickers`);
-  } catch(e) { slog('preComputeDrift error: ' + e.message); }
+  } catch(e) { slog('preComputeDrift error: ' + e.message); } finally { _driftRunning = false; }
 }
 
 app.get('/api/drift', async (req, res) => {
   if (_driftServerCache && Date.now() - _driftServerCacheTime < DRIFT_TTL) {
     return res.json(_driftServerCache);
   }
-  await preComputeDrift();
+  if (!_driftRunning) await preComputeDrift();
+  // If still running from startup chain, wait up to 30s for it to finish
+  if (_driftRunning) {
+    for (let i = 0; i < 60; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (!_driftRunning) break;
+    }
+  }
+  if (res.headersSent) return;
   res.json(_driftServerCache || []);
 });
 
@@ -1850,7 +1861,10 @@ function predictNextEarnings(ticker, buyDate) {
   };
 }
 
+let _proximityRunning = false;
 async function preComputeProximity() {
+  if (_proximityRunning) return;
+  _proximityRunning = true;
   try {
     slog('Pre-computing proximity...');
     const today = new Date().toISOString().slice(0, 10);
@@ -1970,14 +1984,21 @@ async function preComputeProximity() {
     _proximityServerCache     = results;
     _proximityServerCacheTime = Date.now();
     slog(`Proximity pre-computed: ${results.length} results`);
-  } catch(e) { slog('preComputeProximity error: ' + e.message); }
+  } catch(e) { slog('preComputeProximity error: ' + e.message); } finally { _proximityRunning = false; }
 }
 
 app.get('/api/proximity', async (req, res) => {
   if (_proximityServerCache && Date.now() - _proximityServerCacheTime < PROXIMITY_TTL) {
     return res.json(_proximityServerCache);
   }
-  await preComputeProximity();
+  // Don't trigger a second compute if one is already running
+  if (!_proximityRunning) preComputeProximity().catch(e => slog('proximity err: ' + e.message));
+  // Wait up to 30s for it to finish
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    if (!_proximityRunning) break;
+  }
+  if (res.headersSent) return;
   res.json(_proximityServerCache || []);
 });
 
@@ -2168,17 +2189,14 @@ app.get('/api/scoreboard', (req, res) => {
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
 
-// H5: Run precomputes at startup — don't let price warm-up block analysis tools
-// warmPriceCache runs in background; drift/proximity/scoreboard run independently
+// H5: Sequential chain — price warm → drift → proximity → scoreboard
+// Prevents all three from hammering external price APIs simultaneously.
 setTimeout(() => {
-  warmPriceCache().catch(e => slog('warmPriceCache err: ' + e.message));
-  // Slight delay so price cache has a head start before scoreboard needs it
-  setTimeout(() => {
-    preComputeDrift()
-      .then(() => preComputeProximity())
-      .then(() => preComputeScoreboard())
-      .catch(e => slog('startup precompute err: ' + e.message));
-  }, 10000);
+  warmPriceCache()
+    .then(() => preComputeDrift())
+    .then(() => preComputeProximity())
+    .then(() => preComputeScoreboard())
+    .catch(e => slog('startup precompute err: ' + e.message));
 }, 60000);
 
 // Run alert check every 5 minutes — same cadence as RSS poll in daily-worker
@@ -2193,15 +2211,13 @@ setTimeout(() => {
 // guard prevents double-runs. Stale-but-valid data stays available to users
 // during the refresh window rather than showing {computing:true}.
 setInterval(() => {
-  _scoreboardCache     = null;
+  _scoreboardCache     = null;  // expire so preComputeScoreboard re-runs
   _scoreboardCacheTime = 0;
-  warmPriceCache().catch(e => slog('warmPriceCache refresh err: ' + e.message));
-  setTimeout(() => {
-    preComputeDrift()
-      .then(() => preComputeProximity())
-      .then(() => preComputeScoreboard())
-      .catch(e => slog('refresh err: ' + e.message));
-  }, 10000);
+  warmPriceCache()
+    .then(() => preComputeDrift())
+    .then(() => preComputeProximity())
+    .then(() => preComputeScoreboard())
+    .catch(e => slog('refresh err: ' + e.message));
 }, 12 * 60 * 60 * 1000);
 
 // ── ADMIN TRIGGER ROUTES ─────────────────────────────────────────────────────
