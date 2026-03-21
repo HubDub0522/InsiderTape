@@ -3809,34 +3809,30 @@ async function loadInsiderDashboard() {
 // Cached scoreboard data so full-list view doesn't re-fetch
 let _scoreboardData = null;
 
-let _ratioGrain = 'weekly';
-let _ratioCache = {}; // cleared on each page load
+let _ratioCache = null;
 
-async function loadInsiderRatioChart(grain) {
-  if (grain) _ratioGrain = grain;
+async function loadInsiderRatioChart() {
   const el = document.getElementById('insiderRatioChart');
   if (!el) return;
 
   // Show loading placeholder on first load only
-  if (!_ratioCache[_ratioGrain]) {
+  if (!_ratioCache) {
     el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
       <div class="loading-state" style="height:160px"><div class="spinner"></div><span>Loading ratio history…</span></div></div>`;
   }
 
   try {
-    let data = _ratioCache[_ratioGrain];
+    let data = _ratioCache;
     if (!data) {
-      const url = _ratioGrain === 'weekly'
-        ? '/api/insider-ratio-history?grain=weekly&weeks=24&bust=' + Date.now()
-        : '/api/insider-ratio-history?grain=monthly&months=24';
+      const url = '/api/insider-ratio-history?grain=weekly&weeks=24&bust=' + Date.now();
       const resp = await apiFetch(url);
       // Handle both old array format and new {data, stats} format
       data = resp && resp.data ? resp : { data: Array.isArray(resp) ? resp : [], stats: null };
-      _ratioCache[_ratioGrain] = data;
+      _ratioCache = data;
     }
     if (!data.data || !data.data.length) { el.innerHTML = ''; return; }
 
-    renderRatioChart(el, data.data, _ratioGrain, data.stats);
+    renderRatioChart(el, data.data, 'weekly', data.stats);
   } catch(e) {
     console.error('loadInsiderRatioChart:', e);
     el.innerHTML = '';
@@ -4027,28 +4023,7 @@ function renderRatioChart(el, data, grain, stats) {
   }, 50);
 }
 
-async function loadNotableLeaderboard() {
-  const el = document.getElementById('notableLeaderboard');
-  if (!el) return;
-  if (!auth.isPremium) {
-    el.innerHTML = `
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;cursor:pointer" onclick="showPremiumOverlay('Notable Insiders & Best Timers leaderboards')">
-        <div style="font-size:24px;margin-bottom:12px">🔒</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text);margin-bottom:6px">NOTABLE INSIDERS & BEST TIMERS</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Ranked leaderboards of the most accurate and profitable insider traders over the last 5 years — Premium feature.</div>
-        <span style="display:inline-block;background:var(--accent);color:#000;border:none;border-radius:6px;padding:10px 24px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer">UNLOCK WITH PREMIUM</span>
-      </div>`;
-    return;
-  }
-  el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><div class="spinner" style="width:14px;height:14px;border-width:2px"></div><span style="font-size:12px;color:var(--muted)">Loading Notable Insiders leaderboard…</span></div>`;
-  try {
-    const data = await apiFetch('/api/scoreboard');
-    _scoreboardData = data;
-    renderLeaderboardTiles(el, data);
-  } catch(e) {
-    el.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 0">Leaderboard unavailable: ${e.message}</div>`;
-  }
-}
+// loadNotableLeaderboard removed — not called anywhere (v1.8)
 
 function buildLeaderboardRow(r, i, type) {
   const tierColor = s => s >= 80 ? '#ffd700' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
@@ -7949,7 +7924,7 @@ function renderSentimentGauge(s) {
         <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;letter-spacing:1px;margin-bottom:6px">NET DOLLAR FLOW</div>
           <div style="font-size:16px;font-family:'Space Mono',monospace;color:${s.netFlow>=0?'var(--buy)':'var(--sell)'};font-weight:700">${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">Hist. norm ratio: ~0.25</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Net: ${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
         </div>
       </div>
     </div>
