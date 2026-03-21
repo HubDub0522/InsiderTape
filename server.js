@@ -1565,12 +1565,16 @@ async function fetchPriceBars(sym) {
     }).catch(() => null),
   ]);
 
-  // Use first successful result
+  // Use the result with the most bars — prefer quality over source priority
+  let best = null;
   for (const r of results) {
-    if (r.status === 'fulfilled' && r.value) {
-      setPC(sym, r.value);
-      return r.value;
+    if (r.status === 'fulfilled' && r.value && r.value.length > (best?.length || 0)) {
+      best = r.value;
     }
+  }
+  if (best) {
+    setPC(sym, best);
+    return best;
   }
 
   if (!_rateLimited) {
@@ -1596,11 +1600,11 @@ async function warmPriceCache() {
       GROUP BY ticker ORDER BY n DESC LIMIT 180
     `).all();
     slog(`Warming price cache for ${rows.length} tickers...`);
-    // Batch in groups of 10, 300ms delay between batches
-    for (let i = 0; i < rows.length; i += 10) {
-      const batch = rows.slice(i, i + 10).map(r => r.ticker);
+    // Batch in groups of 5 with 1s delay — avoid hammering APIs on cold start
+    for (let i = 0; i < rows.length; i += 5) {
+      const batch = rows.slice(i, i + 5).map(r => r.ticker);
       await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 300));
+      if (i + 5 < rows.length) await new Promise(r => setTimeout(r, 1000));
     }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
