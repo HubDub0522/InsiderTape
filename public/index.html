@@ -8163,7 +8163,29 @@ function routeFromPath(path, fromPopstate) {
   // Set initial history state so popstate works on first back
   const path = location.pathname;
   history.replaceState({view: _viewFromPath(path), ticker: _tickerFromPath(path), name: _nameFromPath(path)}, '', path);
-  routeFromPath(path, true);
+
+  // Premium pages need auth to be loaded first — defer them
+  const premiumViews = ['analysis','monitor','sectors','compare','watchlist'];
+  const initialView = _viewFromPath(path);
+  if (premiumViews.includes(initialView)) {
+    // Show the view shell immediately, then wait for auth before loading content
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const viewEl = document.getElementById('view-' + initialView);
+    if (viewEl) viewEl.classList.add('active');
+    const tabIdx = {screener:0,stock:1,insider:2,analysis:3,monitor:4,sectors:5,compare:6,watchlist:7}[initialView];
+    if (tabIdx !== undefined) document.querySelectorAll('.nav-tab')[tabIdx]?.classList.add('active');
+    // Auth will re-trigger via the blurGated re-render logic in loadAuth
+    // But also poll until loaded then route properly
+    const waitForAuth = setInterval(() => {
+      if (auth.loaded) {
+        clearInterval(waitForAuth);
+        routeFromPath(path, true);
+      }
+    }, 50);
+  } else {
+    routeFromPath(path, true);
+  }
+
   // Only render the screener table when actually on the screener view
   const isScreenerView = !path.startsWith('/stock') && !path.startsWith('/insider') &&
     !path.startsWith('/analysis') && !path.startsWith('/monitor') &&
@@ -8431,6 +8453,8 @@ function getSessionCookie() {
 
 async function loadAuth() {
   try {
+    // Ping first to wake Render dyno — prevents cold-start timeouts on first page load
+    await fetch('/api/ping').catch(() => {});
     // No Authorization header needed — HttpOnly cookie is sent automatically by browser
     const resp = await fetch('/api/auth/me');
     const data = await resp.json();
