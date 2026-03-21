@@ -321,11 +321,8 @@ try {
     bars_json TEXT NOT NULL,
     fetched_at INTEGER NOT NULL
   )`);
-  // Clear expired price cache entries and any empty (failed) entries older than 1 hour
-  try {
-    db.prepare(`DELETE FROM price_cache WHERE fetched_at < ?`).run(Date.now() - 12 * 60 * 60 * 1000);
-    db.prepare(`DELETE FROM price_cache WHERE bars_json = '[]' AND fetched_at < ?`).run(Date.now() - 60 * 60 * 1000);
-  } catch(_) {}
+  // v1.7.1: Extended price fetch to 20yr — purge cached 6yr bars so they refresh
+  try { db.prepare(`DELETE FROM price_cache WHERE fetched_at < ?`).run(Date.now() - 1); } catch(_) {}
   db.exec(`CREATE TABLE IF NOT EXISTS sync_log (
     quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER
   )`);
@@ -650,36 +647,26 @@ app.get('/api/insider-ratio-history', (req, res) => {
 app.get('/api/monitor-sentiment', (req, res) => {
   try {
     const now = new Date();
-    const etOffset = -5; // EST
+    const etOffset = -5; // EST (close enough for date boundaries)
     const etNow = new Date(now.getTime() + etOffset * 3600000);
-    const dow = etNow.getUTCDay(); // 0=Sun, 6=Sat
+    const today = etNow.toISOString().slice(0, 10);
 
-    // Last trading day — skip weekends
-    const lastTrade = new Date(etNow);
-    if (dow === 0) lastTrade.setUTCDate(etNow.getUTCDate() - 2); // Sun → Fri
-    else if (dow === 6) lastTrade.setUTCDate(etNow.getUTCDate() - 1); // Sat → Fri
-
-    // Use DB max trade date as ceiling (handles holidays too)
-    const dbMax = db.prepare(`SELECT MAX(trade_date) AS d FROM trades WHERE trade_date <= ? AND TRIM(type) IN ('P','S','S-')`)
-      .get(lastTrade.toISOString().slice(0, 10));
-    const todayStr = (dbMax && dbMax.d) || lastTrade.toISOString().slice(0, 10);
-
-    // Week start (Monday of the week containing lastTrade)
-    const tradeDow = lastTrade.getUTCDay();
-    const weekStart = new Date(lastTrade);
-    weekStart.setUTCDate(lastTrade.getUTCDate() - (tradeDow === 0 ? 6 : tradeDow - 1));
+    // Week start (Monday)
+    const dow = etNow.getUTCDay();
+    const weekStart = new Date(etNow);
+    weekStart.setUTCDate(etNow.getUTCDate() - (dow === 0 ? 6 : dow - 1));
     const weekStr = weekStart.toISOString().slice(0, 10);
 
-    // Month: 30 days back from last trading day
-    const monthStart = new Date(lastTrade);
-    monthStart.setUTCDate(lastTrade.getUTCDate() - 30);
+    // Month: 30 days ago
+    const monthStart = new Date(etNow);
+    monthStart.setUTCDate(etNow.getUTCDate() - 30);
     const monthStr = monthStart.toISOString().slice(0, 10);
 
     // Quarter start
-    const qStartMonth = Math.floor(lastTrade.getUTCMonth() / 3) * 3;
-    const quarterStr = `${lastTrade.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
+    const qStartMonth = Math.floor(etNow.getUTCMonth() / 3) * 3;
+    const quarterStr = `${etNow.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
 
-    function windowStats(cutStr, endStr) {
+    function windowStats(cutStr) {
       const row = db.prepare(`
         SELECT
           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
@@ -690,19 +677,19 @@ app.get('/api/monitor-sentiment', (req, res) => {
           COUNT(DISTINCT CASE WHEN TRIM(type) IN ('S','S-') THEN insider END) AS unique_sellers
         FROM trades
         WHERE trade_date >= ?
-          AND trade_date <= ?
+          AND trade_date <= date('now')
           AND TRIM(type) IN ('P','S','S-')
           AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
           AND COALESCE(value, 0) > 0
-      `).get(cutStr, endStr);
+      `).get(cutStr);
       return row;
     }
 
     res.json({
-      today:   { cutStr: todayStr,   ...windowStats(todayStr,   todayStr)   },
-      week:    { cutStr: weekStr,    ...windowStats(weekStr,    todayStr)   },
-      month:   { cutStr: monthStr,   ...windowStats(monthStr,   todayStr)   },
-      quarter: { cutStr: quarterStr, ...windowStats(quarterStr, todayStr)   },
+      today:   { cutStr: today,   ...windowStats(today)   },
+      week:    { cutStr: weekStr,  ...windowStats(weekStr)  },
+      month:   { cutStr: monthStr, ...windowStats(monthStr) },
+      quarter: { cutStr: quarterStr, ...windowStats(quarterStr) },
     });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -1520,7 +1507,7 @@ async function fetchPriceBars(sym) {
   // Timeouts reduced so failures fail fast instead of blocking for 10s each
   const results = await Promise.allSettled([
     // Tiingo (primary)
-    TIINGO ? get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 10000).then(({ status, body }) => {
+    TIINGO ? get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 5000).then(({ status, body }) => {
       if (status === 429) { _rateLimited = true; return null; }
       if (status !== 200) return null;
       const data = JSON.parse(body.toString());
@@ -1530,7 +1517,7 @@ async function fetchPriceBars(sym) {
     }) : Promise.resolve(null),
 
     // Polygon (secondary)
-    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 10000).then(({ status, body }) => {
+    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
       if (status !== 200) return null;
       const data = JSON.parse(body.toString());
       if (!data.results || data.results.length < 2) return null;
@@ -1538,54 +1525,28 @@ async function fetchPriceBars(sym) {
       return bars.length >= 2 ? bars : null;
     }) : Promise.resolve(null),
 
-    // Yahoo query1 (fallback) — browser-like headers to avoid bot block
-    get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs + '&includePrePost=false', 8000, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://finance.yahoo.com/',
-        'Origin': 'https://finance.yahoo.com',
-      }
-    }).then(({ status, body }) => {
+    // Yahoo query1 (fallback)
+    get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
       if (status !== 200) return null;
       return parseYahoo(body);
     }).catch(() => null),
 
     // Yahoo query2 (fallback)
-    get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs + '&includePrePost=false', 8000, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://finance.yahoo.com/',
-      }
-    }).then(({ status, body }) => {
+    get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
       if (status !== 200) return null;
       return parseYahoo(body);
     }).catch(() => null),
   ]);
 
-  // Use the result with the most bars — prefer quality over source priority
-  let best = null;
+  // Use first successful result
   for (const r of results) {
-    if (r.status === 'fulfilled' && r.value && r.value.length > (best?.length || 0)) {
-      best = r.value;
+    if (r.status === 'fulfilled' && r.value) {
+      setPC(sym, r.value);
+      return r.value;
     }
   }
-  if (best) {
-    setPC(sym, best);
-    return best;
-  }
 
-  if (!_rateLimited) {
-    // Cache empty result with a short TTL (30 min) so it retries sooner
-    const FAIL_TTL = 30 * 60 * 1000;
-    _priceCache[sym] = { bars: [], fetchedAt: Date.now() - (PRICE_TTL - FAIL_TTL) };
-    try {
-      db.prepare('INSERT OR REPLACE INTO price_cache (symbol, bars_json, fetched_at) VALUES (?,?,?)')
-        .run(sym, '[]', Date.now() - (PRICE_TTL - FAIL_TTL));
-    } catch(e) {}
-  }
+  if (!_rateLimited) setPC(sym, []);
   return null;
 }
 
@@ -1600,11 +1561,11 @@ async function warmPriceCache() {
       GROUP BY ticker ORDER BY n DESC LIMIT 180
     `).all();
     slog(`Warming price cache for ${rows.length} tickers...`);
-    // Batch in groups of 5 with 1s delay — avoid hammering APIs on cold start
-    for (let i = 0; i < rows.length; i += 5) {
-      const batch = rows.slice(i, i + 5).map(r => r.ticker);
+    // Batch in groups of 10, 300ms delay between batches
+    for (let i = 0; i < rows.length; i += 10) {
+      const batch = rows.slice(i, i + 10).map(r => r.ticker);
       await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 5 < rows.length) await new Promise(r => setTimeout(r, 1000));
+      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 300));
     }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
@@ -3544,7 +3505,4 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server on port ${PORT}`);
-  console.log(`Price keys: TIINGO=${TIINGO ? 'SET('+TIINGO.slice(0,6)+'...)' : 'MISSING'} POLYGON=${POLYGON ? 'SET('+POLYGON.slice(0,6)+'...)' : 'MISSING'}`);
-});
+app.listen(PORT, () => console.log(`Server on port ${PORT}`));
