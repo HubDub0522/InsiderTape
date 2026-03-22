@@ -2002,9 +2002,17 @@ async function preComputeProximity() {
   } catch(e) { slog('preComputeProximity error: ' + e.message); } finally { _proximityRunning = false; }
 }
 
+const _bootTime = Date.now();
+const STARTUP_GRACE_MS = 90000; // 90s — let warm-up chain finish before user-triggered computes
+
 app.get('/api/proximity', async (req, res) => {
   if (_proximityServerCache && Date.now() - _proximityServerCacheTime < PROXIMITY_TTL) {
     return res.json(_proximityServerCache);
+  }
+  // During startup grace period, return empty rather than triggering a compute
+  // that would compete with the warm-up chain
+  if (!_proximityServerCache && Date.now() - _bootTime < STARTUP_GRACE_MS) {
+    return res.json({ computing: true, results: [] });
   }
   // Don't trigger a second compute if one is already running
   if (!_proximityRunning) preComputeProximity().catch(e => slog('proximity err: ' + e.message));
@@ -2192,11 +2200,12 @@ app.get('/api/scoreboard', (req, res) => {
   if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
     return res.json(_scoreboardCache);
   }
+  if (!_scoreboardCache && Date.now() - _bootTime < STARTUP_GRACE_MS) {
+    return res.json({ computing: true, accuracy: [], timing: [] });
+  }
   // Trigger compute in background (guard prevents double-runs)
   preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
-  // If a previous run already populated partial results, return them
   if (_scoreboardCache) return res.json(_scoreboardCache);
-  // Still computing — tell client to retry
   return res.json({ computing: true, accuracy: [], timing: [] });
 });
 
