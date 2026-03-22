@@ -2445,6 +2445,14 @@ async function buildChart(priceData, trades) {
   container.innerHTML = '';
   container.style.height = getChartH() + 'px';
   container.style.display = 'block';
+
+  // Wait for container to have real layout dimensions (critical on direct page load)
+  let waited = 0;
+  while (container.clientWidth < 10 && waited < 2000) {
+    await new Promise(r => setTimeout(r, 30));
+    waited += 30;
+  }
+  if (!document.body.contains(container)) return;
   const chart = LightweightCharts.createChart(container, {
     width: container.clientWidth || container.offsetWidth || 800,
     height: getChartH(),
