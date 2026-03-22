@@ -120,6 +120,7 @@ app.use((req, res, next) => {
   const limit = req.path === '/api/scoreboard' ? 55000
               : (req.path === '/api/drift' || req.path === '/api/proximity') ? 45000
               : (req.path === '/api/screener' || req.path === '/api/firstbuys' || req.path === '/api/monitor-sentiment') ? 45000
+              : req.path === '/api/price' ? 35000
               : 25000;
   res.setTimeout(limit, () => {
     if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
@@ -1572,7 +1573,7 @@ async function fetchPriceBars(sym, bgRefresh=false) {
     });
   }
 
-  // Stage 2: fall back to Yahoo only if keyed sources failed
+  // Stage 2: fall back to Yahoo if keyed sources failed or were rate-limited
   if (!bars) {
     const yahooResults = await Promise.allSettled([
       yahooFetch('query1.finance.yahoo.com'),
@@ -1581,6 +1582,7 @@ async function fetchPriceBars(sym, bgRefresh=false) {
     for (const r of yahooResults) {
       if (r.status === 'fulfilled' && r.value && r.value.length > (bars?.length || 0)) {
         bars = r.value;
+        _rateLimited = false; // Yahoo succeeded — don't skip caching
       }
     }
   }
