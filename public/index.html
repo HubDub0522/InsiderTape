@@ -2405,7 +2405,7 @@ async function loadStockView(ticker, opts={}) {
 function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
 const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
-function buildChart(priceData, trades) {
+async function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
     // Replace any existing buildChart callbacks — only keep the latest
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
@@ -2424,6 +2424,14 @@ function buildChart(priceData, trades) {
   container.innerHTML = '';
   container.style.height = getChartH() + 'px';
   container.style.display = 'block';
+
+  // Guard: if another buildChart call arrives before LC's rAF fires, abort this one
+  if (!window._chartGen) window._chartGen = 0;
+  const myGen = ++window._chartGen;
+  // Yield one tick so any pending DOM wipes from a second loadStockView can complete
+  await new Promise(r => setTimeout(r, 0));
+  if (myGen !== window._chartGen) return; // superseded
+  if (!document.body.contains(container)) return; // container wiped
   const chart = LightweightCharts.createChart(container, {
     width: container.clientWidth || container.offsetWidth || 800,
     height: getChartH(),
