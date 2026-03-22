@@ -1466,16 +1466,41 @@ app.get('/api/debug', (req, res) => {
 // In-memory LRU-style price cache: ticker → { bars, fetchedAt }
 // bars = [{time:'YYYY-MM-DD', open, high, low, close, volume}, ...]
 const _priceCache = {}; // in-memory layer on top of DB
-const PRICE_TTL   = 12 * 60 * 60 * 1000; // 12h
+
+// TTL is market-hours-aware:
+//   • During US market hours (9:30–16:00 ET, Mon–Fri) → 15 minutes
+//     so today's candle stays current for active users.
+//   • Outside market hours (evenings, nights, weekends) → 12 hours
+//     since daily bars won't change until the next session opens.
+function getPriceTTL() {
+  const now = new Date();
+  // Convert current UTC time to US Eastern (ET = UTC-5 standard, UTC-4 daylight)
+  // We approximate by checking if DST is in effect for New York
+  const janOffset = new Date(now.getFullYear(), 0, 1).getTimezoneOffset();
+  const julOffset = new Date(now.getFullYear(), 6, 1).getTimezoneOffset();
+  const isDST     = now.getTimezoneOffset() < Math.max(janOffset, julOffset);
+  const etOffset  = isDST ? 4 : 5; // hours behind UTC
+  const etHour    = (now.getUTCHours() - etOffset + 24) % 24;
+  const etMin     = now.getUTCMinutes();
+  const etTotalMin = etHour * 60 + etMin;
+  const day       = now.getUTCDay(); // 0=Sun, 6=Sat; adjust for ET midnight rollover
+  // Market open = 9:30 ET = 570 min, close = 16:00 ET = 960 min, Mon–Fri
+  const isWeekday = day >= 1 && day <= 5;
+  const isMarketHours = isWeekday && etTotalMin >= 570 && etTotalMin < 960;
+  return isMarketHours
+    ? 15 * 60 * 1000        // 15 minutes during market hours
+    : 12 * 60 * 60 * 1000;  // 12 hours outside market hours
+}
 
 function getPC(sym) {
+  const ttl = getPriceTTL();
   // Check memory first
   const m = _priceCache[sym];
-  if (m && Date.now() - m.fetchedAt <= PRICE_TTL && m.bars.length > 0) return m.bars;
+  if (m && Date.now() - m.fetchedAt <= ttl && m.bars.length > 0) return m.bars;
   // Fall back to DB
   try {
     const row = db.prepare('SELECT bars_json, fetched_at FROM price_cache WHERE symbol=?').get(sym);
-    if (row && Date.now() - row.fetched_at <= PRICE_TTL) {
+    if (row && Date.now() - row.fetched_at <= ttl) {
       const bars = JSON.parse(row.bars_json);
       if (bars.length > 0) {
         _priceCache[sym] = { bars, fetchedAt: row.fetched_at };
