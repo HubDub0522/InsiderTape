@@ -1832,6 +1832,11 @@ function renderProximitySubpage() {
 
   apiFetch('/api/proximity').then(results => {
     _proximityRunning = false;
+    if (results && results.computing) {
+      // Server still warming up — retry in 15s
+      setTimeout(renderProximitySubpage, 15000);
+      return;
+    }
     _proximityCache   = Array.isArray(results) ? results : [];
     _renderProximityResults(body, backBtn, _proximityCache);
   }).catch(e => {
@@ -2200,6 +2205,9 @@ async function loadStockView(ticker, opts={}) {
   _suppressSuggest = true;
   setTimeout(() => { _suppressSuggest = false; }, 500);
   document.getElementById('tickerInput').value = ticker;
+  if (!opts.fromPopstate) {
+    history.pushState({view:'stock', ticker}, '', '/stock/' + ticker);
+  }
   updateTitle('stock', ticker);
   state.currentTicker = ticker;
 
@@ -4785,7 +4793,7 @@ async function computeLeaderboardScores() {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
     // Server returns {computing:true} when still warming up — retry in 30s
     if (data.computing && !data.accuracy.length) {
-      setTimeout(computeLeaderboardScores, 30000);
+      setTimeout(computeLeaderboardScores, 15000);
       return;
     }
     _insiderScoreCache = data.accuracy || [];
