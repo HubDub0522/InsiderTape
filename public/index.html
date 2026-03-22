@@ -1113,6 +1113,7 @@ function globalSearch() {
 
 let _globalSuggestTimer = null;
 function onGlobalInput(val) {
+  if (_suppressSuggest) return;
   clearTimeout(_globalSuggestTimer);
   const box = document.getElementById('globalSuggest');
   if (!val || val.length < 1) { if (box) box.style.display = 'none'; return; }
@@ -1190,11 +1191,13 @@ document.getElementById('globalSuggest').addEventListener('mousedown', e => {
 // Keep old searchTicker as alias
 function searchTicker() { globalSearch(); }
 
+let _suppressSuggest = false;
 document.getElementById('tickerInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     e.preventDefault();
     hideGlobalSuggest();
-    // Small delay ensures any mousedown handler has fully completed first
+    _suppressSuggest = true;
+    setTimeout(() => { _suppressSuggest = false; }, 500);
     setTimeout(globalSearch, 0);
   }
 });
@@ -2194,13 +2197,10 @@ async function loadStockView(ticker, opts={}) {
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-stock').classList.add('active');
   document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
+  _suppressSuggest = true;
+  setTimeout(() => { _suppressSuggest = false; }, 500);
   document.getElementById('tickerInput').value = ticker;
-  if (!opts.fromPopstate) {
-    history.pushState({view:'stock', ticker}, '', '/stock/' + ticker);
-    updateTitle('stock', ticker);
-  } else {
-    updateTitle('stock', ticker);
-  }
+  updateTitle('stock', ticker);
   state.currentTicker = ticker;
 
   // Show skeleton immediately — gives instant visual feedback while DB query runs
