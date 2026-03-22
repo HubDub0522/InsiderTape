@@ -1575,12 +1575,6 @@ async function warmPriceCache() {
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       GROUP BY ticker ORDER BY n DESC LIMIT 180
     `).all();
-    // Always warm popular large-caps even if no insider buys
-    const popular = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','JPM','V','CRM',
-      'JNJ','UNH','XOM','PG','MA','HD','CVX','MRK','ABBV','PEP','KO','AVGO','LLY','COST',
-      'MCD','ACN','TMO','CSCO','ABT','BAC','WMT','DIS','ADBE','NFLX','TXN','QCOM','IBM'];
-    const existing = new Set(rows.map(r => r.ticker));
-    popular.forEach(t => { if (!existing.has(t)) rows.push({ ticker: t, n: 0 }); });
     slog(`Warming price cache for ${rows.length} tickers...`);
     // Batch in groups of 10, 300ms delay between batches
     for (let i = 0; i < rows.length; i += 10) {
@@ -2206,6 +2200,20 @@ runDaily(3);
 
 // H5: Sequential chain — price warm → drift → proximity → scoreboard
 // Prevents all three from hammering external price APIs simultaneously.
+// Clear empty/failed price cache entries immediately so they retry
+try { db.prepare(`DELETE FROM price_cache WHERE bars_json = '[]'`).run(); } catch(_) {}
+
+// Pre-warm popular large-caps immediately (no delay) — these are searched by users
+// but rarely have insider buys so they'd miss the 60s warm-up otherwise
+const POPULAR_TICKERS = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','JPM','V','CRM',
+  'JNJ','UNH','XOM','PG','MA','HD','CVX','MRK','ABBV','PEP','KO','AVGO','LLY','COST',
+  'MCD','ACN','TMO','CSCO','ABT','BAC','WMT','DIS','ADBE','NFLX','TXN','QCOM','IBM'];
+setTimeout(() => {
+  Promise.allSettled(POPULAR_TICKERS.map(sym => fetchPriceBars(sym)))
+    .then(() => slog('Popular ticker price cache warmed'))
+    .catch(() => {});
+}, 5000); // 5s after startup — just enough for DB to be ready
+
 setTimeout(() => {
   warmPriceCache()
     .then(() => preComputeDrift())
