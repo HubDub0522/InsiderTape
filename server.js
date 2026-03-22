@@ -1565,8 +1565,16 @@ async function fetchPriceBars(sym) {
         return parseYahoo(body);
       }).catch(() => null)),
     ]);
-    setPC(sym, bars);
-    return bars;
+    // Sanitize: sort ascending by date and remove duplicate timestamps.
+    // LightweightCharts requires strictly-ascending time order with no dupes;
+    // Yahoo Finance (and occasionally other sources) can return out-of-order
+    // or duplicate bars (e.g. for tickers with corporate actions or sparse
+    // coverage), which causes setData() to throw and leaves the chart blank.
+    const sanitized = bars
+      .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
+      .filter((b, i, arr) => i === 0 || b.time !== arr[i - 1].time);
+    setPC(sym, sanitized);
+    return sanitized;
   } catch (_) {
     // All sources failed — do NOT cache the failure, allow retry on next request
     return null;
