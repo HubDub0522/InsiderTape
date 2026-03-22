@@ -869,11 +869,6 @@
       <div style="font-size:12px">Enter a stock symbol in the search bar above</div>
     </div>
   </div>
-  <!-- Permanent chart containers — never wiped by stockContent innerHTML changes -->
-  <div id="chartContainerOuter" style="display:none;padding:0 0 0 0">
-    <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;"></div>
-    <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;"></div>
-  </div>
 </div>
 
 <div id="view-insider" class="view">
@@ -2234,7 +2229,7 @@ async function loadStockView(ticker, opts={}) {
           <div class="stat-cell"><div class="stat-value" style="color:var(--muted)">—</div><div class="stat-label">52W LOW</div></div>
         </div>
       </div>
-      <div id="chartContainer" style="position:relative;width:100%;height:320px;display:flex;align-items:center;justify-content:center">
+      <div id="chartSpinner" style="position:relative;width:100%;height:320px;display:flex;align-items:center;justify-content:center">
         <div class="loading-state" style="flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Loading chart…</span></div>
       </div>
       <div style="padding:20px 24px;display:flex;align-items:center;justify-content:center;min-height:120px">
@@ -2323,7 +2318,10 @@ async function loadStockView(ticker, opts={}) {
             </div>
           </div>
         </div>
-        <div id="chartPlaceholder"></div>
+        <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;"></div>
+        <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
+          <div id="pressureContainer" style="width:100%;height:120px;" class="pressure-container"></div>
+        </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
         <div id="insiderActivityAnalysis" style="margin-top:10px"></div>
       </div>
@@ -2351,14 +2349,6 @@ async function loadStockView(ticker, opts={}) {
   renderStockTradesTable(insiderData);
   renderTradeMarkerList(insiderData);
   renderInsiderActivityAnalysis(ticker, insiderData, []);
-
-  // Move the permanent chart containers into the placeholder slot
-  const placeholder = document.getElementById('chartPlaceholder');
-  const chartOuter = document.getElementById('chartContainerOuter');
-  if (placeholder && chartOuter) {
-    placeholder.appendChild(chartOuter);
-    chartOuter.style.display = 'block';
-  }
 
   // Show a chart loading spinner while price data arrives
   const cc = document.getElementById('chartContainer');
@@ -2427,34 +2417,37 @@ async function buildChart(priceData, trades) {
   const container = document.getElementById('chartContainer');
   if (!container || !priceData.length) return;
 
-  // Destroy any existing chart instances — defer to after current rAF cycle
-  // so LC's pending rAF callbacks don't crash on nulled internals
+  // Null out state references first so rAF callbacks from old charts don't use them
   const oldChart = state.chart;
   const oldPChart = state.pressureChart;
   state.chart = null;
   state.pressureChart = null;
   state.drawPressure = null;
-  if (oldChart) requestAnimationFrame(() => { try{oldChart.remove();}catch(e){} });
-  if (oldPChart) requestAnimationFrame(() => { try{oldPChart.remove();}catch(e){} });
-  const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
+
+  // Let current rAF cycle complete before removing old charts
+  await new Promise(r => requestAnimationFrame(r));
+
+  if (oldChart) { try { oldChart.remove(); } catch(e) {} }
+  if (oldPChart) { try { oldPChart.remove(); } catch(e) {} }
+  const oldCanvas = document.getElementById('markerCanvas');
+  if (oldCanvas) oldCanvas.remove();
+
   container.innerHTML = '';
-  const chartH = getChartH();
-  // Force explicit pixel dimensions — LC needs both width and height > 0 to create canvas
-  container.style.width = '100%';
-  container.style.height = chartH + 'px';
-  container.style.minHeight = chartH + 'px';
+  container.style.height = getChartH() + 'px';
+  container.style.minHeight = getChartH() + 'px';
   container.style.display = 'block';
 
-  // Wait for container to have real layout dimensions (needed on direct page load)
-  let waited = 0;
-  while ((container.clientWidth < 10 || container.clientHeight < 10) && waited < 3000) {
+  // Wait for real layout — poll until container has both width and height
+  for (let i = 0; i < 60; i++) {
+    if (container.clientWidth > 10 && container.clientHeight > 10) break;
     await new Promise(r => setTimeout(r, 50));
-    waited += 50;
   }
-  const w = container.clientWidth || container.offsetWidth || 800;
-  const h = container.clientHeight || chartH;
+
+  const w = container.clientWidth || 800;
+  const h = container.clientHeight || getChartH();
   const chart = LightweightCharts.createChart(container, {
-    autoSize: true,
+    width: w,
+    height: h,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
@@ -2664,7 +2657,8 @@ function buildPressureChart(mainChart,trades,priceData) {
   pc.style.display = 'block';
   const pcW = pc.clientWidth || pc.offsetWidth || 800;
   const pChart=LightweightCharts.createChart(pc,{
-    autoSize: true,
+    width: pcW,
+    height: pcH,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
     rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
