@@ -788,6 +788,11 @@ app.get('/api/search', (req, res) => {
       tickers: allTickers.slice(0, 8).map(r => ({ ticker: r.ticker, company: r.company || r.ticker })),
       insiders: insiderRows.slice(0, 6).map(r => ({ name: r.insider, title: r.title || '' })),
     });
+
+    // Pre-warm price cache for searched tickers in background (don't block response)
+    allTickers.slice(0, 3).forEach(r => {
+      if (!getPC(r.ticker)) fetchPriceBars(r.ticker).catch(() => {});
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1457,21 +1462,17 @@ app.get('/api/debug', (req, res) => {
 const _priceCache = {}; // in-memory layer on top of DB
 const PRICE_TTL   = 12 * 60 * 60 * 1000; // 12h
 
-function getPC(sym, allowStale=false) {
+function getPC(sym) {
   // Check memory first
   const m = _priceCache[sym];
   if (m && Date.now() - m.fetchedAt <= PRICE_TTL) return m.bars;
-  if (m && allowStale && m.bars && m.bars.length) return m.bars; // stale but has data
   // Fall back to DB
   try {
     const row = db.prepare('SELECT bars_json, fetched_at FROM price_cache WHERE symbol=?').get(sym);
-    if (row) {
+    if (row && Date.now() - row.fetched_at <= PRICE_TTL) {
       const bars = JSON.parse(row.bars_json);
-      if (bars && bars.length) {
-        _priceCache[sym] = { bars, fetchedAt: row.fetched_at }; // warm memory
-        if (Date.now() - row.fetched_at <= PRICE_TTL) return bars; // fresh
-        if (allowStale) return bars; // stale but usable
-      }
+      _priceCache[sym] = { bars, fetchedAt: row.fetched_at }; // warm memory
+      return bars;
     }
   } catch(e) {}
   return null;
@@ -1490,21 +1491,9 @@ function setPC(sym, bars) {
 // Chain: Tiingo -> Polygon -> Yahoo query1 -> Yahoo query2
 // All sources require free API keys (TIINGO_KEY, POLYGON_KEY) set as Render env vars.
 // Yahoo kept as keyless fallback but is unreliable for server-side requests.
-async function fetchPriceBars(sym, bgRefresh=false) {
+async function fetchPriceBars(sym) {
   const cached = getPC(sym);
-  // Valid bars in cache — return immediately
-  if (cached !== null && cached.length) return cached;
-  // Empty cache entry (previous failed fetch) — clear it and retry
-  if (cached !== null && cached.length === 0) {
-    delete _priceCache[sym];
-  }
-  // Serve stale data immediately and trigger background refresh
-  const stale = getPC(sym, true);
-  if (stale && stale.length && !bgRefresh) {
-    // Return stale immediately, refresh in background
-    setImmediate(() => fetchPriceBars(sym, true).catch(() => {}));
-    return stale;
-  }
+  if (cached !== null) return cached.length ? cached : null;
   let _rateLimited = false;  // track 429s so we don't cache misses caused by rate limits
 
   function parseYahoo(body) {
@@ -1529,67 +1518,50 @@ async function fetchPriceBars(sym, bgRefresh=false) {
   const endTs = Math.floor(Date.now() / 1000);
   const startTs = endTs - 20 * 365 * 86400;
 
-  function tiingoFetch() {
-    if (!TIINGO) return Promise.resolve(null);
-    return get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 8000)
-      .then(({ status, body }) => {
-        if (status === 429) { _rateLimited = true; return null; }
-        if (status !== 200) return null;
-        const data = JSON.parse(body.toString());
-        if (!Array.isArray(data) || data.length < 2) return null;
-        const bars = data.map(d => ({ time: d.date.slice(0,10), open: d.open||d.close||0, high: d.high||d.close||0, low: d.low||d.close||0, close: d.close||0, volume: d.volume||0 })).filter(b => b.close > 0);
-        return bars.length >= 2 ? bars : null;
-      }).catch(() => null);
-  }
+  // Run all sources in parallel — return whichever responds first with valid data
+  // Timeouts reduced so failures fail fast instead of blocking for 10s each
+  const results = await Promise.allSettled([
+    // Tiingo (primary)
+    TIINGO ? get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 5000).then(({ status, body }) => {
+      if (status === 429) { _rateLimited = true; return null; }
+      if (status !== 200) return null;
+      const data = JSON.parse(body.toString());
+      if (!Array.isArray(data) || data.length < 2) return null;
+      const bars = data.map(d => ({ time: d.date.slice(0,10), open: d.open||d.close||0, high: d.high||d.close||0, low: d.low||d.close||0, close: d.close||0, volume: d.volume||0 })).filter(b => b.close > 0);
+      return bars.length >= 2 ? bars : null;
+    }) : Promise.resolve(null),
 
-  function polygonFetch() {
-    if (!POLYGON) return Promise.resolve(null);
-    return get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 8000)
-      .then(({ status, body }) => {
-        if (status !== 200) return null;
-        const data = JSON.parse(body.toString());
-        if (!data.results || data.results.length < 2) return null;
-        const bars = data.results.map(d => ({ time: new Date(d.t).toISOString().slice(0,10), open: d.o||0, high: d.h||0, low: d.l||0, close: d.c||0, volume: d.v||0 })).filter(b => b.close > 0);
-        return bars.length >= 2 ? bars : null;
-      }).catch(() => null);
-  }
+    // Polygon (secondary)
+    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
+      if (status !== 200) return null;
+      const data = JSON.parse(body.toString());
+      if (!data.results || data.results.length < 2) return null;
+      const bars = data.results.map(d => ({ time: new Date(d.t).toISOString().slice(0,10), open: d.o||0, high: d.h||0, low: d.l||0, close: d.c||0, volume: d.v||0 })).filter(b => b.close > 0);
+      return bars.length >= 2 ? bars : null;
+    }) : Promise.resolve(null),
 
-  function yahooFetch(host) {
-    return get(`https://${host}/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json', 'Referer': 'https://finance.yahoo.com/' }
-    }).then(({ status, body }) => { if (status !== 200) return null; return parseYahoo(body); }).catch(() => null);
-  }
+    // Yahoo query1 (fallback)
+    get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
+      if (status !== 200) return null;
+      return parseYahoo(body);
+    }).catch(() => null),
 
-  // Stage 1: run Tiingo and Polygon in parallel, pick the one with more bars
-  // Both are fast — waiting for both is still faster than Yahoo fallback
-  let bars = null;
-  if (TIINGO || POLYGON) {
-    const stage1 = await Promise.allSettled([
-      tiingoFetch(),
-      polygonFetch(),
-    ]);
-    for (const r of stage1) {
-      if (r.status === 'fulfilled' && r.value && r.value.length > (bars?.length || 0)) {
-        bars = r.value;
-      }
+    // Yahoo query2 (fallback)
+    get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
+      if (status !== 200) return null;
+      return parseYahoo(body);
+    }).catch(() => null),
+  ]);
+
+  // Use first successful result
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value) {
+      setPC(sym, r.value);
+      return r.value;
     }
   }
 
-  // Stage 2: fall back to Yahoo if keyed sources failed or were rate-limited
-  if (!bars) {
-    const yahooResults = await Promise.allSettled([
-      yahooFetch('query1.finance.yahoo.com'),
-      yahooFetch('query2.finance.yahoo.com'),
-    ]);
-    for (const r of yahooResults) {
-      if (r.status === 'fulfilled' && r.value && r.value.length > (bars?.length || 0)) {
-        bars = r.value;
-        _rateLimited = false; // Yahoo succeeded — don't skip caching
-      }
-    }
-  }
-
-  if (bars) { setPC(sym, bars); return bars; }
+  if (!_rateLimited) setPC(sym, []);
   return null;
 }
 
@@ -1603,12 +1575,18 @@ async function warmPriceCache() {
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       GROUP BY ticker ORDER BY n DESC LIMIT 180
     `).all();
+    // Always warm popular large-caps even if no insider buys
+    const popular = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','JPM','V','CRM',
+      'JNJ','UNH','XOM','PG','MA','HD','CVX','MRK','ABBV','PEP','KO','AVGO','LLY','COST',
+      'MCD','ACN','TMO','CSCO','ABT','BAC','WMT','DIS','ADBE','NFLX','TXN','QCOM','IBM'];
+    const existing = new Set(rows.map(r => r.ticker));
+    popular.forEach(t => { if (!existing.has(t)) rows.push({ ticker: t, n: 0 }); });
     slog(`Warming price cache for ${rows.length} tickers...`);
-    // Batch in groups of 10 with 500ms delay — ~18s for 180 tickers
+    // Batch in groups of 10, 300ms delay between batches
     for (let i = 0; i < rows.length; i += 10) {
       const batch = rows.slice(i, i + 10).map(r => r.ticker);
       await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 500));
+      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 300));
     }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
@@ -1617,14 +1595,20 @@ async function warmPriceCache() {
 app.get('/api/price', async (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
-  // ?bust=1 forces a fresh fetch by clearing the cache entry first
   if (req.query.bust === '1') {
     delete _priceCache[sym];
     try { db.prepare('DELETE FROM price_cache WHERE symbol=?').run(sym); } catch(_) {}
   }
+  const t0 = Date.now();
   const bars = await fetchPriceBars(sym);
   if (res.headersSent) return;
-  bars ? res.json(bars) : res.status(404).json({ error: `No price data for ${sym}` });
+  const ms = Date.now() - t0;
+  if (!bars || !bars.length) {
+    slog(`price MISS ${sym}: ${ms}ms — tiingo=${!!TIINGO} polygon=${!!POLYGON}`);
+  } else {
+    slog(`price OK ${sym}: ${bars.length} bars in ${ms}ms`);
+  }
+  res.json(bars || []);
 });
 
 // Returns {TICKER: bars[], ...} for up to 20 tickers in one call
