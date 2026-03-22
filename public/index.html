@@ -2187,8 +2187,9 @@ async function loadStockViewBust(ticker) {
 let _loadStockViewInFlight = null;
 async function loadStockView(ticker, opts={}) {
   // If same ticker already loading, ignore duplicate call
-  if (_loadStockViewInFlight === ticker) return;
+  if (_loadStockViewInFlight === ticker) { console.log('loadStockView: blocked by in-flight guard for', ticker); return; }
   _loadStockViewInFlight = ticker;
+  console.log('loadStockView: starting for', ticker);
   window.scrollTo(0, 0);
   // Activate the stock view + nav tab
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -2232,6 +2233,7 @@ async function loadStockView(ticker, opts={}) {
   // Price chart streams in separately so the user isn't waiting for
   // an external API call before seeing anything.
   const insiderData = await fetchInsiderForTicker(ticker).catch(()=>[]);
+  console.log('insiderData for', ticker, ':', insiderData.length, 'rows');
   state.tickerTrades = insiderData; state.currentPriceData = [];
 
   // Kick off price fetch in background — don't await it yet
