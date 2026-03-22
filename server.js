@@ -1471,14 +1471,16 @@ const PRICE_TTL   = 12 * 60 * 60 * 1000; // 12h
 function getPC(sym) {
   // Check memory first
   const m = _priceCache[sym];
-  if (m && Date.now() - m.fetchedAt <= PRICE_TTL) return m.bars;
+  if (m && Date.now() - m.fetchedAt <= PRICE_TTL && m.bars.length > 0) return m.bars;
   // Fall back to DB
   try {
     const row = db.prepare('SELECT bars_json, fetched_at FROM price_cache WHERE symbol=?').get(sym);
     if (row && Date.now() - row.fetched_at <= PRICE_TTL) {
       const bars = JSON.parse(row.bars_json);
-      _priceCache[sym] = { bars, fetchedAt: row.fetched_at }; // warm memory
-      return bars;
+      if (bars.length > 0) {
+        _priceCache[sym] = { bars, fetchedAt: row.fetched_at };
+        return bars;
+      }
     }
   } catch(e) {}
   return null;
@@ -1499,7 +1501,7 @@ function setPC(sym, bars) {
 // Yahoo kept as keyless fallback but is unreliable for server-side requests.
 async function fetchPriceBars(sym) {
   const cached = getPC(sym);
-  if (cached !== null) return cached.length ? cached : null;
+  if (cached) return cached;
   let _rateLimited = false;  // track 429s so we don't cache misses caused by rate limits
 
   function parseYahoo(body) {
@@ -1566,8 +1568,7 @@ async function fetchPriceBars(sym) {
     setPC(sym, bars);
     return bars;
   } catch (_) {
-    // All sources failed
-    if (!_rateLimited) setPC(sym, []);
+    // All sources failed — do NOT cache the failure, allow retry on next request
     return null;
   }
 }
