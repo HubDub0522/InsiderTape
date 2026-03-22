@@ -1555,22 +1555,19 @@ async function fetchPriceBars(sym, bgRefresh=false) {
     }).then(({ status, body }) => { if (status !== 200) return null; return parseYahoo(body); }).catch(() => null);
   }
 
-  // Stage 1: race Tiingo vs Polygon — both are fast & reliable with API keys
-  // First valid response wins immediately without waiting for the other
+  // Stage 1: run Tiingo and Polygon in parallel, pick the one with more bars
+  // Both are fast — waiting for both is still faster than Yahoo fallback
   let bars = null;
   if (TIINGO || POLYGON) {
-    bars = await new Promise(resolve => {
-      let done = false;
-      let pending = (TIINGO ? 1 : 0) + (POLYGON ? 1 : 0);
-      function tryResolve(result) {
-        if (done) return;
-        if (result && result.length) { done = true; resolve(result); return; }
-        pending--;
-        if (pending <= 0) resolve(null);
+    const stage1 = await Promise.allSettled([
+      tiingoFetch(),
+      polygonFetch(),
+    ]);
+    for (const r of stage1) {
+      if (r.status === 'fulfilled' && r.value && r.value.length > (bars?.length || 0)) {
+        bars = r.value;
       }
-      if (TIINGO)  tiingoFetch().then(tryResolve);
-      if (POLYGON) polygonFetch().then(tryResolve);
-    });
+    }
   }
 
   // Stage 2: fall back to Yahoo if keyed sources failed or were rate-limited
