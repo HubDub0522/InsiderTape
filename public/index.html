@@ -2408,7 +2408,11 @@ const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
 function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
-    window._onLCReady(() => buildChart(priceData, trades));
+    // Replace any existing buildChart callbacks — only keep the latest
+    window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
+    const cb = () => buildChart(priceData, trades);
+    cb._isBuildChart = true;
+    window._onLCReady(cb);
     return;
   }
   const container = document.getElementById('chartContainer');
