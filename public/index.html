@@ -2372,7 +2372,7 @@ async function loadStockView(ticker, opts={}) {
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    buildChart(priceData, insiderData);
+    await buildChart(priceData, insiderData);
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
     const prev    = priceData[priceData.length-2];
@@ -2427,22 +2427,24 @@ async function buildChart(priceData, trades) {
   }
   const container = document.getElementById('chartContainer');
   if (!container || !priceData.length) return;
-  // Verify container is still attached to DOM — a second loadStockView call may have wiped it
   if (!document.body.contains(container)) return;
+
+  // Increment generation counter — any prior buildChart call will abort
+  if (!window._chartGen) window._chartGen = 0;
+  const myGen = ++window._chartGen;
+
+  // Yield one tick — lets any in-flight loadStockView DOM wipe complete first
+  await new Promise(r => setTimeout(r, 20));
+  if (myGen !== window._chartGen) return; // superseded by newer call
+  if (!document.body.contains(container)) return; // container was removed
+
+  // NOW wipe and rebuild — we're the winning call
   if (state.chart) { try{state.chart.remove();}catch(e){} state.chart=null; }
   if (state.pressureChart) { try{state.pressureChart.remove();}catch(e){} state.pressureChart=null; state.drawPressure=null; }
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
   container.innerHTML = '';
   container.style.height = getChartH() + 'px';
   container.style.display = 'block';
-
-  // Guard: if another buildChart call arrives before LC's rAF fires, abort this one
-  if (!window._chartGen) window._chartGen = 0;
-  const myGen = ++window._chartGen;
-  // Yield one tick so any pending DOM wipes from a second loadStockView can complete
-  await new Promise(r => setTimeout(r, 0));
-  if (myGen !== window._chartGen) return; // superseded
-  if (!document.body.contains(container)) return; // container wiped
   const chart = LightweightCharts.createChart(container, {
     width: container.clientWidth || container.offsetWidth || 800,
     height: getChartH(),
