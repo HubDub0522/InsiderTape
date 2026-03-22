@@ -1213,6 +1213,7 @@ async function apiFetch(path, opts={}) {
            : (path.startsWith('/api/proximity')) ? 90000
            : path.startsWith('/api/firstbuys') ? 60000
            : path.startsWith('/api/screener')  ? 60000
+           : path.startsWith('/api/price')     ? 30000
            : 45000;
   const timer = setTimeout(() => controller.abort(), ms);
   try {
