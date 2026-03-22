@@ -1456,17 +1456,21 @@ app.get('/api/debug', (req, res) => {
 const _priceCache = {}; // in-memory layer on top of DB
 const PRICE_TTL   = 12 * 60 * 60 * 1000; // 12h
 
-function getPC(sym) {
+function getPC(sym, allowStale=false) {
   // Check memory first
   const m = _priceCache[sym];
   if (m && Date.now() - m.fetchedAt <= PRICE_TTL) return m.bars;
+  if (m && allowStale && m.bars && m.bars.length) return m.bars; // stale but has data
   // Fall back to DB
   try {
     const row = db.prepare('SELECT bars_json, fetched_at FROM price_cache WHERE symbol=?').get(sym);
-    if (row && Date.now() - row.fetched_at <= PRICE_TTL) {
+    if (row) {
       const bars = JSON.parse(row.bars_json);
-      _priceCache[sym] = { bars, fetchedAt: row.fetched_at }; // warm memory
-      return bars;
+      if (bars && bars.length) {
+        _priceCache[sym] = { bars, fetchedAt: row.fetched_at }; // warm memory
+        if (Date.now() - row.fetched_at <= PRICE_TTL) return bars; // fresh
+        if (allowStale) return bars; // stale but usable
+      }
     }
   } catch(e) {}
   return null;
@@ -1485,9 +1489,16 @@ function setPC(sym, bars) {
 // Chain: Tiingo -> Polygon -> Yahoo query1 -> Yahoo query2
 // All sources require free API keys (TIINGO_KEY, POLYGON_KEY) set as Render env vars.
 // Yahoo kept as keyless fallback but is unreliable for server-side requests.
-async function fetchPriceBars(sym) {
+async function fetchPriceBars(sym, bgRefresh=false) {
   const cached = getPC(sym);
   if (cached !== null) return cached.length ? cached : null;
+  // Serve stale data immediately and trigger background refresh
+  const stale = getPC(sym, true);
+  if (stale && stale.length && !bgRefresh) {
+    // Return stale immediately, refresh in background
+    setImmediate(() => fetchPriceBars(sym, true).catch(() => {}));
+    return stale;
+  }
   let _rateLimited = false;  // track 429s so we don't cache misses caused by rate limits
 
   function parseYahoo(body) {
@@ -1573,11 +1584,11 @@ async function warmPriceCache() {
       GROUP BY ticker ORDER BY n DESC LIMIT 180
     `).all();
     slog(`Warming price cache for ${rows.length} tickers...`);
-    // Batch in groups of 5 with 1s delay — avoid rate-limiting Tiingo/Polygon
-    for (let i = 0; i < rows.length; i += 5) {
-      const batch = rows.slice(i, i + 5).map(r => r.ticker);
+    // Batch in groups of 10 with 500ms delay — ~18s for 180 tickers
+    for (let i = 0; i < rows.length; i += 10) {
+      const batch = rows.slice(i, i + 10).map(r => r.ticker);
       await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 5 < rows.length) await new Promise(r => setTimeout(r, 1000));
+      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 500));
     }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
