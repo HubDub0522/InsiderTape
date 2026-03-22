@@ -2475,6 +2475,7 @@ async function buildChart(priceData, trades) {
     // Candlestick series (default)
     mainSeries = chart.addCandlestickSeries({upColor:'#00ff88',downColor:'#ff4466',borderUpColor:'#00ff88',borderDownColor:'#ff4466',wickUpColor:'#00ff88',wickDownColor:'#ff4466'});
     mainSeries.setData(priceData.map(d=>({time:d.time,open:d.open,high:d.high,low:d.low,close:d.close})));
+  console.log('setData', priceData.length, 'bars, first:', priceData[0]?.time, 'last:', priceData[priceData.length-1]?.time, 'container:', container.clientWidth, 'x', container.clientHeight);
   }
   const volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',scaleMargins:{top:0.82,bottom:0}});
   volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
