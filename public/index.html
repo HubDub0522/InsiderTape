@@ -2423,8 +2423,11 @@ function buildChart(priceData, trades) {
   if (state.pressureChart) { try{state.pressureChart.remove();}catch(e){} state.pressureChart=null; state.drawPressure=null; }
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
   container.innerHTML = '';
+  container.style.height = getChartH() + 'px';
+  container.style.display = 'block';
   const chart = LightweightCharts.createChart(container, {
-    autoSize:true, height:getChartH(),
+    width: container.clientWidth || container.offsetWidth || 800,
+    height: getChartH(),
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
@@ -2623,8 +2626,12 @@ function buildPressureChart(mainChart,trades,priceData) {
   // No baseline line, no price line, no last-value line — just bars.
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
   if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
+  const pcH = window.innerWidth <= 640 ? 80 : 120;
+  pc.style.height = pcH + 'px';
+  pc.style.display = 'block';
   const pChart=LightweightCharts.createChart(pc,{
-    autoSize:true, height:window.innerWidth<=640?80:120,
+    width: pc.clientWidth || pc.offsetWidth || 800,
+    height: pcH,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
     rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
