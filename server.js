@@ -1518,70 +1518,65 @@ async function fetchPriceBars(sym) {
   const endTs = Math.floor(Date.now() / 1000);
   const startTs = endTs - 20 * 365 * 86400;
 
-  // Run all sources in parallel — return whichever responds first with valid data
-  // Timeouts reduced so failures fail fast instead of blocking for 10s each
-  const results = await Promise.allSettled([
-    // Tiingo (primary)
-    TIINGO ? get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 5000).then(({ status, body }) => {
-      if (status === 429) { _rateLimited = true; return null; }
-      if (status !== 200) return null;
-      const data = JSON.parse(body.toString());
-      if (!Array.isArray(data) || data.length < 2) return null;
-      const bars = data.map(d => ({ time: d.date.slice(0,10), open: d.open||d.close||0, high: d.high||d.close||0, low: d.low||d.close||0, close: d.close||0, volume: d.volume||0 })).filter(b => b.close > 0);
-      return bars.length >= 2 ? bars : null;
-    }) : Promise.resolve(null),
+  // Race all sources — return as soon as the first one responds with valid data
+  const makeSource = (promise) => promise.then(result => {
+    if (!result) throw new Error('no data');
+    return result;
+  });
 
-    // Polygon (secondary)
-    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
-      if (status !== 200) return null;
-      const data = JSON.parse(body.toString());
-      if (!data.results || data.results.length < 2) return null;
-      const bars = data.results.map(d => ({ time: new Date(d.t).toISOString().slice(0,10), open: d.o||0, high: d.h||0, low: d.l||0, close: d.c||0, volume: d.v||0 })).filter(b => b.close > 0);
-      return bars.length >= 2 ? bars : null;
-    }) : Promise.resolve(null),
+  try {
+    const bars = await Promise.any([
+      // Tiingo (primary)
+      TIINGO ? makeSource(get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 5000).then(({ status, body }) => {
+        if (status === 429) { _rateLimited = true; return null; }
+        if (status !== 200) return null;
+        const data = JSON.parse(body.toString());
+        if (!Array.isArray(data) || data.length < 2) return null;
+        const bars = data.map(d => ({ time: d.date.slice(0,10), open: d.open||d.close||0, high: d.high||d.close||0, low: d.low||d.close||0, close: d.close||0, volume: d.volume||0 })).filter(b => b.close > 0);
+        return bars.length >= 2 ? bars : null;
+      })) : Promise.reject(new Error('no tiingo')),
 
-    // Yahoo query1 (fallback)
-    get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
-      if (status !== 200) return null;
-      return parseYahoo(body);
-    }).catch(() => null),
+      // Polygon (secondary)
+      POLYGON ? makeSource(get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
+        if (status !== 200) return null;
+        const data = JSON.parse(body.toString());
+        if (!data.results || data.results.length < 2) return null;
+        const bars = data.results.map(d => ({ time: new Date(d.t).toISOString().slice(0,10), open: d.o||0, high: d.h||0, low: d.l||0, close: d.c||0, volume: d.v||0 })).filter(b => b.close > 0);
+        return bars.length >= 2 ? bars : null;
+      })) : Promise.reject(new Error('no polygon')),
 
-    // Yahoo query2 (fallback)
-    get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
-      if (status !== 200) return null;
-      return parseYahoo(body);
-    }).catch(() => null),
-  ]);
+      // Yahoo query1 (fallback)
+      makeSource(get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
+        if (status !== 200) return null;
+        return parseYahoo(body);
+      }).catch(() => null)),
 
-  // Use first successful result
-  for (const r of results) {
-    if (r.status === 'fulfilled' && r.value) {
-      setPC(sym, r.value);
-      return r.value;
-    }
+      // Yahoo query2 (fallback)
+      makeSource(get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 5000).then(({ status, body }) => {
+        if (status !== 200) return null;
+        return parseYahoo(body);
+      }).catch(() => null)),
+    ]);
+    setPC(sym, bars);
+    return bars;
+  } catch (_) {
+    // All sources failed
+    if (!_rateLimited) setPC(sym, []);
+    return null;
   }
-
-  if (!_rateLimited) setPC(sym, []);
-  return null;
 }
 
-// Warm price cache for the most-active tickers at startup
+// Warm price cache for the most-active insider tickers at startup
 async function warmPriceCache() {
   try {
     const rows = db.prepare(`
-      SELECT ticker, COUNT(*) AS n FROM trades
-      WHERE TRIM(type)='P' AND trade_date >= date('now','-365 days')
-      AND trade_date <= date('now')
+      SELECT ticker FROM trades
+      WHERE TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-365 days')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-      GROUP BY ticker ORDER BY n DESC LIMIT 180
+      GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 50
     `).all();
     slog(`Warming price cache for ${rows.length} tickers...`);
-    // Batch in groups of 10, 300ms delay between batches
-    for (let i = 0; i < rows.length; i += 10) {
-      const batch = rows.slice(i, i + 10).map(r => r.ticker);
-      await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 300));
-    }
+    await Promise.allSettled(rows.map(r => fetchPriceBars(r.ticker)));
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
 }
@@ -2206,8 +2201,7 @@ try { db.prepare(`DELETE FROM price_cache WHERE bars_json = '[]'`).run(); } catc
 // Pre-warm popular large-caps immediately (no delay) — these are searched by users
 // but rarely have insider buys so they'd miss the 60s warm-up otherwise
 const POPULAR_TICKERS = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','JPM','V','CRM',
-  'JNJ','UNH','XOM','PG','MA','HD','CVX','MRK','ABBV','PEP','KO','AVGO','LLY','COST',
-  'MCD','ACN','TMO','CSCO','ABT','BAC','WMT','DIS','ADBE','NFLX','TXN','QCOM','IBM'];
+  'JNJ','UNH','XOM','PG','MA','HD','ABBV','BAC','WMT','SNOW','GS','AMD','PLTR','COIN'];
 setTimeout(() => {
   Promise.allSettled(POPULAR_TICKERS.map(sym => fetchPriceBars(sym)))
     .then(() => slog('Popular ticker price cache warmed'))
