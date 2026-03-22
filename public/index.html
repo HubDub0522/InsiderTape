@@ -1186,7 +1186,17 @@ document.getElementById('globalSuggest').addEventListener('mousedown', e => {
 // Keep old searchTicker as alias
 function searchTicker() { globalSearch(); }
 
-document.getElementById('tickerInput').addEventListener('keydown', e => { if (e.key==='Enter') globalSearch(); });
+document.getElementById('tickerInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const box = document.getElementById('globalSuggest');
+    // If suggest box is visible and has suggestions, mousedown already handled it
+    if (box && box.style.display !== 'none' && box._suggestions && box._suggestions.length) {
+      hideGlobalSuggest();
+      return;
+    }
+    globalSearch();
+  }
+});
 document.getElementById('tickerInput').addEventListener('input', e => onGlobalInput(e.target.value));
 document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) hideGlobalSuggest(); });
 
@@ -2402,7 +2412,9 @@ function buildChart(priceData, trades) {
     return;
   }
   const container = document.getElementById('chartContainer');
-  if (!container||!priceData.length) return;
+  if (!container || !priceData.length) return;
+  // Verify container is still attached to DOM — a second loadStockView call may have wiped it
+  if (!document.body.contains(container)) return;
   if (state.chart) { try{state.chart.remove();}catch(e){} state.chart=null; }
   if (state.pressureChart) { try{state.pressureChart.remove();}catch(e){} state.pressureChart=null; state.drawPressure=null; }
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
