@@ -2514,7 +2514,12 @@ async function buildChart(priceData, trades) {
   }
   else chart.timeScale().fitContent();
   buildCircleOverlay(container,chart,mainSeries,trades,priceData);
-  buildPressureChartGated(chart,trades,priceData);
+  // Defer pressure chart until after LC's first rAF for the main chart completes
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      buildPressureChartGated(chart,trades,priceData);
+    });
+  });
   // Initialise stat bar to match the active 1Y range button
   setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
   // LightweightCharts handles its own resizing via autoSize
