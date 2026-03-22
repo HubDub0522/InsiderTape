@@ -50,7 +50,7 @@
     else window._lcCallbacks.push(cb);
   };
 </script>
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer onload="window._lcLoaded=true;window._lcCallbacks.forEach(function(f){f()});window._lcCallbacks=[];"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" onload="window._lcLoaded=true;window._lcCallbacks.forEach(function(f){f()});window._lcCallbacks=[];"></script>
 <style>
   /* Font display: optional means browser uses fallback if font not cached,
      eliminating font-swap CLS entirely */
