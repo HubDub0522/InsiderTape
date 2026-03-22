@@ -1492,7 +1492,12 @@ function setPC(sym, bars) {
 // Yahoo kept as keyless fallback but is unreliable for server-side requests.
 async function fetchPriceBars(sym, bgRefresh=false) {
   const cached = getPC(sym);
-  if (cached !== null) return cached.length ? cached : null;
+  // Valid bars in cache — return immediately
+  if (cached !== null && cached.length) return cached;
+  // Empty cache entry (previous failed fetch) — clear it and retry
+  if (cached !== null && cached.length === 0) {
+    delete _priceCache[sym];
+  }
   // Serve stale data immediately and trigger background refresh
   const stale = getPC(sym, true);
   if (stale && stale.length && !bgRefresh) {
@@ -1585,12 +1590,6 @@ async function fetchPriceBars(sym, bgRefresh=false) {
   }
 
   if (bars) { setPC(sym, bars); return bars; }
-
-  if (!_rateLimited) {
-    // Cache failure for only 30min so it retries sooner
-    const FAIL_TTL = 30 * 60 * 1000;
-    _priceCache[sym] = { bars: [], fetchedAt: Date.now() - (PRICE_TTL - FAIL_TTL) };
-  }
   return null;
 }
 
