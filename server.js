@@ -1491,9 +1491,26 @@ function setPC(sym, bars) {
 // Chain: Tiingo -> Polygon -> Yahoo query1 -> Yahoo query2
 // All sources require free API keys (TIINGO_KEY, POLYGON_KEY) set as Render env vars.
 // Yahoo kept as keyless fallback but is unreliable for server-side requests.
+// In-flight deduplication: if a fetch is already running for a symbol, wait for it
+const _priceFetchInFlight = {};
+
 async function fetchPriceBars(sym) {
   const cached = getPC(sym);
   if (cached !== null) return cached.length ? cached : null;
+
+  // If already fetching this symbol, wait for that fetch instead of starting another
+  if (_priceFetchInFlight[sym]) {
+    return _priceFetchInFlight[sym];
+  }
+
+  const promise = _doFetchPriceBars(sym).finally(() => {
+    delete _priceFetchInFlight[sym];
+  });
+  _priceFetchInFlight[sym] = promise;
+  return promise;
+}
+
+async function _doFetchPriceBars(sym) {
   let _rateLimited = false;  // track 429s so we don't cache misses caused by rate limits
 
   function parseYahoo(body) {
