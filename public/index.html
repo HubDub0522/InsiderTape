@@ -2187,9 +2187,8 @@ async function loadStockViewBust(ticker) {
 let _loadStockViewInFlight = null;
 async function loadStockView(ticker, opts={}) {
   // If same ticker already loading, ignore duplicate call
-  if (_loadStockViewInFlight === ticker) { console.log('loadStockView: blocked by in-flight guard for', ticker); return; }
+  if (_loadStockViewInFlight === ticker) return;
   _loadStockViewInFlight = ticker;
-  console.log('loadStockView: starting for', ticker);
   window.scrollTo(0, 0);
   // Activate the stock view + nav tab
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -2233,11 +2232,10 @@ async function loadStockView(ticker, opts={}) {
   // Price chart streams in separately so the user isn't waiting for
   // an external API call before seeing anything.
   const insiderData = await fetchInsiderForTicker(ticker).catch(()=>[]);
-  console.log('insiderData for', ticker, ':', insiderData.length, 'rows');
   state.tickerTrades = insiderData; state.currentPriceData = [];
 
   // Kick off price fetch in background — don't await it yet
-  const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(e=>{console.error('price fetch error for '+ticker+':', e); return [];});
+  const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
 
   // Use empty price data for initial render — chart area shows spinner
   let priceData = [];
@@ -2358,9 +2356,8 @@ async function loadStockView(ticker, opts={}) {
 
   // ── PHASE 2: Await price data and inject chart ────────────────────
   priceData = await pricePromise;
-  console.log('priceData for', ticker, ':', priceData && priceData.length, 'bars, currentTicker:', state.currentTicker);
   // Abort if user navigated away mid-fetch
-  if (state.currentTicker !== ticker) { console.log('navigated away, aborting chart render for', ticker); _loadStockViewInFlight = null; return; }
+  if (state.currentTicker !== ticker) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
   if (priceData.length) {
