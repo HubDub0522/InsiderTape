@@ -2462,6 +2462,17 @@ async function buildChart(priceData, trades) {
   state.currentChartPriceData = priceData;
   state.currentChartTrades = trades;
 
+  // Sanitize price data before handing to LightweightCharts.
+  // LC requires strictly-ascending time with no duplicate timestamps.
+  // Yahoo Finance (fallback for OTC/thinly-traded tickers like BETR) can return
+  // duplicate or out-of-order bars; setData() throws on bad input, silently
+  // aborting buildChart and leaving a blank container with only the trade markers.
+  const _seenTimes = new Set();
+  const cleanData = priceData
+    .slice()
+    .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
+    .filter(d => { if (_seenTimes.has(d.time)) return false; _seenTimes.add(d.time); return true; });
+
   let mainSeries;
   if (_chartType === 'line') {
     // Area/line series — blue gradient fill like the mockup
@@ -2475,14 +2486,14 @@ async function buildChart(priceData, trades) {
       crosshairMarkerBorderColor: '#00d4ff',
       crosshairMarkerBackgroundColor: '#00d4ff',
     });
-    mainSeries.setData(priceData.map(d=>({time:d.time,value:d.close})));
+    mainSeries.setData(cleanData.map(d=>({time:d.time,value:d.close})));
   } else {
     // Candlestick series (default)
     mainSeries = chart.addCandlestickSeries({upColor:'#00ff88',downColor:'#ff4466',borderUpColor:'#00ff88',borderDownColor:'#ff4466',wickUpColor:'#00ff88',wickDownColor:'#ff4466'});
-    mainSeries.setData(priceData.map(d=>({time:d.time,open:d.open,high:d.high,low:d.low,close:d.close})));
+    mainSeries.setData(cleanData.map(d=>({time:d.time,open:d.open,high:d.high,low:d.low,close:d.close})));
   }
   const volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',scaleMargins:{top:0.82,bottom:0}});
-  volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
+  volSeries.setData(cleanData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
   state.chart=chart; state.candleSeries=mainSeries;
 
   // Sync toggle button states
@@ -2499,18 +2510,18 @@ async function buildChart(priceData, trades) {
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
 
-  buildCircleOverlay(container,chart,mainSeries,trades,priceData);
+  buildCircleOverlay(container,chart,mainSeries,trades,cleanData);
 
   // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
     // Set visible range
     const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
     const cutStr=cutoff.toISOString().split('T')[0];
-    const visible=priceData.filter(d=>d.time>=cutStr);
+    const visible=cleanData.filter(d=>d.time>=cutStr);
     if (visible.length>0) {
       try {
         const fromTs = Math.floor(new Date(visible[0].time+'T00:00:00Z').getTime()/1000);
-        const toTs   = Math.floor(new Date(priceData[priceData.length-1].time+'T23:59:59Z').getTime()/1000);
+        const toTs   = Math.floor(new Date(cleanData[cleanData.length-1].time+'T23:59:59Z').getTime()/1000);
         chart.timeScale().setVisibleRange({from:fromTs,to:toTs});
       } catch(e) { try { chart.timeScale().fitContent(); } catch(e2) {} }
     } else {
