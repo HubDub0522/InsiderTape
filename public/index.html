@@ -2173,7 +2173,11 @@ async function loadStockViewBust(ticker) {
   loadStockView(ticker);
 }
 
+let _loadStockViewInFlight = null;
 async function loadStockView(ticker, opts={}) {
+  // If same ticker already loading, ignore duplicate call
+  if (_loadStockViewInFlight === ticker) return;
+  _loadStockViewInFlight = ticker;
   window.scrollTo(0, 0);
   // Activate the stock view + nav tab
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -2343,7 +2347,7 @@ async function loadStockView(ticker, opts={}) {
   priceData = await pricePromise;
   console.log('priceData for', ticker, ':', priceData && priceData.length, 'bars, currentTicker:', state.currentTicker);
   // Abort if user navigated away mid-fetch
-  if (state.currentTicker !== ticker) { console.log('navigated away, aborting chart render for', ticker); return; }
+  if (state.currentTicker !== ticker) { console.log('navigated away, aborting chart render for', ticker); _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
   if (priceData.length) {
@@ -2384,6 +2388,7 @@ async function loadStockView(ticker, opts={}) {
     btn.style.color      = isActive ? (btn.dataset.color||'var(--accent)') : 'var(--muted)';
     btn.style.borderColor= isActive ? (btn.dataset.color||'var(--accent)') : 'var(--border)';
   });
+  _loadStockViewInFlight = null;
 }
 
 // ── CHART ─────────────────────────────────────────────────────────
