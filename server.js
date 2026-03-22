@@ -751,45 +751,51 @@ app.get('/api/insider', (req, res) => {
 
 // PRICE — FMP with Yahoo Finance fallback
 // SEARCH AUTOCOMPLETE — ticker prefix + company name + insider name
+// In-memory ticker/company index for instant autocomplete — built at startup
+let _searchIndex = []; // [{ticker, company, n}] sorted by trade count desc
+function buildSearchIndex() {
+  try {
+    const rows = db.prepare(`
+      SELECT ticker, MAX(company) AS company, COUNT(*) AS n
+      FROM trades
+      WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      GROUP BY ticker ORDER BY n DESC
+    `).all();
+    _searchIndex = rows;
+    slog(`Search index built: ${rows.length} tickers`);
+  } catch(e) { slog('buildSearchIndex error: ' + e.message); }
+}
+
 app.get('/api/search', (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q || q.length < 1) return res.json({ tickers: [], insiders: [] });
   try {
     const upper = q.toUpperCase();
-    // Ticker prefix match
-    const tickerRows = db.prepare(`
-      SELECT ticker, MAX(company) AS company, COUNT(*) AS n
-      FROM trades
-      WHERE ticker GLOB ? AND LENGTH(ticker) BETWEEN 1 AND 6
-      GROUP BY ticker ORDER BY n DESC LIMIT 8
-    `).all(upper + '*');
-    // Company name match (case-insensitive contains)
-    const companyRows = db.prepare(`
-      SELECT ticker, MAX(company) AS company, COUNT(*) AS n
-      FROM trades
-      WHERE UPPER(company) LIKE ? AND LENGTH(ticker) BETWEEN 1 AND 6
-        AND ticker GLOB '[A-Z]*'
-      GROUP BY ticker ORDER BY n DESC LIMIT 4
-    `).all('%' + upper + '%');
-    // Insider name match
-    const insiderRows = db.prepare(`
+
+    // Instant ticker lookup from in-memory index
+    const prefixMatches = [], companyMatches = [];
+    for (const r of _searchIndex) {
+      if (r.ticker.startsWith(upper)) prefixMatches.push(r);
+      else if (r.company && r.company.toUpperCase().includes(upper)) companyMatches.push(r);
+      if (prefixMatches.length >= 8 && companyMatches.length >= 4) break;
+    }
+    const seenTickers = new Set(prefixMatches.map(r => r.ticker));
+    const allTickers = [...prefixMatches, ...companyMatches.filter(r => !seenTickers.has(r.ticker))].slice(0, 8);
+
+    // Insider name match still hits DB but only when needed
+    const insiderRows = q.length >= 2 ? db.prepare(`
       SELECT insider, MAX(title) AS title, COUNT(*) AS n
       FROM trades
       WHERE UPPER(insider) LIKE ? AND insider IS NOT NULL
       GROUP BY insider ORDER BY n DESC LIMIT 6
-    `).all('%' + q.toUpperCase() + '%');
-
-    // Merge ticker results (prefix first, then company matches not already in prefix)
-    const seenTickers = new Set(tickerRows.map(r => r.ticker));
-    const allTickers = [...tickerRows];
-    companyRows.forEach(r => { if (!seenTickers.has(r.ticker)) allTickers.push(r); });
+    `).all('%' + upper + '%') : [];
 
     res.json({
-      tickers: allTickers.slice(0, 8).map(r => ({ ticker: r.ticker, company: r.company || r.ticker })),
-      insiders: insiderRows.slice(0, 6).map(r => ({ name: r.insider, title: r.title || '' })),
+      tickers: allTickers.map(r => ({ ticker: r.ticker, company: r.company || r.ticker })),
+      insiders: insiderRows.map(r => ({ name: r.insider, title: r.title || '' })),
     });
 
-    // Pre-warm price cache for searched tickers in background (don't block response)
+    // Pre-warm price cache for searched tickers in background
     allTickers.slice(0, 3).forEach(r => {
       if (!getPC(r.ticker)) fetchPriceBars(r.ticker).catch(() => {});
     });
@@ -2197,6 +2203,9 @@ runDaily(3);
 // Prevents all three from hammering external price APIs simultaneously.
 // Clear empty/failed price cache entries immediately so they retry
 try { db.prepare(`DELETE FROM price_cache WHERE bars_json = '[]'`).run(); } catch(_) {}
+
+// Build search index immediately — must be ready before first user request
+buildSearchIndex();
 
 // Pre-warm popular large-caps immediately (no delay) — these are searched by users
 // but rarely have insider buys so they'd miss the 60s warm-up otherwise
