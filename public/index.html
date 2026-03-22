@@ -50,7 +50,7 @@
     else window._lcCallbacks.push(cb);
   };
 </script>
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer onload="window._lcLoaded=true;window._lcCallbacks.forEach(function(f){f()});window._lcCallbacks=[];"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js" defer onload="window._lcLoaded=true;window._lcCallbacks.forEach(function(f){f()});window._lcCallbacks=[];"></script>
 <style>
   /* Font display: optional means browser uses fallback if font not cached,
      eliminating font-swap CLS entirely */
@@ -2417,18 +2417,21 @@ async function buildChart(priceData, trades) {
   const container = document.getElementById('chartContainer');
   if (!container || !priceData.length) return;
 
-  // Null out state references first so rAF callbacks from old charts don't use them
+  // Null out state references first
   const oldChart = state.chart;
   const oldPChart = state.pressureChart;
   state.chart = null;
   state.pressureChart = null;
   state.drawPressure = null;
 
-  // Let current rAF cycle complete before removing old charts
-  await new Promise(r => requestAnimationFrame(r));
-
+  // Remove old charts and wait for ALL of LC's internal rAF callbacks to drain
+  // LC queues multiple rAF callbacks internally — we must wait for them all
   if (oldChart) { try { oldChart.remove(); } catch(e) {} }
   if (oldPChart) { try { oldPChart.remove(); } catch(e) {} }
+  // Wait 3 rAF cycles — LC typically queues 2-3 internal callbacks on remove
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => requestAnimationFrame(r));
   const oldCanvas = document.getElementById('markerCanvas');
   if (oldCanvas) oldCanvas.remove();
 
@@ -2475,7 +2478,6 @@ async function buildChart(priceData, trades) {
     // Candlestick series (default)
     mainSeries = chart.addCandlestickSeries({upColor:'#00ff88',downColor:'#ff4466',borderUpColor:'#00ff88',borderDownColor:'#ff4466',wickUpColor:'#00ff88',wickDownColor:'#ff4466'});
     mainSeries.setData(priceData.map(d=>({time:d.time,open:d.open,high:d.high,low:d.low,close:d.close})));
-  console.log('setData', priceData.length, 'bars, first:', priceData[0]?.time, 'last:', priceData[priceData.length-1]?.time, 'container:', container.clientWidth, 'x', container.clientHeight);
   }
   const volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',scaleMargins:{top:0.82,bottom:0}});
   volSeries.setData(priceData.map(d=>({time:d.time,value:d.volume||0,color:d.close>=d.open?'rgba(0,255,136,0.15)':'rgba(255,68,102,0.15)'})));
