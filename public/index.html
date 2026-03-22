@@ -2194,9 +2194,10 @@ async function loadStockViewBust(ticker) {
 }
 
 let _loadStockViewInFlight = null;
+let _loadStockViewSeq = 0; // increments on every call — lets us detect superseded calls
 async function loadStockView(ticker, opts={}) {
-  // If same ticker already loading, ignore duplicate call
-  if (_loadStockViewInFlight === ticker) return;
+  // Cancel any in-flight load — increment sequence so old calls abort themselves
+  const mySeq = ++_loadStockViewSeq;
   _loadStockViewInFlight = ticker;
   window.scrollTo(0, 0);
   // Activate the stock view + nav tab
@@ -2242,6 +2243,7 @@ async function loadStockView(ticker, opts={}) {
   // Price chart streams in separately so the user isn't waiting for
   // an external API call before seeing anything.
   const insiderData = await fetchInsiderForTicker(ticker).catch(()=>[]);
+  if (mySeq !== _loadStockViewSeq) return; // superseded
   state.tickerTrades = insiderData; state.currentPriceData = [];
 
   // Kick off price fetch in background — don't await it yet
@@ -2356,8 +2358,8 @@ async function loadStockView(ticker, opts={}) {
 
   // ── PHASE 2: Await price data and inject chart ────────────────────
   priceData = await pricePromise;
-  // Abort if user navigated away mid-fetch
-  if (state.currentTicker !== ticker) { _loadStockViewInFlight = null; return; }
+  // Abort if superseded by a newer loadStockView call
+  if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
   if (priceData.length) {
