@@ -1167,6 +1167,7 @@ function selectGlobalSuggest(type, label) {
 }
 
 function hideGlobalSuggest() {
+  clearTimeout(_globalSuggestTimer);
   const box = document.getElementById('globalSuggest');
   if (box) box.style.display = 'none';
 }
@@ -1195,6 +1196,7 @@ let _suppressSuggest = false;
 document.getElementById('tickerInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     e.preventDefault();
+    clearTimeout(_globalSuggestTimer);
     hideGlobalSuggest();
     _suppressSuggest = true;
     setTimeout(() => { _suppressSuggest = false; }, 500);
