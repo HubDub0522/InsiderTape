@@ -1093,6 +1093,7 @@ function updateTitle(view, extra) {
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function globalSearch() {
+  if (_suggestionJustSelected) return; // mousedown already handled it
   const raw = document.getElementById('tickerInput').value.trim();
   if (!raw) return showToast('Enter a ticker or insider name', true);
   hideGlobalSuggest();
@@ -1169,6 +1170,7 @@ function hideGlobalSuggest() {
   if (box) box.style.display = 'none';
 }
 
+let _suggestionJustSelected = false;
 // Delegated mousedown handler on the suggest box — fires before blur, safe with any chars
 document.getElementById('globalSuggest').addEventListener('mousedown', e => {
   e.preventDefault(); // prevent input blur
@@ -1180,6 +1182,8 @@ document.getElementById('globalSuggest').addEventListener('mousedown', e => {
   const idx = parseInt(row.dataset.sidx, 10);
   const s = sug[idx];
   if (!s) return;
+  _suggestionJustSelected = true;
+  setTimeout(() => { _suggestionJustSelected = false; }, 200);
   selectGlobalSuggest(s.type, s.label);
 });
 
@@ -1188,13 +1192,10 @@ function searchTicker() { globalSearch(); }
 
 document.getElementById('tickerInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
-    const box = document.getElementById('globalSuggest');
-    // If suggest box is visible and has suggestions, mousedown already handled it
-    if (box && box.style.display !== 'none' && box._suggestions && box._suggestions.length) {
-      hideGlobalSuggest();
-      return;
-    }
-    globalSearch();
+    e.preventDefault();
+    hideGlobalSuggest();
+    // Small delay ensures any mousedown handler has fully completed first
+    setTimeout(globalSearch, 0);
   }
 });
 document.getElementById('tickerInput').addEventListener('input', e => onGlobalInput(e.target.value));
