@@ -1219,21 +1219,20 @@ document.addEventListener('click', e => { if (!e.target.closest('.search-wrap'))
 
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
-  const controller = new AbortController();
   const ms = path.startsWith('/api/scoreboard') ? 90000
            : (path.startsWith('/api/proximity')) ? 90000
            : path.startsWith('/api/firstbuys') ? 60000
            : path.startsWith('/api/screener')  ? 60000
-           : path.startsWith('/api/price')     ? 30000
+           : path.startsWith('/api/price')     ? 35000
            : 45000;
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    const resp = await fetch(API_BASE + path, { ...opts, signal: controller.signal });
+  const fetchPromise = fetch(API_BASE + path, opts).then(resp => {
     if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
     return resp.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  });
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${path}`)), ms)
+  );
+  return Promise.race([fetchPromise, timeoutPromise]);
 }
 async function fetchInsiderForTicker(ticker) { return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`); }
 async function fetchInsiderByName(name) {
