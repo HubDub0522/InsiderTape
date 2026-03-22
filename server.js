@@ -1583,7 +1583,11 @@ async function warmPriceCache() {
       GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 50
     `).all();
     slog(`Warming price cache for ${rows.length} tickers...`);
-    await Promise.allSettled(rows.map(r => fetchPriceBars(r.ticker)));
+    for (let i = 0; i < rows.length; i += 10) {
+      const batch = rows.slice(i, i + 10).map(r => r.ticker);
+      await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
+      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 500));
+    }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
 }
