@@ -1523,47 +1523,69 @@ async function fetchPriceBars(sym, bgRefresh=false) {
   const endTs = Math.floor(Date.now() / 1000);
   const startTs = endTs - 20 * 365 * 86400;
 
-  // Run all sources in parallel — return whichever responds first with valid data
-  // Timeouts reduced so failures fail fast instead of blocking for 10s each
-  const results = await Promise.allSettled([
-    // Tiingo (primary)
-    TIINGO ? get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 5000).then(({ status, body }) => {
-      if (status === 429) { _rateLimited = true; return null; }
-      if (status !== 200) return null;
-      const data = JSON.parse(body.toString());
-      if (!Array.isArray(data) || data.length < 2) return null;
-      const bars = data.map(d => ({ time: d.date.slice(0,10), open: d.open||d.close||0, high: d.high||d.close||0, low: d.low||d.close||0, close: d.close||0, volume: d.volume||0 })).filter(b => b.close > 0);
-      return bars.length >= 2 ? bars : null;
-    }) : Promise.resolve(null),
+  function tiingoFetch() {
+    if (!TIINGO) return Promise.resolve(null);
+    return get('https://api.tiingo.com/tiingo/daily/' + sym + '/prices?startDate=' + start + '&endDate=' + end + '&format=json&resampleFreq=daily&token=' + TIINGO, 8000)
+      .then(({ status, body }) => {
+        if (status === 429) { _rateLimited = true; return null; }
+        if (status !== 200) return null;
+        const data = JSON.parse(body.toString());
+        if (!Array.isArray(data) || data.length < 2) return null;
+        const bars = data.map(d => ({ time: d.date.slice(0,10), open: d.open||d.close||0, high: d.high||d.close||0, low: d.low||d.close||0, close: d.close||0, volume: d.volume||0 })).filter(b => b.close > 0);
+        return bars.length >= 2 ? bars : null;
+      }).catch(() => null);
+  }
 
-    // Polygon (secondary)
-    POLYGON ? get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 5000).then(({ status, body }) => {
-      if (status !== 200) return null;
-      const data = JSON.parse(body.toString());
-      if (!data.results || data.results.length < 2) return null;
-      const bars = data.results.map(d => ({ time: new Date(d.t).toISOString().slice(0,10), open: d.o||0, high: d.h||0, low: d.l||0, close: d.c||0, volume: d.v||0 })).filter(b => b.close > 0);
-      return bars.length >= 2 ? bars : null;
-    }) : Promise.resolve(null),
+  function polygonFetch() {
+    if (!POLYGON) return Promise.resolve(null);
+    return get('https://api.polygon.io/v2/aggs/ticker/' + sym + '/range/1/day/' + start + '/' + end + '?adjusted=true&sort=asc&limit=5200&apiKey=' + POLYGON, 8000)
+      .then(({ status, body }) => {
+        if (status !== 200) return null;
+        const data = JSON.parse(body.toString());
+        if (!data.results || data.results.length < 2) return null;
+        const bars = data.results.map(d => ({ time: new Date(d.t).toISOString().slice(0,10), open: d.o||0, high: d.h||0, low: d.l||0, close: d.c||0, volume: d.v||0 })).filter(b => b.close > 0);
+        return bars.length >= 2 ? bars : null;
+      }).catch(() => null);
+  }
 
-    // Yahoo query1 (fallback)
-    get('https://query1.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 8000, {
+  function yahooFetch(host) {
+    return get(`https://${host}/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json', 'Referer': 'https://finance.yahoo.com/' }
-    }).then(({ status, body }) => { if (status !== 200) return null; return parseYahoo(body); }).catch(() => null),
+    }).then(({ status, body }) => { if (status !== 200) return null; return parseYahoo(body); }).catch(() => null);
+  }
 
-    // Yahoo query2 (fallback)
-    get('https://query2.finance.yahoo.com/v8/finance/chart/' + sym + '?interval=1d&period1=' + startTs + '&period2=' + endTs, 8000, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json', 'Referer': 'https://finance.yahoo.com/' }
-    }).then(({ status, body }) => { if (status !== 200) return null; return parseYahoo(body); }).catch(() => null),
-  ]);
+  // Stage 1: race Tiingo vs Polygon — both are fast & reliable with API keys
+  // First valid response wins immediately without waiting for the other
+  let bars = null;
+  if (TIINGO || POLYGON) {
+    bars = await new Promise(resolve => {
+      let done = false;
+      let pending = (TIINGO ? 1 : 0) + (POLYGON ? 1 : 0);
+      function tryResolve(result) {
+        if (done) return;
+        if (result && result.length) { done = true; resolve(result); return; }
+        pending--;
+        if (pending <= 0) resolve(null);
+      }
+      if (TIINGO)  tiingoFetch().then(tryResolve);
+      if (POLYGON) polygonFetch().then(tryResolve);
+    });
+  }
 
-  // Use result with most bars — Yahoo often has more history than Polygon free tier
-  let best = null;
-  for (const r of results) {
-    if (r.status === 'fulfilled' && r.value && r.value.length > (best?.length || 0)) {
-      best = r.value;
+  // Stage 2: fall back to Yahoo only if keyed sources failed
+  if (!bars) {
+    const yahooResults = await Promise.allSettled([
+      yahooFetch('query1.finance.yahoo.com'),
+      yahooFetch('query2.finance.yahoo.com'),
+    ]);
+    for (const r of yahooResults) {
+      if (r.status === 'fulfilled' && r.value && r.value.length > (bars?.length || 0)) {
+        bars = r.value;
+      }
     }
   }
-  if (best) { setPC(sym, best); return best; }
+
+  if (bars) { setPC(sym, bars); return bars; }
 
   if (!_rateLimited) {
     // Cache failure for only 30min so it retries sooner
