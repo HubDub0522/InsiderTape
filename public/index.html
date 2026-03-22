@@ -869,6 +869,11 @@
       <div style="font-size:12px">Enter a stock symbol in the search bar above</div>
     </div>
   </div>
+  <!-- Permanent chart containers — never wiped by stockContent innerHTML changes -->
+  <div id="chartContainerOuter" style="display:none;padding:0 0 0 0">
+    <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;"></div>
+    <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;"></div>
+  </div>
 </div>
 
 <div id="view-insider" class="view">
@@ -2318,20 +2323,7 @@ async function loadStockView(ticker, opts={}) {
             </div>
           </div>
         </div>
-        <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;">
-          ${!priceData.length?`<div class="empty-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px">
-            <div class="empty-icon">📡</div>
-            <div style="font-size:13px;color:var(--text)">Price chart unavailable</div>
-            <div style="font-size:11px;color:var(--muted);max-width:280px;text-align:center;line-height:1.6">
-              ${ticker} may be OTC, pink sheet, or recently delisted.
-              Insider trade history is still shown below.
-            </div>
-            <button onclick="loadStockViewBust('${ticker}')" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:6px 16px;font-family:'Space Mono',monospace;font-size:10px;cursor:pointer">&#x21BA; RETRY</button>
-          </div>`:''}
-        </div>
-        <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
-          <div id="pressureContainer" style="width:100%;height:120px;" class="pressure-container"></div>
-        </div>
+        <div id="chartPlaceholder"></div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
         <div id="insiderActivityAnalysis" style="margin-top:10px"></div>
       </div>
@@ -2359,6 +2351,14 @@ async function loadStockView(ticker, opts={}) {
   renderStockTradesTable(insiderData);
   renderTradeMarkerList(insiderData);
   renderInsiderActivityAnalysis(ticker, insiderData, []);
+
+  // Move the permanent chart containers into the placeholder slot
+  const placeholder = document.getElementById('chartPlaceholder');
+  const chartOuter = document.getElementById('chartContainerOuter');
+  if (placeholder && chartOuter) {
+    placeholder.appendChild(chartOuter);
+    chartOuter.style.display = 'block';
+  }
 
   // Show a chart loading spinner while price data arrives
   const cc = document.getElementById('chartContainer');
@@ -2418,7 +2418,6 @@ const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
 async function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
-    // Replace any existing buildChart callbacks — only keep the latest
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
     const cb = () => buildChart(priceData, trades);
     cb._isBuildChart = true;
@@ -2427,18 +2426,8 @@ async function buildChart(priceData, trades) {
   }
   const container = document.getElementById('chartContainer');
   if (!container || !priceData.length) return;
-  if (!document.body.contains(container)) return;
 
-  // Increment generation counter — any prior buildChart call will abort
-  if (!window._chartGen) window._chartGen = 0;
-  const myGen = ++window._chartGen;
-
-  // Yield one tick — lets any in-flight loadStockView DOM wipe complete first
-  await new Promise(r => setTimeout(r, 20));
-  if (myGen !== window._chartGen) return; // superseded by newer call
-  if (!document.body.contains(container)) return; // container was removed
-
-  // NOW wipe and rebuild — we're the winning call
+  // Destroy any existing chart instances cleanly
   if (state.chart) { try{state.chart.remove();}catch(e){} state.chart=null; }
   if (state.pressureChart) { try{state.pressureChart.remove();}catch(e){} state.pressureChart=null; state.drawPressure=null; }
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
@@ -2446,13 +2435,12 @@ async function buildChart(priceData, trades) {
   container.style.height = getChartH() + 'px';
   container.style.display = 'block';
 
-  // Wait for container to have real layout dimensions (critical on direct page load)
+  // Wait for container to have real layout dimensions (needed on direct page load)
   let waited = 0;
   while (container.clientWidth < 10 && waited < 2000) {
     await new Promise(r => setTimeout(r, 30));
     waited += 30;
   }
-  if (!document.body.contains(container)) return;
   const chart = LightweightCharts.createChart(container, {
     width: container.clientWidth || container.offsetWidth || 800,
     height: getChartH(),
