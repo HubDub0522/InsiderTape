@@ -2487,31 +2487,34 @@ async function buildChart(priceData, trades) {
     btnCandle.classList.toggle('active', _chartType === 'candle');
     btnLine.classList.toggle('active',   _chartType === 'line');
   }
-  // Also sync setRange's call — don't override ct-btn state
 
-  // Watermark — near top, centered
+  // Watermark
   const wm = document.createElement('div');
   wm.style.cssText = 'position:absolute;top:14px;left:50%;transform:translateX(-50%);font-family:"Bebas Neue",sans-serif;font-size:42px;letter-spacing:6px;color:rgba(0,212,255,0.18);pointer-events:none;user-select:none;z-index:2;white-space:nowrap';
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
-  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
-  const cutStr=cutoff.toISOString().split('T')[0];
-  const visible=priceData.filter(d=>d.time>=cutStr);
-  if (visible.length>0) {
-    try {
-      const fromTs = Math.floor(new Date(visible[0].time+'T00:00:00Z').getTime()/1000);
-      const toTs   = Math.floor(new Date(priceData[priceData.length-1].time+'T23:59:59Z').getTime()/1000);
-      chart.timeScale().setVisibleRange({from:fromTs,to:toTs});
-    } catch(e) { chart.timeScale().fitContent(); }
-  }
-  else chart.timeScale().fitContent();
+
   buildCircleOverlay(container,chart,mainSeries,trades,priceData);
-  // Defer pressure chart until after LC's first rAF for the main chart completes
+
+  // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      buildPressureChartGated(chart,trades,priceData);
-    });
+    // Set visible range
+    const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-365);
+    const cutStr=cutoff.toISOString().split('T')[0];
+    const visible=priceData.filter(d=>d.time>=cutStr);
+    if (visible.length>0) {
+      try {
+        const fromTs = Math.floor(new Date(visible[0].time+'T00:00:00Z').getTime()/1000);
+        const toTs   = Math.floor(new Date(priceData[priceData.length-1].time+'T23:59:59Z').getTime()/1000);
+        chart.timeScale().setVisibleRange({from:fromTs,to:toTs});
+      } catch(e) { try { chart.timeScale().fitContent(); } catch(e2) {} }
+    } else {
+      try { chart.timeScale().fitContent(); } catch(e) {}
+    }
+    // Pressure chart after another rAF
+    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData));
   });
+
   // Initialise stat bar to match the active 1Y range button
   setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
   // LightweightCharts handles its own resizing via autoSize
