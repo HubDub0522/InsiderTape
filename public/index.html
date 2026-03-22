@@ -2204,6 +2204,7 @@ async function loadStockView(ticker, opts={}) {
   document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
   _suppressSuggest = true;
   setTimeout(() => { _suppressSuggest = false; }, 500);
+  hideGlobalSuggest();
   document.getElementById('tickerInput').value = ticker;
   if (!opts.fromPopstate) {
     history.pushState({view:'stock', ticker}, '', '/stock/' + ticker);
