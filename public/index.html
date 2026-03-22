@@ -50,7 +50,7 @@
     else window._lcCallbacks.push(cb);
   };
 </script>
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" onload="window._lcLoaded=true;window._lcCallbacks.forEach(function(f){f()});window._lcCallbacks=[];"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer onload="window._lcLoaded=true;window._lcCallbacks.forEach(function(f){f()});window._lcCallbacks=[];"></script>
 <style>
   /* Font display: optional means browser uses fallback if font not cached,
      eliminating font-swap CLS entirely */
@@ -2427,9 +2427,15 @@ async function buildChart(priceData, trades) {
   const container = document.getElementById('chartContainer');
   if (!container || !priceData.length) return;
 
-  // Destroy any existing chart instances cleanly
-  if (state.chart) { try{state.chart.remove();}catch(e){} state.chart=null; }
-  if (state.pressureChart) { try{state.pressureChart.remove();}catch(e){} state.pressureChart=null; state.drawPressure=null; }
+  // Destroy any existing chart instances — defer to after current rAF cycle
+  // so LC's pending rAF callbacks don't crash on nulled internals
+  const oldChart = state.chart;
+  const oldPChart = state.pressureChart;
+  state.chart = null;
+  state.pressureChart = null;
+  state.drawPressure = null;
+  if (oldChart) requestAnimationFrame(() => { try{oldChart.remove();}catch(e){} });
+  if (oldPChart) requestAnimationFrame(() => { try{oldPChart.remove();}catch(e){} });
   const oldCanvas = document.getElementById('markerCanvas'); if(oldCanvas) oldCanvas.remove();
   container.innerHTML = '';
   const chartH = getChartH();
@@ -2448,8 +2454,7 @@ async function buildChart(priceData, trades) {
   const w = container.clientWidth || container.offsetWidth || 800;
   const h = container.clientHeight || chartH;
   const chart = LightweightCharts.createChart(container, {
-    width: w,
-    height: h,
+    autoSize: true,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
@@ -2659,8 +2664,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   pc.style.display = 'block';
   const pcW = pc.clientWidth || pc.offsetWidth || 800;
   const pChart=LightweightCharts.createChart(pc,{
-    width: pcW,
-    height: pcH,
+    autoSize: true,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
     rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
