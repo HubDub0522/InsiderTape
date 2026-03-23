@@ -2246,8 +2246,9 @@ async function loadStockView(ticker, opts={}) {
   if (mySeq !== _loadStockViewSeq) return; // superseded
   state.tickerTrades = insiderData; state.currentPriceData = [];
 
-  // Kick off price fetch in background — don't await it yet
+  // Kick off price fetch and SC 13D/G fetch in background — don't await yet
   const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
+  const sc13Promise  = apiFetch('/api/sc13?symbol='+encodeURIComponent(ticker)).catch(()=>[]);
 
   // Use empty price data for initial render — chart area shows spinner
   let priceData = [];
@@ -2356,15 +2357,18 @@ async function loadStockView(ticker, opts={}) {
   const cc = document.getElementById('chartContainer');
   if (cc) cc.innerHTML = `<div class="loading-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Loading price data…</span></div>`;
 
-  // ── PHASE 2: Await price data and inject chart ────────────────────
-  priceData = await pricePromise;
+  // ── PHASE 2: Await price data + SC 13D/G data and inject chart ────────────
+  [priceData] = await Promise.all([pricePromise, sc13Promise.then(d => { state.sc13Data = Array.isArray(d) ? d : []; })]);
   // Abort if superseded by a newer loadStockView call
   if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
+  // Render SC 13D/G entries into sidebar
+  renderSc13Sidebar(state.sc13Data || []);
+
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    await buildChart(priceData, insiderData);
+    await buildChart(priceData, insiderData, state.sc13Data || []);
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
     const prev    = priceData[priceData.length-2];
@@ -2408,10 +2412,11 @@ async function loadStockView(ticker, opts={}) {
 function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
 const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
-async function buildChart(priceData, trades) {
+async function buildChart(priceData, trades, sc13Data) {
+  sc13Data = sc13Data || state.sc13Data || [];
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
-    const cb = () => buildChart(priceData, trades);
+    const cb = () => buildChart(priceData, trades, sc13Data);
     cb._isBuildChart = true;
     window._onLCReady(cb);
     return;
@@ -2510,7 +2515,7 @@ async function buildChart(priceData, trades) {
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
 
-  buildCircleOverlay(container,chart,mainSeries,trades,cleanData);
+  buildCircleOverlay(container,chart,mainSeries,trades,cleanData,sc13Data);
 
   // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
@@ -2551,7 +2556,7 @@ function setChartType(type) {
   if (priceData && trades) {
     // Remember visible range before rebuild
     const visRange = state.chart ? (() => { try { return state.chart.timeScale().getVisibleRange(); } catch(e) { return null; } })() : null;
-    buildChart(priceData, trades);
+    buildChart(priceData, trades, state.sc13Data || []);
     // Restore visible range after rebuild
     if (visRange) setTimeout(() => { try { state.chart.timeScale().setVisibleRange(visRange); } catch(e) {} }, 60);
     // Re-apply active range button so stats stay correct
@@ -2560,7 +2565,8 @@ function setChartType(type) {
   }
 }
 
-function buildCircleOverlay(container,chart,series,trades,priceData) {
+function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
+  sc13Data = sc13Data || [];
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
   canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
@@ -2578,6 +2584,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
     for(let i=1;i<=5;i++){const d=new Date(dateStr+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-i);const s=d.toISOString().slice(0,10);if(priceMap[s])return s;}
     return null;
   }
+
+  // ── Form 4 circle groups ──────────────────────────────────────────────────
   const groups={};
   trades.forEach(t=>{
     const raw=(t.trade||t.filing||'').slice(0,10); const d=nearestTradingDay(raw); if(!d)return;
@@ -2588,19 +2596,53 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
     groups[k].trades.push(t); groups[k].value+=t.value||0;
   });
   state.markerGroups=Object.values(groups);
+
+  // ── SC 13D/G diamond groups (one per filing) ──────────────────────────────
+  // Group by date so multiple same-day filings from the same entity merge
+  const sc13Groups={};
+  sc13Data.forEach(f=>{
+    const raw=(f.filed_date||'').slice(0,10); if(!raw)return;
+    const d=nearestTradingDay(raw); if(!d)return;
+    // Determine direction: positive shares_delta = buying, negative = selling, null = unknown (treat as buying)
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    const k=d+'|'+(isSell?'sc13sell':'sc13buy');
+    if(!sc13Groups[k])sc13Groups[k]={date:d,filings:[],isSell,filedDate:raw};
+    if(raw < sc13Groups[k].filedDate) sc13Groups[k].filedDate=raw;
+    sc13Groups[k].filings.push(f);
+  });
+  state.sc13Groups=Object.values(sc13Groups);
+
   const tooltip=document.getElementById('chartTooltip')||(() => {
     const el=document.createElement('div'); el.id='chartTooltip';
-    el.style.cssText='position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
+    el.style.cssText='position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:280px;box-shadow:0 4px 20px rgba(0,0,0,0.6)';
     document.body.appendChild(el); return el;
   })();
+
+  // ── Draw a diamond shape on the canvas ───────────────────────────────────
+  function drawDiamond(ctx, x, y, size, fillColor, strokeColor) {
+    ctx.beginPath();
+    ctx.moveTo(x,        y - size); // top
+    ctx.lineTo(x + size, y);        // right
+    ctx.lineTo(x,        y + size); // bottom
+    ctx.lineTo(x - size, y);        // left
+    ctx.closePath();
+    ctx.fillStyle   = fillColor;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth   = 1.5;
+    ctx.fill();
+    ctx.stroke();
+  }
+
   function drawCircles() {
-    const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); state._circles=[];
+    const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height);
+    state._circles=[]; state._diamonds=[];
+
+    // ── Form 4 circles ──────────────────────────────────────────────────────
     const maxVal=Math.max(...state.markerGroups.map(g=>g.value),1);
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
       const isBuy=g.tc==='buy',isSell=g.tc==='sell';
-      // In line mode, pd.low/high are the same as close visually — use close with slight offset
       const refPrice=isBuy?(pd.low||pd.close)*0.995:isSell?(pd.high||pd.close)*1.005:pd.close;
       const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
       const _mob=window.innerWidth<=640; const r=(_mob?5:8)+(_mob?8:14)*Math.log1p(g.value)/Math.log1p(maxVal);
@@ -2609,19 +2651,64 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       ctx.beginPath(); ctx.arc(ts,yCoord,r,0,Math.PI*2); ctx.fillStyle=color+'0.20)'; ctx.strokeStyle=color+'0.85)'; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
       state._circles.push({x:ts,y:yCoord,r,group:g});
     });
+
+    // ── SC 13D/G diamonds ───────────────────────────────────────────────────
+    // Fixed size — these aren't transaction-value-scaled the same way
+    const dSize = window.innerWidth <= 640 ? 9 : 12;
+    state.sc13Groups.forEach(g=>{
+      const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
+      const pd=priceMap[g.date]; if(!pd)return;
+      // Buying = cyan diamond above the bar top; selling = magenta diamond below bar bottom
+      const refPrice = g.isSell ? (pd.high||pd.close)*1.012 : (pd.low||pd.close)*0.988;
+      const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
+      // Glow pass (larger, very transparent)
+      drawDiamond(ctx, ts, yCoord, dSize+5,
+        g.isSell ? 'rgba(255,0,255,0.06)' : 'rgba(0,212,255,0.06)',
+        'transparent');
+      // Main diamond
+      drawDiamond(ctx, ts, yCoord, dSize,
+        g.isSell ? 'rgba(255,0,255,0.18)' : 'rgba(0,212,255,0.18)',
+        g.isSell ? 'rgba(255,0,255,0.90)' : 'rgba(0,212,255,0.90)');
+      state._diamonds.push({x:ts,y:yCoord,r:dSize+4,group:g});
+    });
   }
+
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
   setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
   canvas.style.pointerEvents='auto';
+
   canvas.addEventListener('mousemove',e=>{
     const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+
+    // Check diamonds first (they render on top visually)
+    let diamondHit=null;
+    for(const d of(state._diamonds||[])){if(Math.hypot(mx-d.x,my-d.y)<=d.r+4){diamondHit=d;break;}}
+    if(diamondHit){
+      canvas.style.cursor='crosshair';
+      const g=diamondHit.group;
+      const color=g.isSell?'#ff00ff':'#00d4ff';
+      const label=g.isSell?'◆ SC 13D/G — SELLING':'◆ SC 13D/G — BUYING';
+      const rows=g.filings.slice(0,4).map(f=>{
+        const pct=f.pct_owned!=null?`<span style="color:${color};float:right;margin-left:12px">${f.pct_owned.toFixed(1)}% owned</span>`:'';
+        const delta=f.shares_delta!=null?`<span style="color:var(--muted);font-size:10px"> (${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)})</span>`:'';
+        return `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${f.filer||'Unknown filer'}</span>${delta}${pct}</div>`;
+      }).join('');
+      const typeLabel=g.filings[0]?.filing_type||'SC 13D/G';
+      tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label}</div><div style="color:var(--muted);font-size:10px;margin-bottom:6px">${typeLabel} · ${g.filedDate}</div>${rows}${g.filings.length>4?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.filings.length-4} more</div>`:''}`;
+      tooltip.style.display='block';
+      const tx=e.clientX+16,ty=e.clientY-10;
+      tooltip.style.left=(tx+290>window.innerWidth?e.clientX-306:tx)+'px'; tooltip.style.top=ty+'px';
+      return;
+    }
+
+    // Then check circles
     let hit=null;
     for(const c of(state._circles||[])){if(Math.hypot(mx-c.x,my-c.y)<=c.r+4){hit=c;break;}}
     if(hit){
       canvas.style.cursor='crosshair'; const g=hit.group; const tc=g.tc;
       const color=tc==='buy'?'#00ff88':tc==='sell'?'#ff4466':'#ffaa00';
       const label=tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'◆ OPTION/AWARD';
-      const rows=g.trades.slice(0,5).map(t=>`<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${t.insider||'—'}</span>${t.title?`<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>`:''}<span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span></div>`).join('');
+      const rows=g.trades.slice(0,5).map(t=>`<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${t.insider||'Unknown'}</span>${t.title?`<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>`:''}<span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span></div>`).join('');
       tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.tradeDate||g.date}</div>${rows}${g.trades.length>5?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Total: <span style="color:${color}">${fmt(g.value)}</span></div>`;
       tooltip.style.display='block';
       const tx=e.clientX+16,ty=e.clientY-10;
@@ -3004,9 +3091,58 @@ function renderTradeMarkerList(trades) {
   if(trades.length>15)el.innerHTML+=`<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length-15} more — see table below</div>`;
 }
 
+// ── SC 13D/G sidebar section ───────────────────────────────────────────────
+// Renders beneficial ownership filings below the trade marker list.
+// Only shown when there is sc13 data for the current ticker.
+function renderSc13Sidebar(sc13Data) {
+  // Find or create the sc13 container — it lives just below the trade marker list
+  let el = document.getElementById('sc13SidebarSection');
+  if (!el) {
+    const parent = document.getElementById('tradeMarkerList')?.parentElement;
+    if (!parent) return;
+    el = document.createElement('div');
+    el.id = 'sc13SidebarSection';
+    parent.appendChild(el);
+  }
+
+  if (!sc13Data || !sc13Data.length) { el.innerHTML = ''; return; }
+
+  const sorted = [...sc13Data].sort((a,b) => b.filed_date.localeCompare(a.filed_date));
+
+  el.innerHTML = `
+    <div style="margin-top:14px">
+      <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:8px;text-transform:uppercase">
+        ◆ Beneficial Ownership (13D/G)
+      </div>
+      ${sorted.slice(0,6).map(f => {
+        const isSell = f.shares_delta !== null && f.shares_delta < 0;
+        const color  = isSell ? '#ff00ff' : '#00d4ff';
+        const border = isSell ? 'rgba(255,0,255,0.25)' : 'rgba(0,212,255,0.25)';
+        const bg     = isSell ? 'rgba(255,0,255,0.06)' : 'rgba(0,212,255,0.06)';
+        const deltaStr = f.shares_delta !== null
+          ? `<span style="color:${color};font-size:10px"> ${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)} shares</span>`
+          : '';
+        const pctStr = f.pct_owned != null
+          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${f.pct_owned.toFixed(1)}% owned</span>`
+          : '';
+        const typeLabel = (f.filing_type||'SC 13D/G').replace('SC ','');
+        return `<div style="display:flex;flex-direction:column;gap:3px;padding:8px 10px;background:${bg};border:1px solid ${border};border-radius:4px;margin-bottom:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+            <span style="font-family:'Space Mono',monospace;font-size:9px;color:${color};font-weight:700;letter-spacing:1px">${typeLabel}</span>
+            <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">${fmtDate(f.filed_date)}</span>
+          </div>
+          <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.filer||'Unknown filer'}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${pctStr}${deltaStr}</div>
+        </div>`;
+      }).join('')}
+      ${sorted.length > 6 ? `<div style="font-size:11px;color:var(--muted);padding:2px 0">+${sorted.length-6} more filings</div>` : ''}
+    </div>`;
+}
+
 function switchSidebarTab(tab,el) {
   document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active');
   if(tab==='trades'){renderSidebarGated(state.tickerTrades);}else{if(!requirePremium('Summary tab — insider conviction analysis'))return;renderSidebarSummary(state.tickerTrades);}
+
 }
 function renderSidebarTrades(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
