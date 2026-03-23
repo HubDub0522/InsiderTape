@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How to Actually Use Insider Trading Data — InsiderTape</title>
+<meta name="description" content="SEC Form 4 filings are public and free — so why don't more investors use them? Here's a practical framework for separating signal from noise and building insider data into your process.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://insidertape.com/articles/how-to-use-insider-data.html">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://insidertape.com/articles/how-to-use-insider-data.html">
+<meta property="og:title" content="How to Actually Use Insider Trading Data">
+<meta property="og:description" content="SEC Form 4 filings are public and free — so why don't more investors use them? A practical framework for separating signal from noise.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "How to Actually Use Insider Trading Data",
+  "description": "SEC Form 4 filings are public and free — so why don't more investors use them? Here's a practical framework for separating signal from noise and building insider data into your process.",
+  "author": { "@type": "Organization", "name": "InsiderTape" },
+  "publisher": { "@type": "Organization", "name": "InsiderTape", "url": "https://insidertape.com" },
+  "url": "https://insidertape.com/articles/how-to-use-insider-data.html"
+}
+</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root {
+    --bg:      #080b0f;
+    --bg2:     #0d1117;
+    --bg3:     #111820;
+    --border:  #1e2d3d;
+    --border2: #253447;
+    --text:    #c9d8e8;
+    --muted:   #4a6580;
+    --accent:  #00d4ff;
+    --buy:     #00ff88;
+    --sell:    #ff4466;
+    --header-h: 64px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; line-height: 1.75; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: var(--bg2); } ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  header { position: sticky; top: 0; z-index: 100; height: var(--header-h); background: rgba(8,11,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; gap: 16px; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 3px; color: var(--accent); text-shadow: 0 0 20px rgba(0,212,255,0.4); text-decoration: none; }
+  .logo span { color: var(--text); opacity: 0.5; }
+  nav { display: flex; gap: 4px; }
+  nav a { color: var(--muted); font-size: 12px; font-weight: 500; text-decoration: none; padding: 7px 14px; border: 1px solid transparent; border-radius: 5px; transition: all .2s; }
+  nav a:hover { color: var(--text); border-color: var(--border); }
+  nav a.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+
+  .article-wrap { max-width: 720px; margin: 0 auto; padding: 64px 24px 100px; }
+  .article-tag { display: inline-block; padding: 3px 10px; background: rgba(255,170,0,0.08); border: 1px solid rgba(255,170,0,0.2); border-radius: 20px; font-family: 'Space Mono', monospace; font-size: 10px; color: #ffaa00; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 20px; }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(36px, 5vw, 58px); letter-spacing: 2px; color: var(--text); line-height: 1.05; margin-bottom: 20px; }
+  .article-meta { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+  .article-body { color: var(--text); }
+  .article-body p { margin-bottom: 24px; font-size: 16px; line-height: 1.8; color: #b8cfe0; }
+  .article-body h2 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1.5px; color: var(--text); margin: 48px 0 16px; }
+  .article-body h3 { font-family: 'Space Mono', monospace; font-size: 13px; letter-spacing: 1px; color: var(--accent); text-transform: uppercase; margin: 32px 0 12px; }
+  .article-body strong { color: var(--text); font-weight: 600; }
+  .article-body em { color: var(--muted); font-style: italic; }
+  .article-body a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(0,212,255,0.3); }
+  .article-body a:hover { border-bottom-color: var(--accent); }
+  .article-body ul, .article-body ol { margin: 0 0 24px 20px; }
+  .article-body li { margin-bottom: 10px; color: #b8cfe0; line-height: 1.75; }
+
+  .callout { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 18px 20px; margin: 32px 0; }
+  .callout.green { border-left-color: var(--buy); }
+  .callout.orange { border-left-color: #ffaa00; }
+  .callout p { margin: 0; font-size: 14px; color: var(--muted); }
+  .callout strong { color: var(--text); }
+
+  .step-block { counter-reset: steps; }
+  .step { display: flex; gap: 20px; margin-bottom: 32px; }
+  .step-num { font-family: 'Bebas Neue', sans-serif; font-size: 42px; color: var(--accent); opacity: 0.25; line-height: 1; flex-shrink: 0; width: 40px; text-align: right; }
+  .step-content h3 { font-family: 'Space Mono', monospace; font-size: 12px; letter-spacing: 1px; color: var(--accent); text-transform: uppercase; margin-bottom: 8px; }
+  .step-content p { margin: 0; font-size: 15px; color: var(--muted); line-height: 1.75; }
+  .step-content strong { color: var(--text); }
+
+  .noise-table { width: 100%; border-collapse: collapse; margin: 24px 0 32px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 14px; }
+  .noise-table th { background: var(--bg3); padding: 10px 14px; text-align: left; font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .noise-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .noise-table tr:last-child td { border-bottom: none; }
+  .noise-table .label { font-family: 'Space Mono', monospace; font-size: 11px; white-space: nowrap; }
+  .noise-table .signal { color: var(--buy); }
+  .noise-table .noise { color: var(--sell); }
+
+  .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); text-decoration: none; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 1px; margin-bottom: 40px; transition: color .2s; }
+  .back-link:hover { color: var(--text); }
+
+  .cta-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 32px; text-align: center; margin-top: 56px; }
+  .cta-box h3 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; color: var(--text); margin-bottom: 10px; }
+  .cta-box p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .cta-btn { display: inline-block; background: var(--accent); color: var(--bg); padding: 11px 28px; border-radius: 6px; font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-decoration: none; transition: background .2s; }
+  .cta-btn:hover { background: #33ddff; }
+
+  footer { border-top: 1px solid var(--border); padding: 32px 24px; text-align: center; }
+  footer p { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 640px) { .article-wrap { padding: 40px 16px 80px; } .step { gap: 14px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/">INSIDER<span>TAPE</span></a>
+  <nav>
+    <a href="/">SCREENER</a>
+    <a href="/articles/" class="active">LEARN</a>
+  </nav>
+</header>
+
+<div class="article-wrap">
+  <a class="back-link" href="/articles/">← All Articles</a>
+  <div class="article-tag">Strategy</div>
+  <h1>HOW TO ACTUALLY USE INSIDER TRADING DATA</h1>
+  <div class="article-meta">8 min read &nbsp;·&nbsp; InsiderTape</div>
+
+  <div class="article-body">
+
+    <p>The SEC has made insider transaction data publicly available for decades. It's free. It's updated within two business days of every trade. It represents the disclosed buying and selling activity of people who, by definition, know their companies better than anyone on the outside.</p>
+
+    <p>And most investors either don't use it at all, or use it badly.</p>
+
+    <p>The "don't use it at all" crowd usually has one of two objections: they've heard that insiders are often wrong, or they think the data is too hard to parse on a raw EDGAR search. Both objections are at least partially right — which is exactly why it's worth learning how to do this correctly instead of either ignoring it or naively following every purchase.</p>
+
+    <h2>FIRST: STRIP OUT THE NOISE</h2>
+
+    <p>Most of what shows up in raw Form 4 data is not a signal. Before you can use the data, you need a reliable way to filter for transactions that represent actual discretionary conviction rather than routine compensation events or tax mechanics.</p>
+
+    <table class="noise-table">
+      <thead>
+        <tr><th>Transaction</th><th>Code</th><th>Worth tracking?</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="label signal">Open market purchase</td>
+          <td class="label" style="color:var(--muted)">P</td>
+          <td style="color:var(--buy); font-size:13px;">Yes — the cleanest bullish signal</td>
+        </tr>
+        <tr>
+          <td class="label signal">Open market sale</td>
+          <td class="label" style="color:var(--muted)">S</td>
+          <td style="color:var(--muted); font-size:13px;">With heavy context (see below)</td>
+        </tr>
+        <tr>
+          <td class="label noise">Stock award / grant</td>
+          <td class="label" style="color:var(--muted)">A</td>
+          <td style="color:var(--sell); font-size:13px;">No — compensation event, not a choice</td>
+        </tr>
+        <tr>
+          <td class="label noise">Shares withheld for taxes</td>
+          <td class="label" style="color:var(--muted)">F</td>
+          <td style="color:var(--sell); font-size:13px;">No — automatic, not discretionary</td>
+        </tr>
+        <tr>
+          <td class="label noise">Option exercise</td>
+          <td class="label" style="color:var(--muted)">M</td>
+          <td style="color:var(--sell); font-size:13px;">No — mechanical, often followed by sale</td>
+        </tr>
+        <tr>
+          <td class="label noise">Gift / charitable donation</td>
+          <td class="label" style="color:var(--muted)">G</td>
+          <td style="color:var(--sell); font-size:13px;">No — not a market signal</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Once you're only looking at P and S codes, you've eliminated probably 70-80% of the noise. What's left is actually worth analyzing.</p>
+
+    <h2>A PRACTICAL FRAMEWORK</h2>
+
+    <p>Here's a step-by-step process for evaluating insider transactions that most people who've been doing this for a while converge on, in some form:</p>
+
+    <div class="step-block">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>Identify the transaction type</h3>
+          <p>Is it a <strong>P (open market purchase)</strong>? If yes, proceed. Is it anything else? Unless it's an unusually large S-code sale at a strange time, move on. Don't spend time analyzing grants, tax events, or option exercises — they're not telling you anything about conviction.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>Check the title of the buyer</h3>
+          <p>Not all insiders are equal. A <strong>CEO or CFO buying is more meaningful</strong> than a non-executive director. A director who also operates in the business (an executive chairman, for instance) carries more weight than a purely independent director. The closer to the operational reality of the company, the more the purchase reveals.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Size it relative to their position</h3>
+          <p>A $100,000 purchase means something very different depending on who's making it. Look at the "securities owned after" field on the Form 4. If this purchase increases their holdings by 5%, that's a real commitment. If it's a rounding error on a position they've held for years, it's probably noise. Also consider their compensation — a $500K purchase from someone earning $2M/year is materially different from the same dollar amount from someone earning $200K/year.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3>Look for other buyers at the same company</h3>
+          <p>This is the most important step. One purchase gets a watchlist flag. <strong>Multiple purchases at the same company within 30-60 days</strong> — especially from different executives or directors — is a cluster and deserves real attention. Check back through the last 60-90 days of filings before you make any judgment about whether a purchase stands alone or is part of a broader pattern.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <h3>Check when they last bought or sold</h3>
+          <p>Track the insider's history. <strong>A first-time open market buyer</strong> — someone who has never bought stock in their own company before — is a more significant signal than someone who buys regularly regardless of price. Conversely, if an executive has been selling steadily for two years and just bought a small amount, that's weaker than it looks on the surface.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-content">
+          <h3>Understand the fundamental backdrop</h3>
+          <p>Insider data is a signal, not a thesis. Before acting on anything, you need a basic answer to: <strong>why is this stock trading where it is, and why might it be wrong?</strong> Insiders buying after a sector selloff is different from insiders buying into ongoing fundamental deterioration. The data tells you they see value — it doesn't tell you they're right, and it doesn't replace understanding the business.</p>
+        </div>
+      </div>
+    </div>
+
+    <h2>THE SELLING QUESTION</h2>
+
+    <p>Insider selling gets a lot of attention and is mostly misread. The standard line is true: there are a hundred reasons to sell stock and only one reason to buy. Diversification, a house purchase, a divorce, an estate plan, a donation — insider sales are frequently mundane.</p>
+
+    <p>That said, there are patterns in selling worth paying attention to:</p>
+
+    <ul>
+      <li><strong>Cluster selling from multiple insiders simultaneously</strong> — especially outside of a scheduled earnings window — can be meaningful. The same logic that makes cluster buying significant applies in reverse.</li>
+      <li><strong>A CEO or CFO selling a large percentage of their total position</strong> is more notable than a routine trimming. If someone goes from holding 2 million shares to 400,000 in six months, that's worth investigating.</li>
+      <li><strong>Sales that happen right after a big run-up</strong>, timed precisely at local price highs, sometimes suggest the insiders know the momentum is likely to fade. Not always — sometimes it's just good luck and portfolio management — but it's worth flagging.</li>
+    </ul>
+
+    <div class="callout orange">
+      <p><strong>The 10b5-1 problem:</strong> Many insider sales happen through pre-arranged 10b5-1 trading plans, where a broker automatically sells shares on a schedule set months in advance. These look like regular S-code sales in the Form 4. If you're analyzing selling, always check whether the sale notes a 10b5-1 plan in the footnotes — automatic plan sales carry essentially no signal value.</p>
+    </div>
+
+    <h2>WHAT INSIDER DATA DOES — AND DOESN'T — TELL YOU</h2>
+
+    <p>It's worth being clear-eyed about the limits here, because overselling this data is what leads people to get burned.</p>
+
+    <p><strong>Insiders know their company's internal state better than anyone.</strong> Backlog, customer conversations, margins, product pipeline, headcount trends — they have visibility that even the most diligent sell-side analyst doesn't. When they buy, they're often expressing a view on that internal reality.</p>
+
+    <p><strong>Insiders don't know the macro, the timing, or what the market will care about.</strong> A CFO can be completely right that their company's underlying business is healthy and still watch the stock drop another 40% because interest rates moved, the sector rotated out of favor, or a competitor launched a product that changes the competitive dynamics. They see the inside of the company clearly and the outside not much better than you do.</p>
+
+    <p><strong>The time horizon matters.</strong> Most academic research on insider trading looks at 6-12 month forward returns. That's the window over which the signal tends to be cleanest. If you're looking at this data and thinking in days or weeks, you're probably going to be disappointed — and frustrated.</p>
+
+    <div class="callout green">
+      <p><strong>Where insider data is most powerful:</strong> as a confirmation tool. You've done your fundamental work. You think the stock is undervalued. You see strong insider buying. Now you have two independent sources of signal pointing the same direction. That's a better entry point than either signal alone.</p>
+    </div>
+
+    <h2>BUILDING A ROUTINE</h2>
+
+    <p>The most practical way to use this data isn't to react to every filing as it comes in — it's to build it into a weekly or daily review process.</p>
+
+    <p>Something like: each morning, scan the last 24 hours of P-code transactions over a minimum dollar threshold (say, $100K+). Flag any tickers where multiple insiders have bought in the last 30 days. Add those to a watchlist with notes on the transaction details. Then, once a week, go through the watchlist and do actual fundamental work on anything that looks interesting.</p>
+
+    <p>That's it. The screening takes five minutes. The research takes as long as it takes. The insider data is the filter, not the conclusion.</p>
+
+    <p>The investors who use this most effectively treat it the same way they'd treat a screener for price-to-book or revenue growth — it surfaces candidates worth looking at, and then you do the work to figure out whether the candidate is actually worth owning.</p>
+
+    <div class="cta-box">
+      <h3>START SCREENING TODAY</h3>
+      <p>InsiderTape filters out grants, options, and tax events automatically — so you only see the purchases and sales that actually matter. Updated as filings come in.</p>
+      <a class="cta-btn" href="/">OPEN INSIDERTAPE →</a>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <p><a href="/articles/">← Back to Articles</a> &nbsp;·&nbsp; Data sourced from SEC EDGAR &nbsp;·&nbsp; Not financial advice</p>
+</footer>
+
+</body>
+</html>

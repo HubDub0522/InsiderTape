@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How to Read an SEC Form 4 — InsiderTape</title>
+<meta name="description" content="A plain-English breakdown of SEC Form 4 filings — what each field means, how to spot meaningful transactions, and what most investors miss.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://insidertape.com/articles/how-to-read-sec-form-4.html">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://insidertape.com/articles/how-to-read-sec-form-4.html">
+<meta property="og:title" content="How to Read an SEC Form 4 — InsiderTape">
+<meta property="og:description" content="A plain-English breakdown of SEC Form 4 filings — what each field means, how to spot meaningful transactions, and what most investors miss.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "How to Read an SEC Form 4",
+  "description": "A plain-English breakdown of SEC Form 4 filings — what each field means, how to spot meaningful transactions, and what most investors miss.",
+  "author": { "@type": "Organization", "name": "InsiderTape" },
+  "publisher": { "@type": "Organization", "name": "InsiderTape", "url": "https://insidertape.com" },
+  "url": "https://insidertape.com/articles/how-to-read-sec-form-4.html"
+}
+</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root {
+    --bg:      #080b0f;
+    --bg2:     #0d1117;
+    --bg3:     #111820;
+    --border:  #1e2d3d;
+    --border2: #253447;
+    --text:    #c9d8e8;
+    --muted:   #4a6580;
+    --accent:  #00d4ff;
+    --buy:     #00ff88;
+    --sell:    #ff4466;
+    --header-h: 64px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; line-height: 1.75; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: var(--bg2); } ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  header { position: sticky; top: 0; z-index: 100; height: var(--header-h); background: rgba(8,11,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; gap: 16px; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 3px; color: var(--accent); text-shadow: 0 0 20px rgba(0,212,255,0.4); text-decoration: none; }
+  .logo span { color: var(--text); opacity: 0.5; }
+  nav { display: flex; gap: 4px; }
+  nav a { color: var(--muted); font-size: 12px; font-weight: 500; text-decoration: none; padding: 7px 14px; border: 1px solid transparent; border-radius: 5px; transition: all .2s; }
+  nav a:hover { color: var(--text); border-color: var(--border); }
+  nav a.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+
+  .article-wrap { max-width: 720px; margin: 0 auto; padding: 64px 24px 100px; }
+
+  /* HEADER */
+  .article-tag { display: inline-block; padding: 3px 10px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2); border-radius: 20px; font-family: 'Space Mono', monospace; font-size: 10px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 20px; }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(36px, 5vw, 58px); letter-spacing: 2px; color: var(--text); line-height: 1.05; margin-bottom: 20px; }
+  .article-meta { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+
+  /* BODY */
+  .article-body { color: var(--text); }
+  .article-body p { margin-bottom: 24px; font-size: 16px; line-height: 1.8; color: #b8cfe0; }
+  .article-body h2 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1.5px; color: var(--text); margin: 48px 0 16px; }
+  .article-body h3 { font-family: 'Space Mono', monospace; font-size: 13px; letter-spacing: 1px; color: var(--accent); text-transform: uppercase; margin: 32px 0 12px; }
+  .article-body strong { color: var(--text); font-weight: 600; }
+  .article-body em { color: var(--muted); font-style: italic; }
+  .article-body a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(0,212,255,0.3); }
+  .article-body a:hover { border-bottom-color: var(--accent); }
+  .article-body ul, .article-body ol { margin: 0 0 24px 20px; }
+  .article-body li { margin-bottom: 8px; color: #b8cfe0; line-height: 1.75; }
+
+  .callout { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 18px 20px; margin: 32px 0; }
+  .callout.green { border-left-color: var(--buy); }
+  .callout.red { border-left-color: var(--sell); }
+  .callout p { margin: 0; font-size: 14px; color: var(--muted); }
+  .callout strong { color: var(--text); }
+
+  .field-table { width: 100%; border-collapse: collapse; margin: 24px 0 32px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 14px; }
+  .field-table th { background: var(--bg3); padding: 10px 14px; text-align: left; font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .field-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: #b8cfe0; vertical-align: top; }
+  .field-table tr:last-child td { border-bottom: none; }
+  .field-table .field-name { font-family: 'Space Mono', monospace; color: var(--accent); font-size: 12px; white-space: nowrap; }
+
+  .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); text-decoration: none; font-size: 13px; margin-bottom: 40px; transition: color .2s; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 1px; }
+  .back-link:hover { color: var(--text); }
+
+  .cta-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 32px; text-align: center; margin-top: 56px; }
+  .cta-box h3 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; color: var(--text); margin-bottom: 10px; }
+  .cta-box p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .cta-btn { display: inline-block; background: var(--accent); color: var(--bg); padding: 11px 28px; border-radius: 6px; font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-decoration: none; transition: background .2s; }
+  .cta-btn:hover { background: #33ddff; }
+
+  footer { border-top: 1px solid var(--border); padding: 32px 24px; text-align: center; }
+  footer p { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 640px) {
+    .article-wrap { padding: 40px 16px 80px; }
+    .field-table { font-size: 13px; }
+    .field-table td, .field-table th { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/">INSIDER<span>TAPE</span></a>
+  <nav>
+    <a href="/">SCREENER</a>
+    <a href="/articles/" class="active">LEARN</a>
+  </nav>
+</header>
+
+<div class="article-wrap">
+  <a class="back-link" href="/articles/">← All Articles</a>
+  <div class="article-tag">Fundamentals</div>
+  <h1>HOW TO READ AN SEC FORM 4</h1>
+  <div class="article-meta">7 min read &nbsp;·&nbsp; InsiderTape</div>
+
+  <div class="article-body">
+
+    <p>Every time a corporate insider — a CEO, CFO, board member, or anyone who owns more than 10% of a company's stock — buys or sells shares, they're required by law to report it to the SEC. That report is called a <strong>Form 4</strong>, and it has to be filed within two business days of the transaction.</p>
+
+    <p>The filings are public. They're sitting on EDGAR right now. And most retail investors have never read one.</p>
+
+    <p>Part of that is because the raw form is genuinely ugly — a dense, bureaucratic table full of codes and checkboxes that were designed for compliance departments, not investors. But once you know what you're looking at, it takes about 30 seconds to extract the signal from any filing.</p>
+
+    <h2>WHO HAS TO FILE?</h2>
+
+    <p>The SEC defines "insiders" as officers, directors, and anyone who owns 10% or more of a company's equity. In practice, that means:</p>
+
+    <ul>
+      <li>C-suite executives (CEO, CFO, COO, etc.)</li>
+      <li>Board members, including independent directors</li>
+      <li>Large beneficial owners (activist funds, founding families)</li>
+      <li>Certain VP-level executives at larger companies</li>
+    </ul>
+
+    <p>The key thing to understand is that these people have legal access to material nonpublic information — the kind of information that, if you traded on it, would land you in prison. The Form 4 regime exists specifically because they're allowed to trade their own company's stock, but only with significant transparency and restriction.</p>
+
+    <div class="callout">
+      <p><strong>Quick note on legality:</strong> "Insider trading" in the colloquial sense — trading on tips, material nonpublic info — is illegal. What we're talking about here is the <em>legal</em> counterpart: executives and directors who trade their own company's stock in compliance with SEC rules, following pre-clearance procedures and blackout periods. The Form 4 is the disclosure mechanism for those legal trades.</p>
+    </div>
+
+    <h2>THE KEY FIELDS IN A FORM 4</h2>
+
+    <p>A Form 4 has two main transaction tables — Table I for open market transactions (stock) and Table II for derivative transactions (options, warrants, convertible notes). For most investors, Table I is where the signal lives.</p>
+
+    <table class="field-table">
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>What it means</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="field-name">Transaction Date</td>
+          <td>When the trade actually happened. This is different from the filing date — the SEC gives them two business days to file, so there's always a slight lag.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Transaction Code</td>
+          <td>The type of transaction. <strong>P</strong> = open market purchase (the most bullish signal). <strong>S</strong> = open market sale. <strong>A</strong> = grant/award. <strong>F</strong> = shares withheld for tax. See codes below.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Amount of Securities</td>
+          <td>Number of shares bought or sold. Context matters — 10,000 shares from a CEO who owns 5 million is different from an executive making their first purchase.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Price</td>
+          <td>The per-share price at which the transaction executed. Compare this to the current price — did they buy near current levels, or was this months ago at a different price?</td>
+        </tr>
+        <tr>
+          <td class="field-name">Securities Owned After</td>
+          <td>Total holdings after the transaction. This gives you the ownership percentage context and tells you whether this buy represents a meaningful increase in their position.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Direct vs. Indirect</td>
+          <td>Direct ownership is in their own name. Indirect means through a trust, LLC, family member, or similar. Both count — indirect ownership is still economically meaningful.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>TRANSACTION CODES — THE ONES THAT ACTUALLY MATTER</h2>
+
+    <p>The transaction code column is the most important thing on the form. It tells you whether this was a discretionary act (the insider chose to do this) or a mechanical one (a scheduled plan, a compensation event, a tax withholding).</p>
+
+    <h3>Codes worth paying attention to</h3>
+    <ul>
+      <li><strong>P — Purchase:</strong> The insider went to the open market and bought shares with their own cash. This is the clearest bullish signal on the form. Nobody is required to do this.</li>
+      <li><strong>S — Sale:</strong> Open market sale. Worth watching, but context matters enormously — most insider selling is for liquidity or diversification, not because they think the stock is going down.</li>
+    </ul>
+
+    <h3>Codes you can mostly ignore</h3>
+    <ul>
+      <li><strong>A — Award/Grant:</strong> Compensation. The company gave them shares or options as part of their pay package. Not a signal of conviction either way.</li>
+      <li><strong>F — Tax withholding:</strong> Shares withheld by the company to cover income taxes when restricted stock vests. This looks like a sale but it's purely mechanical — the insider didn't choose to sell, the company just kept some shares to cover the tax bill.</li>
+      <li><strong>M — Option exercise:</strong> Exercising options they were previously granted. Often followed by a sale (code S) to cover the cost. Neutral to slightly negative, but context-dependent.</li>
+      <li><strong>G — Gift:</strong> Shares donated to charity or gifted to family. Not a market signal.</li>
+    </ul>
+
+    <div class="callout green">
+      <p><strong>The cleanest signal on any Form 4</strong> is a <strong>P transaction</strong> — a straight open market purchase — from a C-suite executive or director, at or near the current market price, in a size that represents a meaningful increase to their existing holdings. Everything else is noise to varying degrees.</p>
+    </div>
+
+    <h2>10B5-1 PLANS — AND WHY THEY DILUTE THE SIGNAL</h2>
+
+    <p>One thing that trips up a lot of people is the 10b5-1 plan. Insiders who want to sell stock on a regular basis — to fund a lifestyle, diversify, whatever — can set up a pre-arranged trading plan where a broker automatically executes sales on a schedule. The insider doesn't make any decision at the time of the sale.</p>
+
+    <p>This matters because those sales show up on Form 4 as regular S transactions. If you're tracking insider selling, you want to know whether a given sale was discretionary or part of a pre-arranged plan. The form sometimes flags this in a footnote, but not always consistently.</p>
+
+    <p>The implication for buyers is easier: you almost never set up a 10b5-1 plan for purchases. An open market buy is almost always a real-time, deliberate decision.</p>
+
+    <h2>WHAT MOST PEOPLE GET WRONG</h2>
+
+    <p>The biggest mistake is treating all insider transactions equally. A Form 4 filed because a director exercised options they've held for ten years and immediately sold the shares to cover the tax bill tells you nothing useful. A Form 4 showing a first-time open market purchase from the CFO the week after a rough earnings call is a different story entirely.</p>
+
+    <p>The other common mistake is ignoring position size. An insider who buys $50,000 worth of stock on a $200,000 base salary is making a very different statement than an insider buying $50,000 worth on a $10 million comp package. The dollar amount matters, but it has to be relative to something.</p>
+
+    <p>And finally: don't anchor on a single filing. The most reliable historical patterns in insider trading data involve <em>multiple</em> insiders at the same company buying within a short window — what's sometimes called cluster buying. A lone purchase is a data point. Three purchases from three different insiders in the same month is a signal worth investigating.</p>
+
+    <div class="callout red">
+      <p><strong>One more thing:</strong> insiders are humans, not oracles. They can be wrong about their own stock. They buy, the stock goes down. It happens. The data is one input, not a guarantee — treat it like any other fundamental signal and size accordingly.</p>
+    </div>
+
+    <h2>WHERE TO FIND THE FILINGS</h2>
+
+    <p>The SEC's EDGAR system has every Form 4 ever filed at <strong>sec.gov/cgi-bin/browse-edgar</strong>. You can search by company or by individual filer. The raw forms are available as HTML or XML.</p>
+
+    <p>The problem with EDGAR is that it's designed for compliance, not analysis. Filtering for meaningful transactions, tracking patterns across time, and normalizing the data takes a lot of work to do manually.</p>
+
+    <p>That's what InsiderTape is built for — we ingest the filings in real time, strip out the noise (grants, options exercises, tax withholdings), and surface the purchases and sales that are actually worth paying attention to.</p>
+
+    <div class="cta-box">
+      <h3>SEE THE LATEST FORM 4 FILINGS</h3>
+      <p>Insider purchases and sales, updated as SEC filings come in. Filtered, sorted, and ready to act on.</p>
+      <a class="cta-btn" href="/">OPEN INSIDERTAPE →</a>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <p><a href="/articles/">← Back to Articles</a> &nbsp;·&nbsp; Data sourced from SEC EDGAR &nbsp;·&nbsp; Not financial advice</p>
+</footer>
+
+</body>
+</html>
