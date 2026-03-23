@@ -20,6 +20,7 @@ log(`DB path: ${DB_PATH}`);
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 db.pragma('synchronous = NORMAL');
 
 db.exec(`
@@ -39,6 +40,10 @@ db.exec(`
     synced_at TEXT DEFAULT (datetime('now')),
     filings INTEGER,
     trades INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS seen_filings (
+    accession TEXT PRIMARY KEY,
+    seen_at   TEXT DEFAULT (datetime('now'))
   );
 `);
 
@@ -544,19 +549,21 @@ async function fetchFullIndex(startDate, endDate) {
 async function processBatch(filings, label) {
   if (!filings.length) return 0;
 
-  // Pre-filter: skip filings whose accession is already in the DB.
-  // This avoids fetching full XML for thousands of already-processed filings
-  // on every startup backfill — the most expensive part of the boot cycle.
-  const checkStmt = db.prepare('SELECT 1 FROM trades WHERE accession=? LIMIT 1');
-  const newFilings = filings.filter(f => !checkStmt.get(f.accession));
+  // Pre-filter: skip filings already in trades OR already seen (processed but no trades)
+  // This prevents re-fetching XML for thousands of non-trade filings on every boot.
+  const checkTrades = db.prepare('SELECT 1 FROM trades WHERE accession=? LIMIT 1');
+  const checkSeen   = db.prepare('SELECT 1 FROM seen_filings WHERE accession=? LIMIT 1');
+  const markSeen    = db.prepare('INSERT OR IGNORE INTO seen_filings (accession) VALUES (?)');
+
+  const newFilings = filings.filter(f => !checkTrades.get(f.accession) && !checkSeen.get(f.accession));
   const skipped = filings.length - newFilings.length;
-  if (skipped > 0) log(`${label}: skipping ${skipped} already-ingested, processing ${newFilings.length} new`);
+  if (skipped > 0) log(`${label}: skipping ${skipped} already-processed, fetching ${newFilings.length} new`);
   if (!newFilings.length) { log(`${label}: nothing new to process`); return 0; }
   log(`${label}: processing ${newFilings.length} filings`);
 
   let inserted = 0;
   let failed   = 0;
-  const CONCURRENCY = 6;
+  const CONCURRENCY = 2; // keep low so server stays responsive
 
   for (let i = 0; i < newFilings.length; i += CONCURRENCY) {
     const batch   = newFilings.slice(i, i + CONCURRENCY);
@@ -574,9 +581,16 @@ async function processBatch(filings, label) {
     }
     if ((i + CONCURRENCY) % 60 === 0)
       log(`  ${i + CONCURRENCY}/${newFilings.length} — inserted:${inserted} failed:${failed}`);
+    // Yield to event loop so Express can serve requests during backfill
+    await new Promise(r => setImmediate(r));
   }
 
   log(`${label} done — inserted:${inserted} failed:${failed} from ${newFilings.length} filings`);
+
+  // Mark all processed filings as seen so future backfills skip them instantly
+  const markMany = db.transaction(items => { for (const f of items) markSeen.run(f.accession); });
+  markMany(newFilings);
+
   return inserted;
 }
 
@@ -662,6 +676,12 @@ async function main() {
   if (c2.changes > 0) log(`Removed ${c2.changes} non-market transaction records`);
   const c3 = db.prepare(`DELETE FROM trades WHERE value > 2000000000 OR price > 1500000 OR qty > 50000000`).run();
   if (c3.changes > 0) log(`Removed ${c3.changes} records with implausible values`);
+
+  // Prune seen_filings older than 30 days to keep the table lean
+  try {
+    const pruned = db.prepare("DELETE FROM seen_filings WHERE seen_at < datetime('now','-30 days')").run();
+    if (pruned.changes > 0) log(`Pruned ${pruned.changes} old seen_filings entries`);
+  } catch(e) {}
 
   if (mode === 'backfill') {
     await runBackfill(daysBack);
