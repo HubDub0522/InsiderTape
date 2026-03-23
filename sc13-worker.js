@@ -315,18 +315,15 @@ async function runHistoricalBackfill() {
 // For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
 // The SUBJECT company CIK appears on the index page as "(Subject)".
 async function enrichRecentTickers() {
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - 6); // only enrich last 6 months
-  const cutoffStr = cutoff.toISOString().slice(0, 10);
-
+  // Enrich newest blank-ticker rows first, 500 per run
+  // Runs after every EFTS poll so tickers fill in gradually
   const rows = db.prepare(`
     SELECT id, accession, url
     FROM sc13_transactions
     WHERE (ticker IS NULL OR ticker = '')
-      AND filed_date >= ?
     ORDER BY filed_date DESC
-    LIMIT 200  -- recent rows only; EFTS data should already have tickers
-  `).all(cutoffStr);
+    LIMIT 500
+  `).all();
 
   if (!rows.length) { log('Ticker enrichment: nothing to enrich'); return; }
   log(`Ticker enrichment: ${rows.length} recent rows to resolve`);
@@ -358,14 +355,24 @@ async function enrichRecentTickers() {
       const { status, body } = await get(indexUrl, 15000);
       if (status !== 200) return null;
       const html = body.toString('utf8');
-      // EDGAR index page format:
+
+      // EDGAR index page format (modern):
       // <span class="companyName">COMPANY NAME (0001234567) (Subject)</span>
       const subjectM = html.match(/companyName[^>]*>([^<]+)\((\d{7,10})\)\s*\(Subject\)/i);
       if (subjectM) return subjectM[2].replace(/^0+/, '');
 
-      // Older EDGAR format: plain text "Subject Company:" row
+      // Modern EDGAR index also has this pattern in the header table:
+      // <td class="companyInfo"><a href="...">COMPANY NAME</a><br>(0001234567) (Subject)</td>
+      const subjectM2 = html.match(/\((\d{7,10})\)\s*\(Subject\)/i);
+      if (subjectM2) return subjectM2[1].replace(/^0+/, '');
+
+      // Older EDGAR format
       const subjectAlt = html.match(/subject\s+company[^:]*:.*?CIK[^:]*:\s*(\d{7,10})/is);
       if (subjectAlt) return subjectAlt[1].replace(/^0+/, '');
+
+      // Last resort: look for any 10-digit CIK that appears near "subject" anywhere
+      const subjectLoose = html.match(/subject[^\n<]{0,100}(\d{10})/i);
+      if (subjectLoose) return subjectLoose[1].replace(/^0+/, '');
 
       return null;
     } catch(e) { return null; }
@@ -385,7 +392,7 @@ async function enrichRecentTickers() {
       }
     } catch(e) {}
     // Log progress every 200 rows
-    if ((i + 1) % 200 === 0) log(`Ticker enrichment: ${i+1}/${rows.length} processed, ${enriched} resolved so far`);
+    if ((i + 1) % 50 === 0) log(`Ticker enrichment: ${i+1}/${rows.length} processed, ${enriched} resolved so far`);
   }
 
   log(`Ticker enrichment: ${enriched}/${rows.length} rows resolved`);
@@ -524,7 +531,11 @@ async function main() {
 
   // Re-check for new filings every 4 hours
   log('SC 13D/G worker: polling every 4 hours');
-  setInterval(() => runRecentBackfill(2).catch(e => log(`Poll error: ${e.message}`)), 4 * 60 * 60 * 1000);
+  setInterval(() => {
+    runRecentBackfill(2)
+      .then(() => enrichRecentTickers())
+      .catch(e => log(`Poll error: ${e.message}`));
+  }, 4 * 60 * 60 * 1000);
 }
 
 main().catch(e => {
