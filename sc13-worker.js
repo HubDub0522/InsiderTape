@@ -253,9 +253,16 @@ async function runHistoricalBackfill() {
 }
 
 // ── Ticker enrichment for recent metadata-only rows ───────────────────────
-// Fetches the EDGAR filing index page for blank-ticker rows filed in the
-// last 2 years to resolve issuer ticker and company name.
-// The index page lists both the filer (13D/G reporter) and the subject company.
+// Uses the EDGAR company submissions API (data.sec.gov/submissions/CIK.json)
+// to resolve the subject company ticker from the issuer CIK.
+//
+// The issuer CIK is extracted from the filing's primary document — specifically
+// the sc13-index.htm page which contains the subject company CIK in the
+// format: <span class="companyName">COMPANY NAME (0001234567) (Subject)</span>
+// We then hit data.sec.gov/submissions/CIK{10digits}.json to get the ticker.
+//
+// For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
+// The SUBJECT company CIK appears on the index page as "(Subject)".
 async function enrichRecentTickers() {
   const cutoff = new Date();
   cutoff.setFullYear(cutoff.getFullYear() - 2);
@@ -277,38 +284,51 @@ async function enrichRecentTickers() {
     UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?
   `);
 
+  // Cache CIK→ticker lookups to avoid re-fetching for the same issuer
+  const cikTickerCache = {};
+
+  async function lookupTickerByCik(cik) {
+    if (cikTickerCache[cik] !== undefined) return cikTickerCache[cik];
+    try {
+      const padded = cik.padStart(10, '0');
+      const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 10000);
+      if (status !== 200) { cikTickerCache[cik] = null; return null; }
+      const data = JSON.parse(body.toString('utf8'));
+      const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
+      const company = (data.name || '').trim();
+      const result  = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
+      cikTickerCache[cik] = result;
+      return result;
+    } catch(e) { cikTickerCache[cik] = null; return null; }
+  }
+
+  async function getSubjectCik(accession, indexUrl) {
+    try {
+      const { status, body } = await get(indexUrl, 15000);
+      if (status !== 200) return null;
+      const html = body.toString('utf8');
+      // EDGAR index page format:
+      // <span class="companyName">COMPANY NAME (0001234567) (Subject)</span>
+      const subjectM = html.match(/companyName[^>]*>([^<]+)\((\d{7,10})\)\s*\(Subject\)/i);
+      if (subjectM) return subjectM[2].replace(/^0+/, '');
+
+      // Older EDGAR format: plain text "Subject Company:" row
+      const subjectAlt = html.match(/subject\s+company[^:]*:.*?CIK[^:]*:\s*(\d{7,10})/is);
+      if (subjectAlt) return subjectAlt[1].replace(/^0+/, '');
+
+      return null;
+    } catch(e) { return null; }
+  }
+
   let enriched = 0;
   for (const row of rows) {
     try {
-      const { status, body } = await get(row.url, 15000);
-      if (status !== 200) continue;
-      const text = body.toString('utf8');
+      const subjectCik = await getSubjectCik(row.accession, row.url);
+      if (!subjectCik) continue;
 
-      // EDGAR index page contains the subject company name and ticker
-      // Look for patterns like "(Subject)" rows or "Issuer" labels
-      // Common patterns in the HTML index:
-      //   <td>COMPANY NAME</td><td>(TICKER)</td>
-      //   Issuer: COMPANY NAME (TICKER)
-      //   Subject Company: COMPANY NAME (TICKER)
-      const patterns = [
-        /subject\s+company[^:]*:[^<]*<[^>]+>([^<(]+)\(([A-Z]{1,6})\)/i,
-        /issuer[^:]*:[^<]*<[^>]+>([^<(]+)\(([A-Z]{1,6})\)/i,
-        /<td[^>]*>([^<]+)<\/td>\s*<td[^>]*>\(([A-Z]{1,6})\)<\/td>/i,
-        /([A-Z][^(]{3,60})\s+\(([A-Z]{1,6})\)\s*<\/a>/,
-      ];
-      let ticker = '', company = '';
-      for (const re of patterns) {
-        const m = text.match(re);
-        if (m) {
-          company = m[1].trim().replace(/\s+/g, ' ');
-          ticker  = m[2].trim().toUpperCase();
-          if (ticker.match(/^[A-Z]{1,6}$/) && !['THE','INC','LLC','LTD','CO','CORP'].includes(ticker)) break;
-          ticker = ''; company = '';
-        }
-      }
-
-      if (ticker) {
-        updateStmt.run(ticker, company, row.id);
+      const result = await lookupTickerByCik(subjectCik);
+      if (result) {
+        updateStmt.run(result.ticker, result.company, row.id);
         enriched++;
       }
     } catch(e) {}
