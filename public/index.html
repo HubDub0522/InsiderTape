@@ -2661,7 +2661,11 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
       const isBuy=g.tc==='buy',isSell=g.tc==='sell';
       const refPrice=isBuy?(pd.low||pd.close)*0.995:isSell?(pd.high||pd.close)*1.005:pd.close;
       const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
-      const _mob=window.innerWidth<=640; const r=(_mob?5:8)+(_mob?8:14)*Math.log1p(g.value)/Math.log1p(maxVal);
+      const _mob=window.innerWidth<=640;
+      // Scale by sqrt(value/maxVal) for more visual contrast than log
+      // Min radius: 4 (mobile) or 5 (desktop) — Max radius: 18 (mobile) or 24 (desktop)
+      const rMin=_mob?4:5, rMax=_mob?18:24;
+      const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, g.value) / maxVal);
       const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(255,170,0,';
       ctx.beginPath(); ctx.arc(ts,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=color+'0.08)'; ctx.fill();
       ctx.beginPath(); ctx.arc(ts,yCoord,r,0,Math.PI*2); ctx.fillStyle=color+'0.20)'; ctx.strokeStyle=color+'0.85)'; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
