@@ -786,12 +786,15 @@ app.get('/api/sc13-debug', (req, res) => {
   try {
     const total = db.prepare('SELECT COUNT(*) AS n FROM sc13_transactions').get().n;
     const withTicker = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL").get().n;
+    const withCik    = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE subject_cik IS NOT NULL AND subject_cik != ''").get().n;
+    // Sample of rows that actually have tickers
+    const tickerSample = db.prepare(`SELECT ticker, company, filer, filing_type, filed_date, subject_cik FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL ORDER BY filed_date DESC LIMIT 10`).all();
     const sample = sym
-      ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE ticker = ? OR company LIKE ? ORDER BY filed_date DESC LIMIT 20`).all(sym, `%${sym}%`)
+      ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE ticker = ? ORDER BY filed_date DESC LIMIT 20`).all(sym)
       : filer
       ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE filer LIKE ? ORDER BY filed_date DESC LIMIT 20`).all(`%${filer}%`)
-      : db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions ORDER BY filed_date DESC LIMIT 20`).all();
-    res.json({ total, withTicker, sample });
+      : db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions ORDER BY filed_date DESC LIMIT 10`).all();
+    res.json({ total, withTicker, withCik, tickerSample, sample });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
