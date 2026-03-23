@@ -741,8 +741,9 @@ async function main() {
   log('Starting hourly RSS poll (market hours only) + 3am daily backfill...');
   scheduleHourlyPoll();
   schedule3amBackfill();
-  // Run one poll now to pick up anything since startup backfill
-  await runRSSPoll();
+  // Delay initial poll 2 minutes so site is fully responsive on boot
+  log('Initial RSS poll delayed 2min to allow site to load...');
+  setTimeout(() => runRSSPoll().catch(e => log(`Initial poll error: ${e.message}`)), 2 * 60 * 1000);
 }
 
 main().catch(e => {
