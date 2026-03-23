@@ -1,32 +1,12 @@
 'use strict';
 
-// sc13-worker.js — v2
-// Ingests Schedule 13D and 13G filings from EDGAR.
-//
-// Two-phase approach:
-//
-//   HISTORICAL (form.idx):
-//     Walks every quarterly form.idx file from 2004 to present.
-//     Stores metadata-only rows (filer, date, accession, SEC link)
-//     WITHOUT fetching each document individually — too many filings.
-//     This gives chart markers for all historical filings instantly.
-//     Completed quarters are tracked in sc13_quarter_log so restarts
-//     skip already-processed quarters.
-//
-//   RECENT (Atom feed, last 90 days):
-//     Uses browse-edgar Atom feed — same proven approach as daily-worker.js.
-//     Runs on startup and every 4 hours to catch new filings.
-//     Ticker/company hints are extracted from the Atom entry titles.
-//
-//   TICKER ENRICHMENT:
-//     For recent rows (last 2 years) where ticker is blank, a background
-//     enrichment pass fetches each filing's index page to resolve the
-//     issuer ticker and company name.
-//
-//   SEC LINK:
-//     Every record stores the direct EDGAR index URL so users can click
-//     through to the full filing. Same pattern as Form 4 links in the UI:
-//     https://www.sec.gov/Archives/edgar/data/{CIK}/{acc}/{acc}-index.htm
+// daily-worker.js — v9 (paginated RSS for recent data)
+// Fixes:
+//  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
+//  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
+//  - RSS poll runs every 2 min for low-latency same-day picks
+//  - daily_log now records per-date counts correctly
+//  - Increased EFTS page limit to catch all filings (up to 10k/day)
 
 const https    = require('https');
 const fs       = require('fs');
@@ -42,95 +22,83 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
-// ── Schema ────────────────────────────────────────────────────────────────
 db.exec(`
-  CREATE TABLE IF NOT EXISTS sc13_transactions (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker       TEXT NOT NULL DEFAULT '',
-    company      TEXT,
-    filer        TEXT,
-    filing_type  TEXT,
-    filed_date   TEXT NOT NULL,
-    period_date  TEXT,
-    pct_owned    REAL,
-    shares_owned INTEGER,
-    shares_delta INTEGER,
-    accession    TEXT UNIQUE,
-    url          TEXT,
-    subject_cik  TEXT
-  )
-`);
-try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker)`); } catch(_) {}
-try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filed_date ON sc13_transactions(filed_date DESC)`); } catch(_) {}
-try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filer      ON sc13_transactions(filer)`); } catch(_) {}
-
-// Track completed quarters so restarts skip them
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sc13_quarter_log (
-    quarter   TEXT PRIMARY KEY,
+  CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
+    trade_date TEXT NOT NULL, filing_date TEXT,
+    type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER, accession TEXT,
+    UNIQUE(accession, insider, trade_date, type, qty)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker);
+  CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider);
+  CREATE TABLE IF NOT EXISTS daily_log (
+    date TEXT PRIMARY KEY,
     synced_at TEXT DEFAULT (datetime('now')),
-    rows      INTEGER DEFAULT 0
-  )
+    filings INTEGER,
+    trades INTEGER
+  );
 `);
 
-// Migrate existing DB — add subject_cik column if it doesn't exist yet
-// Must run BEFORE preparing the INSERT statement that references it
-try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
-
-// One-time migration: clear old single-CIK subject_cik values (stored as just the filer CIK).
-// The new format stores all CIKs comma-separated so enrichment can find the subject.
-// Old values that don't contain a comma are likely just the filer CIK (no ticker).
-// Reset them so the EFTS backfill re-populates with the correct multi-CIK format.
-try {
-  const cleared = db.prepare(`
-    UPDATE sc13_transactions SET subject_cik = NULL
-    WHERE subject_cik IS NOT NULL
-      AND subject_cik NOT LIKE '%,%'
-      AND LENGTH(subject_cik) > 0
-  `).run();
-  if (cleared.changes > 0) log(`Cleared ${cleared.changes} stale single-CIK subject_cik values`);
-} catch(e) {}
-
-const insertSc13 = db.prepare(`
-  INSERT OR IGNORE INTO sc13_transactions
-    (ticker, company, filer, filing_type, filed_date, period_date,
-     pct_owned, shares_owned, shares_delta, accession, url, subject_cik)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+const insertTrade = db.prepare(`
+  INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 `);
-const insertMany = db.transaction(rows => {
+
+// For 4/A amendments: delete original rows for this insider+ticker on the same trade dates
+// before inserting corrected data. This ensures amendments always overwrite originals.
+const deleteForAmendment = db.prepare(`
+  DELETE FROM trades
+  WHERE ticker = ? AND insider = ? AND trade_date = ? AND TRIM(type) IN ('P','S','S-')
+`);
+
+const doInsert = db.transaction(rows => {
   let n = 0;
-  for (const r of rows) n += insertSc13.run(...r).changes;
+  for (const r of rows) n += insertTrade.run(r).changes;
   return n;
 });
 
-// ── Logging ───────────────────────────────────────────────────────────────
+// Amendment-aware insert: wipe original rows first, then insert corrected data
+const doInsertAmendment = db.transaction(rows => {
+  // Group rows by ticker+insider+trade_date and delete originals first
+  const keys = new Set(rows.map(r => r[0] + '|' + r[2] + '|' + r[4])); // ticker|insider|trade_date
+  for (const key of keys) {
+    const [ticker, insider, trade_date] = key.split('|');
+    deleteForAmendment.run(ticker, insider, trade_date);
+  }
+  // Now insert the amended rows
+  let n = 0;
+  for (const r of rows) n += insertTrade.run(r).changes;
+  return n;
+});
+
 function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
 
-// ── Rate-limited HTTPS GET (max 8 req/sec, respects SEC limits) ───────────
-const _reqTimes = [];
-async function get(url, ms = 30000, _hops = 0) {
+// ── Rate-limited GET (max 8 req/sec to respect SEC limits) ───────
+const reqTimes = [];
+async function get(url, ms = 20000, _hops = 0) {
   if (_hops > 5) throw new Error('Too many redirects');
   const now = Date.now();
-  while (_reqTimes.length && _reqTimes[0] < now - 1000) _reqTimes.shift();
-  if (_reqTimes.length >= 8) {
-    await new Promise(r => setTimeout(r, 1000 - (now - _reqTimes[0]) + 10));
+  while (reqTimes.length && reqTimes[0] < now - 1000) reqTimes.shift();
+  if (reqTimes.length >= 8) {
+    await new Promise(r => setTimeout(r, 1000 - (now - reqTimes[0]) + 10));
   }
-  _reqTimes.push(Date.now());
+  reqTimes.push(Date.now());
 
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
       headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
       timeout: ms,
     }, res => {
-      if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
+      if ([301,302,303].includes(res.statusCode) && res.headers.location) {
         res.resume();
-        const loc = res.headers.location;
-        const next = loc.startsWith('http') ? loc : new URL(loc, url).href;
-        return get(next, ms, _hops + 1).then(resolve).catch(reject);
+        return get(res.headers.location, ms, _hops + 1).then(resolve).catch(reject);
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
       res.on('error', reject);
     });
     req.on('error', reject);
@@ -138,452 +106,606 @@ async function get(url, ms = 30000, _hops = 0) {
   });
 }
 
-// ── Build EDGAR index URL from accession number ───────────────────────────
-// Matches the Form 4 SEC link pattern used in index.html:
-//   https://www.sec.gov/Archives/edgar/data/{CIK}/{acc-no-dashes}/{acc}-index.htm
-function edgarIndexUrl(accession, cik) {
-  const acc = accession.replace(/-/g, '');
-  const resolvedCik = cik ? parseInt(cik, 10).toString() : parseInt(acc.slice(0, 10), 10).toString();
-  return `https://www.sec.gov/Archives/edgar/data/${resolvedCik}/${acc}/${accession}-index.htm`;
+function parseDate(s) {
+  if (!s) return null;
+  const d = s.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const yr = parseInt(d.slice(0, 4), 10);
+  const today = new Date().toISOString().slice(0, 10);
+  if (d > today || yr < 2000) return null;
+  return d;
 }
 
-// SC 13D/G form type variants as they appear in form.idx
-const SC13_TYPES = new Set([
-  'SC 13D', 'SC 13G', 'SC 13D/A', 'SC 13G/A',
-  'SC13D',  'SC13G',  'SC13D/A',  'SC13G/A',
-  'SC 13D/A', 'SC 13G/A',
-]);
-
-// ── HISTORICAL BACKFILL via EDGAR quarterly form.idx ─────────────────────
-//
-// form.idx is a fixed-width text file listing every SEC filing for a quarter.
-// Format:
-//   Form Type  Company Name              CIK         Date Filed  Filename
-//   ---------- ------------------------- ----------- ----------- ----------------------------
-//   SC 13D     PALE FIRE CAPITAL SE      0001922318  2026-02-19  edgar/data/1922318/0001922318-26-000511.txt
-//
-// For SC 13D/G the "Company Name" is the FILER (the investor making the
-// disclosure), which is exactly what we want. The subject company ticker
-// is not in form.idx but is resolved later by enrichRecentTickers().
-
-async function fetchQuarterIndex(year, q) {
-  const key = `${year}Q${q}`;
-  const already = db.prepare('SELECT rows FROM sc13_quarter_log WHERE quarter=?').get(key);
-  if (already) {
-    log(`${key}: already synced (${already.rows} rows), skipping`);
-    return 0;
-  }
-
-  const url = `https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${q}/form.idx`;
-  log(`${key}: fetching form.idx...`);
-
-  let bodyText;
-  try {
-    const { status, body } = await get(url, 90000);
-    if (status !== 200) { log(`${key}: HTTP ${status} — skipping`); return 0; }
-    bodyText = body.toString('utf8');
-  } catch(e) { log(`${key}: fetch error — ${e.message}`); return 0; }
-
-  const lines = bodyText.split('\n');
-
-  // Detect non-index files: EDGAR sometimes returns a readme/metadata file
-  // instead of the actual form.idx for recent or in-progress quarters.
-  // Real form.idx starts with a header like "Form Type  Company Name..."
-  // Fake files start with "Description:", "Last Data Re", or similar.
-  const firstLines = lines.slice(0, 5).join(' ');
-  if (/Description:|Last Data Re|Comments:|This file/i.test(firstLines) &&
-      !/Form Type/i.test(firstLines)) {
-    log(`${key}: EDGAR returned non-index file (readme/metadata), skipping`);
-    log(`${key}: first line: "${lines[0]?.slice(0,80)}"`);
-    db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
-    return 0;
-  }
-
-  let pastHeader = false;
-  const batch = [];
-  let scanned = 0;
-  let debugPrinted = 0;
-
-  for (const line of lines) {
-    if (!pastHeader) {
-      if (/^-{5,}/.test(line.trim())) { pastHeader = true; }
-      continue;
-    }
-    if (line.length < 40) continue;
-
-    // Form type is left-aligned in the first ~12 characters
-    const formType = line.slice(0, 12).trim();
-    if (!SC13_TYPES.has(formType)) continue;
-    scanned++;
-
-    // Debug: print first 3 data lines to confirm format in logs
-    if (debugPrinted < 3) {
-      log(`  ${key} sample [${line.length}]: "${line.slice(0, 200)}"`);
-      debugPrinted++;
-    }
-
-    // Date filed — EDGAR uses ISO (YYYY-MM-DD) in newer files,
-    // MM/DD/YYYY in older quarterly files. Handle both.
-    let filedDate = '';
-    const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
-    const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if (isoMatch) {
-      filedDate = isoMatch[1];
-    } else if (mdyMatch) {
-      filedDate = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
-    } else { log(`  ${key} no date: "${line.slice(0,80)}"`); continue; }
-    if (filedDate < '2000-01-01' || filedDate > '2040-01-01') continue;
-
-    // Filename: edgar/data/{CIK}/{accession}.txt
-    // Try with .txt extension first (most common), then without (some newer files)
-    const fnM = line.match(/edgar\/data\/(\d+)\/(\d[\d-]{14,19})\.txt/i)
-             || line.match(/edgar\/data\/(\d+)\/(\d{10}-\d{2}-\d{6})/);
-    if (!fnM) { log(`  ${key} no filename [len=${line.length}]: "${line.slice(0,180)}"`); continue; }
-    const cik   = fnM[1];
-    const parts = fnM[2].replace(/\.txt$/i,'').split('-');
-    if (parts.length !== 3) continue;
-    const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
-
-    // Filer name: between col 12 and the CIK column
-    // Try padded CIK first, then raw CIK (format varies across quarters)
-    const cikPadded = cik.padStart(10, '0');
-    let cikPos      = line.indexOf(cikPadded);
-    if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + ' ');
-    if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + '\t');
-    const filerRaw  = cikPos > 12 ? line.slice(12, cikPos) : '';
-    const filer     = filerRaw.replace(/\s{2,}/g, ' ').trim();
-
-    batch.push([
-      '',          // ticker — resolved later by enrichRecentTickers()
-      '',          // company — resolved later
-      filer,       // filer = investor (directly available in form.idx)
-      formType,
-      filedDate,
-      filedDate,
-      null,        // pct_owned — not in form.idx
-      null,        // shares_owned
-      null,        // shares_delta
-      accDash,
-      edgarIndexUrl(accDash, cik),
-      null, // subject_cik
-    ]);
-  }
-
-  if (!batch.length) {
-    // Diagnostic: log sample of form types found to see what's actually in the file
-    const formTypeSample = {};
-    let sampleCount = 0;
-    for (const l of lines) {
-      if (!pastHeader || l.length < 20) continue;
-      const ft = l.slice(0, 12).trim();
-      if (ft && !formTypeSample[ft]) {
-        formTypeSample[ft] = 0;
-        sampleCount++;
-        if (sampleCount >= 20) break;
-      }
-      if (ft) formTypeSample[ft]++;
-    }
-    log(`${key}: 0 inserted (scanned ${scanned} matching, ${lines.length} total lines, pastHeader=${pastHeader})`);
-    log(`${key}: form types in file: ${Object.keys(formTypeSample).slice(0,15).join(', ')}`);
-    db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, 0);
-    return 0;
-  }
-
-  const inserted = insertMany(batch);
-  db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, inserted);
-  log(`${key}: ${inserted} inserted (${scanned} SC 13D/G matched, ${lines.length} total lines)`);
-  return inserted;
+function xmlGet(xml, tag) {
+  let m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*<value>\\s*([^<]+?)\\s*</value>', 'is'));
+  if (m?.[1]?.trim()) return m[1].trim();
+  m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*([^<\\s][^<]*?)\\s*</' + tag + '>', 'i'));
+  return m?.[1]?.trim() || '';
 }
 
-async function runHistoricalBackfill() {
-  const now  = new Date();
-  const endYr = now.getUTCFullYear();
-  const endQ  = Math.ceil((now.getUTCMonth() + 1) / 3);
-  let total   = 0;
+function parseForm4(xml, filingDate, accession) {
+  const ticker  = xmlGet(xml, 'issuerTradingSymbol').toUpperCase().trim();
+  const company = xmlGet(xml, 'issuerName').trim();
+  const insider = xmlGet(xml, 'rptOwnerName').trim();
+  const title   = (xmlGet(xml, 'officerTitle') || xmlGet(xml, 'rptOwnerRelationship') || '').trim();
+  const period  = parseDate(xmlGet(xml, 'periodOfReport'));
+  if (!ticker) return [];
 
-  // EDGAR only reliably serves form.idx for completed quarters up to ~6 months ago.
-  // For recent quarters (2024Q4 and later), form.idx may return a readme/metadata
-  // file instead of the actual filing index. Recent data is handled by EFTS instead.
-  const FORM_IDX_CUTOFF_YEAR = 2024;
-  const FORM_IDX_CUTOFF_Q    = 3; // stop at 2024Q3 inclusive
+  const rows = [];
+  function parseBlock(block) {
+    const code  = (xmlGet(block, 'transactionCode') || '').trim();
+    // Only store open-market buys (P) and sales (S, S-)
+    // All other codes (C=conversion, M=exercise, A=award, G=gift, F=tax withholding, etc.)
+    // are not open-market transactions and produce fabricated values when qty*price is computed
+    if (!['P', 'S', 'S-'].includes(code)) return;
 
-  log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q} (EFTS handles recent quarters)`);
+    const date  = parseDate(xmlGet(block, 'transactionDate')) || period || filingDate;
+    if (!date) return;
 
-  for (let yr = 2004; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
-    const maxQ = (yr === FORM_IDX_CUTOFF_YEAR) ? FORM_IDX_CUTOFF_Q : 4;
-    for (let q = 1; q <= maxQ; q++) {
-      total += await fetchQuarterIndex(yr, q);
-      await new Promise(r => setTimeout(r, 250)); // polite pause between requests
+    const qty   = Math.round(Math.abs(parseFloat(xmlGet(block, 'transactionShares') || '0') || 0));
+    const price = Math.abs(parseFloat(xmlGet(block, 'transactionPricePerShare') || '0') || 0);
+    const owned = Math.round(Math.abs(parseFloat(xmlGet(block, 'sharesOwnedFollowingTransaction') || '0') || 0));
+
+    // Sanity checks: reject implausible values that indicate parsing errors or derivative noise
+    if (qty > 50_000_000) return;       // >50M shares in one trade = likely a conversion/derivative artifact
+    if (price > 1_500_000) return;      // >$1.5M/share = above even Berkshire A, likely bad data
+    const value = Math.round(qty * price);
+    if (value > 2_000_000_000) return;  // >$2B single trade = implausible, cap any edge cases
+
+    // Extract footnote text — used to detect DRIP/compensation-plan purchases
+    // which are coded 'P' by the SEC but are NOT discretionary open-market buys
+    const footnoteId = xmlGet(block, 'transactionCodeFootnoteId') ||
+                       xmlGet(block, 'transactionPricePerShareFootnoteId') || '';
+    // Collect all footnote descriptions from the document
+    const fnTexts = [];
+    const fnRe = /<footnote[^>]*id="([^"]*)"[^>]*>([\s\S]*?)<\/footnote>/gi;
+    let fnMatch;
+    while ((fnMatch = fnRe.exec(block + xml)) !== null) {
+      fnTexts.push(fnMatch[2].replace(/<[^>]+>/g, '').trim());
     }
+    const footnote = fnTexts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 500);
+
+    // Filter out non-discretionary purchases — coded 'P' by SEC but NOT
+    // genuine open-market conviction buys. Two categories:
+    if (code === 'P') {
+      const fn = footnote.toLowerCase();
+
+      // 1. DRIP / compensation-plan: pre-elected, programmatic, not discretionary
+      // Only filter if the footnote indicates THIS transaction was made via DRIP/plan
+      // (e.g. "pursuant to", "through the", "under the" plan).
+      // A footnote that merely mentions DRIP in passing (e.g. describing other holdings)
+      // should NOT cause the transaction to be dropped.
+      const isDRIPTransaction = (
+        fn.includes('pursuant to') || fn.includes('through the') ||
+        fn.includes('under the') || fn.includes('under a') ||
+        fn.includes('using a portion') || fn.includes('prior election') ||
+        fn.includes('automatic') || fn.includes('pre-elected')
+      ) && (
+        fn.includes('dividend reinvest') || fn.includes('drip') ||
+        fn.includes('reinvestment plan') || fn.includes('stock purchase plan') ||
+        fn.includes('employee stock purchase') || fn.includes('espp') ||
+        fn.includes('compensation plan') || fn.includes('deferred compensation') ||
+        fn.includes('director compensation')
+      );
+      const isDRIP = isDRIPTransaction;
+
+      // 2. Offering participation: buying in a company's own capital raise,
+      //    not an independent open-market decision
+      const isOffering = fn.includes('public offering') ||
+                         fn.includes('underwritten offering') ||
+                         fn.includes('registered offering') ||
+                         fn.includes('private placement') ||
+                         fn.includes('subscription agreement') ||
+                         fn.includes('securities purchase agreement') ||
+                         fn.includes('placement agent') ||
+                         fn.includes('prospectus supplement') ||
+                         fn.includes('direct offering') ||
+                         fn.includes('pipe offering');
+
+      if (isDRIP || isOffering) return;
+    }
+
+    rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), value, owned, accession, footnote || null]);
   }
 
-  log(`Historical backfill complete: ${total} total records inserted`);
-
-  // Enrich tickers for recent (last 2 years) rows that have no ticker yet
-  setTimeout(() => enrichRecentTickers().catch(e => log(`Enrichment error: ${e.message}`)), 3000);
+  let m;
+  const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/gi;
+  const dRe  = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/gi;
+  while ((m = ndRe.exec(xml))) parseBlock(m[1]);
+  while ((m = dRe.exec(xml)))  parseBlock(m[1]);
+  return rows;
 }
 
-// ── Ticker enrichment for recent metadata-only rows ───────────────────────
-// Uses the EDGAR company submissions API (data.sec.gov/submissions/CIK.json)
-// to resolve the subject company ticker from the issuer CIK.
-//
-// The issuer CIK is extracted from the filing's primary document — specifically
-// the sc13-index.htm page which contains the subject company CIK in the
-// format: <span class="companyName">COMPANY NAME (0001234567) (Subject)</span>
-// We then hit data.sec.gov/submissions/CIK{10digits}.json to get the ticker.
-//
-// For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
-// The SUBJECT company CIK appears on the index page as "(Subject)".
-async function enrichRecentTickers() {
-  // Shared cache and lookup function — defined first so both phases can use it
-  const cikTickerCache = {};
-  async function lookupTickerByCik(cikOrList) {
-    if (!cikOrList) return null;
-    const cikList = cikOrList.toString().split(',').map(c => c.trim()).filter(Boolean);
-    for (const cik of cikList) {
-      if (cikTickerCache[cik] !== undefined) {
-        if (cikTickerCache[cik]) return cikTickerCache[cik];
-        continue;
-      }
-      try {
-        const padded = cik.replace(/^0+/, '').padStart(10, '0');
-        const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 10000);
-        if (status !== 200) { cikTickerCache[cik] = null; continue; }
-        const data   = JSON.parse(body.toString('utf8'));
-        const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
-        const company = (data.name || '').trim();
-        const result  = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
-        cikTickerCache[cik] = result;
-        if (result) return result;
-      } catch(e) { cikTickerCache[cik] = null; }
-    }
+// ── Resolve accession number → parsed Form 4 rows ────────────────
+async function fetchForm4(accession, filingDate, xmlFile, ciks) {
+  const acc      = accession.replace(/-/g, '');
+  const filerCik = parseInt(acc.slice(0, 10), 10).toString();
+  const allCiks  = [...new Set([...(ciks || []).map(k => parseInt(k, 10).toString()), filerCik])];
+
+  // Helper: try fetching XML at a given URL
+  async function tryXml(url) {
+    try {
+      const { status, body } = await get(url);
+      if (status === 200 && body.includes('ownershipDocument')) return body;
+    } catch(e) {}
     return null;
   }
 
-  // Phase 1: fast-path — rows with subject_cik already set, just hit data.sec.gov
-  const fastRows = db.prepare(`
-    SELECT id, subject_cik FROM sc13_transactions
-    WHERE (ticker IS NULL OR ticker = '')
-      AND subject_cik IS NOT NULL AND subject_cik != ''
-    ORDER BY filed_date DESC LIMIT 2000
-  `).all();
-
-  if (fastRows.length > 0) {
-    log(`Ticker enrichment fast-path: ${fastRows.length} rows with subject_cik`);
-    fastRows.slice(0, 3).forEach((r, i) => log(`  sample[${i}]: ${r.subject_cik}`));
-    const upd = db.prepare(`UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?`);
-    let n = 0;
-    for (let i = 0; i < fastRows.length; i++) {
-      try {
-        const result = await lookupTickerByCik(fastRows[i].subject_cik);
-        if (result) { upd.run(result.ticker, result.company, fastRows[i].id); n++; }
-      } catch(e) {}
-      if ((i + 1) % 100 === 0) log(`Fast enrichment: ${i+1}/${fastRows.length}, ${n} resolved`);
+  // 1. Direct xmlFile path (fastest — EFTS gives us the filename)
+  if (xmlFile) {
+    for (const cik of allCiks) {
+      const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlFile}`);
+      if (xml) return parseForm4(xml, filingDate, accession);
     }
-    log(`Ticker enrichment fast-path: ${n}/${fastRows.length} resolved`);
   }
 
-  // Phase 2: slow-path — rows without subject_cik, fetch the filing index page
-  const rows = db.prepare(`
-    SELECT id, accession, url FROM sc13_transactions
-    WHERE (ticker IS NULL OR ticker = '')
-      AND (subject_cik IS NULL OR subject_cik = '')
-    ORDER BY filed_date DESC LIMIT 100
-  `).all();
-
-  if (!rows.length) { log('Ticker enrichment phase 2: nothing to enrich'); return; }
-  log(`Ticker enrichment phase 2: ${rows.length} rows to resolve via index page`);
-
-  async function getSubjectCik(accession, indexUrl) {
+  // 2. Use the SGML submission index (.txt) — always accessible, lists all docs
+  // URL: https://www.sec.gov/Archives/edgar/data/{CIK}/{ACC}/{ACC}.txt (header file)
+  // Better: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=...
+  // Best: fetch the index page directly
+  for (const cik of allCiks) {
     try {
-      const { status, body } = await get(indexUrl, 15000);
-      if (status !== 200) return null;
-      const html = body.toString('utf8');
-      const m = html.match(/companyName[^>]*>[^<]+\((\d{7,10})\)\s*\(Subject\)/i)
-             || html.match(/\((\d{7,10})\)\s*\(Subject\)/i)
-             || html.match(/subject\s+company[^:]*:.*?CIK[^:]*:\s*(\d{7,10})/is);
-      return m ? m[1].replace(/^0+/, '') : null;
-    } catch(e) { return null; }
-  }
-
-  const upd2 = db.prepare(`UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?`);
-  let enriched = 0;
-  for (let i = 0; i < rows.length; i++) {
-    try {
-      const subjectCik = await getSubjectCik(rows[i].accession, rows[i].url);
-      if (!subjectCik) continue;
-      const result = await lookupTickerByCik(subjectCik);
-      if (result) { upd2.run(result.ticker, result.company, rows[i].id); enriched++; }
+      const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accession}-index.htm`);
+      if (status === 200) {
+        // Extract XML filename from index HTML
+        const xmlMatch = body.match(/href="([^"]+\.xml)"/i);
+        if (xmlMatch) {
+          const xmlName = xmlMatch[1].split('/').pop();
+          const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlName}`);
+          if (xml) return parseForm4(xml, filingDate, accession);
+        }
+      }
     } catch(e) {}
-    if ((i + 1) % 25 === 0) log(`Phase 2 enrichment: ${i+1}/${rows.length}, ${enriched} resolved`);
+
+    // Also try the JSON index
+    try {
+      const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accession}-index.json`);
+      if (status === 200) {
+        const idx    = JSON.parse(body);
+        const xmlDoc = (idx.documents || []).find(d =>
+          d.document?.match(/\.xml$/i) && (d.type === '4' || d.type === '4/A' || !d.type)
+        ) || (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
+        if (xmlDoc) {
+          const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlDoc.document}`);
+          if (xml) return parseForm4(xml, filingDate, accession);
+        }
+      }
+    } catch(e) {}
   }
-  log(`Ticker enrichment phase 2: ${enriched}/${rows.length} resolved`);
+
+  // 3. Common filename patterns
+  for (const cik of allCiks) {
+    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml', 'xslF345X03/primary_doc.xml']) {
+      const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`);
+      if (xml) return parseForm4(xml, filingDate, accession);
+    }
+  }
+
+  return [];
 }
 
-// ── RECENT: EFTS search (last N days) ────────────────────────────────────
-// Uses EDGAR full-text search — same API the daily-worker uses for Form 4s.
-// Key fix: EFTS requires %20 for spaces in form types (not +).
-// "SC 13D" must be encoded as "SC%2013D" not "SC+13D".
-async function runRecentBackfill(daysBack) {
-  const since = new Date();
-  since.setDate(since.getDate() - daysBack);
-  const sinceStr = since.toISOString().slice(0, 10);
-  const today    = new Date().toISOString().slice(0, 10);
+// ── EDGAR browse-edgar paginated fetch — gets ALL filings since cutoff ──
+// fetchRecentFilings: get all Form 4s filed since sinceDate
+// Combines atom feed (low latency) + per-day EFTS (fills gaps)
+async function fetchRecentFilings(sinceDate) {
+  const seen    = new Set();
+  let   filings = [];
 
-  log(`Recent SC 13D/G EFTS: ${sinceStr} to ${today}`);
-
-  // %20 = space, %2F = slash — EFTS stores form types exactly as filed
-  const formTypes = 'SC%2013D,SC%2013G,SC%2013D%2FA,SC%2013G%2FA';
-  const allFilings = [];
-  const seen       = new Set();
-
-  for (let from = 0; from < 10000; from += 100) {
-    const url = `https://efts.sec.gov/LATEST/search-index?forms=${formTypes}&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100`;
-    try {
-      // Retry once on 500 — EDGAR EFTS occasionally returns transient 500s
-      let resp = await get(url, 30000);
-      if (resp.status === 500) {
-        log(`EFTS SC13 HTTP 500 at from=${from}, retrying in 10s...`);
-        await new Promise(r => setTimeout(r, 10000));
-        resp = await get(url, 30000);
-      }
-      const { status, body } = resp;
-      if (status !== 200) { log(`EFTS SC13 HTTP ${status} at from=${from}`); break; }
-      const data = JSON.parse(body.toString('utf8'));
-      const hits = data.hits?.hits || [];
-      if (!hits.length) break;
-
-      for (const h of hits) {
-        const raw     = h._id || '';
-        const colonAt = raw.indexOf(':');
-        const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
-        if (!accDash.match(/^\d{10}-\d{2}-\d{6}$/)) continue;
-
-        const fd       = h._source?.file_date?.slice(0,10) || today;
-        const ciks     = h._source?.ciks || [];
-        const formType = (h._source?.form_type || 'SC 13D').trim();
-        const cik      = (ciks[0] || '').toString() || accDash.slice(0,10).replace(/^0+/,'');
-
-        // For SC 13D/G: EFTS ciks[] contains both filer CIKs and subject company CIK.
-        // We can't reliably identify the subject from position alone since filing
-        // agents, investors, and subjects all appear.
-        // Store ALL ciks so enrichment can try each one to find the one with a ticker.
-        // The subject company will have a stock ticker; the investor/filer won't.
-        const subjectCik = ciks.length > 0 ? ciks.join(',') : null;
-
-        const displayNames = h._source?.display_names || [];
-        let tickerHint = '', companyHint = '', filerHint = h._source?.entity_name || '';
-        // Try to get company name from display_names (first non-filer entry)
-        for (const dn of displayNames) {
-          if (!filerHint || !dn.toUpperCase().includes(filerHint.slice(0,8).toUpperCase())) {
-            companyHint = dn.trim();
-            break;
-          }
-        }
-
-        if (!seen.has(accDash)) {
-          seen.add(accDash);
-          allFilings.push({
-            accession: accDash, cik, filedDate: fd, formType,
-            tickerHint, companyHint, filerHint, subjectCik,
-            secUrl: edgarIndexUrl(accDash, cik),
-          });
-        }
-      }
-      log(`EFTS SC13: from=${from}, ${hits.length} hits, ${allFilings.length} total`);
-      if (hits.length < 100) break;
-    } catch(e) { log(`EFTS SC13 error: ${e.message}`); break; }
+  // 1. Atom feed — paginated, low latency
+  try {
+    const atomFilings = await fetchViaAtom(sinceDate);
+    atomFilings.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); } });
+    log(`Atom feed: ${atomFilings.length} filings since ${sinceDate}`);
+  } catch(e) {
+    log(`Atom feed error: ${e.message}`);
   }
 
-  if (!allFilings.length) { log('Recent SC 13D/G: 0 filings found'); return 0; }
-  log(`Recent SC 13D/G: ${allFilings.length} filings found`);
+  // 2. EFTS per-day supplement — catches anything atom missed (slight lag but complete)
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date(sinceDate + 'T12:00:00Z');
+  const end   = new Date(today     + 'T12:00:00Z');
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dateStr = d.toISOString().slice(0, 10);
+    try {
+      const dayFilings = await searchEFTS(dateStr, dateStr);
+      let added = 0;
+      dayFilings.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); added++; } });
+      if (added > 0) log(`EFTS ${dateStr}: +${added} filings not in atom feed`);
+    } catch(e) {}
+  }
 
-  const batch = allFilings.map(f => [
-    f.tickerHint || '', f.companyHint || '', f.filerHint || '',
-    f.formType, f.filedDate, f.filedDate,
-    null, null, null, f.accession, f.secUrl, f.subjectCik || null,
-  ]);
+  log(`fetchRecentFilings total: ${filings.length} since ${sinceDate}`);
+  return filings;
+}
 
-  const inserted = insertMany(batch);
-  log(`Recent SC 13D/G: ${inserted} new records inserted`);
+async function fetchViaAtom(sinceDate) {
+  const filings = [];
+  const seen    = new Set();
 
-  // Backfill subject_cik on existing rows that didn't get it on insert
-  // (rows inserted before this column existed, or via OR IGNORE on duplicates)
-  const updateCik = db.prepare(`
-    UPDATE sc13_transactions SET subject_cik=?, filer=?
-    WHERE accession=? AND (subject_cik IS NULL OR subject_cik='')
-  `);
-  const updateMany = db.transaction(items => {
-    let n = 0;
-    for (const f of items) {
-      if (!f.subjectCik && !f.filerHint) continue;
-      n += updateCik.run(f.subjectCik || null, f.filerHint || null, f.accession).changes;
+  for (let start = 0; start < 4000; start += 40) {
+    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&start=${start}&output=atom`;
+    const r = await get(url, 30000);
+    if (r.status !== 200) {
+      log(`Atom HTTP ${r.status} at start=${start}`);
+      break;
     }
-    return n;
-  });
-  const updated = updateMany(allFilings);
-  if (updated > 0) log(`Recent SC 13D/G: ${updated} rows backfilled with subject_cik/filer`);
 
+    const entries = r.body.split('<entry>').slice(1);
+    if (start === 0) log(`Atom page 0: ${entries.length} entries, body length ${r.body.length}`);
+    if (!entries.length) break;
+
+    let oldestOnPage = '';
+    for (const entry of entries) {
+      const dateMatch  = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+      const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0,10);
+      const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
+      if (!linkMatch) continue;
+      const cik    = linkMatch[1];
+      const accRaw = linkMatch[2];
+      const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+      if (!seen.has(accDash)) {
+        seen.add(accDash);
+        // Extract form type from atom entry title/category — default to '4'
+        const typeMatch = entry.match(/<category[^>]*term="([^"]*4[^"]*)"/) ||
+                          entry.match(/<title[^>]*>[^<]*(4\/A)[^<]*<\/title>/i);
+        const formType  = (typeMatch?.[1] || typeMatch?.[2] || '').includes('4/A') ? '4/A' : '4';
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate, formType });
+      }
+      if (!oldestOnPage || filingDate < oldestOnPage) oldestOnPage = filingDate;
+    }
+
+    if (oldestOnPage && oldestOnPage < sinceDate) break;
+    if (entries.length < 40) break;
+  }
+
+  return filings.filter(f => f.filingDate >= sinceDate);
+}
+
+
+
+
+
+async function pollRSS() {
+  // For the live 2-min poll, grab everything from today (fast, usually <40 new)
+  const today = new Date().toISOString().slice(0, 10);
+  return fetchRecentFilings(today);
+}
+
+// ── EDGAR daily index (definitive — lists every filing for each day) ─
+// https://www.sec.gov/Archives/edgar/full-index/YYYY/QN/company.idx
+// This is what serious data providers use — it's the authoritative list.
+async function fetchDailyIndex(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const yr = d.getUTCFullYear();
+  const mo = d.getUTCMonth() + 1;
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const q  = Math.ceil(mo / 3);
+
+  // The full-index company.gz file for this quarter lists all filings
+  // But it's updated daily — we parse it and filter by date + form type
+  const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=100&search_text=&action=getcurrent&output=atom`;
+  
+  // Actually use the EDGAR full-index for the specific date
+  // Format: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=YYYYMMDD&owner=include&count=100&search_text=&output=atom
+  const dateFmt = `${yr}${String(mo).padStart(2,'0')}${dd}`;
+  const idxUrl  = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=${dateFmt}&owner=include&count=100&search_text=&output=atom`;
+  
+  try {
+    const { status, body } = await get(idxUrl, 30000);
+    if (status !== 200) return [];
+    return parseAtomFeed(body, dateStr);
+  } catch(e) {
+    log(`Daily index error for ${dateStr}: ${e.message}`);
+    return [];
+  }
+}
+
+function parseAtomFeed(body, expectedDate) {
+  const filings = [];
+  const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+  let m;
+  while ((m = entryRe.exec(body))) {
+    const entry = m[1];
+    const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+    const filingDate = dateMatch ? dateMatch[1] : expectedDate;
+    const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
+    if (!linkMatch) continue;
+    const cik    = linkMatch[1];
+    const accRaw = linkMatch[2];
+    if (accRaw.length !== 18) continue;
+    const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+    filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
+  }
+  return filings;
+}
+
+// ── EFTS search — paginates through ALL Form 4s in date range ────
+async function searchEFTS(startDate, endDate) {
+  const filings = [];
+  // Use category=form-type to get exact form type matching
+  for (let from = 0; from < 10000; from += 100) {
+    const url = `https://efts.sec.gov/LATEST/search-index?forms=4,4%2FA&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
+    try {
+      const { status, body } = await get(url, 30000);
+      if (status !== 200) { log(`EFTS HTTP ${status}`); break; }
+      const data = JSON.parse(body);
+      const hits = data.hits?.hits || [];
+      if (!hits.length) break;
+      for (const h of hits) {
+        const raw      = h._id || '';
+        const colonAt  = raw.indexOf(':');
+        const accDash  = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
+        const xmlFile  = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
+        const fd       = parseDate(h._source?.file_date) || endDate;
+        const ciks     = h._source?.ciks || [];
+        const formType = (h._source?.form_type || '4').trim(); // '4' or '4/A'
+        if (accDash.match(/^\d{10}-\d{2}-\d{6}$/))
+          filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd, formType });
+      }
+      if (hits.length < 100) break;
+    } catch(e) { log(`EFTS error: ${e.message}`); break; }
+  }
+  log(`EFTS returned ${filings.length} filings for ${startDate}→${endDate}`);
+  return filings;
+}
+
+// ── EDGAR full-index — authoritative list of every filing by quarter ─
+// URL: https://www.sec.gov/Archives/edgar/full-index/YYYY/QTRN/form.idx
+// Updated daily. Lists every Form 4/4A with CIK, date, and accession path.
+async function fetchFullIndex(startDate, endDate) {
+  const filings = [];
+  const start = new Date(startDate + 'T12:00:00Z');
+  const end   = new Date(endDate   + 'T12:00:00Z');
+
+  // Collect unique quarter keys spanning the date range
+  const quarters = new Set();
+  const cur = new Date(start);
+  while (cur <= end) {
+    const yr = cur.getUTCFullYear();
+    const q  = Math.ceil((cur.getUTCMonth() + 1) / 3);
+    quarters.add(`${yr}|${q}`);
+    cur.setUTCMonth(cur.getUTCMonth() + 3);
+  }
+
+  for (const qkey of quarters) {
+    const [yr, q] = qkey.split('|');
+    const url = `https://www.sec.gov/Archives/edgar/full-index/${yr}/QTR${q}/form.idx`;
+    log(`Fetching full-index: ${url}`);
+    try {
+      const { status, body } = await get(url, 60000);
+      if (status !== 200) { log(`full-index HTTP ${status} for ${yr}Q${q}`); continue; }
+
+      // form.idx fixed-width format:
+      //   Form Type  Company Name        CIK         Date Filed  Filename
+      //   ---------- ------------------- ----------- ----------- ---------------------------------
+      //   4          ACME CORP           0001234567  2026-02-28  edgar/data/1234567/0001234567-26-000001.txt
+      //
+      // Strategy: skip header lines, match form type at start, extract date+filename by regex.
+      const lines = body.split('\n');
+      let pastHeader = false;
+      let scanned = 0;
+      let maxDateSeen = '';
+      let debugPrinted = 0;
+
+      for (const line of lines) {
+        // The separator line is all dashes and spaces
+        if (!pastHeader) {
+          if (/^-{5}/.test(line.trim())) pastHeader = true;
+          continue;
+        }
+        if (line.length < 30) continue;
+
+        // Debug: print first 3 lines after header so we can see actual format
+        if (debugPrinted < 3) {
+          log(`  form.idx sample line: "${line.slice(0, 120)}"`);
+          debugPrinted++;
+        }
+
+        const formType = line.slice(0, 12).trim();
+        if (formType !== '4' && formType !== '4/A') continue;
+        const isAmendment = formType === '4/A';
+        scanned++;
+
+        // Date filed — ISO format YYYY-MM-DD
+        let dateFiled = '';
+        const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
+        const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (isoMatch) {
+          dateFiled = isoMatch[1];
+        } else if (mdyMatch) {
+          dateFiled = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
+        } else continue;
+
+        if (dateFiled > maxDateSeen) maxDateSeen = dateFiled;
+        if (dateFiled < startDate || dateFiled > endDate) continue;
+
+        // Accession path — always edgar/data/CIK/XXXXXXXXXX-XX-XXXXXX.txt
+        const fm = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
+        if (!fm) continue;
+        const cik   = fm[1];
+        const parts = fm[2].split('-');
+        if (parts.length !== 3) continue;
+        const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled, formType });
+      }
+      log(`  form.idx ${yr}Q${q}: scanned ${scanned} Form-4 lines, most recent date: ${maxDateSeen}, ${filings.length} total in range`);
+    } catch(e) { log(`full-index error ${yr}Q${q}: ${e.message}`); }
+  }
+
+  log(`Full-index found ${filings.length} Form 4 filings for ${startDate}→${endDate}`);
+  return filings;
+}
+
+
+
+
+// ── Process filings — no seen-cache, rely on DB UNIQUE constraint ──
+async function processBatch(filings, label) {
+  if (!filings.length) return 0;
+  log(`${label}: processing ${filings.length} filings`);
+
+  let inserted = 0;
+  let failed   = 0;
+  const CONCURRENCY = 6;
+
+  for (let i = 0; i < filings.length; i += CONCURRENCY) {
+    const batch   = filings.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks))
+    );
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (r.status === 'fulfilled' && r.value?.length) {
+        const isAmendment = batch[j].formType === '4/A';
+        inserted += isAmendment ? doInsertAmendment(r.value) : doInsert(r.value);
+      } else if (r.status === 'rejected') {
+        failed++;
+      }
+    }
+    if ((i + CONCURRENCY) % 60 === 0)
+      log(`  ${i + CONCURRENCY}/${filings.length} — inserted:${inserted} failed:${failed}`);
+  }
+
+  log(`${label} done — inserted:${inserted} failed:${failed} from ${filings.length} filings`);
   return inserted;
 }
 
+// ── Backfill: form.idx for older data, paginated RSS for last 5 days ──
+async function runBackfill(daysBack) {
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date();
+  start.setDate(start.getDate() - daysBack);
+  const startDate = start.toISOString().slice(0, 10);
 
-// ── MAIN ──────────────────────────────────────────────────────────────────
-// Args from server.js: node sc13-worker.js {daysBack} {mode}
-// e.g.  node sc13-worker.js 90 poll
-const _daysBackArg = parseInt(process.argv[2] || '90');
-const mode         = process.argv[3] || process.argv[2] || 'poll';
-// If only one arg and it's not a number, treat it as mode
-const daysBackInit = isNaN(_daysBackArg) ? 90 : _daysBackArg;
+  // Split: form.idx covers up to 5 days ago (reliable), RSS covers last 5 days
+  const recentCutoff = new Date();
+  recentCutoff.setDate(recentCutoff.getDate() - 5);
+  const recentCutoffStr = recentCutoff.toISOString().slice(0, 10);
+
+  log(`Backfill: ${startDate} → ${today} (idx: ${startDate}→${recentCutoffStr}, rss: ${recentCutoffStr}→${today})`);
+
+  try {
+    let allFilings = [];
+
+    // 1. form.idx for older portion (more than 5 days ago)
+    if (startDate < recentCutoffStr) {
+      const idxFilings = await fetchFullIndex(startDate, recentCutoffStr);
+      log(`form.idx returned ${idxFilings.length} filings for older range`);
+      allFilings = allFilings.concat(idxFilings);
+    }
+
+    // 2. Paginated RSS for last 5 days (bypasses form.idx lag)
+    const rssFilings = await fetchRecentFilings(recentCutoffStr);
+    log(`Paginated RSS returned ${rssFilings.length} filings for recent range`);
+    allFilings = allFilings.concat(rssFilings);
+
+    if (!allFilings.length) {
+      log('No filings found from any source');
+      return;
+    }
+
+    const inserted = await processBatch(allFilings, 'Backfill');
+
+    const byDate = {};
+    allFilings.forEach(f => { byDate[f.filingDate] = (byDate[f.filingDate] || 0) + 1; });
+    const upsert = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
+    const upsertMany = db.transaction(entries => {
+      for (const [date, count] of entries) upsert.run(date, count, 0);
+    });
+    upsertMany(Object.entries(byDate));
+    db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)').run(today, allFilings.length, inserted);
+
+    log(`Backfill complete: ${inserted} trades inserted across ${Object.keys(byDate).length} days`);
+  } catch(e) {
+    log(`Backfill error: ${e.message}\n${e.stack}`);
+  }
+}
+
+// ── RSS poll ──────────────────────────────────────────────────────
+async function runRSSPoll() {
+  try {
+    const filings  = await pollRSS();
+    const inserted = await processBatch(filings, 'RSS');
+    if (inserted > 0) log(`RSS poll: +${inserted} trades`);
+  } catch(e) {
+    log(`RSS poll error: ${e.message}`);
+  }
+}
+
+// ── MAIN ─────────────────────────────────────────────────────────
+const daysBack = parseInt(process.argv[2] || '3');
+const mode     = process.argv[3] || 'poll';
 
 async function main() {
-  log(`=== sc13-worker v2 start (mode=${mode}, daysBack=${daysBackInit}) ===`);
+  log(`=== daily-worker v9 start (mode=${mode}, daysBack=${daysBack}) ===`);
 
-  // Re-sync any quarters that completed with suspiciously few rows —
-  // this catches cases where a previous form.idx fetch timed out mid-stream.
-  // A real quarter should have at least 500 rows; anything under 100 is suspect.
-  try {
-    const thinQuarters = db.prepare(`
-      SELECT quarter FROM sc13_quarter_log
-      WHERE rows >= 0 AND rows < 100 AND quarter >= '2023Q1' AND quarter <= '2024Q3'
-    `).all();
-    if (thinQuarters.length) {
-      log(`Re-syncing ${thinQuarters.length} thin quarters: ${thinQuarters.map(r=>r.quarter).join(', ')}`);
-      for (const { quarter } of thinQuarters) {
-        db.prepare('DELETE FROM sc13_quarter_log WHERE quarter=?').run(quarter);
-      }
-    }
-  } catch(e) {}
+  // Clean up any rows with implausible trade_date or filing_date values
+  const cleaned = db.prepare(`
+    DELETE FROM trades
+    WHERE trade_date  < '2000-01-01' OR trade_date  > '2030-12-31'
+       OR filing_date < '2000-01-01' OR filing_date > '2030-12-31'
+  `).run();
+  if (cleaned.changes > 0) log(`Cleaned up ${cleaned.changes} rows with bad dates`);
 
-  // Small pause on startup — daily-worker is already hitting SEC at boot,
-  // give it a few seconds headroom to avoid rate limiting the Atom feed
-  await new Promise(r => setTimeout(r, 4000));
+  // Purge non-open-market codes and implausible values from any previously ingested data
+  const c2 = db.prepare(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`).run();
+  if (c2.changes > 0) log(`Removed ${c2.changes} non-market transaction records`);
+  const c3 = db.prepare(`DELETE FROM trades WHERE value > 2000000000 OR price > 1500000 OR qty > 50000000`).run();
+  if (c3.changes > 0) log(`Removed ${c3.changes} records with implausible values`);
 
-  // Always run recent Atom feed first — fast, covers last N days
-  // On first run, extend EFTS lookback to 18 months to cover the gap
-  // between the form.idx cutoff (2024Q3) and the present.
-  // On subsequent polls the 2-day window is sufficient.
-  const eftsLookback = Math.max(daysBackInit, 540);
-  await runRecentBackfill(eftsLookback);
-
-  if (mode === 'historical') {
-    await runHistoricalBackfill();
+  if (mode === 'backfill') {
+    await runBackfill(daysBack);
     db.close();
     process.exit(0);
   }
 
-  // Poll mode: historical backfill runs in background (non-blocking)
-  // sc13_quarter_log tracks completed quarters so restarts skip already-done ones
-  log('Starting historical backfill in background (completed quarters skipped)...');
-  runHistoricalBackfill().catch(e => log(`Historical backfill error: ${e.message}`));
+  // Continuous poll mode:
+  // 1. Full backfill on startup
+  await runBackfill(daysBack);
 
-  // Re-check for new filings every 4 hours
-  log('SC 13D/G worker: polling every 4 hours');
-  setInterval(() => {
-    runRecentBackfill(2)
-      .then(() => enrichRecentTickers())
-      .catch(e => log(`Poll error: ${e.message}`));
-  }, 4 * 60 * 60 * 1000);
+  // 2. RSS poll: hourly during US market hours (9am-5pm ET Mon-Fri), otherwise skip
+  //    Heavy 3am ET daily backfill to catch anything missed
+  function isMarketHours() {
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=Sun, 6=Sat
+    if (day === 0 || day === 6) return false;
+    // ET offset: UTC-5 (EST) or UTC-4 (EDT). Use UTC-4 as conservative
+    const etHour = (now.getUTCHours() - 4 + 24) % 24;
+    return etHour >= 9 && etHour < 17;
+  }
+
+  function scheduleHourlyPoll() {
+    const now = new Date();
+    const msToNextHour = (60 - now.getUTCMinutes()) * 60 * 1000 - now.getUTCSeconds() * 1000;
+    setTimeout(async () => {
+      if (isMarketHours()) {
+        log('Hourly RSS poll (market hours)...');
+        await runRSSPoll().catch(e => log(`Poll error: ${e.message}`));
+      }
+      scheduleHourlyPoll(); // schedule next hour
+    }, msToNextHour);
+  }
+
+  function schedule3amBackfill() {
+    const now = new Date();
+    // 3am ET = 7am UTC (EST) or 7am UTC (using UTC-4 = 3am ET)
+    const target = new Date(now);
+    target.setUTCHours(7, 0, 0, 0); // 3am ET (UTC-4)
+    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+    const msToTarget = target - now;
+    log(`Next 3am ET backfill in ${Math.round(msToTarget/3600000)}h`);
+    setTimeout(async () => {
+      log('3am ET daily backfill starting...');
+      await runBackfill(2).catch(e => log(`3am backfill error: ${e.message}`));
+      schedule3amBackfill(); // reschedule for next day
+    }, msToTarget);
+  }
+
+  log('Starting hourly RSS poll (market hours only) + 3am daily backfill...');
+  scheduleHourlyPoll();
+  schedule3amBackfill();
+  // Run one poll now to pick up anything since startup backfill
+  await runRSSPoll();
 }
 
 main().catch(e => {
