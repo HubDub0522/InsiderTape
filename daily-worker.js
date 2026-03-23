@@ -663,13 +663,49 @@ async function main() {
   // 1. Full backfill on startup
   await runBackfill(daysBack);
 
-  // 2. RSS every 2 minutes
-  log('Starting RSS poll (every 2 min)...');
-  setInterval(runRSSPoll, 2 * 60 * 1000);
-  await runRSSPoll();
+  // 2. RSS poll: hourly during US market hours (9am-5pm ET Mon-Fri), otherwise skip
+  //    Heavy 3am ET daily backfill to catch anything missed
+  function isMarketHours() {
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=Sun, 6=Sat
+    if (day === 0 || day === 6) return false;
+    // ET offset: UTC-5 (EST) or UTC-4 (EDT). Use UTC-4 as conservative
+    const etHour = (now.getUTCHours() - 4 + 24) % 24;
+    return etHour >= 9 && etHour < 17;
+  }
 
-  // 3. EFTS backfill every 4 hours to catch anything RSS missed
-  setInterval(() => runBackfill(2), 4 * 60 * 60 * 1000);
+  function scheduleHourlyPoll() {
+    const now = new Date();
+    const msToNextHour = (60 - now.getUTCMinutes()) * 60 * 1000 - now.getUTCSeconds() * 1000;
+    setTimeout(async () => {
+      if (isMarketHours()) {
+        log('Hourly RSS poll (market hours)...');
+        await runRSSPoll().catch(e => log(`Poll error: ${e.message}`));
+      }
+      scheduleHourlyPoll(); // schedule next hour
+    }, msToNextHour);
+  }
+
+  function schedule3amBackfill() {
+    const now = new Date();
+    // 3am ET = 7am UTC (EST) or 7am UTC (using UTC-4 = 3am ET)
+    const target = new Date(now);
+    target.setUTCHours(7, 0, 0, 0); // 3am ET (UTC-4)
+    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+    const msToTarget = target - now;
+    log(`Next 3am ET backfill in ${Math.round(msToTarget/3600000)}h`);
+    setTimeout(async () => {
+      log('3am ET daily backfill starting...');
+      await runBackfill(2).catch(e => log(`3am backfill error: ${e.message}`));
+      schedule3amBackfill(); // reschedule for next day
+    }, msToTarget);
+  }
+
+  log('Starting hourly RSS poll (market hours only) + 3am daily backfill...');
+  scheduleHourlyPoll();
+  schedule3amBackfill();
+  // Run one poll now to pick up anything since startup backfill
+  await runRSSPoll();
 }
 
 main().catch(e => {
