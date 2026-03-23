@@ -1,18 +1,32 @@
 'use strict';
 
-// sc13-worker.js — Ingests Schedule 13D and 13G filings from EDGAR EFTS.
-// Runs as a long-lived process alongside daily-worker.js.
-// Writes into sc13_transactions table in the same SQLite DB.
+// sc13-worker.js — v2
+// Ingests Schedule 13D and 13G filings from EDGAR.
 //
-// Why a separate table from trades:
-//   - 13D/G filings report aggregate ownership snapshots, not per-share open-market trades
-//   - The filer is typically an entity (fund, firm), not a named officer/director
-//   - No meaningful qty/price/type fields — what matters is pct_owned and shares_delta
-//   - Mixing into the trades table would corrupt screener queries and UNIQUE constraints
+// Two-phase approach:
 //
-// Poll schedule:
-//   - Startup: backfill 90 days
-//   - Every 4 hours: check last 2 days (13D/G have 10-day filing window, no need for 2-min RSS)
+//   HISTORICAL (form.idx):
+//     Walks every quarterly form.idx file from 2004 to present.
+//     Stores metadata-only rows (filer, date, accession, SEC link)
+//     WITHOUT fetching each document individually — too many filings.
+//     This gives chart markers for all historical filings instantly.
+//     Completed quarters are tracked in sc13_quarter_log so restarts
+//     skip already-processed quarters.
+//
+//   RECENT (Atom feed, last 90 days):
+//     Uses browse-edgar Atom feed — same proven approach as daily-worker.js.
+//     Runs on startup and every 4 hours to catch new filings.
+//     Ticker/company hints are extracted from the Atom entry titles.
+//
+//   TICKER ENRICHMENT:
+//     For recent rows (last 2 years) where ticker is blank, a background
+//     enrichment pass fetches each filing's index page to resolve the
+//     issuer ticker and company name.
+//
+//   SEC LINK:
+//     Every record stores the direct EDGAR index URL so users can click
+//     through to the full filing. Same pattern as Form 4 links in the UI:
+//     https://www.sec.gov/Archives/edgar/data/{CIK}/{acc}/{acc}-index.htm
 
 const https    = require('https');
 const fs       = require('fs');
@@ -28,11 +42,11 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
-// ── Schema ─────────────────────────────────────────────────────────────────
+// ── Schema ────────────────────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS sc13_transactions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker       TEXT NOT NULL,
+    ticker       TEXT NOT NULL DEFAULT '',
     company      TEXT,
     filer        TEXT,
     filing_type  TEXT,
@@ -43,10 +57,19 @@ db.exec(`
     shares_delta INTEGER,
     accession    TEXT UNIQUE,
     url          TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker);
-  CREATE INDEX IF NOT EXISTS idx_sc13_filed_date ON sc13_transactions(filed_date DESC);
-  CREATE INDEX IF NOT EXISTS idx_sc13_filer      ON sc13_transactions(filer);
+  )
+`);
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker)`); } catch(_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filed_date ON sc13_transactions(filed_date DESC)`); } catch(_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filer      ON sc13_transactions(filer)`); } catch(_) {}
+
+// Track completed quarters so restarts skip them
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sc13_quarter_log (
+    quarter   TEXT PRIMARY KEY,
+    synced_at TEXT DEFAULT (datetime('now')),
+    rows      INTEGER DEFAULT 0
+  )
 `);
 
 const insertSc13 = db.prepare(`
@@ -55,13 +78,18 @@ const insertSc13 = db.prepare(`
      pct_owned, shares_owned, shares_delta, accession, url)
   VALUES (?,?,?,?,?,?,?,?,?,?,?)
 `);
+const insertMany = db.transaction(rows => {
+  let n = 0;
+  for (const r of rows) n += insertSc13.run(...r).changes;
+  return n;
+});
 
-// ── Logging ────────────────────────────────────────────────────────────────
+// ── Logging ───────────────────────────────────────────────────────────────
 function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
 
-// ── Rate-limited HTTPS GET (max 8 req/sec, respects SEC limits) ────────────
+// ── Rate-limited HTTPS GET (max 8 req/sec, respects SEC limits) ───────────
 const _reqTimes = [];
-async function get(url, ms = 25000, _hops = 0) {
+async function get(url, ms = 30000, _hops = 0) {
   if (_hops > 5) throw new Error('Too many redirects');
   const now = Date.now();
   while (_reqTimes.length && _reqTimes[0] < now - 1000) _reqTimes.shift();
@@ -83,7 +111,7 @@ async function get(url, ms = 25000, _hops = 0) {
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
       res.on('error', reject);
     });
     req.on('error', reject);
@@ -91,308 +119,340 @@ async function get(url, ms = 25000, _hops = 0) {
   });
 }
 
-function parseDate(s) {
-  if (!s) return null;
-  const d = s.slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
-  const yr = parseInt(d.slice(0, 4), 10);
-  if (yr < 2000 || yr > 2040) return null;
-  return d;
-}
-
-// ── Parse a 13D/G filing document for ownership details ──────────────────
-// Primary targets: pct_owned (e.g. "9.2%"), shares_owned (aggregate shares)
-// Works on both XML structured data and the more common HTML/text documents
-function parseSc13Doc(body, accession, filedDate, filingType) {
-  // Normalise — strip HTML tags for plain-text matching
-  const text = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-
-  // ── Ticker: try CUSIP number table or <issuer> block first ──────────────
-  let ticker = '';
-  let company = '';
-  let filer = '';
-
-  // SEC structured XML: <nameOfIssuer>, <issuerCusip>, <nameOfReportingPerson>
-  const issuerM = body.match(/<nameOfIssuer[^>]*>\s*([^<]+?)\s*<\/nameOfIssuer>/i);
-  if (issuerM) company = issuerM[1].trim();
-
-  const reporterM = body.match(/<nameOfReportingPerson[^>]*>\s*([^<]+?)\s*<\/nameOfReportingPerson>/i)
-                 || body.match(/<reportingOwnerName[^>]*>\s*([^<]+?)\s*<\/reportingOwnerName>/i);
-  if (reporterM) filer = reporterM[1].trim();
-
-  // Ticker from XML
-  const tickerM = body.match(/<issuerTradingSymbol[^>]*>\s*([A-Z]{1,6})\s*<\/issuerTradingSymbol>/i)
-               || body.match(/TRADING SYMBOL[^:]*:\s*([A-Z]{1,6})/i)
-               || text.match(/\bCUSIP\b[^:]*:\s*[0-9A-Z]+\s+.*?([A-Z]{2,6})\b/i);
-  if (tickerM) ticker = tickerM[1].trim().toUpperCase();
-
-  // Fallback: extract from the accession index if we still don't have it
-  // (caller will enrich from the EFTS hit metadata)
-
-  // ── Percent owned ────────────────────────────────────────────────────────
-  // Look for patterns like "9.2%", "9.2 percent", in proximity to "aggregate"
-  // or "percent of class" language
-  let pctOwned = null;
-  const pctPatterns = [
-    /aggregate\s+(?:percentage|percent(?:age)?)\s+of\s+class[^0-9]*([0-9]+\.?[0-9]*)\s*%/i,
-    /percent(?:age)?\s+of\s+class[^0-9]*([0-9]+\.?[0-9]*)\s*%/i,
-    /([0-9]+\.?[0-9]*)\s*%\s+of\s+(?:the\s+)?(?:outstanding|common|total)/i,
-    /beneficially\s+own[^0-9]*([0-9]+\.?[0-9]*)\s*%/i,
-    /<percentOfClass[^>]*>\s*([0-9]+\.?[0-9]*)\s*<\/percentOfClass>/i,
-    /row\s*(?:13|11)[^0-9]*([0-9]+\.?[0-9]*)\s*%/i,
-  ];
-  for (const re of pctPatterns) {
-    const m = text.match(re) || body.match(re);
-    if (m) {
-      const v = parseFloat(m[1]);
-      if (v > 0 && v <= 100) { pctOwned = v; break; }
-    }
-  }
-
-  // ── Shares owned (aggregate) ─────────────────────────────────────────────
-  let sharesOwned = null;
-  const sharesPatterns = [
-    /<aggregateAmountBeneficiallyOwned[^>]*>\s*([\d,]+)\s*<\/aggregateAmountBeneficiallyOwned>/i,
-    /aggregate\s+amount[^0-9]+([\d,]{4,})/i,
-    /row\s*(?:11|9)[^0-9]+([\d,]{5,})/i,
-    /beneficially\s+own[^0-9]+([\d,]{4,})\s+shares/i,
-    /(\d[\d,]{4,})\s+shares[^.]*beneficially/i,
-  ];
-  for (const re of sharesPatterns) {
-    const m = text.match(re) || body.match(re);
-    if (m) {
-      const v = parseInt(m[1].replace(/,/g, ''), 10);
-      if (v > 0 && v < 5_000_000_000) { sharesOwned = v; break; }
-    }
-  }
-
-  // ── Filer name fallback from HTML title / header ─────────────────────────
-  if (!filer) {
-    const titleM = body.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (titleM) {
-      // Title often looks like "SC 13D - Pale Fire Capital SE - PHR"
-      const parts = titleM[1].split(/[-–]/);
-      if (parts.length >= 2) filer = parts[1].trim();
-    }
-  }
-
-  return { ticker, company, filer, pctOwned, sharesOwned };
-}
-
-// ── Fetch and parse a single 13D/G filing ─────────────────────────────────
-async function fetchSc13Filing(accession, filedDate, filingType, ciks, tickerHint, companyHint) {
+// ── Build EDGAR index URL from accession number ───────────────────────────
+// Matches the Form 4 SEC link pattern used in index.html:
+//   https://www.sec.gov/Archives/edgar/data/{CIK}/{acc-no-dashes}/{acc}-index.htm
+function edgarIndexUrl(accession, cik) {
   const acc = accession.replace(/-/g, '');
-  const allCiks = [...new Set((ciks || []).map(k => parseInt(k, 10).toString()))];
-  if (!allCiks.length) allCiks.push(acc.slice(0, 10).replace(/^0+/, '') || '0');
+  const resolvedCik = cik ? parseInt(cik, 10).toString() : parseInt(acc.slice(0, 10), 10).toString();
+  return `https://www.sec.gov/Archives/edgar/data/${resolvedCik}/${acc}/${accession}-index.htm`;
+}
 
-  const edgarBase = 'https://www.sec.gov/Archives/edgar/data';
-  const url = `${edgarBase}/${allCiks[0]}/${acc}/${accession}-index.json`;
+// SC 13D/G form type variants as they appear in form.idx
+const SC13_TYPES = new Set([
+  'SC 13D', 'SC 13G', 'SC 13D/A', 'SC 13G/A',
+  'SC13D',  'SC13G',  'SC13D/A',  'SC13G/A',
+  'SC 13D/A', 'SC 13G/A',
+]);
 
-  let primaryDocUrl = null;
-  let primaryDocBody = null;
+// ── HISTORICAL BACKFILL via EDGAR quarterly form.idx ─────────────────────
+//
+// form.idx is a fixed-width text file listing every SEC filing for a quarter.
+// Format:
+//   Form Type  Company Name              CIK         Date Filed  Filename
+//   ---------- ------------------------- ----------- ----------- ----------------------------
+//   SC 13D     PALE FIRE CAPITAL SE      0001922318  2026-02-19  edgar/data/1922318/0001922318-26-000511.txt
+//
+// For SC 13D/G the "Company Name" is the FILER (the investor making the
+// disclosure), which is exactly what we want. The subject company ticker
+// is not in form.idx but is resolved later by enrichRecentTickers().
 
-  // Try JSON index to find the primary document
+async function fetchQuarterIndex(year, q) {
+  const key = `${year}Q${q}`;
+  const already = db.prepare('SELECT rows FROM sc13_quarter_log WHERE quarter=?').get(key);
+  if (already) {
+    log(`${key}: already synced (${already.rows} rows), skipping`);
+    return 0;
+  }
+
+  const url = `https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${q}/form.idx`;
+  log(`${key}: fetching form.idx...`);
+
+  let bodyText;
   try {
-    const { status, body } = await get(url);
-    if (status === 200) {
-      const idx = JSON.parse(body);
-      // Prefer .xml or .htm primary doc
-      const docs = idx.documents || [];
-      const xmlDoc  = docs.find(d => d.document?.match(/\.xml$/i) && d.type?.match(/13[DG]/i));
-      const htmDoc  = docs.find(d => d.document?.match(/\.(htm|html)$/i) && d.type?.match(/13[DG]/i));
-      const anyXml  = docs.find(d => d.document?.match(/\.xml$/i));
-      const anyHtm  = docs.find(d => d.document?.match(/\.(htm|html)$/i));
-      const chosen  = xmlDoc || htmDoc || anyXml || anyHtm;
-      if (chosen) {
-        primaryDocUrl = `${edgarBase}/${allCiks[0]}/${acc}/${chosen.document}`;
-      }
-    }
-  } catch(e) {}
+    const { status, body } = await get(url, 90000);
+    if (status !== 200) { log(`${key}: HTTP ${status} — skipping`); return 0; }
+    bodyText = body.toString('utf8');
+  } catch(e) { log(`${key}: fetch error — ${e.message}`); return 0; }
 
-  // Fallback: try known filename patterns
-  if (!primaryDocUrl) {
-    for (const cik of allCiks) {
-      for (const name of [`${accession}.xml`, 'sc13d.xml', 'sc13g.xml', 'sc13da.xml', 'sc13ga.xml']) {
-        try {
-          const { status } = await get(`${edgarBase}/${cik}/${acc}/${name}`, 5000);
-          if (status === 200) {
-            primaryDocUrl = `${edgarBase}/${cik}/${acc}/${name}`;
-            break;
-          }
-        } catch(e) {}
-      }
-      if (primaryDocUrl) break;
+  const lines = bodyText.split('\n');
+  let pastHeader = false;
+  const batch = [];
+  let scanned = 0;
+
+  for (const line of lines) {
+    if (!pastHeader) {
+      if (/^-{5,}/.test(line.trim())) { pastHeader = true; }
+      continue;
+    }
+    if (line.length < 40) continue;
+
+    // Form type is left-aligned in the first ~12 characters
+    const formType = line.slice(0, 12).trim();
+    if (!SC13_TYPES.has(formType)) continue;
+    scanned++;
+
+    // Date filed — ISO YYYY-MM-DD
+    const dateM = line.match(/(\d{4}-\d{2}-\d{2})/);
+    if (!dateM) continue;
+    const filedDate = dateM[1];
+    if (filedDate < '2000-01-01') continue;
+
+    // Filename column: edgar/data/{CIK}/{accession}.txt
+    const fnM = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
+    if (!fnM) continue;
+    const cik   = fnM[1];
+    const parts = fnM[2].split('-');
+    if (parts.length !== 3) continue;
+    const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
+
+    // Filer name: text between form type end (col 12) and where CIK starts
+    // CIK column is right-justified in a fixed-width field — find it
+    const cikPadded = cik.padStart(10, '0');
+    const cikPos    = line.indexOf(cikPadded);
+    const filerRaw  = cikPos > 12 ? line.slice(12, cikPos) : '';
+    const filer     = filerRaw.replace(/\s{2,}/g, ' ').trim();
+
+    batch.push([
+      '',          // ticker — resolved later by enrichRecentTickers()
+      '',          // company — resolved later
+      filer,       // filer = investor (directly available in form.idx)
+      formType,
+      filedDate,
+      filedDate,
+      null,        // pct_owned — not in form.idx
+      null,        // shares_owned
+      null,        // shares_delta
+      accDash,
+      edgarIndexUrl(accDash, cik),
+    ]);
+  }
+
+  if (!batch.length) {
+    log(`${key}: 0 SC 13D/G lines found (scanned ${scanned} form.idx entries)`);
+    db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, 0);
+    return 0;
+  }
+
+  const inserted = insertMany(batch);
+  db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, inserted);
+  log(`${key}: ${inserted} inserted (${batch.length} SC 13D/G found, ${scanned} total form lines scanned)`);
+  return inserted;
+}
+
+async function runHistoricalBackfill() {
+  const now  = new Date();
+  const endYr = now.getUTCFullYear();
+  const endQ  = Math.ceil((now.getUTCMonth() + 1) / 3);
+  let total   = 0;
+
+  log(`Historical backfill: 2004 Q1 through ${endYr} Q${endQ}`);
+
+  for (let yr = 2004; yr <= endYr; yr++) {
+    const maxQ = (yr === endYr) ? endQ : 4;
+    for (let q = 1; q <= maxQ; q++) {
+      total += await fetchQuarterIndex(yr, q);
+      await new Promise(r => setTimeout(r, 250)); // polite pause between requests
     }
   }
 
-  if (!primaryDocUrl) return null;
+  log(`Historical backfill complete: ${total} total records inserted`);
 
-  try {
-    const { status, body } = await get(primaryDocUrl, 20000);
-    if (status !== 200) return null;
-    primaryDocBody = body;
-  } catch(e) { return null; }
+  // Enrich tickers for recent (last 2 years) rows that have no ticker yet
+  setTimeout(() => enrichRecentTickers().catch(e => log(`Enrichment error: ${e.message}`)), 3000);
+}
 
-  const parsed = parseSc13Doc(primaryDocBody, accession, filedDate, filingType);
+// ── Ticker enrichment for recent metadata-only rows ───────────────────────
+// Fetches the EDGAR filing index page for blank-ticker rows filed in the
+// last 2 years to resolve issuer ticker and company name.
+// The index page lists both the filer (13D/G reporter) and the subject company.
+async function enrichRecentTickers() {
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 2);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-  // Use hints from EFTS metadata if parsing didn't find them
-  const ticker  = (parsed.ticker || tickerHint || '').toUpperCase().trim();
-  const company = parsed.company || companyHint || '';
-  const filer   = parsed.filer || '';
+  const rows = db.prepare(`
+    SELECT id, accession, url
+    FROM sc13_transactions
+    WHERE (ticker IS NULL OR ticker = '')
+      AND filed_date >= ?
+    ORDER BY filed_date DESC
+    LIMIT 3000
+  `).all(cutoffStr);
 
-  if (!ticker || !filer) return null;
+  if (!rows.length) { log('Ticker enrichment: nothing to enrich'); return; }
+  log(`Ticker enrichment: ${rows.length} recent rows to resolve`);
 
-  // Compute shares_delta vs previous filing for same filer+ticker
-  let sharesDelta = null;
-  if (parsed.sharesOwned !== null) {
+  const updateStmt = db.prepare(`
+    UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?
+  `);
+
+  let enriched = 0;
+  for (const row of rows) {
     try {
-      const prev = db.prepare(`
-        SELECT shares_owned FROM sc13_transactions
-        WHERE ticker = ? AND filer = ? AND filed_date < ?
-        ORDER BY filed_date DESC LIMIT 1
-      `).get(ticker, filer, filedDate);
-      if (prev && prev.shares_owned !== null) {
-        sharesDelta = parsed.sharesOwned - prev.shares_owned;
+      const { status, body } = await get(row.url, 15000);
+      if (status !== 200) continue;
+      const text = body.toString('utf8');
+
+      // EDGAR index page contains the subject company name and ticker
+      // Look for patterns like "(Subject)" rows or "Issuer" labels
+      // Common patterns in the HTML index:
+      //   <td>COMPANY NAME</td><td>(TICKER)</td>
+      //   Issuer: COMPANY NAME (TICKER)
+      //   Subject Company: COMPANY NAME (TICKER)
+      const patterns = [
+        /subject\s+company[^:]*:[^<]*<[^>]+>([^<(]+)\(([A-Z]{1,6})\)/i,
+        /issuer[^:]*:[^<]*<[^>]+>([^<(]+)\(([A-Z]{1,6})\)/i,
+        /<td[^>]*>([^<]+)<\/td>\s*<td[^>]*>\(([A-Z]{1,6})\)<\/td>/i,
+        /([A-Z][^(]{3,60})\s+\(([A-Z]{1,6})\)\s*<\/a>/,
+      ];
+      let ticker = '', company = '';
+      for (const re of patterns) {
+        const m = text.match(re);
+        if (m) {
+          company = m[1].trim().replace(/\s+/g, ' ');
+          ticker  = m[2].trim().toUpperCase();
+          if (ticker.match(/^[A-Z]{1,6}$/) && !['THE','INC','LLC','LTD','CO','CORP'].includes(ticker)) break;
+          ticker = ''; company = '';
+        }
+      }
+
+      if (ticker) {
+        updateStmt.run(ticker, company, row.id);
+        enriched++;
       }
     } catch(e) {}
   }
 
-  return {
-    ticker,
-    company,
-    filer,
-    filing_type: filingType,
-    filed_date:  filedDate,
-    period_date: filedDate, // 13D/G don't have a separate transaction date
-    pct_owned:   parsed.pctOwned,
-    shares_owned: parsed.sharesOwned,
-    shares_delta: sharesDelta,
-    accession,
-    url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=&type=${encodeURIComponent(filingType)}&dateb=&owner=include&count=10&search_text=&accession=${accession}`,
-  };
+  log(`Ticker enrichment: ${enriched}/${rows.length} rows resolved`);
 }
 
-// ── Search EFTS for 13D/G filings in date range ───────────────────────────
-async function searchEFTS13(startDate, endDate) {
-  const filings = [];
-  const formTypes = 'SC+13D,SC+13G,SC+13D%2FA,SC+13G%2FA';
+// ── RECENT: Atom feed (last N days) ──────────────────────────────────────
+// browse-edgar Atom feed is the same source used by daily-worker.js for Form 4s.
+// It covers the last few weeks and is the most reliable near-real-time source.
+async function searchAtom13(formType, sinceDate) {
+  const filings   = [];
+  const seen      = new Set();
+  const typeParam = encodeURIComponent(formType);
 
-  for (let from = 0; from < 5000; from += 100) {
-    const url = `https://efts.sec.gov/LATEST/search-index?forms=${formTypes}&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
+  for (let start = 0; start < 2000; start += 40) {
+    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${typeParam}&dateb=&owner=include&count=40&start=${start}&output=atom`;
     try {
       const { status, body } = await get(url, 30000);
-      if (status !== 200) { log(`EFTS 13D/G HTTP ${status}`); break; }
-      const data = JSON.parse(body);
-      const hits = data.hits?.hits || [];
-      if (!hits.length) break;
+      if (status !== 200) { log(`Atom ${formType} HTTP ${status} at start=${start}`); break; }
 
-      for (const h of hits) {
-        const raw      = h._id || '';
-        const colonAt  = raw.indexOf(':');
-        const accDash  = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
-        if (!accDash.match(/^\d{10}-\d{2}-\d{6}$/)) continue;
+      const text    = body.toString('utf8');
+      const entries = text.split('<entry>').slice(1);
+      if (!entries.length) break;
 
-        const fd         = parseDate(h._source?.file_date) || endDate;
-        const ciks       = h._source?.ciks || [];
-        const formType   = (h._source?.form_type || 'SC 13D').trim();
-        // EFTS sometimes includes ticker/company in entity_name or display_names
-        const entityName = h._source?.entity_name || '';
-        const displayNames = h._source?.display_names || [];
-        // Try to extract ticker from display_names — format: "TICKER (Company Name)"
-        let tickerHint = '';
-        let companyHint = entityName;
-        for (const dn of displayNames) {
-          const m = dn.match(/^([A-Z]{1,6})\s*\(/);
-          if (m) { tickerHint = m[1]; break; }
+      let oldestOnPage = '';
+      for (const entry of entries) {
+        const dateM = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+        const filed = dateM ? dateM[1] : new Date().toISOString().slice(0, 10);
+        const linkM = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
+        if (!linkM) continue;
+
+        const cik    = linkM[1];
+        const accRaw = linkM[2];
+        if (accRaw.length !== 18) continue;
+        const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+
+        // Extract filer, company, ticker from Atom title
+        // Typical format: "SC 13D - FILER NAME - COMPANY NAME (TICKER)"
+        const titleM    = entry.match(/<title[^>]*>([^<]+)<\/title>/i);
+        const titleText = titleM
+          ? titleM[1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#\d+;/g,'')
+          : '';
+        const tickerM   = titleText.match(/\(([A-Z]{1,6})\)/);
+        const tickerHint  = tickerM ? tickerM[1] : '';
+        const titleParts  = titleText.split(/\s+-\s+/);
+        // titleParts[0] = form type, [1] = filer, [2+] = company
+        const filerHint   = titleParts.length >= 2 ? titleParts[1].trim() : '';
+        const companyHint = titleParts.length >= 3
+          ? titleParts[titleParts.length - 1].replace(/\([^)]*\)/g, '').trim()
+          : '';
+
+        if (!seen.has(accDash)) {
+          seen.add(accDash);
+          filings.push({
+            accession:   accDash,
+            cik,
+            filedDate:   filed,
+            formType,
+            tickerHint,
+            companyHint,
+            filerHint,
+            secUrl: edgarIndexUrl(accDash, cik),
+          });
         }
-
-        filings.push({ accession: accDash, ciks, filedDate: fd, formType, tickerHint, companyHint });
+        if (!oldestOnPage || filed < oldestOnPage) oldestOnPage = filed;
       }
 
-      if (hits.length < 100) break;
-    } catch(e) { log(`EFTS 13D/G error: ${e.message}`); break; }
+      if (oldestOnPage && oldestOnPage < sinceDate) break;
+      if (entries.length < 40) break;
+    } catch(e) {
+      log(`Atom ${formType} error at start=${start}: ${e.message}`);
+      break;
+    }
   }
 
-  log(`EFTS 13D/G: ${filings.length} filings for ${startDate} to ${endDate}`);
-  return filings;
+  return filings.filter(f => f.filedDate >= sinceDate);
 }
 
-// ── Process a batch of filings ────────────────────────────────────────────
-async function processBatch(filings, label) {
-  if (!filings.length) return 0;
-  log(`${label}: processing ${filings.length} filings`);
+async function runRecentBackfill(daysBack) {
+  const since = new Date();
+  since.setDate(since.getDate() - daysBack);
+  const sinceStr = since.toISOString().slice(0, 10);
+  const today    = new Date().toISOString().slice(0, 10);
 
-  let inserted = 0;
-  let failed   = 0;
-  const CONCURRENCY = 4; // gentler than Form 4 worker — these docs are larger
+  log(`Recent SC 13D/G Atom: ${sinceStr} to ${today}`);
 
-  for (let i = 0; i < filings.length; i += CONCURRENCY) {
-    const batch   = filings.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(
-      batch.map(f => fetchSc13Filing(f.accession, f.filedDate, f.formType, f.ciks, f.tickerHint, f.companyHint))
-    );
+  const allFilings = [];
+  const seen       = new Set();
+  const formTypes  = ['SC 13D', 'SC 13G', 'SC 13D/A', 'SC 13G/A'];
+  const results    = await Promise.allSettled(formTypes.map(ft => searchAtom13(ft, sinceStr)));
 
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) {
-        const t = r.value;
-        try {
-          const changes = insertSc13.run(
-            t.ticker, t.company, t.filer, t.filing_type,
-            t.filed_date, t.period_date,
-            t.pct_owned, t.shares_owned, t.shares_delta,
-            t.accession, t.url
-          );
-          if (changes.changes > 0) inserted++;
-        } catch(e) {}
-      } else if (r.status === 'rejected') {
-        failed++;
-      }
-    }
-
-    if ((i + CONCURRENCY) % 40 === 0) {
-      log(`  ${i + CONCURRENCY}/${filings.length} — inserted:${inserted} failed:${failed}`);
+  for (const r of results) {
+    if (r.status !== 'fulfilled') continue;
+    for (const f of r.value) {
+      if (!seen.has(f.accession)) { seen.add(f.accession); allFilings.push(f); }
     }
   }
 
-  log(`${label} done — inserted:${inserted} failed:${failed} from ${filings.length} filings`);
+  if (!allFilings.length) { log('Recent SC 13D/G: 0 filings found'); return 0; }
+  log(`Recent SC 13D/G: ${allFilings.length} filings found`);
+
+  const batch = allFilings.map(f => [
+    f.tickerHint  || '',
+    f.companyHint || '',
+    f.filerHint   || '',
+    f.formType,
+    f.filedDate,
+    f.filedDate,
+    null, null, null,
+    f.accession,
+    f.secUrl,
+  ]);
+
+  const inserted = insertMany(batch);
+  log(`Recent SC 13D/G: ${inserted} new records inserted`);
   return inserted;
 }
 
-// ── Backfill N days ───────────────────────────────────────────────────────
-async function runBackfill(daysBack) {
-  const today = new Date().toISOString().slice(0, 10);
-  const start = new Date();
-  start.setDate(start.getDate() - daysBack);
-  const startDate = start.toISOString().slice(0, 10);
-
-  log(`SC 13D/G backfill: ${startDate} to ${today}`);
-  try {
-    const filings  = await searchEFTS13(startDate, today);
-    const inserted = await processBatch(filings, 'SC13 Backfill');
-    log(`SC 13D/G backfill complete: ${inserted} records inserted`);
-  } catch(e) {
-    log(`SC 13D/G backfill error: ${e.message}\n${e.stack}`);
-  }
-}
-
 // ── MAIN ──────────────────────────────────────────────────────────────────
-const daysBack = parseInt(process.argv[2] || '90');
-const mode     = process.argv[3] || 'poll';
+const mode = process.argv[2] || 'poll';
 
 async function main() {
-  log(`=== sc13-worker start (mode=${mode}, daysBack=${daysBack}) ===`);
+  log(`=== sc13-worker v2 start (mode=${mode}) ===`);
 
-  // Initial backfill
-  await runBackfill(daysBack);
+  // Always run recent Atom feed first — fast, covers last 90 days
+  await runRecentBackfill(90);
 
-  if (mode === 'backfill') {
+  if (mode === 'historical') {
+    // Manual one-time full historical load
+    await runHistoricalBackfill();
     db.close();
     process.exit(0);
   }
 
-  // Continuous mode: re-check every 4 hours
+  // Poll mode: historical backfill runs in background (non-blocking)
+  // sc13_quarter_log tracks completed quarters so restarts pick up where they left off
+  log('Starting historical backfill in background (quarters already done will be skipped)...');
+  runHistoricalBackfill().catch(e => log(`Historical backfill error: ${e.message}`));
+
+  // Re-check for new filings every 4 hours
   log('SC 13D/G worker: polling every 4 hours');
-  setInterval(() => runBackfill(2), 4 * 60 * 60 * 1000);
+  setInterval(() => runRecentBackfill(2).catch(e => log(`Poll error: ${e.message}`)), 4 * 60 * 60 * 1000);
 }
 
 main().catch(e => {
