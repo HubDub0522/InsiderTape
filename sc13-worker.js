@@ -321,14 +321,38 @@ async function runHistoricalBackfill() {
 // For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
 // The SUBJECT company CIK appears on the index page as "(Subject)".
 async function enrichRecentTickers() {
-  // Enrich newest blank-ticker rows first, 500 per run
-  // Runs after every EFTS poll so tickers fill in gradually
+  // Phase 1: fast-path for rows that already have subject_cik — just hit data.sec.gov
+  const fastRows = db.prepare(`
+    SELECT id, subject_cik
+    FROM sc13_transactions
+    WHERE (ticker IS NULL OR ticker = '')
+      AND subject_cik IS NOT NULL AND subject_cik != ''
+    ORDER BY filed_date DESC
+    LIMIT 2000
+  `).all();
+
+  if (fastRows.length > 0) {
+    log(`Ticker enrichment fast-path: ${fastRows.length} rows with subject_cik to resolve`);
+    const updateFast = db.prepare(`UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?`);
+    let fastEnriched = 0;
+    for (let i = 0; i < fastRows.length; i++) {
+      try {
+        const result = await lookupTickerByCik(fastRows[i].subject_cik);
+        if (result) { updateFast.run(result.ticker, result.company, fastRows[i].id); fastEnriched++; }
+      } catch(e) {}
+      if ((i + 1) % 100 === 0) log(`Fast enrichment: ${i+1}/${fastRows.length}, ${fastEnriched} resolved`);
+    }
+    log(`Ticker enrichment fast-path: ${fastEnriched}/${fastRows.length} resolved`);
+  }
+
+  // Phase 2: slow-path for rows without subject_cik — fetch filing index page
   const rows = db.prepare(`
     SELECT id, accession, url, subject_cik
     FROM sc13_transactions
     WHERE (ticker IS NULL OR ticker = '')
+      AND (subject_cik IS NULL OR subject_cik = '')
     ORDER BY filed_date DESC
-    LIMIT 500
+    LIMIT 200
   `).all();
 
   if (!rows.length) { log('Ticker enrichment: nothing to enrich'); return; }
