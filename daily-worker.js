@@ -662,13 +662,16 @@ async function main() {
   // Continuous poll mode:
   // 1. Startup backfill — but only if we haven't done one recently.
   //    Tracks last run time in DB to avoid redundant backfills on restart.
-  const lastBackfillRow = db.prepare("SELECT value FROM sync_log WHERE key='last_startup_backfill'").get();
-  const lastBackfill = lastBackfillRow ? parseInt(lastBackfillRow.value) : 0;
+  // Use sync_log to track last startup backfill time
+  // sync_log schema: (quarter TEXT PK, synced_at TEXT, rows INTEGER)
+  // We repurpose 'quarter' as key and 'rows' as unix-ms timestamp
+  const lastBackfillRow = db.prepare("SELECT rows FROM sync_log WHERE quarter='DAILY_LAST_BACKFILL'").get();
+  const lastBackfill = lastBackfillRow ? lastBackfillRow.rows : 0;
   const msSinceBackfill = Date.now() - lastBackfill;
   if (msSinceBackfill > 55 * 60 * 1000) { // more than 55 min ago
     log(`Startup backfill (${daysBack} days)...`);
     await runBackfill(daysBack);
-    db.prepare("INSERT OR REPLACE INTO sync_log (key,value) VALUES ('last_startup_backfill',?)").run(String(Date.now()));
+    db.prepare("INSERT OR REPLACE INTO sync_log (quarter, rows) VALUES ('DAILY_LAST_BACKFILL', ?)").run(Date.now());
   } else {
     log(`Startup backfill skipped — ran ${Math.round(msSinceBackfill/60000)}min ago`);
   }
