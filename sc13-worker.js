@@ -166,6 +166,20 @@ async function fetchQuarterIndex(year, q) {
   } catch(e) { log(`${key}: fetch error — ${e.message}`); return 0; }
 
   const lines = bodyText.split('\n');
+
+  // Detect non-index files: EDGAR sometimes returns a readme/metadata file
+  // instead of the actual form.idx for recent or in-progress quarters.
+  // Real form.idx starts with a header like "Form Type  Company Name..."
+  // Fake files start with "Description:", "Last Data Re", or similar.
+  const firstLines = lines.slice(0, 5).join(' ');
+  if (/Description:|Last Data Re|Comments:|This file/i.test(firstLines) &&
+      !/Form Type/i.test(firstLines)) {
+    log(`${key}: EDGAR returned non-index file (readme/metadata), skipping`);
+    log(`${key}: first line: "${lines[0]?.slice(0,80)}"`);
+    db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
+    return 0;
+  }
+
   let pastHeader = false;
   const batch = [];
   let scanned = 0;
@@ -267,10 +281,16 @@ async function runHistoricalBackfill() {
   const endQ  = Math.ceil((now.getUTCMonth() + 1) / 3);
   let total   = 0;
 
-  log(`Historical backfill: 2004 Q1 through ${endYr} Q${endQ}`);
+  // EDGAR only reliably serves form.idx for completed quarters up to ~6 months ago.
+  // For recent quarters (2024Q4 and later), form.idx may return a readme/metadata
+  // file instead of the actual filing index. Recent data is handled by EFTS instead.
+  const FORM_IDX_CUTOFF_YEAR = 2024;
+  const FORM_IDX_CUTOFF_Q    = 3; // stop at 2024Q3 inclusive
 
-  for (let yr = 2004; yr <= endYr; yr++) {
-    const maxQ = (yr === endYr) ? endQ : 4;
+  log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q} (EFTS handles recent quarters)`);
+
+  for (let yr = 2004; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
+    const maxQ = (yr === FORM_IDX_CUTOFF_YEAR) ? FORM_IDX_CUTOFF_Q : 4;
     for (let q = 1; q <= maxQ; q++) {
       total += await fetchQuarterIndex(yr, q);
       await new Promise(r => setTimeout(r, 250)); // polite pause between requests
@@ -463,7 +483,7 @@ async function main() {
   try {
     const thinQuarters = db.prepare(`
       SELECT quarter FROM sc13_quarter_log
-      WHERE rows < 100 AND quarter >= '2023Q1'
+      WHERE rows >= 0 AND rows < 100 AND quarter >= '2023Q1' AND quarter <= '2024Q3'
     `).all();
     if (thinQuarters.length) {
       log(`Re-syncing ${thinQuarters.length} thin quarters: ${thinQuarters.map(r=>r.quarter).join(', ')}`);
@@ -478,7 +498,11 @@ async function main() {
   await new Promise(r => setTimeout(r, 4000));
 
   // Always run recent Atom feed first — fast, covers last N days
-  await runRecentBackfill(daysBackInit);
+  // On first run, extend EFTS lookback to 18 months to cover the gap
+  // between the form.idx cutoff (2024Q3) and the present.
+  // On subsequent polls the 2-day window is sufficient.
+  const eftsLookback = Math.max(daysBackInit, 540);
+  await runRecentBackfill(eftsLookback);
 
   if (mode === 'historical') {
     await runHistoricalBackfill();
