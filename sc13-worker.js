@@ -347,6 +347,8 @@ async function enrichRecentTickers() {
 
   if (fastRows.length > 0) {
     log(`Ticker enrichment fast-path: ${fastRows.length} rows with subject_cik to resolve`);
+    // Log first 3 subject_cik values to verify format
+    fastRows.slice(0, 3).forEach((r, i) => log(`  sample subject_cik[${i}]: ${JSON.stringify(r.subject_cik)}`));
     const updateFast = db.prepare(`UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?`);
     let fastEnriched = 0;
     for (let i = 0; i < fastRows.length; i++) {
@@ -401,7 +403,12 @@ async function enrichRecentTickers() {
         const result = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
         cikTickerCache[cik] = result;
         if (result) return result; // found a ticker — this is the subject company
-      } catch(e) { cikTickerCache[cik] = null; }
+      } catch(e) {
+        cikTickerCache[cik] = null;
+        if (Object.keys(cikTickerCache).length <= 3) {
+          log(`CIK lookup error for ${cik}: ${e.message}`);
+        }
+      }
     }
     return null;
   }
