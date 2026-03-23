@@ -316,7 +316,7 @@ async function runHistoricalBackfill() {
 // The SUBJECT company CIK appears on the index page as "(Subject)".
 async function enrichRecentTickers() {
   const cutoff = new Date();
-  cutoff.setFullYear(cutoff.getFullYear() - 2);
+  cutoff.setMonth(cutoff.getMonth() - 6); // only enrich last 6 months
   const cutoffStr = cutoff.toISOString().slice(0, 10);
 
   const rows = db.prepare(`
@@ -325,7 +325,7 @@ async function enrichRecentTickers() {
     WHERE (ticker IS NULL OR ticker = '')
       AND filed_date >= ?
     ORDER BY filed_date DESC
-    LIMIT 3000
+    LIMIT 200  -- recent rows only; EFTS data should already have tickers
   `).all(cutoffStr);
 
   if (!rows.length) { log('Ticker enrichment: nothing to enrich'); return; }
@@ -411,7 +411,14 @@ async function runRecentBackfill(daysBack) {
   for (let from = 0; from < 10000; from += 100) {
     const url = `https://efts.sec.gov/LATEST/search-index?forms=${formTypes}&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100`;
     try {
-      const { status, body } = await get(url, 30000);
+      // Retry once on 500 — EDGAR EFTS occasionally returns transient 500s
+      let resp = await get(url, 30000);
+      if (resp.status === 500) {
+        log(`EFTS SC13 HTTP 500 at from=${from}, retrying in 10s...`);
+        await new Promise(r => setTimeout(r, 10000));
+        resp = await get(url, 30000);
+      }
+      const { status, body } = resp;
       if (status !== 200) { log(`EFTS SC13 HTTP ${status} at from=${from}`); break; }
       const data = JSON.parse(body.toString('utf8'));
       const hits = data.hits?.hits || [];
