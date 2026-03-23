@@ -368,16 +368,27 @@ async function enrichRecentTickers() {
   async function lookupTickerByCik(cik) {
     if (cikTickerCache[cik] !== undefined) return cikTickerCache[cik];
     try {
-      const padded = cik.padStart(10, '0');
-      const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 10000);
-      if (status !== 200) { cikTickerCache[cik] = null; return null; }
+      const padded = cik.toString().replace(/^0+/, '').padStart(10, '0');
+      const url = `https://data.sec.gov/submissions/CIK${padded}.json`;
+      const { status, body } = await get(url, 10000);
+      if (status !== 200) {
+        if (cikTickerCache[cik] === undefined) cikTickerCache[cik] = null;
+        return null;
+      }
       const data = JSON.parse(body.toString('utf8'));
       const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
       const company = (data.name || '').trim();
+      // Log first few lookups so we can see what's happening
+      if (Object.keys(cikTickerCache).length < 5) {
+        log(`CIK lookup ${padded}: tickers=${JSON.stringify(data.tickers)}, name=${company}`);
+      }
       const result  = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
       cikTickerCache[cik] = result;
       return result;
-    } catch(e) { cikTickerCache[cik] = null; return null; }
+    } catch(e) {
+      cikTickerCache[cik] = null;
+      return null;
+    }
   }
 
   async function getSubjectCik(accession, indexUrl) {
