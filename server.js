@@ -1793,7 +1793,8 @@ async function preComputeDrift() {
           fd.setUTCDate(fd.getUTCDate() + days);
           const fs = fd.toISOString().slice(0, 10);
           const bar = bars.find(b => b.time >= fs);
-          return bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+          const raw = bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+          return raw !== null ? Math.max(-500, Math.min(500, raw)) : null; // cap split artifacts
         };
 
         const scored = trades.map(t => ({
@@ -1804,7 +1805,8 @@ async function preComputeDrift() {
         }));
 
         const avg = (cp) => {
-          const vals = scored.map(s => s[cp]).filter(v => v !== null);
+          const vals = scored.map(s => s[cp]).filter(v => v !== null)
+                             .map(v => Math.max(-500, Math.min(500, v))); // cap splits
           return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
         };
 
@@ -2147,7 +2149,7 @@ app.get('/api/proximity', async (req, res) => {
 let _scoreboardCache     = null;
 let _scoreboardCacheTime = 0;
 let _scoreboardRunning   = false;   // C3: prevent parallel precompute runs
-const SCOREBOARD_TTL = 6 * 60 * 60 * 1000;
+const SCOREBOARD_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 async function preComputeScoreboard() {
   if (_scoreboardCache) return;
@@ -2217,9 +2219,14 @@ async function preComputeScoreboard() {
         const completed = scored.filter(s => s.ret90 !== null);
         if (completed.length < 3) return;
 
-        const rets90   = completed.map(s => s.ret90);
+        // Cap returns at ±500% to eliminate reverse-split artifacts
+        // (e.g. Ault Global has done multiple reverse splits causing 7000%+ fake returns)
+        const CAP = 500;
+        const capRet = r => Math.max(-CAP, Math.min(CAP, r));
+
+        const rets90   = completed.map(s => capRet(s.ret90));
         const avgRet90 = +(rets90.reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
-        const rets30   = completed.filter(s => s.ret30 !== null).map(s => s.ret30);
+        const rets30   = completed.filter(s => s.ret30 !== null).map(s => capRet(s.ret30));
         const avgRet30 = rets30.length ? +(rets30.reduce((a, b) => a + b, 0) / rets30.length).toFixed(1) : null;
         const winRate  = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
         const avgMag   = +(rets90.map(Math.abs).reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
@@ -2252,7 +2259,7 @@ async function preComputeScoreboard() {
           if (yr1Bars.length < 20) return;
           const yr1Lo = Math.min(...yr1Bars.map(b => b.low || b.close));
           if ((s.buyPrice - yr1Lo) / yr1Lo * 100 <= 20) nearLowCount++;
-          if (s.ret90  !== null) { ret90sum  += s.ret90;  retN++; }
+          if (s.ret90  !== null) { ret90sum  += Math.max(-500, Math.min(500, s.ret90));  retN++; }
           if (s.ret180 !== null)   ret180sum += s.ret180;
         });
 
