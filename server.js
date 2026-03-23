@@ -340,6 +340,29 @@ try {
   )`);
 } catch(e) { console.warn('sync_log table init warning:', e.message); }
 
+// ─── SC 13D/G ownership transaction table ────────────────────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sc13_transactions (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker       TEXT NOT NULL,
+      company      TEXT,
+      filer        TEXT,
+      filing_type  TEXT,
+      filed_date   TEXT NOT NULL,
+      period_date  TEXT,
+      pct_owned    REAL,
+      shares_owned INTEGER,
+      shares_delta INTEGER,
+      accession    TEXT UNIQUE,
+      url          TEXT
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filed_date ON sc13_transactions(filed_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filer      ON sc13_transactions(filer)`);
+} catch(e) { console.warn('SC13 schema init warning:', e.message); }
+
 // ─── SYNC via child process ────────────────────────────────────
 let syncRunning = false;
 const syncLog   = [];
@@ -730,6 +753,23 @@ app.get('/api/ticker', (req, res) => {
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC, filing_date DESC
       LIMIT 5000
+    `).all(sym);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// SC 13D/G — returns all beneficial ownership filings for a given ticker
+app.get('/api/sc13', (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'symbol required' });
+  try {
+    const rows = db.prepare(`
+      SELECT id, ticker, company, filer, filing_type, filed_date, period_date,
+             pct_owned, shares_owned, shares_delta, accession, url
+      FROM sc13_transactions
+      WHERE ticker = ?
+      ORDER BY filed_date DESC
+      LIMIT 200
     `).all(sym);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2256,6 +2296,27 @@ app.get('/api/scoreboard', (req, res) => {
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
+
+// ── SC 13D/G worker ──────────────────────────────────────────────────────────
+let sc13Running = false;
+function runSc13(daysBack = 90) {
+  if (sc13Running) return;
+  sc13Running = true;
+  slog(`=== spawning sc13-worker (${daysBack} days backfill) ===`);
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=200', path.join(__dirname, 'sc13-worker.js'), String(daysBack), 'poll'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[sc13] ' + l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[sc13] ERR: ' + l)));
+  worker.on('exit', code => {
+    sc13Running = false;
+    slog(`=== sc13-worker exited (code ${code}) ===`);
+  });
+}
+// Start 10 seconds after boot so daily-worker gets priority on the DB connection
+setTimeout(() => runSc13(90), 10000);
 
 // H5: Sequential chain — price warm → drift → proximity → scoreboard
 // Prevents all three from hammering external price APIs simultaneously.
