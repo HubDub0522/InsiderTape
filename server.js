@@ -472,8 +472,15 @@ function runDaily(daysBack = 3) {
   worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[daily] ERR: ' + l)));
   worker.on('exit', code => {
     dailyRunning = false;
-    slog(`=== daily-worker exited (code ${code}) — restarting in 2min ===`);
-    setTimeout(() => runDaily(2), 2 * 60 * 1000); // 2 min between runs during market hours
+    if (code !== 0) {
+      // Unexpected exit — restart after 5 min
+      slog(`=== daily-worker exited (code ${code}) — restarting in 5min ===`);
+      setTimeout(() => runDaily(2), 5 * 60 * 1000);
+    } else {
+      // Clean exit shouldn't happen in poll mode, but restart after 1 hour just in case
+      slog(`=== daily-worker exited cleanly — restarting in 1hr ===`);
+      setTimeout(() => runDaily(2), 60 * 60 * 1000);
+    }
   });
 }
 
@@ -2338,6 +2345,11 @@ function runSc13(daysBack = 90) {
   worker.on('exit', code => {
     sc13Running = false;
     slog(`=== sc13-worker exited (code ${code}) ===`);
+    if (code !== 0) {
+      // Restart on crash after 5 min
+      setTimeout(() => runSc13(2), 5 * 60 * 1000);
+    }
+    // On clean exit: don't restart — sc13-worker runs indefinitely in poll mode
   });
 }
 // Start 10 seconds after boot so daily-worker gets priority on the DB connection
