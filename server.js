@@ -299,12 +299,17 @@ try {
   // Remove invalid tickers
   const r1 = db.prepare(`
     DELETE FROM trades
-    WHERE ticker IN ('N/A','NA','NONE','NULL','--','-','.')
+    WHERE ticker IN ('N/A','NA','NONE','NULL','--','-','.','0','FALSE','TRUE','UNKNOWN','TBD')
        OR ticker NOT GLOB '[A-Z]*'
        OR LENGTH(ticker) < 1 OR LENGTH(ticker) > 10
        OR COALESCE(company,'') IN ('N/A','NA','None','NULL','--','-')
   `).run();
   if (r1.changes > 0) console.log(`Cleaned up ${r1.changes} invalid ticker records`);
+
+  // Belt-and-suspenders: explicitly nuke any NONE/NULL ticker rows
+  // These come from EDGAR Form 4 filings where issuerTradingSymbol='NONE'
+  const rNone = db.prepare(`DELETE FROM trades WHERE ticker = 'NONE' OR ticker = 'NULL'`).run();
+  if (rNone.changes > 0) console.log(`Removed ${rNone.changes} NONE/NULL ticker records`);
 
   // Remove non-open-market transaction codes.
   // Only keep P (open-market buy), S (open-market sell), S- (sale under 10b5-1 plan).
