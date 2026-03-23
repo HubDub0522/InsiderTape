@@ -695,18 +695,10 @@ async function main() {
   // Use sync_log to track last startup backfill time
   // sync_log schema: (quarter TEXT PK, synced_at TEXT, rows INTEGER)
   // We repurpose 'quarter' as key and 'rows' as unix-ms timestamp
-  const lastBackfillRow = db.prepare("SELECT rows FROM sync_log WHERE quarter='DAILY_LAST_BACKFILL'").get();
-  const lastBackfill = lastBackfillRow ? lastBackfillRow.rows : 0;
-  const msSinceBackfill = Date.now() - lastBackfill;
-  if (msSinceBackfill > 55 * 60 * 1000) { // more than 55 min ago
-    // If restarted within 6 hours, just do a 1-day catch-up instead of full 3-day backfill
-    const catchupDays = (msSinceBackfill < 6 * 60 * 60 * 1000 && lastBackfill > 0) ? 1 : daysBack;
-    log(`Startup backfill (${catchupDays} day${catchupDays !== 1 ? 's' : ''})...`);
-    await runBackfill(catchupDays);
-    db.prepare("INSERT OR REPLACE INTO sync_log (quarter, rows) VALUES ('DAILY_LAST_BACKFILL', ?)").run(Date.now());
-  } else {
-    log(`Startup backfill skipped — ran ${Math.round(msSinceBackfill/60000)}min ago`);
-  }
+  // No startup backfill — hourly poll handles new trades during market hours,
+  // 3am ET daily backfill handles overnight catch-up.
+  // This keeps the site responsive on deploy/restart.
+  log('Skipping startup backfill — hourly poll + 3am backfill handle updates.');
 
   // 2. RSS poll: hourly during US market hours (9am-5pm ET Mon-Fri), otherwise skip
   //    Heavy 3am ET daily backfill to catch anything missed
