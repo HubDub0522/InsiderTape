@@ -775,6 +775,23 @@ app.get('/api/sc13', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// SC 13D/G debug — shows what's in the DB for a given ticker or filer
+// Usage: /api/sc13-debug?symbol=PHR  or  /api/sc13-debug?filer=Pale+Fire
+app.get('/api/sc13-debug', (req, res) => {
+  const sym   = (req.query.symbol || '').toUpperCase().trim();
+  const filer = (req.query.filer  || '').trim();
+  try {
+    const total = db.prepare('SELECT COUNT(*) AS n FROM sc13_transactions').get().n;
+    const withTicker = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL").get().n;
+    const sample = sym
+      ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession FROM sc13_transactions WHERE ticker = ? OR company LIKE ? ORDER BY filed_date DESC LIMIT 20`).all(sym, `%${sym}%`)
+      : filer
+      ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession FROM sc13_transactions WHERE filer LIKE ? ORDER BY filed_date DESC LIMIT 20`).all(`%${filer}%`)
+      : db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession FROM sc13_transactions ORDER BY filed_date DESC LIMIT 20`).all();
+    res.json({ total, withTicker, sample });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // INSIDER
 app.get('/api/insider', (req, res) => {
   const name  = (req.query.name  || '').trim();
