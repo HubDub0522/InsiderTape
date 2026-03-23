@@ -768,7 +768,6 @@
       <div class="filter-chips" style="margin-bottom:20px">
         <div class="chip buy-chip active"  data-type="P"  onclick="toggleChip(this)">Buy</div>
         <div class="chip sell-chip active" data-type="S"  onclick="toggleChip(this)">Sell</div>
-        <div class="chip sell-chip active" data-type="S-" onclick="toggleChip(this)">Plan Sell</div>
       </div>
       <div class="filter-section">
         <span class="filter-label">Insider Role</span>
@@ -914,7 +913,7 @@
 const state = {
   screenerData: [], currentPage: 1, pageSize: 25,
   sortCol: 'trade', sortDir: -1,
-  activeTypes: new Set(['P','S','S-']),
+  activeTypes: new Set(['P','S']),
   activeRole: 'all', minVal: 100000, days: 7,
   tickerFilter: new Set(),
   currentTicker: null, tickerTrades: [],
