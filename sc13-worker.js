@@ -73,14 +73,16 @@ db.exec(`
   )
 `);
 
+// Migrate existing DB — add subject_cik column if it doesn't exist yet
+// Must run BEFORE preparing the INSERT statement that references it
+try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
+
 const insertSc13 = db.prepare(`
   INSERT OR IGNORE INTO sc13_transactions
     (ticker, company, filer, filing_type, filed_date, period_date,
      pct_owned, shares_owned, shares_delta, accession, url, subject_cik)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 `);
-// Migrate existing DB — add subject_cik column if it doesn't exist yet
-try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
 const insertMany = db.transaction(rows => {
   let n = 0;
   for (const r of rows) n += insertSc13.run(...r).changes;
