@@ -335,135 +335,89 @@ async function runHistoricalBackfill() {
 // For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
 // The SUBJECT company CIK appears on the index page as "(Subject)".
 async function enrichRecentTickers() {
-  // Phase 1: fast-path for rows that already have subject_cik — just hit data.sec.gov
-  const fastRows = db.prepare(`
-    SELECT id, subject_cik
-    FROM sc13_transactions
-    WHERE (ticker IS NULL OR ticker = '')
-      AND subject_cik IS NOT NULL AND subject_cik != ''
-    ORDER BY filed_date DESC
-    LIMIT 2000
-  `).all();
-
-  if (fastRows.length > 0) {
-    log(`Ticker enrichment fast-path: ${fastRows.length} rows with subject_cik to resolve`);
-    // Log first 3 subject_cik values to verify format
-    fastRows.slice(0, 3).forEach((r, i) => log(`  sample subject_cik[${i}]: ${JSON.stringify(r.subject_cik)}`));
-    const updateFast = db.prepare(`UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?`);
-    let fastEnriched = 0;
-    for (let i = 0; i < fastRows.length; i++) {
-      try {
-        const result = await lookupTickerByCik(fastRows[i].subject_cik);
-        if (result) { updateFast.run(result.ticker, result.company, fastRows[i].id); fastEnriched++; }
-      } catch(e) {}
-      if ((i + 1) % 100 === 0) log(`Fast enrichment: ${i+1}/${fastRows.length}, ${fastEnriched} resolved`);
-    }
-    log(`Ticker enrichment fast-path: ${fastEnriched}/${fastRows.length} resolved`);
-  }
-
-  // Phase 2: slow-path for rows without subject_cik — fetch filing index page
-  const rows = db.prepare(`
-    SELECT id, accession, url, subject_cik
-    FROM sc13_transactions
-    WHERE (ticker IS NULL OR ticker = '')
-      AND (subject_cik IS NULL OR subject_cik = '')
-    ORDER BY filed_date DESC
-    LIMIT 200
-  `).all();
-
-  if (!rows.length) { log('Ticker enrichment: nothing to enrich'); return; }
-  log(`Ticker enrichment: ${rows.length} recent rows to resolve`);
-
-  const updateStmt = db.prepare(`
-    UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?
-  `);
-
-  // Cache CIK→ticker lookups to avoid re-fetching for the same issuer
+  // Shared cache and lookup function — defined first so both phases can use it
   const cikTickerCache = {};
-
-  let _lookupCount = 0;
   async function lookupTickerByCik(cikOrList) {
     if (!cikOrList) return null;
     const cikList = cikOrList.toString().split(',').map(c => c.trim()).filter(Boolean);
-    const isFirst = _lookupCount++ === 0;
-    if (isFirst) log(`lookupTickerByCik first call: cikList=${JSON.stringify(cikList)}`);
     for (const cik of cikList) {
       if (cikTickerCache[cik] !== undefined) {
-        if (isFirst) log(`  CIK ${cik}: cache hit = ${JSON.stringify(cikTickerCache[cik])}`);
         if (cikTickerCache[cik]) return cikTickerCache[cik];
         continue;
       }
       try {
         const padded = cik.replace(/^0+/, '').padStart(10, '0');
-        const url = `https://data.sec.gov/submissions/CIK${padded}.json`;
-        if (isFirst) log(`  fetching: ${url}`);
-        const { status, body } = await get(url, 10000);
-        if (isFirst) log(`  HTTP status: ${status}`);
+        const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 10000);
         if (status !== 200) { cikTickerCache[cik] = null; continue; }
         const data   = JSON.parse(body.toString('utf8'));
         const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
         const company = (data.name || '').trim();
-        if (isFirst) log(`  parsed: ticker=${ticker||'none'}, name=${company}`);
-        const result = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
+        const result  = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
         cikTickerCache[cik] = result;
         if (result) return result;
-      } catch(e) {
-        cikTickerCache[cik] = null;
-        if (isFirst) log(`  exception: ${e.message}`);
-      }
+      } catch(e) { cikTickerCache[cik] = null; }
     }
     return null;
   }
+
+  // Phase 1: fast-path — rows with subject_cik already set, just hit data.sec.gov
+  const fastRows = db.prepare(`
+    SELECT id, subject_cik FROM sc13_transactions
+    WHERE (ticker IS NULL OR ticker = '')
+      AND subject_cik IS NOT NULL AND subject_cik != ''
+    ORDER BY filed_date DESC LIMIT 2000
+  `).all();
+
+  if (fastRows.length > 0) {
+    log(`Ticker enrichment fast-path: ${fastRows.length} rows with subject_cik`);
+    fastRows.slice(0, 3).forEach((r, i) => log(`  sample[${i}]: ${r.subject_cik}`));
+    const upd = db.prepare(`UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?`);
+    let n = 0;
+    for (let i = 0; i < fastRows.length; i++) {
+      try {
+        const result = await lookupTickerByCik(fastRows[i].subject_cik);
+        if (result) { upd.run(result.ticker, result.company, fastRows[i].id); n++; }
+      } catch(e) {}
+      if ((i + 1) % 100 === 0) log(`Fast enrichment: ${i+1}/${fastRows.length}, ${n} resolved`);
+    }
+    log(`Ticker enrichment fast-path: ${n}/${fastRows.length} resolved`);
+  }
+
+  // Phase 2: slow-path — rows without subject_cik, fetch the filing index page
+  const rows = db.prepare(`
+    SELECT id, accession, url FROM sc13_transactions
+    WHERE (ticker IS NULL OR ticker = '')
+      AND (subject_cik IS NULL OR subject_cik = '')
+    ORDER BY filed_date DESC LIMIT 100
+  `).all();
+
+  if (!rows.length) { log('Ticker enrichment phase 2: nothing to enrich'); return; }
+  log(`Ticker enrichment phase 2: ${rows.length} rows to resolve via index page`);
 
   async function getSubjectCik(accession, indexUrl) {
     try {
       const { status, body } = await get(indexUrl, 15000);
       if (status !== 200) return null;
       const html = body.toString('utf8');
-
-      // EDGAR index page format (modern):
-      // <span class="companyName">COMPANY NAME (0001234567) (Subject)</span>
-      const subjectM = html.match(/companyName[^>]*>([^<]+)\((\d{7,10})\)\s*\(Subject\)/i);
-      if (subjectM) return subjectM[2].replace(/^0+/, '');
-
-      // Modern EDGAR index also has this pattern in the header table:
-      // <td class="companyInfo"><a href="...">COMPANY NAME</a><br>(0001234567) (Subject)</td>
-      const subjectM2 = html.match(/\((\d{7,10})\)\s*\(Subject\)/i);
-      if (subjectM2) return subjectM2[1].replace(/^0+/, '');
-
-      // Older EDGAR format
-      const subjectAlt = html.match(/subject\s+company[^:]*:.*?CIK[^:]*:\s*(\d{7,10})/is);
-      if (subjectAlt) return subjectAlt[1].replace(/^0+/, '');
-
-      // Last resort: look for any 10-digit CIK that appears near "subject" anywhere
-      const subjectLoose = html.match(/subject[^\n<]{0,100}(\d{10})/i);
-      if (subjectLoose) return subjectLoose[1].replace(/^0+/, '');
-
-      return null;
+      const m = html.match(/companyName[^>]*>[^<]+\((\d{7,10})\)\s*\(Subject\)/i)
+             || html.match(/\((\d{7,10})\)\s*\(Subject\)/i)
+             || html.match(/subject\s+company[^:]*:.*?CIK[^:]*:\s*(\d{7,10})/is);
+      return m ? m[1].replace(/^0+/, '') : null;
     } catch(e) { return null; }
   }
 
+  const upd2 = db.prepare(`UPDATE sc13_transactions SET ticker=?, company=? WHERE id=?`);
   let enriched = 0;
   for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
     try {
-      let subjectCik = row.subject_cik;
-      if (!subjectCik) {
-        subjectCik = await getSubjectCik(row.accession, row.url);
-      }
+      const subjectCik = await getSubjectCik(rows[i].accession, rows[i].url);
       if (!subjectCik) continue;
-
       const result = await lookupTickerByCik(subjectCik);
-      if (result) {
-        updateStmt.run(result.ticker, result.company, row.id);
-        enriched++;
-      }
+      if (result) { upd2.run(result.ticker, result.company, rows[i].id); enriched++; }
     } catch(e) {}
-    // Log progress every 200 rows
-    if ((i + 1) % 50 === 0) log(`Ticker enrichment: ${i+1}/${rows.length} processed, ${enriched} resolved so far`);
+    if ((i + 1) % 25 === 0) log(`Phase 2 enrichment: ${i+1}/${rows.length}, ${enriched} resolved`);
   }
-
-  log(`Ticker enrichment: ${enriched}/${rows.length} rows resolved`);
+  log(`Ticker enrichment phase 2: ${enriched}/${rows.length} resolved`);
 }
 
 // ── RECENT: EFTS search (last N days) ────────────────────────────────────
