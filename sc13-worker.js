@@ -393,7 +393,11 @@ async function enrichRecentTickers() {
       try {
         const padded = cik.replace(/^0+/, '').padStart(10, '0');
         const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 10000);
-        if (status !== 200) { cikTickerCache[cik] = null; continue; }
+        if (status !== 200) {
+          cikTickerCache[cik] = null;
+          if (Object.keys(cikTickerCache).length <= 3) log(`data.sec.gov CIK ${padded}: HTTP ${status}`);
+          continue;
+        }
         const data   = JSON.parse(body.toString('utf8'));
         const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
         const company = (data.name || '').trim();
