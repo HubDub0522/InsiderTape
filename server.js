@@ -197,6 +197,7 @@ try {
 }
 
 try { db.pragma('journal_mode = WAL'); } catch(e) { console.warn('WAL pragma failed (read-only disk?):', e.message); }
+try { db.pragma('busy_timeout = 5000'); } catch(e) {} // wait up to 5s if worker holds write lock
 
 // Each table/index created separately so existing DBs get new tables too
 // All wrapped in try/catch — on Render the persistent disk can be briefly
