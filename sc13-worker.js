@@ -598,27 +598,22 @@ async function main() {
 
   // Poll mode: run historical backfill only if not yet complete.
   // With 80 quarters all marked done, skip entirely — don't waste boot time iterating.
-  const histExpected = 84; // 2004Q1 through 2024Q3 = ~84 quarters
-  // Count includes rows=-1 (non-index sentinel) since those quarters are handled
-  const histDone = db.prepare("SELECT COUNT(*) AS n FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3'").get().n;
-  if (histDone >= histExpected) {
-    log(`Historical backfill: all ${histDone} quarters complete. Skipping.`);
+  // Build the full expected set of quarter keys
+  const expectedQuarters = new Set();
+  for (let yr = 2004; yr <= 2024; yr++) {
+    const maxQ = yr === 2024 ? 3 : 4;
+    for (let q = 1; q <= maxQ; q++) expectedQuarters.add(`${yr}Q${q}`);
+  }
+  const doneSet = new Set(
+    db.prepare("SELECT quarter FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3'")
+      .all().map(r => r.quarter)
+  );
+  const missing = [...expectedQuarters].filter(k => !doneSet.has(k));
+
+  if (missing.length === 0) {
+    log(`Historical backfill: all ${expectedQuarters.size} quarters complete. Skipping.`);
   } else {
-    // Find which specific quarters are missing — log them, then fill only those
-    const doneSet = new Set(
-      db.prepare("SELECT quarter FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3'")
-        .all().map(r => r.quarter)
-    );
-    const missing = [];
-    for (let yr = 2004; yr <= 2024; yr++) {
-      const maxQ = yr === 2024 ? 3 : 4;
-      for (let q = 1; q <= maxQ; q++) {
-        const key = `${yr}Q${q}`;
-        if (!doneSet.has(key)) missing.push(key);
-      }
-    }
-    log(`Historical backfill: ${histDone}/${histExpected} done. Missing: ${missing.join(', ')}`);
-    // Run only the missing quarters — don't iterate all 84
+    log(`Historical backfill: ${doneSet.size}/${expectedQuarters.size} done. Missing: ${missing.join(', ')}`);
     runHistoricalBackfillForQuarters(missing).catch(e => log(`Historical backfill error: ${e.message}`));
   }
 
