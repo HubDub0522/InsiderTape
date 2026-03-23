@@ -77,6 +77,20 @@ db.exec(`
 // Must run BEFORE preparing the INSERT statement that references it
 try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
 
+// One-time migration: clear old single-CIK subject_cik values (stored as just the filer CIK).
+// The new format stores all CIKs comma-separated so enrichment can find the subject.
+// Old values that don't contain a comma are likely just the filer CIK (no ticker).
+// Reset them so the EFTS backfill re-populates with the correct multi-CIK format.
+try {
+  const cleared = db.prepare(`
+    UPDATE sc13_transactions SET subject_cik = NULL
+    WHERE subject_cik IS NOT NULL
+      AND subject_cik NOT LIKE '%,%'
+      AND LENGTH(subject_cik) > 0
+  `).run();
+  if (cleared.changes > 0) log(`Cleared ${cleared.changes} stale single-CIK subject_cik values`);
+} catch(e) {}
+
 const insertSc13 = db.prepare(`
   INSERT OR IGNORE INTO sc13_transactions
     (ticker, company, filer, filing_type, filed_date, period_date,
