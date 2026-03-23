@@ -365,30 +365,31 @@ async function enrichRecentTickers() {
   // Cache CIK→ticker lookups to avoid re-fetching for the same issuer
   const cikTickerCache = {};
 
-  async function lookupTickerByCik(cik) {
-    if (cikTickerCache[cik] !== undefined) return cikTickerCache[cik];
-    try {
-      const padded = cik.toString().replace(/^0+/, '').padStart(10, '0');
-      const url = `https://data.sec.gov/submissions/CIK${padded}.json`;
-      const { status, body } = await get(url, 10000);
-      if (status !== 200) {
-        if (cikTickerCache[cik] === undefined) cikTickerCache[cik] = null;
-        return null;
+  async function lookupTickerByCik(cikOrList) {
+    if (!cikOrList) return null;
+    // cikOrList may be a comma-separated list of CIKs — try each until we find one with a ticker
+    const cikList = cikOrList.toString().split(',').map(c => c.trim()).filter(Boolean);
+    for (const cik of cikList) {
+      if (cikTickerCache[cik] !== undefined) {
+        if (cikTickerCache[cik]) return cikTickerCache[cik];
+        continue;
       }
-      const data = JSON.parse(body.toString('utf8'));
-      const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
-      const company = (data.name || '').trim();
-      // Log first few lookups so we can see what's happening
-      if (Object.keys(cikTickerCache).length < 5) {
-        log(`CIK lookup ${padded}: tickers=${JSON.stringify(data.tickers)}, name=${company}`);
-      }
-      const result  = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
-      cikTickerCache[cik] = result;
-      return result;
-    } catch(e) {
-      cikTickerCache[cik] = null;
-      return null;
+      try {
+        const padded = cik.replace(/^0+/, '').padStart(10, '0');
+        const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 10000);
+        if (status !== 200) { cikTickerCache[cik] = null; continue; }
+        const data   = JSON.parse(body.toString('utf8'));
+        const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
+        const company = (data.name || '').trim();
+        if (Object.keys(cikTickerCache).length < 10) {
+          log(`CIK ${padded}: ticker=${ticker||'none'}, name=${company}`);
+        }
+        const result = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
+        cikTickerCache[cik] = result;
+        if (result) return result; // found a ticker — this is the subject company
+      } catch(e) { cikTickerCache[cik] = null; }
     }
+    return null;
   }
 
   async function getSubjectCik(accession, indexUrl) {
@@ -486,15 +487,12 @@ async function runRecentBackfill(daysBack) {
         const formType = (h._source?.form_type || 'SC 13D').trim();
         const cik      = (ciks[0] || '').toString() || accDash.slice(0,10).replace(/^0+/,'');
 
-        // For SC 13D/G: EFTS display_names contains entity names WITHOUT ticker prefix
-        // e.g. ["PALE FIRE CAPITAL SE", "PHREESIA INC"] — no "(PHR)" prefix
-        // The filer CIK is derived from the accession number first 10 digits
-        // The subject company CIK is in ciks[] — it's the one that isn't the filer
-        const filerCikFromAcc = parseInt(accDash.slice(0,10), 10).toString();
-        // Subject CIK: use the CIK that differs from the accession filer CIK
-        const subjectCik = ciks.map(c => c.toString())
-          .find(c => c.replace(/^0+/,'') !== filerCikFromAcc.replace(/^0+/,''))
-          || null;
+        // For SC 13D/G: EFTS ciks[] contains both filer CIKs and subject company CIK.
+        // We can't reliably identify the subject from position alone since filing
+        // agents, investors, and subjects all appear.
+        // Store ALL ciks so enrichment can try each one to find the one with a ticker.
+        // The subject company will have a stock ticker; the investor/filer won't.
+        const subjectCik = ciks.length > 0 ? ciks.join(',') : null;
 
         const displayNames = h._source?.display_names || [];
         let tickerHint = '', companyHint = '', filerHint = h._source?.entity_name || '';
