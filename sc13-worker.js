@@ -321,7 +321,8 @@ async function enrichRecentTickers() {
   }
 
   let enriched = 0;
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     try {
       const subjectCik = await getSubjectCik(row.accession, row.url);
       if (!subjectCik) continue;
@@ -332,6 +333,8 @@ async function enrichRecentTickers() {
         enriched++;
       }
     } catch(e) {}
+    // Log progress every 200 rows
+    if ((i + 1) % 200 === 0) log(`Ticker enrichment: ${i+1}/${rows.length} processed, ${enriched} resolved so far`);
   }
 
   log(`Ticker enrichment: ${enriched}/${rows.length} rows resolved`);
@@ -450,24 +453,48 @@ async function runRecentBackfill(daysBack) {
 }
 
 // ── MAIN ──────────────────────────────────────────────────────────────────
-const mode = process.argv[2] || 'poll';
+// Args from server.js: node sc13-worker.js {daysBack} {mode}
+// e.g.  node sc13-worker.js 90 poll
+const _daysBackArg = parseInt(process.argv[2] || '90');
+const mode         = process.argv[3] || process.argv[2] || 'poll';
+// If only one arg and it's not a number, treat it as mode
+const daysBackInit = isNaN(_daysBackArg) ? 90 : _daysBackArg;
 
 async function main() {
-  log(`=== sc13-worker v2 start (mode=${mode}) ===`);
+  log(`=== sc13-worker v2 start (mode=${mode}, daysBack=${daysBackInit}) ===`);
 
-  // Always run recent Atom feed first — fast, covers last 90 days
-  await runRecentBackfill(90);
+  // Re-sync any quarters that completed with suspiciously few rows —
+  // this catches cases where a previous form.idx fetch timed out mid-stream.
+  // A real quarter should have at least 500 rows; anything under 100 is suspect.
+  try {
+    const thinQuarters = db.prepare(`
+      SELECT quarter FROM sc13_quarter_log
+      WHERE rows < 100 AND quarter >= '2024Q1'
+    `).all();
+    if (thinQuarters.length) {
+      log(`Re-syncing ${thinQuarters.length} thin quarters: ${thinQuarters.map(r=>r.quarter).join(', ')}`);
+      for (const { quarter } of thinQuarters) {
+        db.prepare('DELETE FROM sc13_quarter_log WHERE quarter=?').run(quarter);
+      }
+    }
+  } catch(e) {}
+
+  // Small pause on startup — daily-worker is already hitting SEC at boot,
+  // give it a few seconds headroom to avoid rate limiting the Atom feed
+  await new Promise(r => setTimeout(r, 4000));
+
+  // Always run recent Atom feed first — fast, covers last N days
+  await runRecentBackfill(daysBackInit);
 
   if (mode === 'historical') {
-    // Manual one-time full historical load
     await runHistoricalBackfill();
     db.close();
     process.exit(0);
   }
 
   // Poll mode: historical backfill runs in background (non-blocking)
-  // sc13_quarter_log tracks completed quarters so restarts pick up where they left off
-  log('Starting historical backfill in background (quarters already done will be skipped)...');
+  // sc13_quarter_log tracks completed quarters so restarts skip already-done ones
+  log('Starting historical backfill in background (completed quarters skipped)...');
   runHistoricalBackfill().catch(e => log(`Historical backfill error: ${e.message}`));
 
   // Re-check for new filings every 4 hours
