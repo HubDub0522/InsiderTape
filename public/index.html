@@ -18,7 +18,7 @@
 <!-- Favicon: radar icon -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <!-- SEO meta -->
-<meta name="description" content="Track what corporate insiders are buying and selling. InsiderTape surfaces SEC Form 4 filings in real time — so you can see cluster buys, conviction signals, and first buys before they become headlines.">
+<meta name="description" content="Track what corporate insiders are buying and selling. InsiderTape surfaces SEC Form 4 and 13D/G filings in real time — so you can see cluster buys, activist accumulation, and first buys before they become headlines.">
 <meta name="keywords" content="insider trading tracker, SEC Form 4, insider buying, insider selling, stock screener, cluster buy, corporate insider trades">
 <meta name="author" content="InsiderTape">
 <meta name="robots" content="index, follow">
@@ -26,13 +26,13 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://insidertape.com">
 <meta property="og:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
-<meta property="og:description" content="Track what corporate insiders are buying and selling. SEC Form 4 filings surfaced in real time — cluster buys, conviction signals, and first buys before they make headlines.">
+<meta property="og:description" content="Track corporate insiders and institutional 5% owners buying and selling. SEC Form 4 and 13D/G filings in real time — cluster buys, activist accumulation, and conviction signals.">
 <meta property="og:image" content="https://insidertape.com/og-image.png">
 <!-- Twitter/X Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@insidertape">
 <meta name="twitter:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
-<meta name="twitter:description" content="Track what corporate insiders are buying and selling. SEC Form 4 filings surfaced in real time.">
+<meta name="twitter:description" content="Track insider trades and institutional 5%+ owners. SEC Form 4 and 13D/G filings in real time.">
 <meta name="twitter:image" content="https://insidertape.com/og-image.png">
 <!-- Preconnect to critical external origins to reduce latency -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -776,6 +776,7 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
+          <div class="chip" data-role="5pct" onclick="toggleRole(this)" style="border-color:rgba(0,212,255,0.4);color:rgba(0,212,255,0.8)" title="5%+ beneficial owners filing SC 13D/G">5% Owner</div>
         </div>
       </div>
       <div class="filter-section">
@@ -818,7 +819,7 @@
       <div class="filter-data-source" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
         <p style="font-size:11px;color:var(--muted);line-height:1.6">
-          Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
+          Insider filings sourced directly from SEC EDGAR Form 4 filings. Institutional 5%+ ownership changes tracked via SC 13D/G filings.<br><br>
           <span style="color:var(--accent)">Note:</span> SEC rules allow insiders up to 2 business days to file after a transaction. InsiderTape ingests new filings throughout the trading day.
         </p>
       </div>
@@ -832,7 +833,7 @@
           <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
-          <div class="live-badge" title="Screener refreshes automatically every 5 minutes"><div class="live-dot"></div>AUTO-REFRESH · 5 MIN</div>
+          <div class="live-badge" title="Data updated hourly during market hours"><div class="live-dot"></div>LIVE · HOURLY</div>
           <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v1.6</div>
         </div>
       </div>
@@ -1317,6 +1318,15 @@ function toggleRole(el) {
   document.querySelectorAll('[data-role]').forEach(c => c.classList.remove('active'));
   el.classList.add('active'); state.activeRole = el.dataset.role;
   saveFilters();
+  // When '5% Owner' selected, filter screener to show institutional filings
+  // When viewing a stock chart, rebuild overlay to show/hide relevant markers
+  if (state.currentTicker && (state.priceData || state.sc13Data)) {
+    buildCircleOverlay(
+      document.getElementById('chart-container'),
+      state.chart, state.mainSeries,
+      state.trades || [], state.priceData || [], state.sc13Data || []
+    );
+  }
 }
 // ── Ticker filter tag rendering ─────────────────────────────
 function renderTickerFilterTags() {
@@ -1370,7 +1380,7 @@ async function loadScreener() {
   try {
     const resp = await apiFetch('/api/screener?days=' + days);
     if (resp && resp.building) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)... auto-retrying</span></div></td></tr>`;
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)...</span></div></td></tr>`;
       setTimeout(loadScreener, 8000); return;
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
@@ -1379,6 +1389,7 @@ async function loadScreener() {
       return;
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
+    // Note: SC 13D/G institutional filings shown as diamonds on stock charts; Form 4 only in screener table
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
@@ -2173,7 +2184,7 @@ function renderStockLanding(lists) {
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:28px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 &amp; 13D/G filings</div>
     </div>
     ${section('This Week\'s Activity', 'Insider moves · Last 7 days', '⚡', activeCards)}
     ${auth.isPremium
@@ -2326,6 +2337,7 @@ async function loadStockView(ticker, opts={}) {
           <div id="pressureContainer" style="width:100%;height:120px;" class="pressure-container"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div id="sc13-signal-badge" style="margin-top:6px;min-height:16px"></div>
         <div id="insiderActivityAnalysis" style="margin-top:10px"></div>
       </div>
       <div class="insider-sidebar">
@@ -2567,6 +2579,10 @@ function setChartType(type) {
 
 function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
   sc13Data = sc13Data || [];
+  const show5pct = state.activeRole === '5pct';
+  // When 5% Owner filter active: show only SC 13D/G diamonds, hide Form 4 circles
+  const showForm4 = !show5pct;
+  const showSc13  = true; // always show diamonds (unless role specifically hides them)
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
   canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
@@ -2585,7 +2601,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
     return null;
   }
 
-  // ── Form 4 circle groups ──────────────────────────────────────────────────
+  // ── Form 4 circle groups (insider trades) ────────────────────────────────
   const groups={};
   trades.forEach(t=>{
     const raw=(t.trade||t.filing||'').slice(0,10); const d=nearestTradingDay(raw); if(!d)return;
@@ -2654,10 +2670,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
 
     // ── SC 13D/G diamonds ───────────────────────────────────────────────────
     // Fixed size — these aren't transaction-value-scaled the same way
-    const dSize = window.innerWidth <= 640 ? 9 : 12;
+    // Base diamond size, scaled by pct_owned (larger stake = bigger diamond)
+    const dBase = window.innerWidth <= 640 ? 7 : 9;
     state.sc13Groups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
+      // Scale diamond size: 5% = base, 10% = 1.4x, 20%+ = 2x, unknown = base
+      const pct = g.filings[0]?.pct_owned;
+      const dSize = pct ? Math.min(dBase * (1 + Math.sqrt(pct / 5) * 0.4), dBase * 2.5) : dBase;
       // Buying = cyan diamond above the bar top; selling = magenta diamond below bar bottom
       const refPrice = g.isSell ? (pd.high||pd.close)*1.012 : (pd.low||pd.close)*0.988;
       const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
@@ -3095,6 +3115,21 @@ function renderTradeMarkerList(trades) {
 // Renders beneficial ownership filings below the trade marker list.
 // Only shown when there is sc13 data for the current ticker.
 function renderSc13Sidebar(sc13Data) {
+  // Inject sc13 signal badge into the stock signals area if recent data exists
+  const recentSc13 = (sc13Data || []).filter(f => {
+    const d = new Date(f.filed_date); const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-6);
+    return d >= cutoff;
+  });
+  const sigArea = document.getElementById('sc13-signal-badge');
+  if (sigArea) {
+    if (recentSc13.length > 0) {
+      const hasBuy = recentSc13.some(f => f.shares_delta === null || f.shares_delta >= 0);
+      const hasSell = recentSc13.some(f => f.shares_delta !== null && f.shares_delta < 0);
+      const color = hasBuy && !hasSell ? 'rgba(0,212,255,0.9)' : hasSell && !hasBuy ? 'rgba(255,0,255,0.9)' : 'rgba(180,180,180,0.8)';
+      const label = hasBuy && !hasSell ? '🔷 13D/G ACCUMULATING' : hasSell && !hasBuy ? '🔶 13D/G REDUCING' : '🔷 13D/G ACTIVITY';
+      sigArea.innerHTML = `<span style="color:${color};font-size:10px;font-family:'Space Mono',monospace;letter-spacing:1px" title="${recentSc13.length} institutional 13D/G filing(s) in last 6 months">${label}</span>`;
+    } else { sigArea.innerHTML = ''; }
+  }
   // Find or create the sc13 container — it lives just below the trade marker list
   let el = document.getElementById('sc13SidebarSection');
   if (!el) {
@@ -7669,7 +7704,7 @@ function renderMonitorShell(body) {
   body.innerHTML = `
   <div style="max-width:1100px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:20px">
-      <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div><div class="live-badge" title="Monitor refreshes automatically every 5 minutes"><div class="live-dot"></div>AUTO-REFRESH · 5 MIN</div></div>
+      <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div><div class="live-badge" title="Data updated hourly during market hours"><div class="live-dot"></div>LIVE · HOURLY</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
       <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
     </div>
@@ -8379,16 +8414,17 @@ function routeFromPath(path, fromPopstate) {
     !path.startsWith('/sectors') && !path.startsWith('/compare') && !path.startsWith('/watchlist');
   if (isScreenerView) {
     loadScreener();
-    // Auto-refresh screener every 5 minutes while on the screener page
-    setInterval(() => {
-      if (document.getElementById('view-screener').classList.contains('active')) loadScreener();
-    }, 5 * 60 * 1000);
   }
 
-  // Auto-refresh monitor every 5 minutes while on the monitor page (any entry point)
+  // Refresh screener + monitor hourly during market hours (data updated server-side hourly)
   setInterval(() => {
+    const etHour = (new Date().getUTCHours() - 4 + 24) % 24;
+    const day = new Date().getUTCDay();
+    const isMarket = day > 0 && day < 6 && etHour >= 9 && etHour < 17;
+    if (!isMarket) return;
+    if (document.getElementById('view-screener').classList.contains('active')) loadScreener();
     if (document.getElementById('view-monitor').classList.contains('active')) loadMonitorPage();
-  }, 5 * 60 * 1000);
+  }, 60 * 60 * 1000);
 })();
 
 function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; if(p.startsWith('/premium'))return'premium'; if(p.startsWith('/signup'))return'signup'; if(p.startsWith('/account'))return'account'; return'screener'; }
@@ -8430,7 +8466,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
   <div style="max-width:1200px;margin:0 auto">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
     <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
-      InsiderTape tracks SEC Form 4 insider trading disclosures in real time — cluster buys, conviction signals, and first buys.
+      InsiderTape tracks SEC Form 4 insider trades and SC 13D/G beneficial ownership filings in real time — cluster buys, activist accumulation, and conviction signals.
       Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
@@ -9452,7 +9488,7 @@ function renderAlertPrefs(p) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
       <div>
         <div style="font-size:13px;color:var(--text);font-weight:600">Alerts ${enabled ? '<span style="font-size:10px;color:var(--accent);margin-left:6px;font-family:Space Mono,monospace">ON</span>' : '<span style="font-size:10px;color:var(--muted);margin-left:6px;font-family:Space Mono,monospace">OFF</span>'}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">Checked every 5 minutes after market filings</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Updated hourly during market hours, 3am ET nightly</div>
       </div>
       <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:${enabled?'var(--accent)':'#1e2d3d'};cursor:pointer;position:relative;transition:background 0.2s">
         <div id="alertToggleKnob" style="position:absolute;top:3px;left:${enabled?'21':'3'}px;width:16px;height:16px;border-radius:50%;background:${enabled?'#000':'#4a6580'};transition:all 0.2s"></div>
