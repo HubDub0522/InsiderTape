@@ -4986,6 +4986,94 @@ function renderAnalysisSubpage(id) {
     renderRegimeShiftSubpage();
   }
 
+}
+
+function renderRegimeShiftSubpage() {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('analysisViewBody');
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  // Show loading state while long trades fetch if needed
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">📡 REGIME SHIFT DETECTOR</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Detecting material behavior changes vs each insider's own 6-month baseline · Last 30D</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7;max-width:680px">
+      Compares recent insider activity against their personal baseline. A chronic seller suddenly buying, a dormant insider waking up, or an unusual sell surge — all indicate a <span style="color:var(--text)">regime shift</span> before price reacts.
+    </div>
+    <div id="regimeShiftResults"><div class="loading-state"><div class="spinner"></div><span>Scanning insider behavior history...</span></div></div>
+  </div>`;
+
+  // Build once long trades are available
+  withLongTrades(longTrades => {
+    const trades = _analysisData || [];
+    const results = buildRegimeShiftData(longTrades, trades);
+    const el = document.getElementById('regimeShiftResults');
+    if (!el) return;
+
+    if (!results.length) {
+      el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
+        No regime shifts detected in the last 30 days.<br>
+        <span style="font-size:11px">Signals require meaningful baseline history — try again after more data loads.</span>
+      </div>`;
+      return;
+    }
+
+    const typeColors = {
+      SELLER_FLIPS_BUY: 'var(--buy)',
+      BUY_ACCELERATION: '#ffd700',
+      DORMANT_ACTIVATES: 'var(--accent)',
+      SELL_SPIKE: 'var(--sell)',
+    };
+    const typeBg = {
+      SELLER_FLIPS_BUY: 'rgba(0,255,136,0.06)',
+      BUY_ACCELERATION: 'rgba(255,215,0,0.06)',
+      DORMANT_ACTIVATES: 'rgba(0,212,255,0.06)',
+      SELL_SPIKE: 'rgba(255,68,102,0.06)',
+    };
+    const typeBorder = {
+      SELLER_FLIPS_BUY: 'rgba(0,255,136,0.25)',
+      BUY_ACCELERATION: 'rgba(255,215,0,0.25)',
+      DORMANT_ACTIVATES: 'rgba(0,212,255,0.25)',
+      SELL_SPIKE: 'rgba(255,68,102,0.25)',
+    };
+
+    el.innerHTML = `
+      <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:12px">${results.length} REGIME SHIFT${results.length!==1?'S':''} DETECTED · SORTED BY SCORE</div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        ${results.map(r => {
+          const color  = typeColors[r.regimeType]  || 'var(--accent)';
+          const bg     = typeBg[r.regimeType]      || 'rgba(0,212,255,0.06)';
+          const border = typeBorder[r.regimeType]  || 'rgba(0,212,255,0.25)';
+          const scoreColor = r.score >= 70 ? 'var(--buy)' : r.score >= 60 ? '#ffd700' : 'var(--accent)';
+          return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:16px 20px;cursor:pointer;transition:border-color .15s"
+                       onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='${border}'"
+                       onclick="openStock('${r.ticker}')">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+                  <span style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--text)">${r.ticker}</span>
+                  <span style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">${r.company}</span>
+                  <span style="background:${bg};border:1px solid ${border};border-radius:4px;padding:2px 8px;font-family:'Space Mono',monospace;font-size:9px;color:${color};letter-spacing:1px;white-space:nowrap">${r.regimeLabel.toUpperCase()}</span>
+                </div>
+                <div style="font-size:12px;color:var(--text);font-weight:500">${r.insider}</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">${r.title || '—'}</div>
+                <div style="margin-top:10px;display:flex;flex-direction:column;gap:4px">
+                  ${r.factors.map(f => `<div style="font-size:11px;color:var(--muted)">· ${f}</div>`).join('')}
+                </div>
+              </div>
+              <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 16px;text-align:center;flex-shrink:0;min-width:64px">
+                <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;line-height:1;color:${scoreColor}">${r.score}</div>
+                <div style="font-size:8px;font-family:'Space Mono',monospace;color:var(--muted);margin-top:2px">SIGNAL</div>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  });
+}
 
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
