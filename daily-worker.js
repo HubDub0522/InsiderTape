@@ -543,14 +543,23 @@ async function fetchFullIndex(startDate, endDate) {
 // ── Process filings — no seen-cache, rely on DB UNIQUE constraint ──
 async function processBatch(filings, label) {
   if (!filings.length) return 0;
-  log(`${label}: processing ${filings.length} filings`);
+
+  // Pre-filter: skip filings whose accession is already in the DB.
+  // This avoids fetching full XML for thousands of already-processed filings
+  // on every startup backfill — the most expensive part of the boot cycle.
+  const checkStmt = db.prepare('SELECT 1 FROM trades WHERE accession=? LIMIT 1');
+  const newFilings = filings.filter(f => !checkStmt.get(f.accession));
+  const skipped = filings.length - newFilings.length;
+  if (skipped > 0) log(`${label}: skipping ${skipped} already-ingested, processing ${newFilings.length} new`);
+  if (!newFilings.length) { log(`${label}: nothing new to process`); return 0; }
+  log(`${label}: processing ${newFilings.length} filings`);
 
   let inserted = 0;
   let failed   = 0;
   const CONCURRENCY = 6;
 
-  for (let i = 0; i < filings.length; i += CONCURRENCY) {
-    const batch   = filings.slice(i, i + CONCURRENCY);
+  for (let i = 0; i < newFilings.length; i += CONCURRENCY) {
+    const batch   = newFilings.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
       batch.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks))
     );
@@ -564,10 +573,10 @@ async function processBatch(filings, label) {
       }
     }
     if ((i + CONCURRENCY) % 60 === 0)
-      log(`  ${i + CONCURRENCY}/${filings.length} — inserted:${inserted} failed:${failed}`);
+      log(`  ${i + CONCURRENCY}/${newFilings.length} — inserted:${inserted} failed:${failed}`);
   }
 
-  log(`${label} done — inserted:${inserted} failed:${failed} from ${filings.length} filings`);
+  log(`${label} done — inserted:${inserted} failed:${failed} from ${newFilings.length} filings`);
   return inserted;
 }
 
