@@ -60,6 +60,17 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
+// Serve articles — no-cache on HTML so new posts are always fresh
+app.use('/articles', express.static(path.join(__dirname, 'articles'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
+
 // ─── DISK DIAGNOSTIC (call /api/disk to see exactly what's wrong) ────────────
 app.get('/api/disk', (req, res) => {
   const report = { db_path: DB_PATH, disk_ok: DISK_OK, checks: [] };
