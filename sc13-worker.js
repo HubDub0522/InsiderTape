@@ -185,7 +185,7 @@ async function fetchQuarterIndex(year, q) {
 
     // Debug: print first 3 data lines to confirm format in logs
     if (debugPrinted < 3) {
-      log(`  ${key} sample: "${line.slice(0, 120)}"`);
+      log(`  ${key} sample [${line.length}]: "${line.slice(0, 200)}"`);
       debugPrinted++;
     }
 
@@ -201,18 +201,22 @@ async function fetchQuarterIndex(year, q) {
     } else { log(`  ${key} no date: "${line.slice(0,80)}"`); continue; }
     if (filedDate < '2000-01-01' || filedDate > '2040-01-01') continue;
 
-    // Filename column: edgar/data/{CIK}/{accession}.txt
-    const fnM = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
-    if (!fnM) { log(`  ${key} no filename: "${line.slice(0,80)}"`); continue; }
+    // Filename: edgar/data/{CIK}/{accession}.txt
+    // Try with .txt extension first (most common), then without (some newer files)
+    const fnM = line.match(/edgar\/data\/(\d+)\/(\d[\d-]{14,19})\.txt/i)
+             || line.match(/edgar\/data\/(\d+)\/(\d{10}-\d{2}-\d{6})/);
+    if (!fnM) { log(`  ${key} no filename [len=${line.length}]: "${line.slice(0,180)}"`); continue; }
     const cik   = fnM[1];
-    const parts = fnM[2].split('-');
+    const parts = fnM[2].replace(/\.txt$/i,'').split('-');
     if (parts.length !== 3) continue;
     const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
 
-    // Filer name: text between form type end (col 12) and where CIK starts
-    // CIK column is right-justified in a fixed-width field — find it
+    // Filer name: between col 12 and the CIK column
+    // Try padded CIK first, then raw CIK (format varies across quarters)
     const cikPadded = cik.padStart(10, '0');
-    const cikPos    = line.indexOf(cikPadded);
+    let cikPos      = line.indexOf(cikPadded);
+    if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + ' ');
+    if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + '\t');
     const filerRaw  = cikPos > 12 ? line.slice(12, cikPos) : '';
     const filer     = filerRaw.replace(/\s{2,}/g, ' ').trim();
 
