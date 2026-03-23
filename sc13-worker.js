@@ -236,7 +236,21 @@ async function fetchQuarterIndex(year, q) {
   }
 
   if (!batch.length) {
+    // Diagnostic: log sample of form types found to see what's actually in the file
+    const formTypeSample = {};
+    let sampleCount = 0;
+    for (const l of lines) {
+      if (!pastHeader || l.length < 20) continue;
+      const ft = l.slice(0, 12).trim();
+      if (ft && !formTypeSample[ft]) {
+        formTypeSample[ft] = 0;
+        sampleCount++;
+        if (sampleCount >= 20) break;
+      }
+      if (ft) formTypeSample[ft]++;
+    }
     log(`${key}: 0 inserted (scanned ${scanned} matching, ${lines.length} total lines, pastHeader=${pastHeader})`);
+    log(`${key}: form types in file: ${Object.keys(formTypeSample).slice(0,15).join(', ')}`);
     db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, 0);
     return 0;
   }
@@ -449,7 +463,7 @@ async function main() {
   try {
     const thinQuarters = db.prepare(`
       SELECT quarter FROM sc13_quarter_log
-      WHERE rows < 100 AND quarter >= '2024Q1'
+      WHERE rows < 100 AND quarter >= '2023Q1'
     `).all();
     if (thinQuarters.length) {
       log(`Re-syncing ${thinQuarters.length} thin quarters: ${thinQuarters.map(r=>r.quarter).join(', ')}`);
