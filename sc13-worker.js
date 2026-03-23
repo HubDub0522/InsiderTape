@@ -169,6 +169,7 @@ async function fetchQuarterIndex(year, q) {
   let pastHeader = false;
   const batch = [];
   let scanned = 0;
+  let debugPrinted = 0;
 
   for (const line of lines) {
     if (!pastHeader) {
@@ -182,15 +183,27 @@ async function fetchQuarterIndex(year, q) {
     if (!SC13_TYPES.has(formType)) continue;
     scanned++;
 
-    // Date filed — ISO YYYY-MM-DD
-    const dateM = line.match(/(\d{4}-\d{2}-\d{2})/);
-    if (!dateM) continue;
-    const filedDate = dateM[1];
-    if (filedDate < '2000-01-01') continue;
+    // Debug: print first 3 data lines to confirm format in logs
+    if (debugPrinted < 3) {
+      log(`  ${key} sample: "${line.slice(0, 120)}"`);
+      debugPrinted++;
+    }
+
+    // Date filed — EDGAR uses ISO (YYYY-MM-DD) in newer files,
+    // MM/DD/YYYY in older quarterly files. Handle both.
+    let filedDate = '';
+    const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
+    const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (isoMatch) {
+      filedDate = isoMatch[1];
+    } else if (mdyMatch) {
+      filedDate = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
+    } else { log(`  ${key} no date: "${line.slice(0,80)}"`); continue; }
+    if (filedDate < '2000-01-01' || filedDate > '2040-01-01') continue;
 
     // Filename column: edgar/data/{CIK}/{accession}.txt
     const fnM = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
-    if (!fnM) continue;
+    if (!fnM) { log(`  ${key} no filename: "${line.slice(0,80)}"`); continue; }
     const cik   = fnM[1];
     const parts = fnM[2].split('-');
     if (parts.length !== 3) continue;
@@ -219,14 +232,14 @@ async function fetchQuarterIndex(year, q) {
   }
 
   if (!batch.length) {
-    log(`${key}: 0 SC 13D/G lines found (scanned ${scanned} form.idx entries)`);
+    log(`${key}: 0 inserted (scanned ${scanned} matching, ${lines.length} total lines, pastHeader=${pastHeader})`);
     db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, 0);
     return 0;
   }
 
   const inserted = insertMany(batch);
   db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, inserted);
-  log(`${key}: ${inserted} inserted (${batch.length} SC 13D/G found, ${scanned} total form lines scanned)`);
+  log(`${key}: ${inserted} inserted (${scanned} SC 13D/G matched, ${lines.length} total lines)`);
   return inserted;
 }
 
