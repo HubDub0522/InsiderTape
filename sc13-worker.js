@@ -323,6 +323,22 @@ async function runHistoricalBackfill() {
   setTimeout(() => enrichRecentTickers().catch(e => log(`Enrichment error: ${e.message}`)), 3000);
 }
 
+// Targeted backfill — only fetch specific missing quarters (e.g. ['2009Q2', '2015Q4'])
+async function runHistoricalBackfillForQuarters(quarterKeys) {
+  if (!quarterKeys.length) return;
+  let total = 0;
+  for (const key of quarterKeys) {
+    const yr = parseInt(key.slice(0, 4));
+    const q  = parseInt(key.slice(5));
+    log(`Fetching missing quarter: ${key}`);
+    total += await fetchQuarterIndex(yr, q);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  log(`Missing quarter backfill complete: ${total} records inserted for ${quarterKeys.join(', ')}`);
+  setTimeout(() => enrichRecentTickers().catch(e => log(`Enrichment error: ${e.message}`)), 3000);
+}
+
+
 // ── Ticker enrichment for recent metadata-only rows ───────────────────────
 // Uses the EDGAR company submissions API (data.sec.gov/submissions/CIK.json)
 // to resolve the subject company ticker from the issuer CIK.
@@ -584,11 +600,25 @@ async function main() {
   // With 80 quarters all marked done, skip entirely — don't waste boot time iterating.
   const histExpected = 84; // 2004Q1 through 2024Q3 = ~84 quarters
   const histDone = db.prepare("SELECT COUNT(*) AS n FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3' AND rows >= 0").get().n;
-  if (histDone < histExpected) {
-    log(`Historical backfill: ${histDone}/${histExpected} quarters done, running remainder in background...`);
-    runHistoricalBackfill().catch(e => log(`Historical backfill error: ${e.message}`));
+  if (histDone >= histExpected) {
+    log(`Historical backfill: all ${histDone} quarters complete. Skipping.`);
   } else {
-    log(`Historical backfill: all ${histDone} quarters already complete, skipping.`);
+    // Find which specific quarters are missing — log them, then fill only those
+    const doneSet = new Set(
+      db.prepare("SELECT quarter FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3' AND rows >= 0")
+        .all().map(r => r.quarter)
+    );
+    const missing = [];
+    for (let yr = 2004; yr <= 2024; yr++) {
+      const maxQ = yr === 2024 ? 3 : 4;
+      for (let q = 1; q <= maxQ; q++) {
+        const key = `${yr}Q${q}`;
+        if (!doneSet.has(key)) missing.push(key);
+      }
+    }
+    log(`Historical backfill: ${histDone}/${histExpected} done. Missing: ${missing.join(', ')}`);
+    // Run only the missing quarters — don't iterate all 84
+    runHistoricalBackfillForQuarters(missing).catch(e => log(`Historical backfill error: ${e.message}`));
   }
 
   // Re-check for new filings every 4 hours
