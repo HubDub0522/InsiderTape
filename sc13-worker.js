@@ -353,117 +353,80 @@ async function enrichRecentTickers() {
   log(`Ticker enrichment: ${enriched}/${rows.length} rows resolved`);
 }
 
-// ── RECENT: Atom feed (last N days) ──────────────────────────────────────
-// browse-edgar Atom feed is the same source used by daily-worker.js for Form 4s.
-// It covers the last few weeks and is the most reliable near-real-time source.
-async function searchAtom13(formType, sinceDate) {
-  const filings   = [];
-  const seen      = new Set();
-  const typeParam = encodeURIComponent(formType);
-
-  for (let start = 0; start < 2000; start += 40) {
-    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${typeParam}&dateb=&owner=include&count=40&start=${start}&output=atom`;
-    try {
-      const { status, body } = await get(url, 30000);
-      if (status !== 200) { log(`Atom ${formType} HTTP ${status} at start=${start}`); break; }
-
-      const text    = body.toString('utf8');
-      const entries = text.split('<entry>').slice(1);
-      if (!entries.length) break;
-
-      let oldestOnPage = '';
-      for (const entry of entries) {
-        const dateM = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
-        const filed = dateM ? dateM[1] : new Date().toISOString().slice(0, 10);
-        const linkM = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
-        if (!linkM) continue;
-
-        const cik    = linkM[1];
-        const accRaw = linkM[2];
-        if (accRaw.length !== 18) continue;
-        const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
-
-        // Extract filer, company, ticker from Atom title
-        // Typical format: "SC 13D - FILER NAME - COMPANY NAME (TICKER)"
-        const titleM    = entry.match(/<title[^>]*>([^<]+)<\/title>/i);
-        const titleText = titleM
-          ? titleM[1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#\d+;/g,'')
-          : '';
-        const tickerM   = titleText.match(/\(([A-Z]{1,6})\)/);
-        const tickerHint  = tickerM ? tickerM[1] : '';
-        const titleParts  = titleText.split(/\s+-\s+/);
-        // titleParts[0] = form type, [1] = filer, [2+] = company
-        const filerHint   = titleParts.length >= 2 ? titleParts[1].trim() : '';
-        const companyHint = titleParts.length >= 3
-          ? titleParts[titleParts.length - 1].replace(/\([^)]*\)/g, '').trim()
-          : '';
-
-        if (!seen.has(accDash)) {
-          seen.add(accDash);
-          filings.push({
-            accession:   accDash,
-            cik,
-            filedDate:   filed,
-            formType,
-            tickerHint,
-            companyHint,
-            filerHint,
-            secUrl: edgarIndexUrl(accDash, cik),
-          });
-        }
-        if (!oldestOnPage || filed < oldestOnPage) oldestOnPage = filed;
-      }
-
-      if (oldestOnPage && oldestOnPage < sinceDate) break;
-      if (entries.length < 40) break;
-    } catch(e) {
-      log(`Atom ${formType} error at start=${start}: ${e.message}`);
-      break;
-    }
-  }
-
-  return filings.filter(f => f.filedDate >= sinceDate);
-}
-
+// ── RECENT: EFTS search (last N days) ────────────────────────────────────
+// Uses EDGAR full-text search — same API the daily-worker uses for Form 4s.
+// Key fix: EFTS requires %20 for spaces in form types (not +).
+// "SC 13D" must be encoded as "SC%2013D" not "SC+13D".
 async function runRecentBackfill(daysBack) {
   const since = new Date();
   since.setDate(since.getDate() - daysBack);
   const sinceStr = since.toISOString().slice(0, 10);
   const today    = new Date().toISOString().slice(0, 10);
 
-  log(`Recent SC 13D/G Atom: ${sinceStr} to ${today}`);
+  log(`Recent SC 13D/G EFTS: ${sinceStr} to ${today}`);
 
+  // %20 = space, %2F = slash — EFTS stores form types exactly as filed
+  const formTypes = 'SC%2013D,SC%2013G,SC%2013D%2FA,SC%2013G%2FA';
   const allFilings = [];
   const seen       = new Set();
-  const formTypes  = ['SC 13D', 'SC 13G', 'SC 13D/A', 'SC 13G/A'];
-  const results    = await Promise.allSettled(formTypes.map(ft => searchAtom13(ft, sinceStr)));
 
-  for (const r of results) {
-    if (r.status !== 'fulfilled') continue;
-    for (const f of r.value) {
-      if (!seen.has(f.accession)) { seen.add(f.accession); allFilings.push(f); }
-    }
+  for (let from = 0; from < 10000; from += 100) {
+    const url = `https://efts.sec.gov/LATEST/search-index?forms=${formTypes}&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100`;
+    try {
+      const { status, body } = await get(url, 30000);
+      if (status !== 200) { log(`EFTS SC13 HTTP ${status} at from=${from}`); break; }
+      const data = JSON.parse(body.toString('utf8'));
+      const hits = data.hits?.hits || [];
+      if (!hits.length) break;
+
+      for (const h of hits) {
+        const raw     = h._id || '';
+        const colonAt = raw.indexOf(':');
+        const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
+        if (!accDash.match(/^\d{10}-\d{2}-\d{6}$/)) continue;
+
+        const fd       = h._source?.file_date?.slice(0,10) || today;
+        const ciks     = h._source?.ciks || [];
+        const formType = (h._source?.form_type || 'SC 13D').trim();
+        const cik      = (ciks[0] || '').toString() || accDash.slice(0,10).replace(/^0+/,'');
+
+        // EFTS entity_name = filer (the investor making the disclosure)
+        // display_names contains subject company as "TICKER (Company Name)"
+        const displayNames = h._source?.display_names || [];
+        let tickerHint = '', companyHint = '', filerHint = h._source?.entity_name || '';
+        for (const dn of displayNames) {
+          const m = dn.match(/^([A-Z]{1,6})\s*\((.+)\)/);
+          if (m) { tickerHint = m[1]; companyHint = m[2].trim(); break; }
+        }
+
+        if (!seen.has(accDash)) {
+          seen.add(accDash);
+          allFilings.push({
+            accession: accDash, cik, filedDate: fd, formType,
+            tickerHint, companyHint, filerHint,
+            secUrl: edgarIndexUrl(accDash, cik),
+          });
+        }
+      }
+      log(`EFTS SC13: from=${from}, ${hits.length} hits, ${allFilings.length} total`);
+      if (hits.length < 100) break;
+    } catch(e) { log(`EFTS SC13 error: ${e.message}`); break; }
   }
 
   if (!allFilings.length) { log('Recent SC 13D/G: 0 filings found'); return 0; }
   log(`Recent SC 13D/G: ${allFilings.length} filings found`);
 
   const batch = allFilings.map(f => [
-    f.tickerHint  || '',
-    f.companyHint || '',
-    f.filerHint   || '',
-    f.formType,
-    f.filedDate,
-    f.filedDate,
-    null, null, null,
-    f.accession,
-    f.secUrl,
+    f.tickerHint || '', f.companyHint || '', f.filerHint || '',
+    f.formType, f.filedDate, f.filedDate,
+    null, null, null, f.accession, f.secUrl,
   ]);
 
   const inserted = insertMany(batch);
   log(`Recent SC 13D/G: ${inserted} new records inserted`);
   return inserted;
 }
+
 
 // ── MAIN ──────────────────────────────────────────────────────────────────
 // Args from server.js: node sc13-worker.js {daysBack} {mode}
