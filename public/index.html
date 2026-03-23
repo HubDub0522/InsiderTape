@@ -2470,6 +2470,7 @@ async function buildChart(priceData, trades, sc13Data) {
   const w = container.clientWidth || 800;
   const h = container.clientHeight || getChartH();
   const chart = LightweightCharts.createChart(container, {
+    attributionLogo: false,
     width: w,
     height: h,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
@@ -2789,6 +2790,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   pc.style.display = 'block';
   const pcW = pc.clientWidth || pc.offsetWidth || 800;
   const pChart=LightweightCharts.createChart(pc,{
+    attributionLogo: false,
     width: pcW,
     height: pcH,
     layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
