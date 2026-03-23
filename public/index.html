@@ -776,7 +776,7 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="5pct" onclick="toggleRole(this)" style="border-color:rgba(0,212,255,0.4);color:rgba(0,212,255,0.8)" title="5%+ beneficial owners filing SC 13D/G">5% Owner</div>
+          <div class="chip" data-role="5pct" onclick="toggleRole(this)" style="border-color:rgba(0,212,255,0.4);color:rgba(0,212,255,0.8)" title="10%+ beneficial owners & major shareholders (Form 4). SC 13D/G diamonds visible on stock charts.">5% Owner</div>
         </div>
       </div>
       <div class="filter-section">
@@ -1389,7 +1389,6 @@ async function loadScreener() {
       return;
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-    // Note: SC 13D/G institutional filings shown as diamonds on stock charts; Form 4 only in screener table
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
@@ -1397,6 +1396,9 @@ async function loadScreener() {
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
+        if (state.activeRole === '5pct') return title.includes('10%') || title.includes('10 PERCENT')
+                                             || title.includes('OWNER') || title.includes('BENEFICIAL')
+                                             || title.includes('MAJOR') || title.includes('PRINCIPAL');
         return true;
       });
     }
