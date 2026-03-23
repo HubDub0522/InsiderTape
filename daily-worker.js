@@ -670,8 +670,10 @@ async function main() {
   const lastBackfill = lastBackfillRow ? lastBackfillRow.rows : 0;
   const msSinceBackfill = Date.now() - lastBackfill;
   if (msSinceBackfill > 55 * 60 * 1000) { // more than 55 min ago
-    log(`Startup backfill (${daysBack} days)...`);
-    await runBackfill(daysBack);
+    // If restarted within 6 hours, just do a 1-day catch-up instead of full 3-day backfill
+    const catchupDays = (msSinceBackfill < 6 * 60 * 60 * 1000 && lastBackfill > 0) ? 1 : daysBack;
+    log(`Startup backfill (${catchupDays} day${catchupDays !== 1 ? 's' : ''})...`);
+    await runBackfill(catchupDays);
     db.prepare("INSERT OR REPLACE INTO sync_log (quarter, rows) VALUES ('DAILY_LAST_BACKFILL', ?)").run(Date.now());
   } else {
     log(`Startup backfill skipped — ran ${Math.round(msSinceBackfill/60000)}min ago`);
