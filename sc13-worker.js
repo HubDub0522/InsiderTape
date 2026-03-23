@@ -56,7 +56,8 @@ db.exec(`
     shares_owned INTEGER,
     shares_delta INTEGER,
     accession    TEXT UNIQUE,
-    url          TEXT
+    url          TEXT,
+    subject_cik  TEXT
   )
 `);
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker)`); } catch(_) {}
@@ -75,9 +76,11 @@ db.exec(`
 const insertSc13 = db.prepare(`
   INSERT OR IGNORE INTO sc13_transactions
     (ticker, company, filer, filing_type, filed_date, period_date,
-     pct_owned, shares_owned, shares_delta, accession, url)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?)
+     pct_owned, shares_owned, shares_delta, accession, url, subject_cik)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 `);
+// Migrate existing DB — add subject_cik column if it doesn't exist yet
+try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
 const insertMany = db.transaction(rows => {
   let n = 0;
   for (const r of rows) n += insertSc13.run(...r).changes;
@@ -246,6 +249,7 @@ async function fetchQuarterIndex(year, q) {
       null,        // shares_delta
       accDash,
       edgarIndexUrl(accDash, cik),
+      null, // subject_cik
     ]);
   }
 
@@ -318,7 +322,7 @@ async function enrichRecentTickers() {
   // Enrich newest blank-ticker rows first, 500 per run
   // Runs after every EFTS poll so tickers fill in gradually
   const rows = db.prepare(`
-    SELECT id, accession, url
+    SELECT id, accession, url, subject_cik
     FROM sc13_transactions
     WHERE (ticker IS NULL OR ticker = '')
     ORDER BY filed_date DESC
@@ -382,7 +386,10 @@ async function enrichRecentTickers() {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
-      const subjectCik = await getSubjectCik(row.accession, row.url);
+      let subjectCik = row.subject_cik;
+      if (!subjectCik) {
+        subjectCik = await getSubjectCik(row.accession, row.url);
+      }
       if (!subjectCik) continue;
 
       const result = await lookupTickerByCik(subjectCik);
@@ -442,20 +449,31 @@ async function runRecentBackfill(daysBack) {
         const formType = (h._source?.form_type || 'SC 13D').trim();
         const cik      = (ciks[0] || '').toString() || accDash.slice(0,10).replace(/^0+/,'');
 
-        // EFTS entity_name = filer (the investor making the disclosure)
-        // display_names contains subject company as "TICKER (Company Name)"
+        // For SC 13D/G: EFTS display_names contains entity names WITHOUT ticker prefix
+        // e.g. ["PALE FIRE CAPITAL SE", "PHREESIA INC"] — no "(PHR)" prefix
+        // The filer CIK is derived from the accession number first 10 digits
+        // The subject company CIK is in ciks[] — it's the one that isn't the filer
+        const filerCikFromAcc = parseInt(accDash.slice(0,10), 10).toString();
+        // Subject CIK: use the CIK that differs from the accession filer CIK
+        const subjectCik = ciks.map(c => c.toString())
+          .find(c => c.replace(/^0+/,'') !== filerCikFromAcc.replace(/^0+/,''))
+          || null;
+
         const displayNames = h._source?.display_names || [];
         let tickerHint = '', companyHint = '', filerHint = h._source?.entity_name || '';
+        // Try to get company name from display_names (first non-filer entry)
         for (const dn of displayNames) {
-          const m = dn.match(/^([A-Z]{1,6})\s*\((.+)\)/);
-          if (m) { tickerHint = m[1]; companyHint = m[2].trim(); break; }
+          if (!filerHint || !dn.toUpperCase().includes(filerHint.slice(0,8).toUpperCase())) {
+            companyHint = dn.trim();
+            break;
+          }
         }
 
         if (!seen.has(accDash)) {
           seen.add(accDash);
           allFilings.push({
             accession: accDash, cik, filedDate: fd, formType,
-            tickerHint, companyHint, filerHint,
+            tickerHint, companyHint, filerHint, subjectCik,
             secUrl: edgarIndexUrl(accDash, cik),
           });
         }
@@ -471,7 +489,7 @@ async function runRecentBackfill(daysBack) {
   const batch = allFilings.map(f => [
     f.tickerHint || '', f.companyHint || '', f.filerHint || '',
     f.formType, f.filedDate, f.filedDate,
-    null, null, null, f.accession, f.secUrl,
+    null, null, null, f.accession, f.secUrl, f.subjectCik || null,
   ]);
 
   const inserted = insertMany(batch);
