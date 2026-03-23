@@ -496,6 +496,24 @@ async function runRecentBackfill(daysBack) {
 
   const inserted = insertMany(batch);
   log(`Recent SC 13D/G: ${inserted} new records inserted`);
+
+  // Backfill subject_cik on existing rows that didn't get it on insert
+  // (rows inserted before this column existed, or via OR IGNORE on duplicates)
+  const updateCik = db.prepare(`
+    UPDATE sc13_transactions SET subject_cik=?, filer=?
+    WHERE accession=? AND (subject_cik IS NULL OR subject_cik='')
+  `);
+  const updateMany = db.transaction(items => {
+    let n = 0;
+    for (const f of items) {
+      if (!f.subjectCik && !f.filerHint) continue;
+      n += updateCik.run(f.subjectCik || null, f.filerHint || null, f.accession).changes;
+    }
+    return n;
+  });
+  const updated = updateMany(allFilings);
+  if (updated > 0) log(`Recent SC 13D/G: ${updated} rows backfilled with subject_cik/filer`);
+
   return inserted;
 }
 
