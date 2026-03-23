@@ -381,37 +381,35 @@ async function enrichRecentTickers() {
   // Cache CIK→ticker lookups to avoid re-fetching for the same issuer
   const cikTickerCache = {};
 
+  let _lookupCount = 0;
   async function lookupTickerByCik(cikOrList) {
     if (!cikOrList) return null;
-    // cikOrList may be a comma-separated list of CIKs — try each until we find one with a ticker
     const cikList = cikOrList.toString().split(',').map(c => c.trim()).filter(Boolean);
+    const isFirst = _lookupCount++ === 0;
+    if (isFirst) log(`lookupTickerByCik first call: cikList=${JSON.stringify(cikList)}`);
     for (const cik of cikList) {
       if (cikTickerCache[cik] !== undefined) {
+        if (isFirst) log(`  CIK ${cik}: cache hit = ${JSON.stringify(cikTickerCache[cik])}`);
         if (cikTickerCache[cik]) return cikTickerCache[cik];
         continue;
       }
       try {
         const padded = cik.replace(/^0+/, '').padStart(10, '0');
-        const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 10000);
-        if (status !== 200) {
-          cikTickerCache[cik] = null;
-          if (Object.keys(cikTickerCache).length <= 3) log(`data.sec.gov CIK ${padded}: HTTP ${status}`);
-          continue;
-        }
+        const url = `https://data.sec.gov/submissions/CIK${padded}.json`;
+        if (isFirst) log(`  fetching: ${url}`);
+        const { status, body } = await get(url, 10000);
+        if (isFirst) log(`  HTTP status: ${status}`);
+        if (status !== 200) { cikTickerCache[cik] = null; continue; }
         const data   = JSON.parse(body.toString('utf8'));
         const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
         const company = (data.name || '').trim();
-        if (Object.keys(cikTickerCache).length < 10) {
-          log(`CIK ${padded}: ticker=${ticker||'none'}, name=${company}`);
-        }
+        if (isFirst) log(`  parsed: ticker=${ticker||'none'}, name=${company}`);
         const result = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
         cikTickerCache[cik] = result;
-        if (result) return result; // found a ticker — this is the subject company
+        if (result) return result;
       } catch(e) {
         cikTickerCache[cik] = null;
-        if (Object.keys(cikTickerCache).length <= 3) {
-          log(`CIK lookup error for ${cik}: ${e.message}`);
-        }
+        if (isFirst) log(`  exception: ${e.message}`);
       }
     }
     return null;
