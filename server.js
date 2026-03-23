@@ -345,7 +345,7 @@ try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS sc13_transactions (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticker       TEXT NOT NULL,
+      ticker       TEXT NOT NULL DEFAULT '',
       company      TEXT,
       filer        TEXT,
       filing_type  TEXT,
@@ -355,12 +355,15 @@ try {
       shares_owned INTEGER,
       shares_delta INTEGER,
       accession    TEXT UNIQUE,
-      url          TEXT
+      url          TEXT,
+      subject_cik  TEXT
     )
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filed_date ON sc13_transactions(filed_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filer      ON sc13_transactions(filer)`);
+  // Migrate existing DB
+  try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
 } catch(e) { console.warn('SC13 schema init warning:', e.message); }
 
 // ─── SYNC via child process ────────────────────────────────────
