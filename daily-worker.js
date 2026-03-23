@@ -129,7 +129,8 @@ function parseForm4(xml, filingDate, accession) {
   const insider = xmlGet(xml, 'rptOwnerName').trim();
   const title   = (xmlGet(xml, 'officerTitle') || xmlGet(xml, 'rptOwnerRelationship') || '').trim();
   const period  = parseDate(xmlGet(xml, 'periodOfReport'));
-  if (!ticker) return [];
+  const INVALID_TICKERS = new Set(['NONE','NULL','N/A','NA','--','-','.','0','FALSE','TRUE']);
+  if (!ticker || INVALID_TICKERS.has(ticker) || !/^[A-Z]/.test(ticker) || ticker.length > 10) return [];
 
   const rows = [];
   function parseBlock(block) {
