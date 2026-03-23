@@ -599,13 +599,14 @@ async function main() {
   // Poll mode: run historical backfill only if not yet complete.
   // With 80 quarters all marked done, skip entirely — don't waste boot time iterating.
   const histExpected = 84; // 2004Q1 through 2024Q3 = ~84 quarters
-  const histDone = db.prepare("SELECT COUNT(*) AS n FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3' AND rows >= 0").get().n;
+  // Count includes rows=-1 (non-index sentinel) since those quarters are handled
+  const histDone = db.prepare("SELECT COUNT(*) AS n FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3'").get().n;
   if (histDone >= histExpected) {
     log(`Historical backfill: all ${histDone} quarters complete. Skipping.`);
   } else {
     // Find which specific quarters are missing — log them, then fill only those
     const doneSet = new Set(
-      db.prepare("SELECT quarter FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3' AND rows >= 0")
+      db.prepare("SELECT quarter FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3'")
         .all().map(r => r.quarter)
     );
     const missing = [];
