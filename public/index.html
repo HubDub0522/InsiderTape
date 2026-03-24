@@ -746,7 +746,7 @@
     <button class="nav-tab" id="sectorsTab" onclick="switchView('sectors', this)">SECTORS</button>
     <button class="nav-tab" id="compareTab" onclick="switchView('compare', this)">COMPARE</button>
     <button class="nav-tab" id="watchlistTab" onclick="switchView('watchlist', this)">WATCHLIST</button>
-    <a class="nav-tab" href="/articles/" style="text-decoration:none">LEARN</a>
+    <button class="nav-tab" onclick="window.location.href='/articles/'">LEARN</button>
   </nav>
   <div id="authHeaderBtn" style="flex-shrink:0;margin-left:8px;display:flex;align-items:center"></div>
 </header>
@@ -8682,7 +8682,7 @@ function routeFromPath(path, fromPopstate) {
   }, 60 * 60 * 1000);
 })();
 
-function _viewFromPath(p) { if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; if(p.startsWith('/premium'))return'premium'; if(p.startsWith('/signup'))return'signup'; if(p.startsWith('/account'))return'account'; return'screener'; }
+function _viewFromPath(p) { if(p.startsWith('/articles'))return'external'; if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; if(p.startsWith('/premium'))return'premium'; if(p.startsWith('/signup'))return'signup'; if(p.startsWith('/account'))return'account'; return'screener'; }
 function _tickerFromPath(p) { const m=p.match(/^\/stock\/([^/]+)/i); return m?decodeURIComponent(m[1]).toUpperCase():null; }
 function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decodeURIComponent(m[1]):null; }
 
