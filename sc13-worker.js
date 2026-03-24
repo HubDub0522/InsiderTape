@@ -610,6 +610,8 @@ async function runRecentBackfill(daysBack) {
 
 
 async function main() {
+  const daysBackInit = parseInt(process.argv[2] || '90');
+  const mode         = process.argv[3] || 'poll';
   log(`=== sc13-worker v2 start (mode=${mode}, daysBack=${daysBackInit}) ===`);
 
   // Re-sync any quarters that completed with suspiciously few rows —
