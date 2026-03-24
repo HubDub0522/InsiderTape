@@ -2397,6 +2397,19 @@ async function loadStockView(ticker, opts={}) {
   if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
+  // Resolve unknown filer names on-demand, then re-render
+  const unknownFilers = (state.sc13Data||[]).filter(f => !f.filer && f.accession);
+  if (unknownFilers.length > 0) {
+    // Fire-and-forget: resolve in background and re-render when done
+    Promise.all(unknownFilers.slice(0,10).map(f =>
+      apiFetch('/api/sc13-filer?accession='+encodeURIComponent(f.accession))
+        .then(d => { if (d.filer) f.filer = d.filer; })
+        .catch(()=>{})
+    )).then(() => {
+      renderSidebarGated(state.tickerTrades || []);
+      renderStockTradesTable(state.tickerTrades || []);
+    });
+  }
   // Re-render sidebar and table now that sc13Data is available — merges 13D/G in time order
   renderSc13Sidebar(state.sc13Data || []);
   renderSidebarGated(state.tickerTrades || []);
@@ -3338,7 +3351,9 @@ function renderStockTradesTable(trades) {
       const secLink = t.url
         ? `<a href="${t.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
         : '';
-      const deltaStr = t.shares_delta!=null?`${t.shares_delta>0?'+':''}${fmtShares(t.shares_delta)}`:(t.qty?fmtShares(t.qty):'—');
+      const deltaStr = t.shares_delta!=null
+        ? `${t.shares_delta>0?'+':''}${fmtShares(t.shares_delta)}`
+        : (t.owned>0?fmtShares(t.owned):(t.qty>0?fmtShares(t.qty):'—'));
       const pctStr = t.pct_owned!=null?`${t.pct_owned.toFixed(1)}% owned`:'5%+ owner';
       return `<tr style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'}">
         <td style="font-family:'Space Mono',monospace;font-size:11px;border-left:2px solid ${dColor};padding-left:10px">${fmtDate(t.trade)}</td>
@@ -3357,7 +3372,7 @@ function renderStockTradesTable(trades) {
       : '';
     return `<tr>
       <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">\${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
+      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
       <td style="color:var(--muted);font-size:12px">${t.title||''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
