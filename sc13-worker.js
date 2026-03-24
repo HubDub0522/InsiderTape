@@ -515,8 +515,10 @@ async function runRecentBackfill(daysBack) {
 
   // Use browse-edgar atom feed - proven approach (same as daily-worker for Form 4)
   // Separate requests for SC 13D and SC 13G to avoid multi-type encoding issues
-  for (const formType of ['SC%2013D', 'SC%2013G']) {
-    for (let start = 0; start < 5000; start += 100) {
+  // Use EDGAR browse-edgar with type=SC+13 which matches all SC 13D/G variants
+  // Single broader query avoids form type encoding issues
+  for (const formType of ['SC+13']) {
+    for (let start = 0; start < 10000; start += 100) {
       const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${formType}&dateb=&owner=include&count=100&search_text=&start=${start}&output=atom`;
       try {
         if (start === 0) log(`SC 13D/G atom URL: ${url}`);
@@ -524,12 +526,7 @@ async function runRecentBackfill(daysBack) {
         if (status !== 200) { log(`browse-edgar HTTP ${status} for ${formType}`); break; }
 
         const text = body.toString('utf8');
-        // Log first entry raw for debugging
-        if (start === 0) {
-          log('SC13 atom HTTP status: ' + status + ' body: ' + text.slice(0, 300).replace(/\s+/g,' '));
-          const firstEntry = text.match(/<entry>([\s\S]*?)<\/entry>/i);
-          if (firstEntry) log('SC13 atom sample entry: ' + firstEntry[1].slice(0, 400).replace(/\s+/g,' '));
-        }
+        if (start === 0) log('SC13 atom HTTP status: ' + status + ' body: ' + text.slice(0, 200).replace(/\s+/g,' '));
 
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
@@ -539,29 +536,13 @@ async function runRecentBackfill(daysBack) {
         while ((m = entryRe.exec(text))) {
           const entry = m[1];
 
-          // Date — same pattern as daily-worker
           const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
           const filedDate = dateMatch ? dateMatch[1] : today;
           if (!oldestOnPage || filedDate < oldestOnPage) oldestOnPage = filedDate;
 
-          // Accession + CIK — use exact 18-digit pattern from daily-worker
+          // Match 18-digit accession number in URL
           const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
-          if (!linkMatch) {
-            // Try alternate: accession in href as digits-digits-digits
-            const accMatch = entry.match(/([0-9]{10}-[0-9]{2}-[0-9]{6})/);
-            const cikMatch = entry.match(/CIK=(\d+)|cik=(\d+)|data\/(\d+)\//);
-            if (!accMatch || !cikMatch) continue;
-            const accDash = accMatch[1];
-            const cik = cikMatch[1] || cikMatch[2] || cikMatch[3];
-            if (seen.has(accDash)) continue;
-            seen.add(accDash);
-            const ft = formType.replace('+', ' ');
-            const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/) || entry.match(/<title>([^<]{3,80})<\/title>/);
-            const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
-            allFilings.push({ tickerHint:'', companyHint:'', filerHint, formType:ft, filedDate, accession:accDash, secUrl:edgarIndexUrl(accDash, cik), subjectCik:null });
-            pageCount++;
-            continue;
-          }
+          if (!linkMatch) continue;
 
           const cik    = linkMatch[1];
           const accRaw = linkMatch[2];
@@ -569,8 +550,12 @@ async function runRecentBackfill(daysBack) {
           if (seen.has(accDash)) continue;
           seen.add(accDash);
 
+          // Get form type from category tag
           const ftMatch   = entry.match(/<category[^>]*term="([^"]+)"/);
-          const ft        = ftMatch ? ftMatch[1] : formType.replace('+', ' ');
+          const ft        = ftMatch ? ftMatch[1] : 'SC 13D';
+          // Only keep SC 13D/G variants
+          if (!SC13_TYPES.has(ft)) continue;
+
           const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/) || entry.match(/<title>([^<]{3,80})<\/title>/);
           const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
 
@@ -578,11 +563,10 @@ async function runRecentBackfill(daysBack) {
           pageCount++;
         }
 
-        // Stop paginating if oldest entry on this page is before our lookback window
         if (oldestOnPage && oldestOnPage < sinceStr) break;
         if (pageCount === 0) break;
-        await new Promise(r => setTimeout(r, 300)); // polite pause
-      } catch(e) { log(`SC 13D/G atom error (${formType}): ${e.message}`); break; }
+        await new Promise(r => setTimeout(r, 300));
+      } catch(e) { log(`SC 13D/G atom error: ${e.message}`); break; }
     }
   }
 
