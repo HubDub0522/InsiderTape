@@ -2746,11 +2746,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
       canvas.style.cursor='crosshair';
       const g=diamondHit.group;
       const color=g.isSell?'#ff00ff':'#00d4ff';
-      const label=g.isSell?'◆ SC 13D/G — SELLING':'◆ SC 13D/G — BUYING';
+      // Use source-appropriate label — don't call Form 4 owner trades "SC 13D/G"
+      const label=g.source==='form4'
+        ? (g.isSell?'◆ 5%+ OWNER — SELLING':'◆ 5%+ OWNER — BUYING')
+        : (g.isSell?'◆ SC 13D/G — SELLING':'◆ SC 13D/G — BUYING');
       const rows=g.filings.slice(0,4).map(f=>{
         const pct=f.pct_owned!=null?`<span style="color:${color};float:right;margin-left:12px">${f.pct_owned.toFixed(1)}% owned</span>`:'';
         const delta=f.shares_delta!=null?`<span style="color:var(--muted);font-size:10px"> (${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)})</span>`:'';
-        return `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${f.filer||'Unknown filer'}</span>${delta}${pct}</div>`;
+        return `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${f.filer||f.company||'Unknown filer'}</span>${delta}${pct}</div>`;
       }).join('');
       const typeLabel=g.filings[0]?.filing_type||'SC 13D/G';
       tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label}</div><div style="color:var(--muted);font-size:10px;margin-bottom:6px">${typeLabel} · ${g.filedDate}</div>${rows}${g.filings.length>4?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.filings.length-4} more</div>`:''}`;
@@ -3149,6 +3152,21 @@ function renderTradeMarkerList(trades) {
     </div>`;
   }).join('');
   if(trades.length>15)el.innerHTML+=`<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length-15} more — see table below</div>`;
+
+  // Append diamond legend entries if there's sc13/5%-owner data
+  const sc13 = state.sc13Data || [];
+  const ownerTrades = (state.tickerTrades||[]).filter(t=>{
+    const title=(t.title||'').toUpperCase();
+    return ['10%','OWNER','BENEFICIAL','MAJOR','PRINCIPAL'].some(k=>title.includes(k));
+  });
+  if (sc13.length > 0 || ownerTrades.length > 0) {
+    const hasBuy  = sc13.some(f=>f.shares_delta===null||f.shares_delta>=0) || ownerTrades.some(t=>t.type==='P');
+    const hasSell = sc13.some(f=>f.shares_delta!==null&&f.shares_delta<0)  || ownerTrades.some(t=>t.type==='S'||t.type==='S-');
+    let legend = '';
+    if (hasBuy)  legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:4px"><span style="color:#00d4ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#00d4ff">5%+ OWNER BUY</span></div>`;
+    if (hasSell) legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,0,255,0.06);border:1px solid rgba(255,0,255,0.3);border-radius:4px"><span style="color:#ff00ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#ff00ff">5%+ OWNER SELL</span></div>`;
+    if (legend) el.innerHTML += legend;
+  }
 }
 
 // ── SC 13D/G sidebar section ───────────────────────────────────────────────
@@ -3180,6 +3198,8 @@ function renderSc13Sidebar(sc13Data) {
     parent.appendChild(el);
   }
 
+  // SC 13D/G entries now merged into main sidebar trade list — hide separate section
+  el.innerHTML = ''; return;
   if (!sc13Data || !sc13Data.length) { el.innerHTML = ''; return; }
 
   const sorted = [...sc13Data].sort((a,b) => b.filed_date.localeCompare(a.filed_date));
@@ -3206,7 +3226,7 @@ function renderSc13Sidebar(sc13Data) {
             <span style="font-family:'Space Mono',monospace;font-size:9px;color:${color};font-weight:700;letter-spacing:1px">${typeLabel}</span>
             <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">${fmtDate(f.filed_date)}</span>
           </div>
-          <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.filer||'Unknown filer'}</div>
+          <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.filer||f.company||'Unknown filer'}</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${pctStr}${deltaStr}</div>
         </div>`;
       }).join('')}
@@ -3221,18 +3241,55 @@ function switchSidebarTab(tab,el) {
 }
 function renderSidebarTrades(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
-  if(!trades.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;return;}
-  el.innerHTML=trades.map(t=>`
-    <div class="trade-card ${tradeClass(t.type)}">
+  const sc13 = state.sc13Data || [];
+
+  // Build unified list: Form 4 trades + SC 13D/G filings, sorted by date
+  const items = [];
+  trades.forEach(t => items.push({...t, _type:'form4'}));
+  sc13.forEach(f => {
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    items.push({
+      _type:'sc13', trade:f.filed_date, filing:f.filed_date,
+      insider:f.filer||f.company||'Unknown filer',
+      title:f.filing_type||'SC 13D/G', type:isSell?'S':'P',
+      qty:f.shares_delta!=null?Math.abs(f.shares_delta):(f.shares_owned||0),
+      price:0, value:0, owned:f.shares_owned||0,
+      pct_owned:f.pct_owned, shares_delta:f.shares_delta,
+    });
+  });
+  items.sort((a,b)=>new Date(b.trade||b.filing)-new Date(a.trade||a.filing));
+
+  if(!items.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;return;}
+  el.innerHTML=items.map(t=>{
+    const isSc13=t._type==='sc13';
+    const tc=tradeClass(t.type);
+    const isOwner=!isSc13&&['10%','OWNER','BENEFICIAL','MAJOR','PRINCIPAL'].some(k=>(t.title||'').toUpperCase().includes(k));
+    if(isSc13){
+      const dColor=tc==='buy'?'#00d4ff':'#ff00ff';
+      const dBg=tc==='buy'?'rgba(0,212,255,0.06)':'rgba(255,0,255,0.06)';
+      const dBorder=tc==='buy'?'rgba(0,212,255,0.25)':'rgba(255,0,255,0.25)';
+      const pctStr=t.pct_owned!=null?`<span style="color:${dColor};font-size:10px">${t.pct_owned.toFixed(1)}% owned</span>`:'';
+      const deltaStr=t.shares_delta!=null?`<span style="color:var(--muted);font-size:10px">${t.shares_delta>0?'+':''}${fmtShares(t.shares_delta)} shares</span>`:'';
+      return `<div class="trade-card" style="background:${dBg};border-color:${dBorder}">
+        <div class="trade-card-top"><span style="color:${dColor};font-size:10px;font-family:'Space Mono',monospace;font-weight:700">◆ ${(t.title||'SC 13D/G').replace('SC ','')}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
+        <div class="trade-insider" style="color:var(--text)">${t.insider}</div>
+        <div class="trade-role" style="color:${dColor};font-size:10px">5%+ BENEFICIAL OWNER · ${tc==='buy'?'ACCUMULATING':'REDUCING'}</div>
+        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">${pctStr}${deltaStr}</div>
+      </div>`;
+    }
+    const color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--option)';
+    const ownerBadge=isOwner?'<span style="color:#00d4ff;font-size:9px;font-family:Space Mono,monospace"> ◆ 5%+</span>':'';
+    return `<div class="trade-card ${tc}">
       <div class="trade-card-top"><span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
-      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</div>
+      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">\${t.insider||'—'}${ownerBadge}</div>
       <div class="trade-role">${t.title||''}</div>
       <div class="trade-numbers">
         <div class="trade-num-item"><div class="trade-num-label">Shares</div><div class="trade-num-val">${fmtShares(t.qty)}</div></div>
         <div class="trade-num-item"><div class="trade-num-label">Price</div><div class="trade-num-val">$${(t.price||0).toFixed(2)}</div></div>
-        <div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Total Value</div><div class="trade-num-val" style="color:${tradeClass(t.type)==='buy'?'var(--buy)':tradeClass(t.type)==='sell'?'var(--sell)':'var(--option)'}">${fmt(t.value)}</div></div>
+        <div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Total Value</div><div class="trade-num-val" style="color:${color}">${fmt(t.value)}</div></div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 function renderSidebarSummary(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
@@ -3268,7 +3325,7 @@ function renderStockTradesTable(trades) {
     return `
     <tr>
       <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
+      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}${(()=>{const ti=(t.title||'').toUpperCase();return ['10%','OWNER','BENEFICIAL','MAJOR','PRINCIPAL'].some(k=>ti.includes(k))?'<span title="5%+ beneficial owner" style="display:inline-block;margin-left:3px;padding:1px 5px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.35);border-radius:3px;font-size:9px;color:#00d4ff;font-family:Space Mono,monospace;cursor:default">◆ 5%+</span>':''})()}</td>
       <td style="color:var(--muted);font-size:12px">${t.title||''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
