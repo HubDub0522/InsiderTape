@@ -797,23 +797,48 @@ app.get('/api/sc13-filer', async (req, res) => {
   if (!accession) return res.status(400).json({ error: 'accession required' });
   try {
     // Check DB first
-    const row = db.prepare("SELECT filer, url FROM sc13_transactions WHERE accession=? LIMIT 1").get(accession);
+    const row = db.prepare("SELECT filer, subject_cik FROM sc13_transactions WHERE accession=? LIMIT 1").get(accession);
     if (row?.filer) return res.json({ filer: row.filer });
-    // Fetch from EDGAR
-    const url = row?.url || `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=&State=0&SIC=&dateb=&owner=include&count=1&search_text=&action=getcompany&accession=${accession.replace(/-/g,'')}`;
-    const indexUrl = `https://www.sec.gov/Archives/edgar/data/${accession.split('-')[0]}/${accession.replace(/-/g,'')}/${accession}-index.htm`;
-    const resp = await fetch(indexUrl, { headers: { 'User-Agent': 'InsiderTape contact@insidertape.com' } });
-    if (!resp.ok) return res.json({ filer: null });
-    const html = await resp.text();
-    // Parse filer name from EDGAR index
-    const m = html.match(/<b>([^<]{5,80})<\/b>\s*\(Filer\)/i)
-           || html.match(/companyName[^>]*>\s*<[^>]+>([^<]{5,80})<\/[^>]+>/i)
-           || html.match(/<b>([A-Z][^<]{4,60})<\/b>/);
-    const filer = m ? m[1].replace(/&amp;/g,'&').replace(/\s+/g,' ').trim() : null;
-    // Cache it
-    if (filer) db.prepare("UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')").run(filer, accession);
-    res.json({ filer });
-  } catch(e) { res.json({ filer: null }); }
+
+    // The filer CIK is the first segment of the accession number
+    const filerCik = accession.split('-')[0].replace(/^0+/, '').padStart(10, '0');
+
+    // Use SEC submissions API — most reliable source for entity name
+    const subResp = await fetch(`https://data.sec.gov/submissions/CIK${filerCik}.json`, {
+      headers: { 'User-Agent': 'InsiderTape contact@insidertape.com' }
+    });
+    if (subResp.ok) {
+      const data = await subResp.json();
+      const name = (data.name || '').trim();
+      if (name) {
+        db.prepare("UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')").run(name, accession);
+        return res.json({ filer: name });
+      }
+    }
+
+    // Fallback: try each CIK in subject_cik, return the one without a ticker (= investor)
+    if (row?.subject_cik) {
+      const ciks = row.subject_cik.split(',').map(c => c.trim()).filter(Boolean);
+      for (const cik of ciks) {
+        const padded = cik.replace(/^0+/, '').padStart(10, '0');
+        if (padded === filerCik) continue; // skip — already tried
+        const r2 = await fetch(`https://data.sec.gov/submissions/CIK${padded}.json`, {
+          headers: { 'User-Agent': 'InsiderTape contact@insidertape.com' }
+        });
+        if (!r2.ok) continue;
+        const d2 = await r2.json();
+        const ticker = (d2.tickers?.[0] || '').trim();
+        if (!ticker) { // no ticker = this is the investor/filer
+          const name = (d2.name || '').trim();
+          if (name) {
+            db.prepare("UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')").run(name, accession);
+            return res.json({ filer: name });
+          }
+        }
+      }
+    }
+    res.json({ filer: null });
+  } catch(e) { slog('sc13-filer error: ' + e.message); res.json({ filer: null }); }
 });
 
 // SC 13D/G debug — shows what's in the DB for a given ticker or filer
