@@ -462,6 +462,41 @@ async function enrichRecentTickers() {
     if ((i + 1) % 25 === 0) log(`Phase 2 enrichment: ${i+1}/${rows.length}, ${enriched} resolved`);
   }
   log(`Ticker enrichment phase 2: ${enriched}/${rows.length} resolved`);
+
+  // Phase 3: resolve blank filer names from EDGAR filing index
+  const blankFilerRows = db.prepare(`
+    SELECT id, accession, url FROM sc13_transactions
+    WHERE (filer IS NULL OR filer = '') AND url IS NOT NULL
+    ORDER BY filed_date DESC LIMIT 200
+  `).all();
+
+  if (blankFilerRows.length > 0) {
+    log(`Filer name resolution: ${blankFilerRows.length} rows with blank filer`);
+    const updFiler = db.prepare(`UPDATE sc13_transactions SET filer=? WHERE id=?`);
+    let filerResolved = 0;
+    for (const row of blankFilerRows) {
+      try {
+        const { status, body } = await get(row.url, 10000);
+        if (status !== 200) continue;
+        const html = body.toString('utf8');
+        // EDGAR index page lists filer as: "Filed by: ENTITY NAME (CIK: ...)" 
+        // or in the header table as the first company listed
+        const m = html.match(/company[^<]*name[^<]*<[^>]+>([^<]{3,80})<\/[^>]+>/i)
+               || html.match(/<b>([^<]{5,80})<\/b>\s*\(Filer\)/i)
+               || html.match(/filer\s*[:\-]\s*([A-Z][^<
+]{4,60})/i);
+        if (m) {
+          const name = m[1].replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
+          if (name.length > 3 && !name.match(/^(SEC|EDGAR|Filing|Index)/i)) {
+            updFiler.run(name, row.id);
+            filerResolved++;
+          }
+        }
+      } catch(e) {}
+      await new Promise(r => setTimeout(r, 150)); // polite pause
+    }
+    log(`Filer name resolution: ${filerResolved}/${blankFilerRows.length} resolved`);
+  }
 }
 
 // ── RECENT: EFTS search (last N days) ────────────────────────────────────
