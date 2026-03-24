@@ -515,7 +515,7 @@ async function runRecentBackfill(daysBack) {
 
   // Use browse-edgar atom feed - proven approach (same as daily-worker for Form 4)
   // Separate requests for SC 13D and SC 13G to avoid multi-type encoding issues
-  for (const formType of ['SC+13D', 'SC+13G']) {
+  for (const formType of ['SC%2013D', 'SC%2013G']) {
     for (let start = 0; start < 5000; start += 100) {
       const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${formType}&dateb=&owner=include&count=100&search_text=&start=${start}&output=atom`;
       try {
@@ -526,9 +526,9 @@ async function runRecentBackfill(daysBack) {
         const text = body.toString('utf8');
         // Log first entry raw for debugging
         if (start === 0) {
+          log('SC13 atom HTTP status: ' + status + ' body: ' + text.slice(0, 300).replace(/\s+/g,' '));
           const firstEntry = text.match(/<entry>([\s\S]*?)<\/entry>/i);
           if (firstEntry) log('SC13 atom sample entry: ' + firstEntry[1].slice(0, 400).replace(/\s+/g,' '));
-          else log('SC13 atom: no <entry> tags found in response (body length: ' + text.length + ')');
         }
 
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
