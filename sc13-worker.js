@@ -508,30 +508,24 @@ async function runRecentBackfill(daysBack) {
   const sinceStr = since.toISOString().slice(0, 10);
   const today    = new Date().toISOString().slice(0, 10);
 
-  log(`Recent SC 13D/G via browse-edgar: ${sinceStr} to ${today}`);
+  log(`Recent SC 13D/G via EDGAR: ${sinceStr} to ${today}`);
 
   const allFilings = [];
   const seen       = new Set();
 
-  // Use browse-edgar atom feed - proven approach (same as daily-worker for Form 4)
-  // Separate requests for SC 13D and SC 13G to avoid multi-type encoding issues
-  // Use EDGAR browse-edgar with type=SC+13 which matches all SC 13D/G variants
-  // Single broader query avoids form type encoding issues
-  for (const formType of ['SC+13']) {
-    for (let start = 0; start < 10000; start += 100) {
-      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${formType}&dateb=&owner=include&count=100&search_text=&start=${start}&output=atom`;
+  // Use EDGAR getcompany search with output=atom - supports date filtering via dateb
+  // Iterate through pages until we pass our start date
+  for (const typeParam of ['SC+13D', 'SC+13G']) {
+    let start = 0;
+    while (start < 10000) {
+      // Use getcompany with empty company - returns all filers of this type
+      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=&CIK=&type=${typeParam}&dateb=&owner=include&count=100&search_text=&start=${start}&output=atom`;
+      if (start === 0) log(`SC 13D/G URL (${typeParam}): ${url}`);
       try {
-        if (start === 0) log(`SC 13D/G atom URL: ${url}`);
         const { status, body } = await get(url, 30000);
-        if (status !== 200) { log(`browse-edgar HTTP ${status} for ${formType}`); break; }
+        if (status !== 200) { log(`EDGAR HTTP ${status} for ${typeParam}`); break; }
 
         const text = body.toString('utf8');
-        if (start === 0) {
-          log('SC13 atom HTTP status: ' + status + ' body: ' + text.slice(0, 200).replace(/\s+/g,' '));
-          const firstEntry = text.match(/<entry>([\s\S]*?)<\/entry>/i);
-          if (firstEntry) log('SC13 first entry: ' + firstEntry[1].replace(/\s+/g,' ').slice(0,600));
-        }
-
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
         let pageCount = 0;
@@ -540,37 +534,45 @@ async function runRecentBackfill(daysBack) {
         while ((m = entryRe.exec(text))) {
           const entry = m[1];
 
+          // Date from <updated> tag
           const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
           const filedDate = dateMatch ? dateMatch[1] : today;
           if (!oldestOnPage || filedDate < oldestOnPage) oldestOnPage = filedDate;
 
-          // Match 18-digit accession number in URL
-          const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
-          if (!linkMatch) continue;
+          // Stop if past lookback window
+          if (filedDate < sinceStr) { start = 999999; break; }
 
+          // Accession from link URL
+          const linkMatch = entry.match(/Archives\/edgar\/data\/(\d+)\/(\d{18})\//);
+          if (!linkMatch) continue;
           const cik    = linkMatch[1];
           const accRaw = linkMatch[2];
-          const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+          const accDash = accRaw.slice(0,10) + '-' + accRaw.slice(10,12) + '-' + accRaw.slice(12);
           if (seen.has(accDash)) continue;
           seen.add(accDash);
 
-          // Get form type from category tag
-          const ftMatch   = entry.match(/<category[^>]*term="([^"]+)"/);
-          const ft        = ftMatch ? ftMatch[1] : 'SC 13D';
-          // Only keep SC 13D/G variants
+          // Form type
+          const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
+          const ft = ftMatch ? ftMatch[1] : typeParam.replace('+', ' ');
           if (!SC13_TYPES.has(ft)) continue;
 
-          const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/) || entry.match(/<title>([^<]{3,80})<\/title>/);
+          // Filer name
+          const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/)
+                         || entry.match(/<title>([^<]{5,80})<\/title>/);
           const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
 
-          allFilings.push({ tickerHint:'', companyHint:'', filerHint, formType:ft, filedDate, accession:accDash, secUrl:edgarIndexUrl(accDash, cik), subjectCik:null });
+          allFilings.push({ tickerHint:'', companyHint:'', filerHint, formType:ft,
+            filedDate, accession:accDash, secUrl:edgarIndexUrl(accDash, cik), subjectCik:null });
           pageCount++;
         }
 
+        log(`SC 13D/G page start=${start}: ${pageCount} filings (oldest: ${oldestOnPage})`);
+        if (start >= 999999) break;
+        if (pageCount === 0 && start > 0) break;
         if (oldestOnPage && oldestOnPage < sinceStr) break;
-        if (pageCount === 0) break;
-        await new Promise(r => setTimeout(r, 300));
-      } catch(e) { log(`SC 13D/G atom error: ${e.message}`); break; }
+        start += 100;
+        await new Promise(r => setTimeout(r, 500));
+      } catch(e) { log(`SC 13D/G error (${typeParam}): ${e.message}`); break; }
     }
   }
 
@@ -578,29 +580,23 @@ async function runRecentBackfill(daysBack) {
   log(`Recent SC 13D/G: ${allFilings.length} filings found`);
 
   const batch = allFilings.map(f => [
-    f.tickerHint || '', f.companyHint || '', f.filerHint || '',
+    f.tickerHint||'', f.companyHint||'', f.filerHint||'',
     f.formType, f.filedDate, f.filedDate,
-    null, null, null, f.accession, f.secUrl, f.subjectCik || null,
+    null, null, null, f.accession, f.secUrl, f.subjectCik||null,
   ]);
-
   const inserted = insertMany(batch);
   log(`Recent SC 13D/G: ${inserted} new records inserted`);
 
-  // Backfill subject_cik on existing rows
-  const updateCik = db.prepare(`
-    UPDATE sc13_transactions SET subject_cik=?, filer=?
-    WHERE accession=? AND (subject_cik IS NULL OR subject_cik='')
-  `);
+  const updateCik = db.prepare(`UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')`);
   const updateMany = db.transaction(items => {
     let n = 0;
     for (const f of items) {
-      if (!f.subjectCik && !f.filerHint) continue;
-      n += updateCik.run(f.subjectCik || null, f.filerHint || null, f.accession).changes;
+      if (f.filerHint) n += updateCik.run(f.filerHint, f.accession).changes;
     }
     return n;
   });
   const updated = updateMany(allFilings);
-  if (updated > 0) log(`Recent SC 13D/G: ${updated} rows backfilled with filer`);
+  if (updated > 0) log(`SC 13D/G: ${updated} filer names updated`);
 
   return inserted;
 }
