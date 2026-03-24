@@ -3277,7 +3277,8 @@ function renderSidebarTrades(trades) {
       const dBg=tc==='buy'?'rgba(0,212,255,0.06)':'rgba(255,0,255,0.06)';
       const dBorder=tc==='buy'?'rgba(0,212,255,0.25)':'rgba(255,0,255,0.25)';
       const pctStr=t.pct_owned!=null?`<span style="color:${dColor};font-size:10px">${t.pct_owned.toFixed(1)}% owned</span>`:'';
-      const deltaStr=t.shares_delta!=null?`<span style="color:var(--muted);font-size:10px">${t.shares_delta>0?'+':''}${fmtShares(t.shares_delta)} shares</span>`:'';
+      const _sAmt=t.shares_delta!=null?t.shares_delta:(t.shares_owned||t.owned||0);
+      const deltaStr=_sAmt?`<span style="color:var(--muted);font-size:10px">${_sAmt>0&&t.shares_delta!=null?'+':''}${fmtShares(Math.abs(_sAmt))} shares</span>`:'';
       return `<div class="trade-card" style="background:${dBg};border-color:${dBorder}">
         <div class="trade-card-top"><span style="color:${dColor};font-size:10px;font-family:'Space Mono',monospace;font-weight:700">◆ ${(t.title||'SC 13D/G').replace('SC ','')}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
         <div class="trade-insider" style="color:var(--text)">${t.insider}</div>
@@ -3338,6 +3339,7 @@ function renderStockTradesTable(trades) {
       qty:f.shares_delta!=null?Math.abs(f.shares_delta):(f.shares_owned||0),
       price:0, value:0, owned:f.shares_owned||0,
       pct_owned:f.pct_owned, shares_delta:f.shares_delta,
+      shares_owned:f.shares_owned,
       accession:f.accession, url:f.url,
     });
   });
@@ -3351,9 +3353,12 @@ function renderStockTradesTable(trades) {
       const secLink = t.url
         ? `<a href="${t.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
         : '';
-      const deltaStr = t.shares_delta!=null
-        ? `${t.shares_delta>0?'+':''}${fmtShares(t.shares_delta)}`
-        : (t.owned>0?fmtShares(t.owned):(t.qty>0?fmtShares(t.qty):'—'));
+      const sharesNum = t.shares_delta!=null ? t.shares_delta
+                      : t.shares_owned>0 ? t.shares_owned
+                      : t.owned>0 ? t.owned : t.qty||0;
+      const deltaStr = sharesNum
+        ? (t.shares_delta!=null ? (t.shares_delta>0?'+':'')+fmtShares(t.shares_delta) : fmtShares(sharesNum))
+        : '—';
       const pctStr = t.pct_owned!=null?`${t.pct_owned.toFixed(1)}% owned`:'5%+ owner';
       return `<tr style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'}">
         <td style="font-family:'Space Mono',monospace;font-size:11px;border-left:2px solid ${dColor};padding-left:10px">${fmtDate(t.trade)}</td>
