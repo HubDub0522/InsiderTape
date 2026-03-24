@@ -508,77 +508,77 @@ async function runRecentBackfill(daysBack) {
   const sinceStr = since.toISOString().slice(0, 10);
   const today    = new Date().toISOString().slice(0, 10);
 
-  log(`Recent SC 13D/G via EDGAR: ${sinceStr} to ${today}`);
+  log(`Recent SC 13D/G via getcurrent: ${sinceStr} to ${today}`);
 
   const allFilings = [];
   const seen       = new Set();
 
-  // Use EDGAR getcompany search with output=atom - supports date filtering via dateb
-  // Iterate through pages until we pass our start date
-  for (const typeParam of ['SC+13D', 'SC+13G']) {
-    let start = 0;
-    while (start < 10000) {
-      // Use getcompany with empty company - returns all filers of this type
-      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=&CIK=&type=${typeParam}&dateb=&owner=include&count=100&search_text=&start=${start}&output=atom`;
-      if (start === 0) log(`SC 13D/G URL (${typeParam}): ${url}`);
+  // Use getcurrent with dateb to paginate backwards through time.
+  // dateb=YYYYMMDD returns filings filed ON OR BEFORE that date.
+  // We start from today and step back, collecting pages until we hit sinceStr.
+  for (const typeParam of ['SC%2013D', 'SC%2013G']) {
+    let dateb = '';  // empty = most recent
+    let iterations = 0;
+    const maxIter = 200; // safety cap
+
+    while (iterations++ < maxIter) {
+      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${typeParam}&dateb=${dateb}&owner=include&count=40&search_text=&output=atom`;
+      if (iterations === 1) log(`SC 13D/G URL (${typeParam}): ${url}`);
       try {
         const { status, body } = await get(url, 30000);
-        if (status !== 200) { log(`EDGAR HTTP ${status} for ${typeParam}`); break; }
+        if (status !== 200) { log(`EDGAR getcurrent HTTP ${status}`); break; }
 
         const text = body.toString('utf8');
-        if (start === 0) log(`SC13 body[0-400]: ` + text.slice(0, 400).replace(/\s+/g, ' '));
-        const hasEntries = text.includes('<entry>');
-        if (start === 0) log(`SC13 has <entry> tags: ${hasEntries}, body length: ${text.length}`);
+        if (text.includes('No recent filings') || !text.includes('<entry>')) break;
+
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
         let pageCount = 0;
-        let oldestOnPage = '';
+        let oldestDate = '';
 
         while ((m = entryRe.exec(text))) {
           const entry = m[1];
 
-          // Date from <updated> tag
           const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
           const filedDate = dateMatch ? dateMatch[1] : today;
-          if (!oldestOnPage || filedDate < oldestOnPage) oldestOnPage = filedDate;
+          if (!oldestDate || filedDate < oldestDate) oldestDate = filedDate;
 
-          // Stop if past lookback window
-          if (filedDate < sinceStr) { start = 999999; break; }
+          if (filedDate < sinceStr) { oldestDate = '0000'; break; }
 
-          // Extract accession from <id> tag (most reliable - format: urn:tag:sec.gov,...:accession-number=NNNNNNNNNN-NN-NNNNNN)
-          const idMatch  = entry.match(/accession-number=([0-9]{10}-[0-9]{2}-[0-9]{6})/);
-          const accMatch = entry.match(/AccNo.*?([0-9]{10}-[0-9]{2}-[0-9]{6})/)
-                        || entry.match(/([0-9]{10}-[0-9]{2}-[0-9]{6})/);
-          const accDash  = (idMatch || accMatch)?.[1];
-          if (!accDash) continue;
-          if (seen.has(accDash)) continue;
+          // Accession from <id> tag: urn:tag:sec.gov,2008:accession-number=NNNNNNNNNN-NN-NNNNNN
+          const idMatch = entry.match(/accession-number=([0-9]{10}-[0-9]{2}-[0-9]{6})/);
+          if (!idMatch) continue;
+          const accDash = idMatch[1];
+          if (seen.has(accDash)) break; // hitting already-seen entries, stop
           seen.add(accDash);
-          // Extract CIK from link href
+
+          const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
+          const ft = ftMatch ? ftMatch[1] : typeParam.replace('%20', ' ');
+          if (!SC13_TYPES.has(ft)) continue;
+
           const cikMatch = entry.match(/edgar\/data\/(\d+)\//);
           const cik = cikMatch ? cikMatch[1] : accDash.slice(0,10).replace(/^0+/,'');
 
-          // Form type
-          const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
-          const ft = ftMatch ? ftMatch[1] : typeParam.replace('+', ' ');
-          if (!SC13_TYPES.has(ft)) continue;
-
-          // Filer name
           const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/)
                          || entry.match(/<title>([^<]{5,80})<\/title>/);
           const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
 
-          allFilings.push({ tickerHint:'', companyHint:'', filerHint, formType:ft,
-            filedDate, accession:accDash, secUrl:edgarIndexUrl(accDash, cik), subjectCik:null });
+          allFilings.push({ filerHint, formType: ft, filedDate,
+            accession: accDash, secUrl: edgarIndexUrl(accDash, cik) });
           pageCount++;
         }
 
-        log(`SC 13D/G page start=${start}: ${pageCount} filings (oldest: ${oldestOnPage})`);
-        if (start >= 999999) break;
-        if (pageCount === 0 && start > 0) break;
-        if (oldestOnPage && oldestOnPage < sinceStr) break;
-        start += 100;
-        await new Promise(r => setTimeout(r, 500));
-      } catch(e) { log(`SC 13D/G error (${typeParam}): ${e.message}`); break; }
+        log(`SC 13D/G (${typeParam}) iter=${iterations}: ${pageCount} new, oldest=${oldestDate}`);
+
+        if (!oldestDate || oldestDate <= sinceStr || oldestDate === '0000') break;
+
+        // Set dateb to day before oldest to paginate backwards
+        const prevDay = new Date(oldestDate + 'T12:00:00Z');
+        prevDay.setDate(prevDay.getDate() - 1);
+        dateb = prevDay.toISOString().slice(0,10).replace(/-/g,'');
+
+        await new Promise(r => setTimeout(r, 400));
+      } catch(e) { log(`SC 13D/G error: ${e.message}`); break; }
     }
   }
 
@@ -586,24 +586,21 @@ async function runRecentBackfill(daysBack) {
   log(`Recent SC 13D/G: ${allFilings.length} filings found`);
 
   const batch = allFilings.map(f => [
-    f.tickerHint||'', f.companyHint||'', f.filerHint||'',
+    '', '', f.filerHint || '',
     f.formType, f.filedDate, f.filedDate,
-    null, null, null, f.accession, f.secUrl, f.subjectCik||null,
+    null, null, null, f.accession, f.secUrl, null,
   ]);
   const inserted = insertMany(batch);
   log(`Recent SC 13D/G: ${inserted} new records inserted`);
 
-  const updateCik = db.prepare(`UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')`);
-  const updateMany = db.transaction(items => {
+  const updFiler = db.prepare(`UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')`);
+  const doUpdate = db.transaction(items => {
     let n = 0;
-    for (const f of items) {
-      if (f.filerHint) n += updateCik.run(f.filerHint, f.accession).changes;
-    }
+    for (const f of items) if (f.filerHint) n += updFiler.run(f.filerHint, f.accession).changes;
     return n;
   });
-  const updated = updateMany(allFilings);
-  if (updated > 0) log(`SC 13D/G: ${updated} filer names updated`);
-
+  const updated = doUpdate(allFilings);
+  if (updated > 0) log(`SC 13D/G: ${updated} filer names set`);
   return inserted;
 }
 
