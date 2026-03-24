@@ -510,15 +510,15 @@ async function runRecentBackfill(daysBack) {
 
   log(`Recent SC 13D/G EFTS: ${sinceStr} to ${today}`);
 
-  // EDGAR EFTS full-text search — form types use + for spaces, & separated
-  // Must use separate &forms= params, not comma-separated, for multi-word types
+  // EDGAR EFTS: use separate forms= params per type (most reliable for multi-word types)
   const allFilings = [];
   const seen       = new Set();
 
   for (let from = 0; from < 10000; from += 100) {
-    const url = `https://efts.sec.gov/LATEST/search-index?forms=SC+13D,SC+13G,SC+13D%2FA,SC+13G%2FA&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100`;
+    const url = `https://efts.sec.gov/LATEST/search-index?forms=SC+13D,SC+13G,SC+13D%2FA,SC+13G%2FA&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100&_source=period_of_report,entity_name,file_num,period_of_report,form_type,biz_location,inc_states,file_date`;
     try {
       // Retry once on 500 — EDGAR EFTS occasionally returns transient 500s
+      if (from === 0) log('EFTS SC13 URL: ' + url);
       let resp = await get(url, 30000);
       if (resp.status === 500) {
         log(`EFTS SC13 HTTP 500 at from=${from}, retrying in 10s...`);
@@ -642,16 +642,17 @@ async function main() {
   // Track completion with a marker in sc13_quarter_log.
   const eftsInitDone = db.prepare("SELECT 1 FROM sc13_quarter_log WHERE quarter='EFTS_INIT'").get();
 
-  // Check if previous EFTS backfill got very few records (likely wrong URL encoding)
-  // If so, reset and re-run with corrected URL
+  // Check if EFTS backfill covered 2024Q4-present (after form.idx cutoff ~Sep 2024)
+  // form.idx only goes to 2024Q3, so anything after Oct 2024 must come from EFTS.
+  // If we have fewer than 50 rows after Oct 2024, the EFTS backfill was incomplete.
   let needsRefetch = !eftsInitDone;
   if (eftsInitDone) {
-    const recentCount = db.prepare(`
+    const postFormIdxCount = db.prepare(`
       SELECT COUNT(*) AS n FROM sc13_transactions
-      WHERE filed_date >= date('now', '-540 days')
+      WHERE filed_date >= '2024-10-01'
     `).get().n;
-    if (recentCount < 100) {
-      log(`EFTS backfill appears incomplete (only ${recentCount} rows in last 18 months) — re-running with corrected URL`);
+    if (postFormIdxCount < 50) {
+      log(`EFTS backfill incomplete: only ${postFormIdxCount} rows after 2024-10-01 — re-running with corrected URL`);
       db.prepare("DELETE FROM sc13_quarter_log WHERE quarter='EFTS_INIT'").run();
       needsRefetch = true;
     }
