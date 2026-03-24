@@ -778,34 +778,16 @@ app.get('/api/ticker', (req, res) => {
 // Recent SC 13D/G filings across all tickers — used by screener 5% Owner filter
 app.get('/api/sc13-recent', (req, res) => {
   try {
-    const days = Math.min(parseInt(req.query.days || '30'), 365);
-    // Try the requested window first; if empty fall back to most recent available rows
-    let rows = db.prepare(`
+    const days = Math.min(parseInt(req.query.days || '30'), 3650); // up to 10 years
+    const rows = db.prepare(`
       SELECT ticker, company, filer, filing_type, filed_date, period_date,
              pct_owned, shares_owned, shares_delta, accession, url
       FROM sc13_transactions
       WHERE filed_date >= date('now', '-' || ? || ' days')
         AND ticker != '' AND ticker IS NOT NULL
       ORDER BY filed_date DESC
-      LIMIT 500
+      LIMIT 1000
     `).all(days);
-
-    // If no rows in requested window, return most recent available
-    // (form.idx data goes to 2024Q3 — the "recent" window may be after that cutoff)
-    if (!rows.length) {
-      rows = db.prepare(`
-        SELECT ticker, company, filer, filing_type, filed_date, period_date,
-               pct_owned, shares_owned, shares_delta, accession, url
-        FROM sc13_transactions
-        WHERE ticker != '' AND ticker IS NOT NULL
-        ORDER BY filed_date DESC
-        LIMIT 500
-      `).all();
-      slog('sc13-recent: no rows in last ' + days + 'd — returning ' + rows.length + ' most recent available');
-    } else {
-      slog('sc13-recent: ' + rows.length + ' rows in last ' + days + 'd');
-    }
-
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
