@@ -1480,7 +1480,8 @@ async function loadScreener() {
       .map(f => ({
         ticker:   f.ticker,
         company:  f.company || f.ticker,
-        insider:  f.filer || 'Unknown filer',
+        // Use filer name, fall back to company (subject of filing), then filing type
+        insider:  f.filer || f.company || '5%+ Owner',
         title:    (f.filing_type || 'SC 13D/G') + (f.pct_owned != null ? ' · ' + f.pct_owned.toFixed(1) + '% owned' : ''),
         trade:    f.filed_date,
         filing:   f.filed_date,
