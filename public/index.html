@@ -722,6 +722,9 @@
     -webkit-overflow-scrolling: touch;
     max-width: 100%;
   }
+  /* Hide TradingView attribution logo from Lightweight Charts */
+  .tv-lightweight-charts a[href*="tradingview"] { display: none !important; }
+  a[href*="tradingview.com"] { display: none !important; }
 </style>
 </head>
 <body>
@@ -833,7 +836,7 @@
           <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
-          <div class="live-badge" title="Data updated hourly during market hours"><div class="live-dot"></div>LIVE · HOURLY</div>
+          
           <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v1.6</div>
         </div>
       </div>
