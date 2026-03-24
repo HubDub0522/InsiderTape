@@ -510,13 +510,13 @@ async function runRecentBackfill(daysBack) {
 
   log(`Recent SC 13D/G EFTS: ${sinceStr} to ${today}`);
 
-  // %20 = space, %2F = slash — EFTS stores form types exactly as filed
-  const formTypes = 'SC%2013D,SC%2013G,SC%2013D%2FA,SC%2013G%2FA';
+  // EDGAR EFTS full-text search — form types use + for spaces, & separated
+  // Must use separate &forms= params, not comma-separated, for multi-word types
   const allFilings = [];
   const seen       = new Set();
 
   for (let from = 0; from < 10000; from += 100) {
-    const url = `https://efts.sec.gov/LATEST/search-index?forms=${formTypes}&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100`;
+    const url = `https://efts.sec.gov/LATEST/search-index?forms=SC+13D,SC+13G,SC+13D%2FA,SC+13G%2FA&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100`;
     try {
       // Retry once on 500 — EDGAR EFTS occasionally returns transient 500s
       let resp = await get(url, 30000);
@@ -641,15 +641,31 @@ async function main() {
   // On subsequent boots: just fetch the last 2 days (new filings only).
   // Track completion with a marker in sc13_quarter_log.
   const eftsInitDone = db.prepare("SELECT 1 FROM sc13_quarter_log WHERE quarter='EFTS_INIT'").get();
-  if (!eftsInitDone) {
-    log('First run: fetching 18-month EFTS backfill to cover 2024Q4-present...');
+
+  // Check if previous EFTS backfill got very few records (likely wrong URL encoding)
+  // If so, reset and re-run with corrected URL
+  let needsRefetch = !eftsInitDone;
+  if (eftsInitDone) {
+    const recentCount = db.prepare(`
+      SELECT COUNT(*) AS n FROM sc13_transactions
+      WHERE filed_date >= date('now', '-540 days')
+    `).get().n;
+    if (recentCount < 100) {
+      log(`EFTS backfill appears incomplete (only ${recentCount} rows in last 18 months) — re-running with corrected URL`);
+      db.prepare("DELETE FROM sc13_quarter_log WHERE quarter='EFTS_INIT'").run();
+      needsRefetch = true;
+    }
+  }
+
+  if (needsRefetch) {
+    log('Fetching 18-month EFTS backfill to cover 2024Q4-present...');
     const eftsLookback = Math.max(daysBackInit, 540);
     const n = await runRecentBackfill(eftsLookback);
     db.prepare("INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES ('EFTS_INIT',?)").run(n);
-    log(`EFTS initial backfill complete (${n} records). Future boots will only fetch recent 2 days.`);
+    log(`EFTS initial backfill complete (${n} records). Future boots will only fetch recent 5 days.`);
   } else {
-    // Normal boot: just get new filings from last 2 days
-    await runRecentBackfill(2);
+    // Normal boot: get new filings from last 5 days to catch any gaps
+    await runRecentBackfill(5);
   }
 
   if (mode === 'historical') {
@@ -679,10 +695,10 @@ async function main() {
     runHistoricalBackfillForQuarters(missing).catch(e => log(`Historical backfill error: ${e.message}`));
   }
 
-  // Re-check for new filings every 4 hours
+  // Re-check for new filings every 4 hours — 5 day window to catch any gaps
   log('SC 13D/G worker: polling every 4 hours');
   setInterval(() => {
-    runRecentBackfill(2)
+    runRecentBackfill(5)
       .then(() => enrichRecentTickers())
       .catch(e => log(`Poll error: ${e.message}`));
   }, 4 * 60 * 60 * 1000);
