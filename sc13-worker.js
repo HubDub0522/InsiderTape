@@ -555,7 +555,9 @@ async function runRecentBackfill(daysBack) {
           const filedDate = dateMatch ? dateMatch[1] : today;
           if (!oldestDate || filedDate < oldestDate) oldestDate = filedDate;
 
-          if (filedDate < sinceStr) { oldestDate = '0000'; break; }
+          // Skip entries older than our window but don't break - collect the oldest date
+          // so we know when to stop paginating
+          if (filedDate < sinceStr) continue;
 
           // Accession from <id> tag: urn:tag:sec.gov,2008:accession-number=NNNNNNNNNN-NN-NNNNNN
           const idMatch = entry.match(/accession-number=([0-9]{10}-[0-9]{2}-[0-9]{6})/);
@@ -582,7 +584,8 @@ async function runRecentBackfill(daysBack) {
 
         log(`SC 13D/G (${typeParam}) iter=${iterations}: ${pageCount} new, oldest=${oldestDate}`);
 
-        if (!oldestDate || oldestDate <= sinceStr || oldestDate === '0000') break;
+        // Stop when we've gone past the lookback window
+        if (!oldestDate || oldestDate < sinceStr) break;
 
         // Set dateb to day before oldest to paginate backwards
         const prevDay = new Date(oldestDate + 'T12:00:00Z');
