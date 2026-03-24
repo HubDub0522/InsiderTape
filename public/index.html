@@ -2321,8 +2321,8 @@ async function loadStockView(ticker, opts={}) {
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item" style="color:#00d4ff;font-size:10px">◆ 5%+ Buy</div>
-            <div class="legend-item" style="color:#ff00ff;font-size:10px">◆ 5%+ Sell</div>
+            <div class="legend-item" style="color:#00d4ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 5%+ Owner Buy</div>
+            <div class="legend-item" style="color:#ff00ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 5%+ Owner Sell</div>
           </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
@@ -2334,7 +2334,22 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn rf-btn" id="chartRole-director" data-role="director" data-color="#60a5fa" onclick="toggleRoleFilter('director',this)" title="Board Directors">DIR</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-owner10" data-role="owner10" data-color="#f59e0b" onclick="toggleRoleFilter('owner10',this)" title="10%+ beneficial owners">10%</button>
             <div style="margin-left:auto;display:flex;gap:4px">
-              <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn ct-btn active" title="Candlestick chart" style="padding:4px 10px;font-size:13px">🕯</button>
+              <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn ct-btn active" title="Candlestick chart" style="padding:4px 8px">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block">
+                  <!-- Bullish candle (left) -->
+                  <line x1="3" y1="1" x2="3" y2="3" stroke="currentColor" stroke-width="1.2"/>
+                  <rect x="1.5" y="3" width="3" height="5" fill="currentColor" opacity="0.9" rx="0.3"/>
+                  <line x1="3" y1="8" x2="3" y2="11" stroke="currentColor" stroke-width="1.2"/>
+                  <!-- Bearish candle (right) -->
+                  <line x1="11" y1="2" x2="11" y2="5" stroke="currentColor" stroke-width="1.2"/>
+                  <rect x="9.5" y="5" width="3" height="6" fill="none" stroke="currentColor" stroke-width="1.2" rx="0.3"/>
+                  <line x1="11" y1="11" x2="11" y2="14" stroke="currentColor" stroke-width="1.2"/>
+                  <!-- Mid candle -->
+                  <line x1="7" y1="3" x2="7" y2="5" stroke="currentColor" stroke-width="1.2"/>
+                  <rect x="5.5" y="5" width="3" height="4" fill="currentColor" opacity="0.9" rx="0.3"/>
+                  <line x1="7" y1="9" x2="7" y2="12" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+              </button>
               <button id="chartTypeLine" onclick="setChartType('line')" class="tf-btn ct-btn" title="Line chart" style="padding:4px 10px;font-size:13px">📈</button>
             </div>
           </div>
