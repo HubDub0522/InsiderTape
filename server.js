@@ -779,21 +779,21 @@ app.get('/api/ticker', (req, res) => {
 app.get('/api/sc13-recent', (req, res) => {
   try {
     const days = Math.min(parseInt(req.query.days || '30'), 365);
-    // Include rows with ticker populated OR rows with a company name we can display
-    // This catches recent EFTS rows that haven't been enriched with a ticker yet
     const rows = db.prepare(`
       SELECT ticker, company, filer, filing_type, filed_date, period_date,
              pct_owned, shares_owned, shares_delta, accession, url, subject_cik
       FROM sc13_transactions
       WHERE filed_date >= date('now', '-' || ? || ' days')
-        AND (
-          (ticker != '' AND ticker IS NOT NULL)
-          OR (company != '' AND company IS NOT NULL)
-          OR (filer != '' AND filer IS NOT NULL)
-        )
       ORDER BY filed_date DESC
       LIMIT 500
     `).all(days);
+
+    // Debug: log counts so we can diagnose in server logs
+    const total = rows.length;
+    const withTicker = rows.filter(r => r.ticker && r.ticker.trim()).length;
+    const withFiler  = rows.filter(r => r.filer  && r.filer.trim()).length;
+    slog(`sc13-recent: ${total} rows (last ${days}d), ${withTicker} with ticker, ${withFiler} with filer`);
+
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
