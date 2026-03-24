@@ -513,61 +513,42 @@ async function runRecentBackfill(daysBack) {
   const allFilings = [];
   const seen       = new Set();
 
-  // Use getcurrent with dateb to paginate backwards through time.
-  // dateb=YYYYMMDD returns filings filed ON OR BEFORE that date.
-  // We start from today and step back, collecting pages until we hit sinceStr.
-  for (const typeParam of ['SC%2013D', 'SC%2013G']) {
-    // Start from today and paginate backwards. dateb='' returns 'No recent filings'
-    // for SC 13D/G since filings aren't daily - use today's date as starting dateb.
-    const todayFmt = today.replace(/-/g, '');
-    let dateb = todayFmt;
-    let iterations = 0;
-    const maxIter = 200; // safety cap
-
-    while (iterations++ < maxIter) {
-      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${typeParam}&dateb=${dateb}&owner=include&count=40&search_text=&output=atom`;
-      if (iterations === 1) log(`SC 13D/G URL (${typeParam}): ${url}`);
+  // getcurrent with start= paginates through most-recent filings globally.
+  // No dateb needed - start=0 is newest, start=40 is next 40, etc.
+  // SC 13D/G: ~5-20 filings/day, so 90 days = ~450-1800 filings max.
+  for (const typeParam of ['SC+13D', 'SC+13G', 'SC+13D%2FA', 'SC+13G%2FA']) {
+    for (let start = 0; start < 5000; start += 40) {
+      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${typeParam}&dateb=&owner=include&count=40&search_text=&start=${start}&output=atom`;
+      if (start === 0) log(`SC 13D/G URL (${typeParam}): ${url}`);
       try {
         const { status, body } = await get(url, 30000);
-        if (status !== 200) { log(`EDGAR getcurrent HTTP ${status}`); break; }
+        if (status !== 200) { log(`EDGAR HTTP ${status}`); break; }
 
         const text = body.toString('utf8');
-        if (!text.includes('<entry>')) {
-          // No entries for this dateb - step back 7 days and try again
-          const stepBack = new Date(dateb.slice(0,4)+'-'+dateb.slice(4,6)+'-'+dateb.slice(6,8)+'T12:00:00Z');
-          stepBack.setDate(stepBack.getDate() - 7);
-          const stepStr = stepBack.toISOString().slice(0,10);
-          if (stepStr < sinceStr) break;
-          dateb = stepStr.replace(/-/g,'');
-          await new Promise(r => setTimeout(r, 300));
-          continue;
-        }
+        if (!text.includes('<entry>')) break; // no more filings
 
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
         let pageCount = 0;
-        let oldestDate = '';
+        let oldestOnPage = '';
 
         while ((m = entryRe.exec(text))) {
           const entry = m[1];
 
           const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
           const filedDate = dateMatch ? dateMatch[1] : today;
-          if (!oldestDate || filedDate < oldestDate) oldestDate = filedDate;
+          if (!oldestOnPage || filedDate < oldestOnPage) oldestOnPage = filedDate;
 
-          // Skip entries older than our window but don't break - collect the oldest date
-          // so we know when to stop paginating
-          if (filedDate < sinceStr) continue;
+          if (filedDate < sinceStr) continue; // skip entries outside our window
 
-          // Accession from <id> tag: urn:tag:sec.gov,2008:accession-number=NNNNNNNNNN-NN-NNNNNN
           const idMatch = entry.match(/accession-number=([0-9]{10}-[0-9]{2}-[0-9]{6})/);
           if (!idMatch) continue;
           const accDash = idMatch[1];
-          if (seen.has(accDash)) break; // hitting already-seen entries, stop
+          if (seen.has(accDash)) continue;
           seen.add(accDash);
 
           const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
-          const ft = ftMatch ? ftMatch[1] : typeParam.replace('%20', ' ');
+          const ft = ftMatch ? ftMatch[1] : typeParam.replace(/\+/g,' ').replace('%2F','/');
           if (!SC13_TYPES.has(ft)) continue;
 
           const cikMatch = entry.match(/edgar\/data\/(\d+)\//);
@@ -577,22 +558,18 @@ async function runRecentBackfill(daysBack) {
                          || entry.match(/<title>([^<]{5,80})<\/title>/);
           const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
 
-          allFilings.push({ filerHint, formType: ft, filedDate,
-            accession: accDash, secUrl: edgarIndexUrl(accDash, cik) });
+          allFilings.push({ filerHint, formType:ft, filedDate,
+            accession:accDash, secUrl:edgarIndexUrl(accDash, cik) });
           pageCount++;
         }
 
-        log(`SC 13D/G (${typeParam}) iter=${iterations}: ${pageCount} new, oldest=${oldestDate}`);
+        if (start === 0 || pageCount > 0) log(`SC 13D/G (${typeParam}) start=${start}: ${pageCount} new, oldest=${oldestOnPage}`);
 
-        // Stop when we've gone past the lookback window
-        if (!oldestDate || oldestDate < sinceStr) break;
+        // Stop if oldest entry on this page is before our window
+        if (oldestOnPage && oldestOnPage < sinceStr) break;
+        if (!oldestOnPage) break;
 
-        // Set dateb to day before oldest to paginate backwards
-        const prevDay = new Date(oldestDate + 'T12:00:00Z');
-        prevDay.setDate(prevDay.getDate() - 1);
-        dateb = prevDay.toISOString().slice(0,10).replace(/-/g,'');
-
-        await new Promise(r => setTimeout(r, 400));
+        await new Promise(r => setTimeout(r, 300));
       } catch(e) { log(`SC 13D/G error: ${e.message}`); break; }
     }
   }
@@ -601,7 +578,7 @@ async function runRecentBackfill(daysBack) {
   log(`Recent SC 13D/G: ${allFilings.length} filings found`);
 
   const batch = allFilings.map(f => [
-    '', '', f.filerHint || '',
+    '', '', f.filerHint||'',
     f.formType, f.filedDate, f.filedDate,
     null, null, null, f.accession, f.secUrl, null,
   ]);
