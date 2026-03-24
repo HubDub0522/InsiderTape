@@ -5662,7 +5662,6 @@ function scoreOpportunityRanker(rows) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
-  const isStockPlanCluster = isStockPlan;
 
     const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
                   score >= 55 ? 'B'  : score >= 45 ? 'C+': score >= 35 ? 'C' : 'D';
@@ -5981,7 +5980,6 @@ function detectExitWarnings(trades, priceHighs={}) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
-  const isStockPlanCluster = isStockPlan;
     if (score < 30 || signals.length < 2 || sellerCount < 2) return; // require 2+ sellers and multi-factor
 
     // Severity label
@@ -6490,7 +6488,6 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   else                           { penalties.push(`Modest outlay: ${fmt(totalVal)}`); }
 
   score = Math.min(100, Math.max(1, Math.round(score)));
-  const isStockPlanCluster = isStockPlan;
 
   return {
     ticker,
