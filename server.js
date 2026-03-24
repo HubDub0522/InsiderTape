@@ -2011,9 +2011,12 @@ async function getYahooCrumb() {
 async function fetchConfirmedEarnings(ticker) {
   const cached = _earningsCache[ticker];
   if (cached && Date.now() - cached.fetched < EARNINGS_CACHE_TTL) return cached;
+  // Don't attempt if crumb is in backoff period
+  if (_yahooCrumbBackoff && Date.now() < _yahooCrumbBackoff) return null;
   try {
     const today  = new Date().toISOString().slice(0, 10);
     const crumb  = await getYahooCrumb();
+    if (!crumb) return null; // backoff active, don't spam
     const crumbQ = crumb ? `&crumb=${encodeURIComponent(crumb)}` : '';
     const cookie = _yahooCookie ? _yahooCookie : '';
     const url    = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=calendarEvents${crumbQ}`;
@@ -2038,7 +2041,7 @@ async function fetchConfirmedEarnings(ticker) {
       // Crumb expired — force refresh on next call
       _yahooCrumb = null;
       _yahooCrumbTs = 0;
-      _yahooCrumbBackoff = Date.now() + 30 * 1000; // wait 30s before re-fetching crumb
+      _yahooCrumbBackoff = Date.now() + 5 * 60 * 1000; // wait 5min before re-fetching crumb
       slog(`Yahoo earnings ${ticker}: 401, crumb reset`);
     } else {
       slog(`Yahoo earnings ${ticker}: HTTP ${status}`);
