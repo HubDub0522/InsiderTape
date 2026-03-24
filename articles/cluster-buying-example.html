@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cluster Buying: A Step-by-Step Example | InsiderTape</title>
+<meta name="description" content="What does a genuine cluster buy signal look like in practice? A walkthrough of how to identify, score, and evaluate a cluster buying event from SEC Form 4 data.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://insidertape.com/articles/cluster-buying-example.html">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://insidertape.com/articles/cluster-buying-example.html">
+<meta property="og:title" content="Cluster Buying: A Step-by-Step Example | InsiderTape">
+<meta property="og:description" content="What does a genuine cluster buy signal look like in practice? A walkthrough of how to identify, score, and evaluate a cluster buying event from SEC Form 4 data.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Cluster Buying: A Step-by-Step Example",
+  "description": "What does a genuine cluster buy signal look like in practice? A walkthrough of how to identify, score, and evaluate a cluster buying event from SEC Form 4 data.",
+  "author": {"@type":"Organization","name":"InsiderTape"},
+  "publisher": {"@type":"Organization","name":"InsiderTape","url":"https://insidertape.com"},
+  "url": "https://insidertape.com/articles/cluster-buying-example.html"
+}
+</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root{--bg:#080b0f;--bg2:#0d1117;--bg3:#111820;--border:#1e2d3d;--border2:#253447;--text:#c9d8e8;--muted:#4a6580;--accent:#00d4ff;--buy:#00ff88;--sell:#ff4466;--header-h:64px;}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:16px;line-height:1.75;}
+  ::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:var(--bg2);}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+  header{position:sticky;top:0;z-index:100;height:var(--header-h);background:rgba(8,11,15,0.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;gap:16px;}
+  .logo{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px;color:var(--accent);text-shadow:0 0 20px rgba(0,212,255,0.4);text-decoration:none;}
+  .logo span{color:var(--text);opacity:0.5;}
+  nav{display:flex;gap:4px;}
+  nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px;transition:all .2s;}
+  nav a:hover{color:var(--text);border-color:var(--border);}
+  nav a.active{color:var(--accent);border-color:var(--accent);background:rgba(0,212,255,0.07);}
+  .article-wrap{max-width:720px;margin:0 auto;padding:64px 24px 100px;}
+  .article-tag{display:inline-block;padding:3px 10px;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:20px;font-family:'Space Mono',monospace;font-size:10px;color:var(--buy);letter-spacing:1px;text-transform:uppercase;margin-bottom:20px;}
+  h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,5vw,58px);letter-spacing:2px;color:var(--text);line-height:1.05;margin-bottom:20px;}
+  .article-meta{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid var(--border);}
+  .article-body p{margin-bottom:24px;font-size:16px;line-height:1.8;color:#b8cfe0;}
+  .article-body h2{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.5px;color:var(--text);margin:48px 0 16px;}
+  .article-body h3{font-family:'Space Mono',monospace;font-size:13px;letter-spacing:1px;color:var(--accent);text-transform:uppercase;margin:32px 0 12px;}
+  .article-body strong{color:var(--text);font-weight:600;}
+  .article-body em{color:var(--muted);font-style:italic;}
+  .article-body a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(0,212,255,0.3);}
+  .article-body a:hover{border-bottom-color:var(--accent);}
+  .article-body ul,.article-body ol{margin:0 0 24px 20px;}
+  .article-body li{margin-bottom:8px;color:#b8cfe0;line-height:1.75;}
+  .callout{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:18px 20px;margin:32px 0;}
+  .callout.green{border-left-color:var(--buy);}
+  .callout.red{border-left-color:var(--sell);}
+  .callout p{margin:0;font-size:14px;color:var(--muted);}
+  .callout strong{color:var(--text);}
+  .example-block{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin:28px 0;}
+  .example-label{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:14px;}
+  .example-row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);}
+  .example-row:last-child{border-bottom:none;}
+  .example-badge{font-family:'Space Mono',monospace;font-size:10px;padding:3px 8px;border-radius:3px;background:rgba(0,255,136,0.15);color:var(--buy);border:1px solid rgba(0,255,136,0.3);white-space:nowrap;flex-shrink:0;}
+  .example-text{font-size:13px;color:var(--muted);line-height:1.5;}
+  .example-text strong{color:var(--text);}
+  .score-bar{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin:28px 0;}
+  .score-row{display:flex;align-items:center;gap:14px;margin-bottom:12px;}
+  .score-row:last-child{margin-bottom:0;}
+  .score-label{font-size:13px;color:var(--muted);flex:1;}
+  .score-label strong{color:var(--text);}
+  .score-val{font-family:'Space Mono',monospace;font-size:12px;color:var(--buy);white-space:nowrap;}
+  .score-bar-fill{height:6px;background:rgba(0,255,136,0.15);border-radius:3px;flex:2;overflow:hidden;}
+  .score-bar-inner{height:100%;background:var(--buy);border-radius:3px;}
+  .back-link{display:inline-flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;margin-bottom:40px;transition:color .2s;}
+  .back-link:hover{color:var(--text);}
+  .cta-box{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:32px;text-align:center;margin-top:56px;}
+  .cta-box h3{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--text);margin-bottom:10px;}
+  .cta-box p{color:var(--muted);font-size:14px;margin-bottom:20px;}
+  .cta-btn{display:inline-block;background:var(--accent);color:#000!important;padding:11px 28px;border-radius:6px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;text-decoration:none;transition:background .2s;}
+  .cta-btn:hover{background:#33ddff;color:#000!important;}
+  footer{border-top:1px solid var(--border);padding:32px 24px;text-align:center;}
+  footer p{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;}
+  footer a{color:var(--accent);text-decoration:none;}
+  @media(max-width:640px){.article-wrap{padding:40px 16px 80px;}.score-bar-fill{display:none;}}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/">INSIDER<span>TAPE</span></a>
+  <nav><a href="/">SCREENER</a><a href="/articles/" class="active">LEARN</a></nav>
+</header>
+<div class="article-wrap">
+  <a class="back-link" href="/articles/">← All Articles</a>
+  <div class="article-tag">Signal</div>
+  <h1>CLUSTER BUYING: A STEP-BY-STEP EXAMPLE</h1>
+  <div class="article-meta">8 min read &nbsp;·&nbsp; InsiderTape</div>
+  <div class="article-body">
+
+    <p>Reading about cluster buying in the abstract is one thing. Seeing it step by step is another. This guide walks through what a genuine cluster buying event looks like in SEC Form 4 data, how to evaluate the quality of the signal, and how to separate a real cluster from the look-alike patterns that produce false positives.</p>
+
+    <p>If you have not read the background piece, <a href="/articles/what-is-cluster-buying.html">what is cluster buying and why does it matter</a> covers the research and concept. This article is the applied version.</p>
+
+    <h2>WHAT YOU ARE LOOKING FOR</h2>
+
+    <p>A genuine cluster buy involves multiple distinct insiders at the same company making independent open market purchases within a compressed timeframe. The key word is <em>independent</em>. If the company ran a stock purchase plan that processed 15 employee purchases on the same day at the same price, that is not a cluster. It is a payroll event.</p>
+
+    <p>The factors that distinguish a genuine cluster from noise:</p>
+
+    <ul>
+      <li><strong>Multiple distinct insiders</strong> with different roles and titles</li>
+      <li><strong>Independent timing</strong>: ideally different days, or at minimum different filing times</li>
+      <li><strong>Different prices</strong>: each buyer paid a different market price, meaning they chose to buy on different days</li>
+      <li><strong>No concurrent company-wide program</strong> that could explain the coordinated activity</li>
+      <li><strong>No concurrent selling</strong> from other insiders at the same company</li>
+    </ul>
+
+    <h2>A WORKED EXAMPLE</h2>
+
+    <p>Here is a hypothetical but representative example of what a genuine cluster looks like in the data. The company is a mid-cap industrial manufacturer trading near a 52-week low after a sector selloff.</p>
+
+    <div class="example-block">
+      <div class="example-label">Form 4 Activity: Company XYZ, 14-Day Window</div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>CEO</strong> &nbsp;·&nbsp; Oct 3 &nbsp;·&nbsp; 12,000 shares at $28.40 &nbsp;·&nbsp; $340,800 &nbsp;·&nbsp; Owned after: 287,000 (+4.4%)</div>
+      </div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>CFO</strong> &nbsp;·&nbsp; Oct 5 &nbsp;·&nbsp; 8,500 shares at $27.90 &nbsp;·&nbsp; $237,150 &nbsp;·&nbsp; Owned after: 124,000 (+7.4%)</div>
+      </div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>Director, Audit Committee Chair</strong> &nbsp;·&nbsp; Oct 8 &nbsp;·&nbsp; 5,000 shares at $27.50 &nbsp;·&nbsp; $137,500 &nbsp;·&nbsp; Owned after: 41,000 (+13.9%)</div>
+      </div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>EVP Operations</strong> &nbsp;·&nbsp; Oct 11 &nbsp;·&nbsp; 7,200 shares at $26.80 &nbsp;·&nbsp; $192,960 &nbsp;·&nbsp; Owned after: 98,000 (+7.9%)</div>
+      </div>
+    </div>
+
+    <p>Let us score this across the key factors.</p>
+
+    <h2>SCORING THE CLUSTER</h2>
+
+    <div class="score-bar">
+      <div class="score-row">
+        <div class="score-label"><strong>Distinct insiders</strong>: 4 (CEO, CFO, Director, EVP)</div>
+        <div class="score-bar-fill"><div class="score-bar-inner" style="width:100%"></div></div>
+        <div class="score-val">Strong</div>
+      </div>
+      <div class="score-row">
+        <div class="score-label"><strong>Role diversity</strong>: C-suite + board + operating exec</div>
+        <div class="score-bar-fill"><div class="score-bar-inner" style="width:90%"></div></div>
+        <div class="score-val">Strong</div>
+      </div>
+      <div class="score-row">
+        <div class="score-label"><strong>Price spread</strong>: $26.80 to $28.40 (5.9% range over 8 days)</div>
+        <div class="score-bar-fill"><div class="score-bar-inner" style="width:85%"></div></div>
+        <div class="score-val">Good</div>
+      </div>
+      <div class="score-row">
+        <div class="score-label"><strong>Position increase</strong>: 4.4% to 13.9% per buyer</div>
+        <div class="score-bar-fill"><div class="score-bar-inner" style="width:95%"></div></div>
+        <div class="score-val">Strong</div>
+      </div>
+      <div class="score-row">
+        <div class="score-label"><strong>Total committed</strong>: $908,410 across four buyers</div>
+        <div class="score-bar-fill"><div class="score-bar-inner" style="width:75%"></div></div>
+        <div class="score-val">Moderate</div>
+      </div>
+      <div class="score-row">
+        <div class="score-label"><strong>Concurrent selling</strong>: None in same period</div>
+        <div class="score-bar-fill"><div class="score-bar-inner" style="width:100%"></div></div>
+        <div class="score-val">Strong</div>
+      </div>
+    </div>
+
+    <p>This is a high-quality cluster. Four distinct insiders spanning the C-suite, the board, and operations all bought independently over eight days, at different prices, with no concurrent selling from other insiders. Each purchase represents a meaningful increase to their individual holdings. The total committed capital is nearly $1 million from people who all have better visibility into the company's near-term outlook than the market does.</p>
+
+    <div class="callout green">
+      <p><strong>The price decline context matters.</strong> Notice that each successive buyer paid a lower price than the one before. The stock was falling while insiders were buying. That is the setup you want: insiders treating price weakness as an opportunity, not a warning. It suggests they believe the decline is not reflecting the underlying business reality.</p>
+    </div>
+
+    <h2>WHAT A FALSE POSITIVE LOOKS LIKE</h2>
+
+    <p>Here is a pattern that looks like a cluster but is not:</p>
+
+    <div class="example-block">
+      <div class="example-label">Form 4 Activity: Company ABC, Same Day</div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>Director</strong> &nbsp;·&nbsp; Nov 15 &nbsp;·&nbsp; 202 shares at $30.59 &nbsp;·&nbsp; $6,179</div>
+      </div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>Director</strong> &nbsp;·&nbsp; Nov 15 &nbsp;·&nbsp; 202 shares at $30.59 &nbsp;·&nbsp; $6,179</div>
+      </div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>Director</strong> &nbsp;·&nbsp; Nov 15 &nbsp;·&nbsp; 202 shares at $30.59 &nbsp;·&nbsp; $6,179</div>
+      </div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>VP Human Resources</strong> &nbsp;·&nbsp; Nov 15 &nbsp;·&nbsp; 202 shares at $30.59 &nbsp;·&nbsp; $6,179</div>
+      </div>
+      <div class="example-row">
+        <div class="example-badge">BUY P</div>
+        <div class="example-text"><strong>EVP Operations</strong> &nbsp;·&nbsp; Nov 15 &nbsp;·&nbsp; 202 shares at $30.59 &nbsp;·&nbsp; $6,179</div>
+      </div>
+    </div>
+
+    <p>Every single purchase: the same date, the same price, the same share count. This is a company stock purchase plan or ESPP. HR processed it in batch on the 15th of the month. The insiders did not independently decide to buy stock at the same moment. This carries zero signal value regardless of how many names appear. InsiderTape's cluster detection engine applies a penalty to patterns like this and labels them accordingly.</p>
+
+    <h2>HOW TO EVALUATE A CLUSTER ONCE YOU FIND ONE</h2>
+
+    <p>Finding a genuine cluster is the beginning of the work, not the end. Before acting, run through these questions:</p>
+
+    <ol>
+      <li><strong>Does the company have obvious fundamental problems that insiders might be blind to?</strong> Insiders know their company's internal state well, but they may not fully appreciate competitive threats, secular headwinds, or macro risks that the market is pricing in correctly.</li>
+      <li><strong>What was the stock doing before the cluster?</strong> Insiders buying after a 60% decline driven by a sector rotation are different from insiders buying into ongoing earnings disappointments. The former is often mean reversion; the latter is catching a falling knife.</li>
+      <li><strong>Is there a catalyst on the horizon that could unlock value?</strong> A cluster in a company undergoing a strategic review, with an earnings call coming up, or with upcoming FDA approval is more timely than a cluster in a company with no obvious near-term catalyst.</li>
+      <li><strong>What does the balance sheet look like?</strong> Insider buying is less meaningful if the company has a debt load that could impair equity even if the business recovers.</li>
+    </ol>
+
+    <p>For a full framework on how to use insider data beyond just finding clusters, see our guide on <a href="/articles/how-to-use-insider-data.html">how to actually use insider trading data</a>.</p>
+
+    <div class="callout red">
+      <p><strong>One more thing to check:</strong> read the most recent earnings call transcript and any analyst notes from the past 30 days. Sometimes a cluster buy happens right after management guided down sharply on an earnings call. The insiders may be saying "we think the guidance was conservative" or they may simply not understand how badly the market will react to deteriorating fundamentals. The transcript gives you the baseline for evaluating their judgment.</p>
+    </div>
+
+    <div class="cta-box">
+      <h3>FIND CLUSTER BUYS NOW</h3>
+      <p>InsiderTape's cluster detection engine scores every multi-insider buying event and separates genuine conviction clusters from stock plan noise.</p>
+      <a class="cta-btn" href="/">OPEN INSIDERTAPE</a>
+    </div>
+
+  </div>
+</div>
+<footer>
+  <p><a href="/articles/">← Back to Articles</a> &nbsp;·&nbsp; Data sourced from SEC EDGAR &nbsp;·&nbsp; Not financial advice</p>
+</footer>
+</body>
+</html>

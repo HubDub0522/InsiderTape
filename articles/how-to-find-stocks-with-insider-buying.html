@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How to Find Stocks With Insider Buying | InsiderTape</title>
+<meta name="description" content="A step-by-step process for screening SEC Form 4 filings to find stocks where executives and directors are buying with their own money. What to filter for and what to ignore.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://insidertape.com/articles/how-to-find-stocks-with-insider-buying.html">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://insidertape.com/articles/how-to-find-stocks-with-insider-buying.html">
+<meta property="og:title" content="How to Find Stocks With Insider Buying | InsiderTape">
+<meta property="og:description" content="A step-by-step process for screening SEC Form 4 filings to find stocks where executives and directors are buying with their own money. What to filter for and what to ignore.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "How to Find Stocks With Insider Buying",
+  "description": "A step-by-step process for screening SEC Form 4 filings to find stocks where executives and directors are buying with their own money. What to filter for and what to ignore.",
+  "author": {"@type":"Organization","name":"InsiderTape"},
+  "publisher": {"@type":"Organization","name":"InsiderTape","url":"https://insidertape.com"},
+  "url": "https://insidertape.com/articles/how-to-find-stocks-with-insider-buying.html"
+}
+</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root{--bg:#080b0f;--bg2:#0d1117;--bg3:#111820;--border:#1e2d3d;--border2:#253447;--text:#c9d8e8;--muted:#4a6580;--accent:#00d4ff;--buy:#00ff88;--sell:#ff4466;--header-h:64px;}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:16px;line-height:1.75;}
+  ::-webkit-scrollbar{width:6px;}::-webkit-scrollbar-track{background:var(--bg2);}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+  header{position:sticky;top:0;z-index:100;height:var(--header-h);background:rgba(8,11,15,0.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;gap:16px;}
+  .logo{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px;color:var(--accent);text-shadow:0 0 20px rgba(0,212,255,0.4);text-decoration:none;}
+  .logo span{color:var(--text);opacity:0.5;}
+  nav{display:flex;gap:4px;}
+  nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px;transition:all .2s;}
+  nav a:hover{color:var(--text);border-color:var(--border);}
+  nav a.active{color:var(--accent);border-color:var(--accent);background:rgba(0,212,255,0.07);}
+  .article-wrap{max-width:720px;margin:0 auto;padding:64px 24px 100px;}
+  .article-tag{display:inline-block;padding:3px 10px;background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:20px;font-family:'Space Mono',monospace;font-size:10px;color:var(--buy);letter-spacing:1px;text-transform:uppercase;margin-bottom:20px;}
+  h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,5vw,58px);letter-spacing:2px;color:var(--text);line-height:1.05;margin-bottom:20px;}
+  .article-meta{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid var(--border);}
+  .article-body p{margin-bottom:24px;font-size:16px;line-height:1.8;color:#b8cfe0;}
+  .article-body h2{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.5px;color:var(--text);margin:48px 0 16px;}
+  .article-body h3{font-family:'Space Mono',monospace;font-size:13px;letter-spacing:1px;color:var(--accent);text-transform:uppercase;margin:32px 0 12px;}
+  .article-body strong{color:var(--text);font-weight:600;}
+  .article-body em{color:var(--muted);font-style:italic;}
+  .article-body a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(0,212,255,0.3);}
+  .article-body a:hover{border-bottom-color:var(--accent);}
+  .article-body ul,.article-body ol{margin:0 0 24px 20px;}
+  .article-body li{margin-bottom:8px;color:#b8cfe0;line-height:1.75;}
+  .callout{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:18px 20px;margin:32px 0;}
+  .callout.green{border-left-color:var(--buy);}
+  .callout.red{border-left-color:var(--sell);}
+  .callout p{margin:0;font-size:14px;color:var(--muted);}
+  .callout strong{color:var(--text);}
+  .filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:24px 0 32px;}
+  .filter-card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;}
+  .filter-card h4{font-family:'Space Mono',monospace;font-size:11px;color:var(--accent);letter-spacing:1px;margin-bottom:8px;text-transform:uppercase;}
+  .filter-card p{margin:0;font-size:13px;color:var(--muted);line-height:1.6;}
+  .filter-card p strong{color:var(--text);}
+  .back-link{display:inline-flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:1px;margin-bottom:40px;transition:color .2s;}
+  .back-link:hover{color:var(--text);}
+  .cta-box{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:32px;text-align:center;margin-top:56px;}
+  .cta-box h3{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:2px;color:var(--text);margin-bottom:10px;}
+  .cta-box p{color:var(--muted);font-size:14px;margin-bottom:20px;}
+  .cta-btn{display:inline-block;background:var(--accent);color:#000!important;padding:11px 28px;border-radius:6px;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;text-decoration:none;transition:background .2s;}
+  .cta-btn:hover{background:#33ddff;color:#000!important;}
+  footer{border-top:1px solid var(--border);padding:32px 24px;text-align:center;}
+  footer p{font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;}
+  footer a{color:var(--accent);text-decoration:none;}
+  @media(max-width:640px){.article-wrap{padding:40px 16px 80px;}.filter-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/">INSIDER<span>TAPE</span></a>
+  <nav><a href="/">SCREENER</a><a href="/articles/" class="active">LEARN</a></nav>
+</header>
+<div class="article-wrap">
+  <a class="back-link" href="/articles/">← All Articles</a>
+  <div class="article-tag">Signal</div>
+  <h1>HOW TO FIND STOCKS WITH INSIDER BUYING</h1>
+  <div class="article-meta">8 min read &nbsp;·&nbsp; InsiderTape</div>
+  <div class="article-body">
+
+    <p>Every time an executive, director, or significant shareholder at a public company buys or sells shares, they must file a report with the SEC within two business days. That report, called a <a href="/articles/how-to-read-sec-form-4.html">Form 4</a>, is public, searchable, and free. Knowing how to screen it efficiently is the difference between finding actionable signals and drowning in noise.</p>
+
+    <p>This guide walks through a practical screening process: what filters produce the highest-quality candidates, what to do once you have a list, and what common mistakes to avoid. If you are new to the concept of why insider buying matters at all, start with our piece on <a href="/articles/legal-vs-illegal-insider-trading.html">the difference between legal and illegal insider trading</a>.</p>
+
+    <h2>WHY MOST SCREENING APPROACHES FAIL</h2>
+
+    <p>The naive approach is to find any stock where an insider bought and add it to a watchlist. This fails because roughly 70 to 80 percent of Form 4 filings represent non-discretionary events: stock grants, option exercises, tax withholdings, and scheduled plan sales. None of these tell you anything about conviction.</p>
+
+    <p>Even among the filings that do represent discretionary trades, many are small dollar amounts from minor executives, or purchases that represent a trivial fraction of the insider's existing holdings. The raw data is enormous and mostly useless without the right filters.</p>
+
+    <h2>THE FILTERS THAT MATTER</h2>
+
+    <div class="filter-grid">
+      <div class="filter-card">
+        <h4>Transaction Code: P only</h4>
+        <p>Code <strong>P</strong> means an open market purchase. The insider used their own after-tax cash to buy shares at market. This is the only code worth screening for in most cases. Ignore A, F, M, G, and most S codes at the initial stage.</p>
+      </div>
+      <div class="filter-card">
+        <h4>Minimum Dollar Value</h4>
+        <p>Set a floor of at least <strong>$50,000</strong>, ideally $100,000 or more. Small purchases from non-executive directors at large companies carry almost no signal. The dollar threshold forces you toward meaningful commitment.</p>
+      </div>
+      <div class="filter-card">
+        <h4>Role of the Buyer</h4>
+        <p>Purchases from <strong>CEOs, CFOs, Presidents, and COOs</strong> carry more weight than non-executive directors. These people are operationally close to the business. A director who sits on three other boards is less likely to have a specific view on this company than the CFO who closes the books every quarter.</p>
+      </div>
+      <div class="filter-card">
+        <h4>Change in Ownership</h4>
+        <p>Look at the "owned after" field relative to the purchase. A buy that <strong>increases holdings by 5% or more</strong> is a real commitment. A buy that represents a 0.1% increase to an already massive existing position is less meaningful regardless of the dollar amount.</p>
+      </div>
+    </div>
+
+    <h2>STEP-BY-STEP SCREENING PROCESS</h2>
+
+    <h3>Step 1: Start with recent P-code transactions over a dollar threshold</h3>
+    <p>Pull all Form 4 transactions with code P filed in the last 7 to 30 days, filtered to a minimum value of $100,000. On a raw EDGAR search this is tedious. InsiderTape applies these filters automatically, so you can start from a pre-filtered list. You can also use the <a href="https://efts.sec.gov/LATEST/search-index?q=%22open+market+purchase%22&dateRange=custom&startdt=2024-01-01&forms=4" target="_blank" rel="noopener">EDGAR full-text search</a> to find recent filings directly from the SEC.</p>
+
+    <h3>Step 2: Flag stocks with multiple recent buyers</h3>
+    <p>For every ticker that shows up, check whether other insiders at the same company have also filed P-code transactions in the last 30 to 60 days. A single purchase is a data point. Multiple independent purchases from different insiders at the same company is what researchers call <a href="/articles/what-is-cluster-buying.html">cluster buying</a>, and it is one of the most historically reliable patterns in the insider trading literature.</p>
+
+    <h3>Step 3: Check the insider's history</h3>
+    <p>Look at when this specific person last bought or sold shares. A first-time open market purchase from an executive who has never bought before carries considerably more weight than a routine addition from someone who buys small amounts every quarter. Conversely, an executive who has been selling steadily for two years and just made a tiny purchase is not sending a strong signal.</p>
+
+    <h3>Step 4: Check the stock's price context</h3>
+    <p>Where is the stock relative to its 52-week range? Insiders who buy after a significant price decline, particularly one that seems disconnected from the fundamentals of the business, are often expressing a view that the market has overreacted. Insiders buying into a stock that has already run 80% in six months are doing something different and often less informative.</p>
+
+    <h3>Step 5: Do basic fundamental work</h3>
+    <p>Insider data is a signal generator, not a thesis. Before acting on anything, you need a basic answer to: why is this stock trading where it is, and why might the market be wrong? The insider's purchase tells you someone with informational access sees value. Your job is to figure out whether they are likely to be right.</p>
+
+    <div class="callout green">
+      <p><strong>The best setups tend to share these characteristics:</strong> multiple insiders buying independently, purchases after a meaningful price decline, buyers who are operationally close to the business, purchase sizes that represent real commitment as a percentage of their holdings, and a fundamental backdrop where the market appears to be pricing in a worse outcome than the insiders expect.</p>
+    </div>
+
+    <h2>WHAT TO FILTER OUT</h2>
+
+    <p>A few specific patterns that look like signal but are not:</p>
+
+    <ul>
+      <li><strong>Identical purchases across many insiders on the same day at the same price.</strong> This is almost always a company stock purchase plan or ESPP, where HR processed a batch of employee stock purchases simultaneously. It carries no conviction signal regardless of how many names show up.</li>
+      <li><strong>Purchases immediately after a stock grant vests.</strong> Sometimes executives buy shares in the same filing where they received a grant. Read the footnotes. If the "purchase" is actually an exercise of options they were granted previously, it is not an open market buy and should be ignored.</li>
+      <li><strong>Very small purchases from the CEO of a large company.</strong> A $20,000 purchase from a CEO earning $15 million per year is a rounding error. It may be for optics rather than conviction. Filter it out.</li>
+      <li><strong>10b5-1 plan purchases.</strong> If the Form 4 footnote mentions a 10b5-1 plan, the purchase was pre-scheduled and is not a real-time signal.</li>
+    </ul>
+
+    <h2>WHERE TO DO THE SCREENING</h2>
+
+    <p>The raw data lives on <a href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=&owner=include&count=40" target="_blank" rel="noopener">SEC EDGAR</a>. The problem with EDGAR for screening purposes is that it requires you to open each individual filing, read the transaction tables, and manually apply context. For a daily screening routine this quickly becomes unworkable.</p>
+
+    <p>InsiderTape ingests filings in real time and pre-filters for the transaction codes that actually carry signal. You can set minimum dollar thresholds, filter by executive role, and see cluster patterns across a company's insiders in a single view. The goal is to get to a short list of genuine candidates quickly, so you can spend your time on the analysis that matters.</p>
+
+    <div class="cta-box">
+      <h3>SCREEN INSIDER BUYING NOW</h3>
+      <p>Pre-filtered Form 4 data updated in real time. P-code purchases only, sorted by value, with cluster detection built in.</p>
+      <a class="cta-btn" href="/">OPEN INSIDERTAPE</a>
+    </div>
+
+  </div>
+</div>
+<footer>
+  <p><a href="/articles/">← Back to Articles</a> &nbsp;·&nbsp; Data sourced from SEC EDGAR &nbsp;·&nbsp; Not financial advice</p>
+</footer>
+</body>
+</html>
