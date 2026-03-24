@@ -775,6 +775,23 @@ app.get('/api/ticker', (req, res) => {
 });
 
 // SC 13D/G — returns all beneficial ownership filings for a given ticker
+// Recent SC 13D/G filings across all tickers — used by screener 5% Owner filter
+app.get('/api/sc13-recent', (req, res) => {
+  try {
+    const days = Math.min(parseInt(req.query.days || '30'), 365);
+    const rows = db.prepare(`
+      SELECT ticker, company, filer, filing_type, filed_date, period_date,
+             pct_owned, shares_owned, shares_delta, accession, url
+      FROM sc13_transactions
+      WHERE filed_date >= date('now', '-' || ? || ' days')
+        AND ticker != '' AND ticker IS NOT NULL
+      ORDER BY filed_date DESC
+      LIMIT 500
+    `).all(days);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/sc13', (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
