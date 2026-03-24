@@ -2321,6 +2321,8 @@ async function loadStockView(ticker, opts={}) {
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
+            <div class="legend-item" style="color:#00d4ff;font-size:10px">◆ 5%+ Buy</div>
+            <div class="legend-item" style="color:#ff00ff;font-size:10px">◆ 5%+ Sell</div>
           </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
@@ -2632,27 +2634,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
     sc13Groups[k].filings.push(f);
   });
 
-  // Source 2: Form 4 trades where insider is a 5%+ beneficial owner
-  // These show in screener when '5% Owner' filter is active
-  const OWNER_KEYWORDS = ['10%','10 PERCENT','OWNER','BENEFICIAL','MAJOR SHAREHOLDER','PRINCIPAL'];
-  trades.forEach(t=>{
-    const title = (t.title||'').toUpperCase();
-    if (!OWNER_KEYWORDS.some(kw => title.includes(kw))) return;
-    const raw=(t.trade||t.filing||'').slice(0,10); if(!raw)return;
-    const d=nearestTradingDay(raw); if(!d)return;
-    const isSell = t.type === 'S' || t.type === 'S-';
-    const k=d+'|'+(isSell?'sc13sell':'sc13buy')+'|f4'; // separate key so no merge with sc13
-    if(!sc13Groups[k]) sc13Groups[k]={
-      date:d, filings:[], isSell, filedDate:raw, source:'form4',
-      pct_owned: null, // not available from Form 4
-    };
-    // Adapt Form 4 trade to sc13 filing shape for tooltip rendering
-    sc13Groups[k].filings.push({
-      filer: t.insider, filing_type: 'Form 4', filed_date: raw,
-      pct_owned: null, shares_delta: isSell ? -(t.qty||0) : (t.qty||0),
-      shares_owned: t.owned, value: t.value,
-    });
-  });
+  // Diamonds are only for actual SC 13D/G filings (not Form 4 owner trades)
 
   state.sc13Groups=Object.values(sc13Groups);
 
@@ -3277,7 +3259,7 @@ function renderSidebarTrades(trades) {
     const ownerBadge=''; // removed — title-based 5%+ detection is unreliable
     return `<div class="trade-card ${tc}">
       <div class="trade-card-top"><span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
-      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">\${t.insider||'—'}${ownerBadge}</div>
+      <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</div>
       <div class="trade-role">${t.title||''}</div>
       <div class="trade-numbers">
         <div class="trade-num-item"><div class="trade-num-label">Shares</div><div class="trade-num-val">${fmtShares(t.qty)}</div></div>
