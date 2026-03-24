@@ -508,69 +508,73 @@ async function runRecentBackfill(daysBack) {
   const sinceStr = since.toISOString().slice(0, 10);
   const today    = new Date().toISOString().slice(0, 10);
 
-  log(`Recent SC 13D/G EFTS: ${sinceStr} to ${today}`);
+  log(`Recent SC 13D/G via browse-edgar: ${sinceStr} to ${today}`);
 
-  // EDGAR EFTS: use separate forms= params per type (most reliable for multi-word types)
   const allFilings = [];
   const seen       = new Set();
 
-  for (let from = 0; from < 10000; from += 100) {
-    const url = `https://efts.sec.gov/LATEST/search-index?forms=SC+13D,SC+13G,SC+13D%2FA,SC+13G%2FA&dateRange=custom&startdt=${sinceStr}&enddt=${today}&from=${from}&size=100&_source=period_of_report,entity_name,file_num,period_of_report,form_type,biz_location,inc_states,file_date`;
-    try {
-      // Retry once on 500 — EDGAR EFTS occasionally returns transient 500s
-      if (from === 0) log('EFTS SC13 URL: ' + url);
-      let resp = await get(url, 30000);
-      if (resp.status === 500) {
-        log(`EFTS SC13 HTTP 500 at from=${from}, retrying in 10s...`);
-        await new Promise(r => setTimeout(r, 10000));
-        resp = await get(url, 30000);
-      }
-      const { status, body } = resp;
-      if (status !== 200) { log(`EFTS SC13 HTTP ${status} at from=${from}`); break; }
-      const data = JSON.parse(body.toString('utf8'));
-      const hits = data.hits?.hits || [];
-      if (!hits.length) break;
+  // Use browse-edgar atom feed - proven approach (same as daily-worker for Form 4)
+  // Separate requests for SC 13D and SC 13G to avoid multi-type encoding issues
+  for (const formType of ['SC+13D', 'SC+13G']) {
+    for (let start = 0; start < 5000; start += 100) {
+      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${formType}&dateb=&owner=include&count=100&search_text=&start=${start}&output=atom`;
+      try {
+        if (start === 0) log(`SC 13D/G atom URL: ${url}`);
+        const { status, body } = await get(url, 30000);
+        if (status !== 200) { log(`browse-edgar HTTP ${status} for ${formType}`); break; }
 
-      for (const h of hits) {
-        const raw     = h._id || '';
-        const colonAt = raw.indexOf(':');
-        const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
-        if (!accDash.match(/^\d{10}-\d{2}-\d{6}$/)) continue;
+        const text = body.toString('utf8');
+        const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
+        let m;
+        let pageCount = 0;
 
-        const fd       = h._source?.file_date?.slice(0,10) || today;
-        const ciks     = h._source?.ciks || [];
-        const formType = (h._source?.form_type || 'SC 13D').trim();
-        const cik      = (ciks[0] || '').toString() || accDash.slice(0,10).replace(/^0+/,'');
+        while ((m = entryRe.exec(text))) {
+          const entry = m[1];
+          // Get filing date
+          const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+          const filedDate = dateMatch ? dateMatch[1] : today;
 
-        // For SC 13D/G: EFTS ciks[] contains both filer CIKs and subject company CIK.
-        // We can't reliably identify the subject from position alone since filing
-        // agents, investors, and subjects all appear.
-        // Store ALL ciks so enrichment can try each one to find the one with a ticker.
-        // The subject company will have a stock ticker; the investor/filer won't.
-        const subjectCik = ciks.length > 0 ? ciks.join(',') : null;
+          // Stop if we've gone past the lookback window
+          if (filedDate < sinceStr) { start = 99999; break; }
 
-        const displayNames = h._source?.display_names || [];
-        let tickerHint = '', companyHint = '', filerHint = h._source?.entity_name || '';
-        // Try to get company name from display_names (first non-filer entry)
-        for (const dn of displayNames) {
-          if (!filerHint || !dn.toUpperCase().includes(filerHint.slice(0,8).toUpperCase())) {
-            companyHint = dn.trim();
-            break;
-          }
-        }
+          // Extract accession + CIK from the EDGAR URL in the entry
+          const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
+          if (!linkMatch) continue;
 
-        if (!seen.has(accDash)) {
+          const cik    = linkMatch[1];
+          const accRaw = linkMatch[2];
+          if (accRaw.length !== 18) continue;
+          const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
+
+          if (seen.has(accDash)) continue;
           seen.add(accDash);
+
+          // Extract form type from entry
+          const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
+          const ft = ftMatch ? ftMatch[1] : formType.replace('+', ' ');
+
+          // Extract entity name (filer)
+          const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/)
+                         || entry.match(/<title>([^<]{3,80})<\/title>/);
+          const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
+
           allFilings.push({
-            accession: accDash, cik, filedDate: fd, formType,
-            tickerHint, companyHint, filerHint, subjectCik,
-            secUrl: edgarIndexUrl(accDash, cik),
+            tickerHint:   '',
+            companyHint:  '',
+            filerHint,
+            formType:     ft,
+            filedDate,
+            accession:    accDash,
+            secUrl:       edgarIndexUrl(accDash, cik),
+            subjectCik:   null,
           });
+          pageCount++;
         }
-      }
-      log(`EFTS SC13: from=${from}, ${hits.length} hits, ${allFilings.length} total`);
-      if (hits.length < 100) break;
-    } catch(e) { log(`EFTS SC13 error: ${e.message}`); break; }
+
+        if (pageCount === 0) break; // no more results
+        await new Promise(r => setTimeout(r, 300)); // polite pause
+      } catch(e) { log(`SC 13D/G atom error (${formType}): ${e.message}`); break; }
+    }
   }
 
   if (!allFilings.length) { log('Recent SC 13D/G: 0 filings found'); return 0; }
@@ -585,8 +589,7 @@ async function runRecentBackfill(daysBack) {
   const inserted = insertMany(batch);
   log(`Recent SC 13D/G: ${inserted} new records inserted`);
 
-  // Backfill subject_cik on existing rows that didn't get it on insert
-  // (rows inserted before this column existed, or via OR IGNORE on duplicates)
+  // Backfill subject_cik on existing rows
   const updateCik = db.prepare(`
     UPDATE sc13_transactions SET subject_cik=?, filer=?
     WHERE accession=? AND (subject_cik IS NULL OR subject_cik='')
@@ -600,19 +603,11 @@ async function runRecentBackfill(daysBack) {
     return n;
   });
   const updated = updateMany(allFilings);
-  if (updated > 0) log(`Recent SC 13D/G: ${updated} rows backfilled with subject_cik/filer`);
+  if (updated > 0) log(`Recent SC 13D/G: ${updated} rows backfilled with filer`);
 
   return inserted;
 }
 
-
-// ── MAIN ──────────────────────────────────────────────────────────────────
-// Args from server.js: node sc13-worker.js {daysBack} {mode}
-// e.g.  node sc13-worker.js 90 poll
-const _daysBackArg = parseInt(process.argv[2] || '90');
-const mode         = process.argv[3] || process.argv[2] || 'poll';
-// If only one arg and it's not a number, treat it as mode
-const daysBackInit = isNaN(_daysBackArg) ? 90 : _daysBackArg;
 
 async function main() {
   log(`=== sc13-worker v2 start (mode=${mode}, daysBack=${daysBackInit}) ===`);
@@ -651,8 +646,8 @@ async function main() {
       SELECT COUNT(*) AS n FROM sc13_transactions
       WHERE filed_date >= '2024-10-01'
     `).get().n;
-    if (postFormIdxCount < 50) {
-      log(`EFTS backfill incomplete: only ${postFormIdxCount} rows after 2024-10-01 — re-running with corrected URL`);
+    if (postFormIdxCount < 500) {
+      log(`SC 13D/G backfill incomplete: only ${postFormIdxCount} rows after 2024-10-01 — re-running via atom feed`);
       db.prepare("DELETE FROM sc13_quarter_log WHERE quarter='EFTS_INIT'").run();
       needsRefetch = true;
     }
