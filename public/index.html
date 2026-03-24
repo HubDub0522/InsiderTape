@@ -141,7 +141,7 @@
   }
   .search-btn:hover { background: #33ddff; }
 
-  .nav-tabs { display: flex; gap: 4px; flex-shrink: 0; }
+  .nav-tabs { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
   .nav-tab {
     padding: 7px 16px;
     border: 1px solid transparent;
@@ -152,6 +152,69 @@
   }
   .nav-tab:hover { color: var(--text); border-color: var(--border); }
   .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+
+  /* Members Area dropdown */
+  .nav-dropdown { position: relative; }
+  .nav-dropdown-btn {
+    padding: 7px 16px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all .2s;
+    color: var(--muted); background: transparent; white-space: nowrap;
+    display: flex; align-items: center; gap: 5px;
+    font-family: 'Space Mono', monospace; letter-spacing: 0.5px;
+  }
+  .nav-dropdown-btn:hover { color: var(--text); border-color: var(--border); }
+  .nav-dropdown-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+  .nav-dropdown-btn svg { transition: transform .2s; }
+  .nav-dropdown.open .nav-dropdown-btn svg { transform: rotate(180deg); }
+  .nav-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    min-width: 160px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    overflow: hidden;
+    z-index: 300;
+  }
+  .nav-dropdown.open .nav-dropdown-menu { display: block; }
+  .nav-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background .15s, color .15s;
+    white-space: nowrap;
+  }
+  .nav-dropdown-item:hover { background: var(--bg3); color: var(--text); }
+  .nav-dropdown-item.active { color: var(--accent); }
+
+  /* X.com follow link */
+  .x-follow {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--muted); text-decoration: none;
+    font-family: 'Space Mono', monospace; font-size: 10px;
+    letter-spacing: 0.5px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    transition: all .2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .x-follow:hover { color: var(--text); border-color: var(--border2); background: var(--bg2); }
 
   main { margin-top: var(--header-h); min-height: calc(100vh - var(--header-h)); }
   .view { display: none; }
@@ -741,13 +804,25 @@
     <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
     <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
     <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
-    <button class="nav-tab" id="analysisTab" onclick="switchView('analysis', this)">ANALYSIS</button>
-    <button class="nav-tab" id="monitorTab" onclick="switchView('monitor', this)">MONITOR</button>
-    <button class="nav-tab" id="sectorsTab" onclick="switchView('sectors', this)">SECTORS</button>
-    <button class="nav-tab" id="compareTab" onclick="switchView('compare', this)">COMPARE</button>
-    <button class="nav-tab" id="watchlistTab" onclick="switchView('watchlist', this)">WATCHLIST</button>
     <button class="nav-tab" onclick="window.location.href='/articles/'">LEARN</button>
+    <div class="nav-dropdown" id="membersDropdown">
+      <button class="nav-dropdown-btn" id="membersDropdownBtn" onclick="toggleMembersDropdown(event)">
+        MEMBERS AREA
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3.5L5 6.5L8 3.5"/></svg>
+      </button>
+      <div class="nav-dropdown-menu" id="membersDropdownMenu">
+        <button class="nav-dropdown-item" id="analysisTab" onclick="closeMembersDropdown();switchView('analysis',this)">ANALYSIS</button>
+        <button class="nav-dropdown-item" id="monitorTab" onclick="closeMembersDropdown();switchView('monitor',this)">MONITOR</button>
+        <button class="nav-dropdown-item" id="sectorsTab" onclick="closeMembersDropdown();switchView('sectors',this)">SECTORS</button>
+        <button class="nav-dropdown-item" id="compareTab" onclick="closeMembersDropdown();switchView('compare',this)">COMPARE</button>
+        <button class="nav-dropdown-item" id="watchlistTab" onclick="closeMembersDropdown();switchView('watchlist',this)">WATCHLIST</button>
+      </div>
+    </div>
   </nav>
+  <a href="https://x.com/InsiderTape" target="_blank" rel="noopener" class="x-follow" title="Follow InsiderTape on X">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L2.25 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+    FOLLOW
+  </a>
   <div id="authHeaderBtn" style="flex-shrink:0;margin-left:8px;display:flex;align-items:center"></div>
 </header>
 
@@ -1020,6 +1095,9 @@ function switchView(view, btn, opts={}) {
   window.scrollTo(0, 0);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('membersDropdownBtn')?.classList.remove('active');
+  const memberViews = new Set(['analysis','monitor','sectors','compare','watchlist']);
+  if (memberViews.has(view)) document.getElementById('membersDropdownBtn')?.classList.add('active');
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
@@ -8649,8 +8727,11 @@ function routeFromPath(path, fromPopstate) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     const viewEl = document.getElementById('view-' + initialView);
     if (viewEl) viewEl.classList.add('active');
-    const tabIdx = {screener:0,stock:1,insider:2,analysis:3,monitor:4,sectors:5,compare:6,watchlist:7}[initialView];
+    // Members area views activate the dropdown button instead of a nav-tab
+    const memberViews = new Set(['analysis','monitor','sectors','compare','watchlist']);
+    const tabIdx = {screener:0,stock:1,insider:2,learn:3}[initialView];
     if (tabIdx !== undefined) document.querySelectorAll('.nav-tab')[tabIdx]?.classList.add('active');
+    if (memberViews.has(initialView)) document.getElementById('membersDropdownBtn')?.classList.add('active');
     // Auth will re-trigger via the blurGated re-render logic in loadAuth
     // But also poll until loaded then route properly
     const waitForAuth = setInterval(() => {
@@ -8928,6 +9009,18 @@ function getSessionCookie() {
   const m = document.cookie.match(/(?:^|;\s*)it_session=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : null;
 }
+
+function toggleMembersDropdown(e) {
+  e.stopPropagation();
+  document.getElementById('membersDropdown').classList.toggle('open');
+}
+function closeMembersDropdown() {
+  document.getElementById('membersDropdown').classList.remove('open');
+}
+// Close dropdown when clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('#membersDropdown')) closeMembersDropdown();
+});
 
 async function loadAuth() {
   try {
