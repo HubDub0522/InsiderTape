@@ -517,7 +517,10 @@ async function runRecentBackfill(daysBack) {
   // dateb=YYYYMMDD returns filings filed ON OR BEFORE that date.
   // We start from today and step back, collecting pages until we hit sinceStr.
   for (const typeParam of ['SC%2013D', 'SC%2013G']) {
-    let dateb = '';  // empty = most recent
+    // Start from today and paginate backwards. dateb='' returns 'No recent filings'
+    // for SC 13D/G since filings aren't daily - use today's date as starting dateb.
+    const todayFmt = today.replace(/-/g, '');
+    let dateb = todayFmt;
     let iterations = 0;
     const maxIter = 200; // safety cap
 
@@ -529,7 +532,16 @@ async function runRecentBackfill(daysBack) {
         if (status !== 200) { log(`EDGAR getcurrent HTTP ${status}`); break; }
 
         const text = body.toString('utf8');
-        if (text.includes('No recent filings') || !text.includes('<entry>')) break;
+        if (!text.includes('<entry>')) {
+          // No entries for this dateb - step back 7 days and try again
+          const stepBack = new Date(dateb.slice(0,4)+'-'+dateb.slice(4,6)+'-'+dateb.slice(6,8)+'T12:00:00Z');
+          stepBack.setDate(stepBack.getDate() - 7);
+          const stepStr = stepBack.toISOString().slice(0,10);
+          if (stepStr < sinceStr) break;
+          dateb = stepStr.replace(/-/g,'');
+          await new Promise(r => setTimeout(r, 300));
+          continue;
+        }
 
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
