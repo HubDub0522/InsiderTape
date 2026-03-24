@@ -526,6 +526,9 @@ async function runRecentBackfill(daysBack) {
         if (status !== 200) { log(`EDGAR HTTP ${status} for ${typeParam}`); break; }
 
         const text = body.toString('utf8');
+        if (start === 0) log(`SC13 body[0-400]: ` + text.slice(0, 400).replace(/\s+/g, ' '));
+        const hasEntries = text.includes('<entry>');
+        if (start === 0) log(`SC13 has <entry> tags: ${hasEntries}, body length: ${text.length}`);
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
         let pageCount = 0;
