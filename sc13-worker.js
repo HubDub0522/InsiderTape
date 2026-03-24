@@ -392,7 +392,35 @@ async function enrichRecentTickers() {
     for (let i = 0; i < fastRows.length; i++) {
       try {
         const result = await lookupTickerByCik(fastRows[i].subject_cik);
-        if (result) { upd.run(result.ticker, result.company, fastRows[i].id); n++; }
+        if (result) {
+          // Also try to set filer name if currently blank
+          // The filer is the investor entity — NOT the subject company
+          const row = db.prepare('SELECT filer FROM sc13_transactions WHERE id=?').get(fastRows[i].id);
+          if (!row?.filer) {
+            // Filer CIK is the first CIK in subject_cik that did NOT resolve to a ticker
+            const cikList = (fastRows[i].subject_cik||'').split(',').map(c=>c.trim()).filter(Boolean);
+            let filerName = '';
+            for (const cik of cikList) {
+              const padded = cik.replace(/^0+/,'').padStart(10,'0');
+              try {
+                const {status,body} = await get(`https://data.sec.gov/submissions/CIK${padded}.json`,8000);
+                if (status===200) {
+                  const d = JSON.parse(body.toString('utf8'));
+                  const t = (d.tickers?.[0]||'').toUpperCase().trim();
+                  if (!t || !t.match(/^[A-Z]{1,6}$/)) {
+                    filerName = (d.name||'').trim(); // no ticker = it's the investor/filer
+                    break;
+                  }
+                }
+              } catch(e) {}
+            }
+            upd.run(result.ticker, result.company, fastRows[i].id);
+            if (filerName) db.prepare('UPDATE sc13_transactions SET filer=? WHERE id=? AND (filer IS NULL OR filer='')').run(filerName, fastRows[i].id);
+          } else {
+            upd.run(result.ticker, result.company, fastRows[i].id);
+          }
+          n++;
+        }
       } catch(e) {}
       if ((i + 1) % 100 === 0) log(`Fast enrichment: ${i+1}/${fastRows.length}, ${n} resolved`);
     }
