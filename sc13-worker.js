@@ -524,54 +524,63 @@ async function runRecentBackfill(daysBack) {
         if (status !== 200) { log(`browse-edgar HTTP ${status} for ${formType}`); break; }
 
         const text = body.toString('utf8');
+        // Log first entry raw for debugging
+        if (start === 0) {
+          const firstEntry = text.match(/<entry>([\s\S]*?)<\/entry>/i);
+          if (firstEntry) log('SC13 atom sample entry: ' + firstEntry[1].slice(0, 400).replace(/\s+/g,' '));
+          else log('SC13 atom: no <entry> tags found in response (body length: ' + text.length + ')');
+        }
+
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
         let pageCount = 0;
+        let oldestOnPage = '';
 
         while ((m = entryRe.exec(text))) {
           const entry = m[1];
-          // Get filing date
+
+          // Date — same pattern as daily-worker
           const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
           const filedDate = dateMatch ? dateMatch[1] : today;
+          if (!oldestOnPage || filedDate < oldestOnPage) oldestOnPage = filedDate;
 
-          // Stop if we've gone past the lookback window
-          if (filedDate < sinceStr) { start = 99999; break; }
-
-          // Extract accession + CIK from the EDGAR URL in the entry
-          const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
-          if (!linkMatch) continue;
+          // Accession + CIK — use exact 18-digit pattern from daily-worker
+          const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
+          if (!linkMatch) {
+            // Try alternate: accession in href as digits-digits-digits
+            const accMatch = entry.match(/([0-9]{10}-[0-9]{2}-[0-9]{6})/);
+            const cikMatch = entry.match(/CIK=(\d+)|cik=(\d+)|data\/(\d+)\//);
+            if (!accMatch || !cikMatch) continue;
+            const accDash = accMatch[1];
+            const cik = cikMatch[1] || cikMatch[2] || cikMatch[3];
+            if (seen.has(accDash)) continue;
+            seen.add(accDash);
+            const ft = formType.replace('+', ' ');
+            const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/) || entry.match(/<title>([^<]{3,80})<\/title>/);
+            const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
+            allFilings.push({ tickerHint:'', companyHint:'', filerHint, formType:ft, filedDate, accession:accDash, secUrl:edgarIndexUrl(accDash, cik), subjectCik:null });
+            pageCount++;
+            continue;
+          }
 
           const cik    = linkMatch[1];
           const accRaw = linkMatch[2];
-          if (accRaw.length !== 18) continue;
           const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
-
           if (seen.has(accDash)) continue;
           seen.add(accDash);
 
-          // Extract form type from entry
-          const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
-          const ft = ftMatch ? ftMatch[1] : formType.replace('+', ' ');
-
-          // Extract entity name (filer)
-          const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/)
-                         || entry.match(/<title>([^<]{3,80})<\/title>/);
+          const ftMatch   = entry.match(/<category[^>]*term="([^"]+)"/);
+          const ft        = ftMatch ? ftMatch[1] : formType.replace('+', ' ');
+          const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/) || entry.match(/<title>([^<]{3,80})<\/title>/);
           const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
 
-          allFilings.push({
-            tickerHint:   '',
-            companyHint:  '',
-            filerHint,
-            formType:     ft,
-            filedDate,
-            accession:    accDash,
-            secUrl:       edgarIndexUrl(accDash, cik),
-            subjectCik:   null,
-          });
+          allFilings.push({ tickerHint:'', companyHint:'', filerHint, formType:ft, filedDate, accession:accDash, secUrl:edgarIndexUrl(accDash, cik), subjectCik:null });
           pageCount++;
         }
 
-        if (pageCount === 0) break; // no more results
+        // Stop paginating if oldest entry on this page is before our lookback window
+        if (oldestOnPage && oldestOnPage < sinceStr) break;
+        if (pageCount === 0) break;
         await new Promise(r => setTimeout(r, 300)); // polite pause
       } catch(e) { log(`SC 13D/G atom error (${formType}): ${e.message}`); break; }
     }
