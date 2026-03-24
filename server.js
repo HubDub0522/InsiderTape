@@ -3777,6 +3777,16 @@ app.get('/api/price-highs', (req, res) => {
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  // Serve article pages directly — don't fall through to SPA
+  if (req.path.startsWith('/articles')) {
+    const articlePath = req.path === '/articles' || req.path === '/articles/'
+      ? path.join(__dirname, 'articles', 'index.html')
+      : path.join(__dirname, 'articles', req.path.replace('/articles/', '') + (req.path.endsWith('.html') ? '' : '.html'));
+    if (require('fs').existsSync(articlePath)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.sendFile(articlePath);
+    }
+  }
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
