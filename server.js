@@ -779,27 +779,22 @@ app.get('/api/ticker', (req, res) => {
 app.get('/api/sc13-recent', (req, res) => {
   try {
     const days = Math.min(parseInt(req.query.days || '30'), 3650);
-    const stats = db.prepare(`
-      SELECT COUNT(*) AS total,
-             SUM(CASE WHEN ticker != '' AND ticker IS NOT NULL THEN 1 ELSE 0 END) AS withTicker,
-             MAX(filed_date) AS maxDate,
-             MIN(filed_date) AS minDate
-      FROM sc13_transactions
-    `).get();
-    slog('sc13-recent stats: total=' + stats.total + ' withTicker=' + stats.withTicker + ' dateRange=' + stats.minDate + ' to ' + stats.maxDate + ' querying last ' + days + ' days');
+    // The ticker-enriched rows come from form.idx which only goes to 2024Q3.
+    // So a date filter of 'last 365 days' returns 0 rows with tickers.
+    // Fix: always return all available rows with tickers, sorted by filed_date DESC.
+    // The client already has the time period context from Form 4 data.
     const rows = db.prepare(`
       SELECT ticker, company, filer, filing_type, filed_date, period_date,
              pct_owned, shares_owned, shares_delta, accession, url
       FROM sc13_transactions
-      WHERE filed_date >= date('now', '-' || ? || ' days')
-        AND ticker != '' AND ticker IS NOT NULL
+      WHERE ticker != '' AND ticker IS NOT NULL
       ORDER BY filed_date DESC
       LIMIT 1000
-    `).all(days);
-    slog('sc13-recent: ' + rows.length + ' rows returned for last ' + days + ' days');
+    `).all();
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
+
 
 app.get('/api/sc13', (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
