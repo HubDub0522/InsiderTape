@@ -791,6 +791,31 @@ app.get('/api/sc13', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Resolve filer name on-demand from EDGAR filing index
+app.get('/api/sc13-filer', async (req, res) => {
+  const accession = (req.query.accession || '').replace(/[^0-9\-]/g, '').trim();
+  if (!accession) return res.status(400).json({ error: 'accession required' });
+  try {
+    // Check DB first
+    const row = db.prepare("SELECT filer, url FROM sc13_transactions WHERE accession=? LIMIT 1").get(accession);
+    if (row?.filer) return res.json({ filer: row.filer });
+    // Fetch from EDGAR
+    const url = row?.url || `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=&State=0&SIC=&dateb=&owner=include&count=1&search_text=&action=getcompany&accession=${accession.replace(/-/g,'')}`;
+    const indexUrl = `https://www.sec.gov/Archives/edgar/data/${accession.split('-')[0]}/${accession.replace(/-/g,'')}/${accession}-index.htm`;
+    const resp = await fetch(indexUrl, { headers: { 'User-Agent': 'InsiderTape contact@insidertape.com' } });
+    if (!resp.ok) return res.json({ filer: null });
+    const html = await resp.text();
+    // Parse filer name from EDGAR index
+    const m = html.match(/<b>([^<]{5,80})<\/b>\s*\(Filer\)/i)
+           || html.match(/companyName[^>]*>\s*<[^>]+>([^<]{5,80})<\/[^>]+>/i)
+           || html.match(/<b>([A-Z][^<]{4,60})<\/b>/);
+    const filer = m ? m[1].replace(/&amp;/g,'&').replace(/\s+/g,' ').trim() : null;
+    // Cache it
+    if (filer) db.prepare("UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')").run(filer, accession);
+    res.json({ filer });
+  } catch(e) { res.json({ filer: null }); }
+});
+
 // SC 13D/G debug — shows what's in the DB for a given ticker or filer
 // Usage: /api/sc13-debug?symbol=PHR  or  /api/sc13-debug?filer=Pale+Fire
 app.get('/api/sc13-debug', (req, res) => {
