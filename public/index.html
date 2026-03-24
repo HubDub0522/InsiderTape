@@ -1400,8 +1400,6 @@ function toggleRole(el) {
   document.querySelectorAll('.chip[data-role]').forEach(c => c.classList.remove('active'));
   el.classList.add('active'); state.activeRole = el.dataset.role;
   saveFilters();
-  // Auto-reload screener so sc13 data is fetched immediately for 5pct
-  loadScreener();
   // When viewing a stock chart, rebuild overlay
   if (state.currentTicker && (state.priceData || state.sc13Data)) {
     buildCircleOverlay(
@@ -1509,9 +1507,7 @@ async function loadScreener() {
       return;
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-    // Apply minVal only when no specific role is active (role filters are specific enough)
-    const roleActive = state.activeRole && state.activeRole !== 'all';
-    if (state.minVal > 0 && !roleActive) trades = trades.filter(t => t._isSc13 || t.value >= state.minVal);
+    if (state.minVal > 0) trades = trades.filter(t => t._isSc13 || t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
         if (t._isSc13) return true; // SC 13D/G rows not filtered by role
