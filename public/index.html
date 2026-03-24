@@ -1463,9 +1463,12 @@ async function loadScreener() {
   try {
     // When 5% Owner filter is active, fetch SC 13D/G filings alongside Form 4 trades
     const is5pct = state.activeRole === '5pct';
+    const isAll  = !state.activeRole || state.activeRole === 'all';
+
+    // 5% Owner: fetch only SC 13D/G. All: fetch both. Others: only Form 4.
     const [resp, sc13Resp] = await Promise.all([
-      apiFetch('/api/screener?days=' + days),
-      is5pct ? apiFetch('/api/sc13-recent?days=' + days).catch(() => []) : Promise.resolve([]),
+      is5pct ? Promise.resolve([]) : apiFetch('/api/screener?days=' + days),
+      (is5pct || isAll) ? apiFetch('/api/sc13-recent?days=' + days).catch(() => []) : Promise.resolve([]),
     ]);
     if (resp && resp.building) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)...</span></div></td></tr>`;
@@ -1473,29 +1476,34 @@ async function loadScreener() {
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
 
-    // Merge SC 13D/G filings as synthetic trade rows when 5% Owner filter is active
-    if (is5pct && Array.isArray(sc13Resp) && sc13Resp.length) {
-      const sc13Trades = sc13Resp
-        .filter(f => f.ticker || f.company || f.filer) // include unenriched rows
-        .map(f => ({
-          ticker:  f.ticker || f.company || '?',
-          company: f.company || f.ticker || '',
-          insider: f.filer || 'Unknown filer',
-          title:   (f.filing_type || 'SC 13D/G') + (f.pct_owned != null ? ` · ${f.pct_owned.toFixed(1)}% owned` : ''),
-          trade:   f.filed_date,
-          filing:  f.filed_date,
-          type:    (f.shares_delta !== null && f.shares_delta < 0) ? 'S' : 'P',
-          qty:     f.shares_delta != null ? Math.abs(f.shares_delta) : (f.shares_owned || 0),
-          price:   0,
-          value:   0,
-          owned:   f.shares_owned || 0,
-          accession: f.accession,
-          _isSc13: true,
-          _rawCompany: f.company, // preserve original for display
-        }));
-      // Merge — put sc13 rows first since they're the primary signal for this filter
-      trades = [...sc13Trades, ...trades];
+    // Convert SC 13D/G rows into screener-compatible objects
+    const sc13Trades = (Array.isArray(sc13Resp) ? sc13Resp : [])
+      .filter(f => f.ticker)
+      .map(f => ({
+        ticker:   f.ticker,
+        company:  f.company || f.ticker,
+        insider:  f.filer || 'Unknown filer',
+        title:    (f.filing_type || 'SC 13D/G') + (f.pct_owned != null ? ' · ' + f.pct_owned.toFixed(1) + '% owned' : ''),
+        trade:    f.filed_date,
+        filing:   f.filed_date,
+        type:     (f.shares_delta !== null && f.shares_delta < 0) ? 'S' : 'P',
+        qty:      f.shares_delta != null ? Math.abs(f.shares_delta) : (f.shares_owned || 0),
+        price:    0,
+        value:    0,
+        owned:    f.shares_owned || 0,
+        accession: f.accession,
+        _isSc13:  true,
+      }));
+
+    if (is5pct) {
+      // 5% Owner: show ONLY SC 13D/G filings
+      trades = sc13Trades;
+    } else if (isAll) {
+      // All: merge SC 13D/G into Form 4 results, sorted by date
+      trades = [...trades, ...sc13Trades]
+        .sort((a, b) => (b.trade || b.filing || '').localeCompare(a.trade || a.filing || ''));
     }
+
     if (!trades.length) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
@@ -1504,13 +1512,11 @@ async function loadScreener() {
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
+        if (t._isSc13) return true; // SC 13D/G rows not filtered by role
         const title = (t.title || '').toUpperCase();
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
-        if (state.activeRole === '5pct') return title.includes('10%') || title.includes('10 PERCENT')
-                                             || title.includes('OWNER') || title.includes('BENEFICIAL')
-                                             || title.includes('MAJOR') || title.includes('PRINCIPAL');
         return true;
       });
     }
