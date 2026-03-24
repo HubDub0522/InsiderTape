@@ -778,7 +778,15 @@ app.get('/api/ticker', (req, res) => {
 // Recent SC 13D/G filings across all tickers — used by screener 5% Owner filter
 app.get('/api/sc13-recent', (req, res) => {
   try {
-    const days = Math.min(parseInt(req.query.days || '30'), 3650); // up to 10 years
+    const days = Math.min(parseInt(req.query.days || '30'), 3650);
+    const stats = db.prepare(`
+      SELECT COUNT(*) AS total,
+             SUM(CASE WHEN ticker != '' AND ticker IS NOT NULL THEN 1 ELSE 0 END) AS withTicker,
+             MAX(filed_date) AS maxDate,
+             MIN(filed_date) AS minDate
+      FROM sc13_transactions
+    `).get();
+    slog('sc13-recent stats: total=' + stats.total + ' withTicker=' + stats.withTicker + ' dateRange=' + stats.minDate + ' to ' + stats.maxDate + ' querying last ' + days + ' days');
     const rows = db.prepare(`
       SELECT ticker, company, filer, filing_type, filed_date, period_date,
              pct_owned, shares_owned, shares_delta, accession, url
@@ -788,6 +796,7 @@ app.get('/api/sc13-recent', (req, res) => {
       ORDER BY filed_date DESC
       LIMIT 1000
     `).all(days);
+    slog('sc13-recent: ' + rows.length + ' rows returned for last ' + days + ' days');
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
