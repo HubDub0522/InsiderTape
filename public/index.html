@@ -5328,9 +5328,11 @@ function scoreOpportunityRanker(rows) {
   // Each tool that has run contributes bonus points. Tools that haven't loaded
   // yet simply contribute 0 — ranker re-runs once data arrives.
 
-  // Cluster Detection: tickers currently in a qualified cluster
+  // Cluster Detection: tickers currently in a qualified cluster (excluding stock plans/ESPP)
   const clusterTickers = new Set(
-    (detectAdvancedClusters(_analysisData || [])).map(c => c.ticker)
+    (detectAdvancedClusters(_analysisData || []))
+      .filter(c => !c.isStockPlan)  // don't badge stock plan / ESPP clusters
+      .map(c => c.ticker)
   );
 
 
@@ -5445,6 +5447,7 @@ function scoreOpportunityRanker(rows) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
+  const isStockPlanCluster = isStockPlan;
 
     const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
                   score >= 55 ? 'B'  : score >= 45 ? 'C+': score >= 35 ? 'C' : 'D';
@@ -5763,6 +5766,7 @@ function detectExitWarnings(trades, priceHighs={}) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
+  const isStockPlanCluster = isStockPlan;
     if (score < 30 || signals.length < 2 || sellerCount < 2) return; // require 2+ sellers and multi-factor
 
     // Severity label
@@ -6184,6 +6188,20 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   if (execCount >= 2) { score += 10; signals.push(`${execCount} C-suite / senior execs involved`); }
   else if (execCount === 1) { score += 5; signals.push(`${clusterBuys.find(t=>highSigRoles.some(r=>(t.title||'').toUpperCase().includes(r)))?.title||'Executive'} among buyers`); }
 
+  // ── STOCK PLAN / ESPP DETECTION ──────────────────────────────
+  // If 5+ insiders buy the EXACT same price on the same date, it's almost certainly
+  // a company stock purchase plan or ESPP — not independent conviction buying.
+  // Apply a heavy penalty and flag it so it doesn't pollute the cluster signal.
+  const tradeDates = clusterBuys.map(t => (t.trade||t.filing||'').slice(0,10));
+  const pricesAll  = clusterBuys.map(t => t.price).filter(p => p > 0);
+  const uniquePrices = new Set(pricesAll.map(p => p.toFixed(2)));
+  const uniqueDates  = new Set(tradeDates.filter(Boolean));
+  const isStockPlan  = insiderCount >= 5 && uniquePrices.size === 1 && uniqueDates.size <= 2;
+  if (isStockPlan) {
+    score -= 40;
+    penalties.push(`⚠️ Likely stock plan / ESPP — ${insiderCount} insiders, identical price $${pricesAll[0]?.toFixed(2)}`);
+  }
+
   // ── FACTOR 2: Price tightness (up to 20 pts) ──────────────────
   const prices = clusterBuys.map(t => t.price).filter(p => p > 0);
   const priceHi = Math.max(...prices), priceLo = Math.min(...prices);
@@ -6257,6 +6275,7 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   else                           { penalties.push(`Modest outlay: ${fmt(totalVal)}`); }
 
   score = Math.min(100, Math.max(1, Math.round(score)));
+  const isStockPlanCluster = isStockPlan;
 
   return {
     ticker,
@@ -6275,6 +6294,7 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
     latestDate: latestClusterDate,
     trades: clusterBuys,
     concurrentSells: concurrentSells.length,
+    isStockPlan: isStockPlanCluster || false,
   };
 }
 
@@ -6282,7 +6302,7 @@ function renderClusterCard(c) {
   const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : c.score >= 40 ? 'var(--option)' : 'var(--sell)';
   const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.06)' : c.score >= 60 ? 'rgba(0,212,255,0.06)' : c.score >= 40 ? 'rgba(255,170,0,0.06)' : 'rgba(255,68,102,0.06)';
   const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.3)' : c.score >= 60 ? 'rgba(0,212,255,0.25)' : c.score >= 40 ? 'rgba(255,170,0,0.25)' : 'rgba(255,68,102,0.25)';
-  const strengthLabel = c.score >= 80 ? 'STRONG CLUSTER' : c.score >= 60 ? 'MODERATE CLUSTER' : c.score >= 40 ? 'WEAK CLUSTER' : 'NOISE';
+  const strengthLabel = c.isStockPlan ? 'STOCK PLAN / ESPP' : c.score >= 80 ? 'STRONG CLUSTER' : c.score >= 60 ? 'MODERATE CLUSTER' : c.score >= 40 ? 'WEAK CLUSTER' : 'NOISE';
   const barW = c.score;
 
   return `
