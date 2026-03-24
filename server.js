@@ -863,6 +863,18 @@ app.get('/api/sc13-filer', async (req, res) => {
 });
 
 // SC 13D/G debug — shows what's in the DB for a given ticker or filer
+// Director count diagnostic
+app.get('/api/dir-debug', (req, res) => {
+  try {
+    const r7   = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-7 days') AND TRIM(type) IN ('P','S','S-') AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
+    const r30  = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-30 days') AND TRIM(type) IN ('P','S','S-') AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
+    const r365 = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-365 days') AND TRIM(type) IN ('P','S','S-') AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
+    const r365_100k = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-365 days') AND TRIM(type) IN ('P','S','S-') AND value >= 100000 AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
+    const sample = db.prepare("SELECT ticker, insider, title, trade_date, value FROM trades WHERE trade_date >= date('now','-365 days') AND TRIM(type)='P' AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%') ORDER BY trade_date DESC LIMIT 20").all();
+    res.json({ r7, r30, r365, r365_100k, note: 'raw counts before GROUP BY dedup', sample });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // Usage: /api/sc13-debug?symbol=PHR  or  /api/sc13-debug?filer=Pale+Fire
 app.get('/api/sc13-debug', (req, res) => {
   const sym   = (req.query.symbol || '').toUpperCase().trim();
