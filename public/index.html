@@ -2750,7 +2750,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
       const rows=g.filings.slice(0,4).map(f=>{
         const pct=f.pct_owned!=null?`<span style="color:${color};float:right;margin-left:12px">${f.pct_owned.toFixed(1)}% owned</span>`:'';
         const delta=f.shares_delta!=null?`<span style="color:var(--muted);font-size:10px"> (${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)})</span>`:'';
-        return `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${f.filer||f.company||'Unknown filer'}</span>${delta}${pct}</div>`;
+        return `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${f.filer||'Unknown filer'}</span>${delta}${pct}</div>`;
       }).join('');
       const typeLabel=g.filings[0]?.filing_type||'SC 13D/G';
       tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label}</div><div style="color:var(--muted);font-size:10px;margin-bottom:6px">${typeLabel} · ${g.filedDate}</div>${rows}${g.filings.length>4?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.filings.length-4} more</div>`:''}`;
@@ -3219,7 +3219,7 @@ function renderSc13Sidebar(sc13Data) {
             <span style="font-family:'Space Mono',monospace;font-size:9px;color:${color};font-weight:700;letter-spacing:1px">${typeLabel}</span>
             <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">${fmtDate(f.filed_date)}</span>
           </div>
-          <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.filer||f.company||'Unknown filer'}</div>
+          <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.filer||'Unknown filer'}</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${pctStr}${deltaStr}</div>
         </div>`;
       }).join('')}
@@ -3243,7 +3243,7 @@ function renderSidebarTrades(trades) {
     const isSell = f.shares_delta !== null && f.shares_delta < 0;
     items.push({
       _type:'sc13', trade:f.filed_date, filing:f.filed_date,
-      insider:f.filer||f.company||'Unknown filer',
+      insider:f.filer||'Unknown filer',
       title:f.filing_type||'SC 13D/G', type:isSell?'S':'P',
       qty:f.shares_delta!=null?Math.abs(f.shares_delta):(f.shares_owned||0),
       price:0, value:0, owned:f.shares_owned||0,
