@@ -779,7 +779,7 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="5pct" onclick="toggleRole(this)" style="border-color:rgba(0,212,255,0.4);color:rgba(0,212,255,0.8)" title="10%+ beneficial owners & major shareholders (Form 4). SC 13D/G diamonds visible on stock charts.">5% Owner</div>
+          <div class="chip" data-role="5pct" onclick="toggleRole(this)" title="10%+ beneficial owners & major shareholders (Form 4). SC 13D/G diamonds visible on stock charts.">5% Owner</div>
         </div>
       </div>
       <div class="filter-section">
@@ -3155,13 +3155,9 @@ function renderTradeMarkerList(trades) {
 
   // Append diamond legend entries if there's sc13/5%-owner data
   const sc13 = state.sc13Data || [];
-  const ownerTrades = (state.tickerTrades||[]).filter(t=>{
-    const title=(t.title||'').toUpperCase();
-    return ['10%','OWNER','BENEFICIAL','MAJOR','PRINCIPAL'].some(k=>title.includes(k));
-  });
-  if (sc13.length > 0 || ownerTrades.length > 0) {
-    const hasBuy  = sc13.some(f=>f.shares_delta===null||f.shares_delta>=0) || ownerTrades.some(t=>t.type==='P');
-    const hasSell = sc13.some(f=>f.shares_delta!==null&&f.shares_delta<0)  || ownerTrades.some(t=>t.type==='S'||t.type==='S-');
+  if (sc13.length > 0) {
+    const hasBuy  = sc13.some(f=>f.shares_delta===null||f.shares_delta>=0);
+    const hasSell = sc13.some(f=>f.shares_delta!==null&&f.shares_delta<0);
     let legend = '';
     if (hasBuy)  legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:4px"><span style="color:#00d4ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#00d4ff">5%+ OWNER BUY</span></div>`;
     if (hasSell) legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,0,255,0.06);border:1px solid rgba(255,0,255,0.3);border-radius:4px"><span style="color:#ff00ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#ff00ff">5%+ OWNER SELL</span></div>`;
@@ -3278,7 +3274,7 @@ function renderSidebarTrades(trades) {
       </div>`;
     }
     const color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--option)';
-    const ownerBadge=isOwner?'<span style="color:#00d4ff;font-size:9px;font-family:Space Mono,monospace"> ◆ 5%+</span>':'';
+    const ownerBadge=''; // removed — title-based 5%+ detection is unreliable
     return `<div class="trade-card ${tc}">
       <div class="trade-card-top"><span class="trade-type-label">${tradeLabel(t.type).toUpperCase()}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
       <div class="trade-insider insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">\${t.insider||'—'}${ownerBadge}</div>
@@ -3325,7 +3321,7 @@ function renderStockTradesTable(trades) {
     return `
     <tr>
       <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}${(()=>{const ti=(t.title||'').toUpperCase();return ['10%','OWNER','BENEFICIAL','MAJOR','PRINCIPAL'].some(k=>ti.includes(k))?'<span title="5%+ beneficial owner" style="display:inline-block;margin-left:3px;padding:1px 5px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.35);border-radius:3px;font-size:9px;color:#00d4ff;font-family:Space Mono,monospace;cursor:default">◆ 5%+</span>':''})()}</td>
+      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
       <td style="color:var(--muted);font-size:12px">${t.title||''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
