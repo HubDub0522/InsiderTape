@@ -415,7 +415,7 @@ async function enrichRecentTickers() {
               } catch(e) {}
             }
             upd.run(result.ticker, result.company, fastRows[i].id);
-            if (filerName) db.prepare('UPDATE sc13_transactions SET filer=? WHERE id=? AND (filer IS NULL OR filer='')').run(filerName, fastRows[i].id);
+            if (filerName) db.prepare("UPDATE sc13_transactions SET filer=? WHERE id=? AND (filer IS NULL OR filer='')").run(filerName, fastRows[i].id);
           } else {
             upd.run(result.ticker, result.company, fastRows[i].id);
           }
@@ -483,8 +483,7 @@ async function enrichRecentTickers() {
         // or in the header table as the first company listed
         const m = html.match(/company[^<]*name[^<]*<[^>]+>([^<]{3,80})<\/[^>]+>/i)
                || html.match(/<b>([^<]{5,80})<\/b>\s*\(Filer\)/i)
-               || html.match(/filer\s*[:\-]\s*([A-Z][^<
-]{4,60})/i);
+               || html.match(/filer\s*[:\-]\s*([A-Z][^<\r\n]{4,60})/i);
         if (m) {
           const name = m[1].replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
           if (name.length > 3 && !name.match(/^(SEC|EDGAR|Filing|Index)/i)) {
