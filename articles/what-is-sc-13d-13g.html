@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC 13D vs SC 13G: What Beneficial Ownership Filings Tell You | InsiderTape</title>
+<meta name="description" content="When a hedge fund or institution crosses 5% ownership in a stock, they have to file with the SEC. Here's what SC 13D and SC 13G filings mean, how they differ, and why they matter.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://insidertape.com/articles/what-is-sc-13d-13g.html">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://insidertape.com/articles/what-is-sc-13d-13g.html">
+<meta property="og:title" content="SC 13D vs SC 13G: What Beneficial Ownership Filings Tell You | InsiderTape">
+<meta property="og:description" content="When a hedge fund or institution crosses 5% ownership in a stock, they have to file with the SEC. Here's what SC 13D and SC 13G filings mean, how they differ, and why they matter.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "SC 13D vs SC 13G: What Beneficial Ownership Filings Tell You",
+  "description": "When a hedge fund or institution crosses 5% ownership in a stock, they have to file with the SEC. Here's what SC 13D and SC 13G filings mean, how they differ, and why they matter.",
+  "author": { "@type": "Organization", "name": "InsiderTape" },
+  "publisher": { "@type": "Organization", "name": "InsiderTape", "url": "https://insidertape.com" },
+  "url": "https://insidertape.com/articles/what-is-sc-13d-13g.html"
+}
+</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root {
+    --bg:      #080b0f;
+    --bg2:     #0d1117;
+    --bg3:     #111820;
+    --border:  #1e2d3d;
+    --border2: #253447;
+    --text:    #c9d8e8;
+    --muted:   #4a6580;
+    --accent:  #00d4ff;
+    --buy:     #00ff88;
+    --sell:    #ff4466;
+    --header-h: 64px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; line-height: 1.75; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: var(--bg2); } ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  header { position: sticky; top: 0; z-index: 100; height: var(--header-h); background: rgba(8,11,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; gap: 16px; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 3px; color: var(--accent); text-shadow: 0 0 20px rgba(0,212,255,0.4); text-decoration: none; }
+  .logo span { color: var(--text); opacity: 0.5; }
+  nav { display: flex; gap: 4px; }
+  nav a { color: var(--muted); font-size: 12px; font-weight: 500; text-decoration: none; padding: 7px 14px; border: 1px solid transparent; border-radius: 5px; transition: all .2s; }
+  nav a:hover { color: var(--text); border-color: var(--border); }
+  nav a.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+
+  .article-wrap { max-width: 720px; margin: 0 auto; padding: 64px 24px 100px; }
+
+  .article-tag { display: inline-block; padding: 3px 10px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2); border-radius: 20px; font-family: 'Space Mono', monospace; font-size: 10px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 20px; }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(36px, 5vw, 58px); letter-spacing: 2px; color: var(--text); line-height: 1.05; margin-bottom: 20px; }
+  .article-meta { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+
+  .article-body { color: var(--text); }
+  .article-body p { margin-bottom: 24px; font-size: 16px; line-height: 1.8; color: #b8cfe0; }
+  .article-body h2 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1.5px; color: var(--text); margin: 48px 0 16px; }
+  .article-body h3 { font-family: 'Space Mono', monospace; font-size: 13px; letter-spacing: 1px; color: var(--accent); text-transform: uppercase; margin: 32px 0 12px; }
+  .article-body strong { color: var(--text); font-weight: 600; }
+  .article-body em { color: var(--muted); font-style: italic; }
+  .article-body a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(0,212,255,0.3); }
+  .article-body a:hover { border-bottom-color: var(--accent); }
+  .article-body ul, .article-body ol { margin: 0 0 24px 20px; }
+  .article-body li { margin-bottom: 8px; color: #b8cfe0; line-height: 1.75; }
+
+  .callout { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 18px 20px; margin: 32px 0; }
+  .callout.green { border-left-color: var(--buy); }
+  .callout.red { border-left-color: var(--sell); }
+  .callout.purple { border-left-color: #a78bfa; }
+  .callout p { margin: 0; font-size: 14px; color: var(--muted); }
+  .callout strong { color: var(--text); }
+
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 28px 0 36px; }
+  .compare-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+  .compare-card.cyan { border-top: 2px solid var(--accent); }
+  .compare-card.orange { border-top: 2px solid #ffaa00; }
+  .compare-card h4 { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1.5px; margin-bottom: 10px; }
+  .compare-card.cyan h4 { color: var(--accent); }
+  .compare-card.orange h4 { color: #ffaa00; }
+  .compare-card ul { margin: 0 0 0 16px; }
+  .compare-card li { font-size: 13px; color: var(--muted); line-height: 1.65; margin-bottom: 6px; }
+  .compare-card li strong { color: var(--text); }
+
+  .field-table { width: 100%; border-collapse: collapse; margin: 24px 0 32px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 14px; }
+  .field-table th { background: var(--bg3); padding: 10px 14px; text-align: left; font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .field-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: #b8cfe0; vertical-align: top; }
+  .field-table tr:last-child td { border-bottom: none; }
+  .field-table .field-name { font-family: 'Space Mono', monospace; color: var(--accent); font-size: 12px; white-space: nowrap; }
+
+  .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); text-decoration: none; font-size: 13px; margin-bottom: 40px; transition: color .2s; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 1px; }
+  .back-link:hover { color: var(--text); }
+
+  .cta-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 32px; text-align: center; margin-top: 56px; }
+  .cta-box h3 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; color: var(--text); margin-bottom: 10px; }
+  .cta-box p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .cta-btn { display: inline-block; background: var(--accent); color: #000000 !important; padding: 11px 28px; border-radius: 6px; font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; text-decoration: none; transition: background .2s; }
+  .cta-btn:hover { background: #33ddff; color: #000000 !important; }
+
+  footer { border-top: 1px solid var(--border); padding: 32px 24px; text-align: center; }
+  footer p { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 640px) {
+    .article-wrap { padding: 40px 16px 80px; }
+    .compare-grid { grid-template-columns: 1fr; }
+    .field-table { font-size: 13px; }
+    .field-table td, .field-table th { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/">INSIDER<span>TAPE</span></a>
+  <nav>
+    <a href="/">SCREENER</a>
+    <a href="/articles/" class="active">LEARN</a>
+  </nav>
+</header>
+
+<div class="article-wrap">
+  <a class="back-link" href="/articles/">← All Articles</a>
+  <div class="article-tag">Fundamentals</div>
+  <h1>SC 13D VS SC 13G: WHAT BENEFICIAL OWNERSHIP FILINGS TELL YOU</h1>
+  <div class="article-meta">8 min read &nbsp;·&nbsp; InsiderTape</div>
+
+  <div class="article-body">
+
+    <p>Most investors know about Form 4 — the filing executives use when they buy or sell their own company's stock. But there's a second category of ownership disclosure that's often more consequential: the <strong>SC 13D</strong> and <strong>SC 13G</strong>. These filings are triggered not by executives, but by outside investors — funds, institutions, and activists — who cross the 5% ownership threshold in any publicly traded company.</p>
+
+    <p>When a hedge fund quietly accumulates 5% of a mid-cap stock, you won't see it on Form 4. You'll see it here. And by the time the filing hits EDGAR, something is usually about to happen.</p>
+
+    <h2>THE TRIGGER: WHY THESE FILINGS EXIST</h2>
+
+    <p>Under Section 13(d) of the Securities Exchange Act of 1934, anyone who acquires more than 5% of a company's outstanding shares must disclose that stake to the SEC within ten days. The intent was to give other shareholders — and the target company's management — early warning that a significant ownership block had formed.</p>
+
+    <p>The reasoning was straightforward: a 5% owner has enough economic weight to influence the company. Other shareholders deserve to know that kind of concentrated interest exists, and corporate boards deserve to know who's quietly building a position in their stock.</p>
+
+    <div class="callout">
+      <p><strong>The 10-day window matters.</strong> An activist fund can accumulate up to 5% of a company in complete secrecy. Only after crossing that threshold do they have to disclose — and they have ten days to do so. That lag is sometimes enough for the position to move significantly before the market knows.</p>
+    </div>
+
+    <h2>13D VS 13G: THE KEY DIFFERENCE</h2>
+
+    <p>Both filings disclose the same basic fact — someone owns more than 5% of a company. The distinction is in <em>intent</em>.</p>
+
+    <div class="compare-grid">
+      <div class="compare-card orange">
+        <h4>SC 13D</h4>
+        <ul>
+          <li><strong>Who files it:</strong> Activists, acquirers, anyone who may seek to influence or change the company</li>
+          <li><strong>Intent:</strong> May intend to engage management, push for strategic changes, seek board seats, or pursue a takeover</li>
+          <li><strong>Deadline:</strong> 10 days after crossing 5%</li>
+          <li><strong>Amendment:</strong> Must amend "promptly" (within 2 business days) whenever a material change occurs</li>
+          <li><strong>Signal strength:</strong> High — filing a 13D puts the company on notice</li>
+        </ul>
+      </div>
+      <div class="compare-card cyan">
+        <h4>SC 13G</h4>
+        <ul>
+          <li><strong>Who files it:</strong> Passive investors — index funds, mutual funds, institutional asset managers</li>
+          <li><strong>Intent:</strong> No intention to influence or control the company; purely an investment</li>
+          <li><strong>Deadline:</strong> 45 days after year-end (or 10 days after crossing 5% for new filers mid-year)</li>
+          <li><strong>Amendment:</strong> Annual update required; prompt update if ownership crosses 10%</li>
+          <li><strong>Signal strength:</strong> Lower for passive holders, but high if a 13G converts to a 13D</li>
+        </ul>
+      </div>
+    </div>
+
+    <p>The practical implication: a 13D filing from an unknown fund is almost always market-moving news. The fund is signaling that they have a thesis, they want something to happen, and they're willing to go public about it. A 13G from Vanguard or BlackRock is routine — they own 5%+ of most large-cap companies as a function of running index funds.</p>
+
+    <h2>WHAT'S IN THE FILING</h2>
+
+    <p>Both forms require disclosure of the same core information, though a 13D requires considerably more narrative detail about the filer's intentions.</p>
+
+    <table class="field-table">
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>What it tells you</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="field-name">Filer name</td>
+          <td>The entity that crossed 5%. For a 13D this is often a fund you haven't heard of. For a 13G it's typically a large asset manager like Vanguard, BlackRock, or State Street.</td>
+        </tr>
+        <tr>
+          <td class="field-name">% owned</td>
+          <td>Their stake as a percentage of shares outstanding at the time of filing. Useful for gauging how much influence they could wield.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Shares owned</td>
+          <td>The raw share count. Cross-reference this with average daily volume to understand how many days of trading it would take them to exit their position.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Date of event</td>
+          <td>When they crossed the 5% threshold — not when they filed. The lag between these two dates (up to 10 days) tells you how quickly the position moved.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Purpose of transaction (13D only)</td>
+          <td>Item 4 of the 13D is where activists disclose their intentions. This is where you'll find language about pushing for a sale of the company, board changes, or other strategic actions.</td>
+        </tr>
+        <tr>
+          <td class="field-name">Agreements / relationships (13D only)</td>
+          <td>Whether the filer is acting in concert with other parties. A group of funds coordinating on a 13D is a much stronger signal than a single fund acting alone.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>AMENDMENTS: THE SIGNAL WITHIN THE SIGNAL</h2>
+
+    <p>The initial filing tells you someone crossed 5%. The amendments tell you what happened next — and they're often more informative than the original.</p>
+
+    <p>A <strong>13D/A</strong> or <strong>13G/A</strong> is an amendment. When you see one, the first thing to check is whether the ownership percentage went up or down. An activist fund that crosses 5%, files a 13D, and then keeps buying to 8%, 10%, 12% is on an escalation path. A fund that files an amendment showing a drop from 8% to 3% is quietly exiting.</p>
+
+    <p>A 13G converting to a 13D is a particularly strong signal. It means a previously passive institutional investor has decided to become active — they've changed their stated intent from "we own this as an investment" to "we intend to influence this company." That transition almost always precedes a catalyst.</p>
+
+    <div class="callout green">
+      <p><strong>Watch for 13G → 13D conversions.</strong> When a fund that was passively holding a position converts to a 13D, it's one of the sharpest signals in the public filing system. It means someone with a significant economic stake has decided that the current direction of the company is not acceptable, and they're going on the record about it.</p>
+    </div>
+
+    <h2>HOW 13D/G DIFFERS FROM FORM 4</h2>
+
+    <p>It's easy to conflate these two filings since both appear on EDGAR and both involve significant ownership disclosures. But they serve different purposes and come from different people.</p>
+
+    <ul>
+      <li><strong>Form 4</strong> is filed by insiders — officers, directors, and existing 10%+ owners who are already inside the company. It captures individual buy and sell transactions, with the specific share count, price, and date. It's a transaction record.</li>
+      <li><strong>SC 13D/G</strong> is filed by outside investors who cross the 5% threshold. It captures a stake, not a transaction. It tells you who holds how much, not what they paid for each share.</li>
+    </ul>
+
+    <p>The two filing types often complement each other. You might see a company where an activist fund files a 13D (outside pressure building) while the CEO starts buying shares on Form 4 (internal confidence signaling). That combination — external and internal money moving in the same direction — is one of the strongest setups in the data.</p>
+
+    <div class="callout purple">
+      <p><strong>On InsiderTape,</strong> SC 13D/G filings appear as <strong>◆ diamonds</strong> on stock charts and are listed alongside Form 4 trades in time order on each stock's detail page. Cyan diamonds indicate accumulation (buying or increased ownership); magenta diamonds indicate reduction. This lets you see both types of ownership signal on the same timeline.</p>
+    </div>
+
+    <h2>WHAT THESE FILINGS DON'T TELL YOU</h2>
+
+    <p>A few important caveats before treating every 13D as a buy signal:</p>
+
+    <ul>
+      <li><strong>Activists are often wrong.</strong> Elliot, Starboard, and the well-known names have strong track records, but plenty of 13D filers run campaigns that go nowhere. Management digs in, the board doesn't cooperate, and the fund exits quietly a year later.</li>
+      <li><strong>Passive 13G filings are noise.</strong> When Vanguard files a 13G/A for Apple or Microsoft, it means nothing. Their ownership changes as investors put money into or redeem from index funds. It's portfolio mechanics, not a conviction call.</li>
+      <li><strong>Timing is imprecise.</strong> The 10-day window means the stock has often already moved by the time the filing appears. The initial 5% crossing may have happened days before disclosure.</li>
+      <li><strong>The stake size matters.</strong> A 5.1% position from a first-time filer is different from a 14.7% position from a fund that has a history of taking companies private. Context is everything.</li>
+    </ul>
+
+    <h2>A SIMPLE FRAMEWORK FOR READING THEM</h2>
+
+    <p>When you see a 13D or 13G filing on InsiderTape, here's a quick way to assess it:</p>
+
+    <ol>
+      <li><strong>Who is the filer?</strong> Large passive index fund → routine, low signal. Unknown fund or known activist → read further.</li>
+      <li><strong>13D or 13G?</strong> 13D means they're not passive. That alone warrants attention.</li>
+      <li><strong>Is it an amendment?</strong> If so, is the stake going up or down? An amendment showing increased ownership is more significant than the initial filing.</li>
+      <li><strong>What does Item 4 say?</strong> On a 13D, read the "Purpose of Transaction" section. Vague language means they're keeping options open. Specific language about operational changes, board representation, or a potential sale is a harder signal.</li>
+      <li><strong>What's the rest of the tape saying?</strong> Are Form 4 insiders buying at the same time? Is there cluster buying activity from directors? Multiple signals pointing in the same direction are more reliable than any single filing.</li>
+    </ol>
+
+    <div class="callout red">
+      <p><strong>One more thing:</strong> SC 13D/G filings don't include transaction prices. You know what percentage they own, but not what they paid per share. For a rough sense of entry price, cross-reference the filing date with the stock chart and note the price range during the accumulation window.</p>
+    </div>
+
+    <div class="cta-box">
+      <h3>SEE 13D/G FILINGS ON THE CHART</h3>
+      <p>InsiderTape overlays SC 13D/G filings directly on stock charts as cyan and magenta diamonds — alongside Form 4 insider trades. See both signals on the same timeline.</p>
+      <a class="cta-btn" href="/">OPEN INSIDERTAPE →</a>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <p><a href="/articles/">← Back to Articles</a> &nbsp;·&nbsp; Data sourced from SEC EDGAR &nbsp;·&nbsp; Not financial advice</p>
+</footer>
+
+</body>
+</html>
