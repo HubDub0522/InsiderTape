@@ -1975,8 +1975,10 @@ let _yahooCookie  = null;
 let _yahooCrumbTs = 0;
 const CRUMB_TTL   = 12 * 60 * 60 * 1000;
 
+let _yahooCrumbBackoff = 0; // timestamp until which crumb fetches are suppressed
 async function getYahooCrumb() {
   if (_yahooCrumb && Date.now() - _yahooCrumbTs < CRUMB_TTL) return _yahooCrumb;
+  if (_yahooCrumbBackoff && Date.now() < _yahooCrumbBackoff) return null; // rate limited
   try {
     // Step 1: hit fc.yahoo.com to get the consent cookie
     const r1 = await get('https://fc.yahoo.com', 8000);
@@ -1999,6 +2001,7 @@ async function getYahooCrumb() {
       return _yahooCrumb;
     }
     slog(`Yahoo crumb HTTP ${r2.status}`);
+    if (r2.status === 429) { _yahooCrumbBackoff = Date.now() + 10 * 60 * 1000; }
   } catch(e) {
     slog(`Yahoo crumb error: ${e.message}`);
   }
@@ -2035,6 +2038,7 @@ async function fetchConfirmedEarnings(ticker) {
       // Crumb expired — force refresh on next call
       _yahooCrumb = null;
       _yahooCrumbTs = 0;
+      _yahooCrumbBackoff = Date.now() + 30 * 1000; // wait 30s before re-fetching crumb
       slog(`Yahoo earnings ${ticker}: 401, crumb reset`);
     } else {
       slog(`Yahoo earnings ${ticker}: HTTP ${status}`);
