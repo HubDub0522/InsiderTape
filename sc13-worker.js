@@ -526,7 +526,11 @@ async function runRecentBackfill(daysBack) {
         if (status !== 200) { log(`browse-edgar HTTP ${status} for ${formType}`); break; }
 
         const text = body.toString('utf8');
-        if (start === 0) log('SC13 atom HTTP status: ' + status + ' body: ' + text.slice(0, 200).replace(/\s+/g,' '));
+        if (start === 0) {
+          log('SC13 atom HTTP status: ' + status + ' body: ' + text.slice(0, 200).replace(/\s+/g,' '));
+          const firstEntry = text.match(/<entry>([\s\S]*?)<\/entry>/i);
+          if (firstEntry) log('SC13 first entry: ' + firstEntry[1].replace(/\s+/g,' ').slice(0,600));
+        }
 
         const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
         let m;
