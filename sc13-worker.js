@@ -542,14 +542,17 @@ async function runRecentBackfill(daysBack) {
           // Stop if past lookback window
           if (filedDate < sinceStr) { start = 999999; break; }
 
-          // Accession from link URL
-          const linkMatch = entry.match(/Archives\/edgar\/data\/(\d+)\/(\d{18})\//);
-          if (!linkMatch) continue;
-          const cik    = linkMatch[1];
-          const accRaw = linkMatch[2];
-          const accDash = accRaw.slice(0,10) + '-' + accRaw.slice(10,12) + '-' + accRaw.slice(12);
+          // Extract accession from <id> tag (most reliable - format: urn:tag:sec.gov,...:accession-number=NNNNNNNNNN-NN-NNNNNN)
+          const idMatch  = entry.match(/accession-number=([0-9]{10}-[0-9]{2}-[0-9]{6})/);
+          const accMatch = entry.match(/AccNo.*?([0-9]{10}-[0-9]{2}-[0-9]{6})/)
+                        || entry.match(/([0-9]{10}-[0-9]{2}-[0-9]{6})/);
+          const accDash  = (idMatch || accMatch)?.[1];
+          if (!accDash) continue;
           if (seen.has(accDash)) continue;
           seen.add(accDash);
+          // Extract CIK from link href
+          const cikMatch = entry.match(/edgar\/data\/(\d+)\//);
+          const cik = cikMatch ? cikMatch[1] : accDash.slice(0,10).replace(/^0+/,'');
 
           // Form type
           const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
