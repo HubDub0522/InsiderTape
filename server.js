@@ -779,20 +779,32 @@ app.get('/api/ticker', (req, res) => {
 app.get('/api/sc13-recent', (req, res) => {
   try {
     const days = Math.min(parseInt(req.query.days || '30'), 365);
-    const rows = db.prepare(`
+    // Try the requested window first; if empty fall back to most recent available rows
+    let rows = db.prepare(`
       SELECT ticker, company, filer, filing_type, filed_date, period_date,
-             pct_owned, shares_owned, shares_delta, accession, url, subject_cik
+             pct_owned, shares_owned, shares_delta, accession, url
       FROM sc13_transactions
       WHERE filed_date >= date('now', '-' || ? || ' days')
+        AND ticker != '' AND ticker IS NOT NULL
       ORDER BY filed_date DESC
       LIMIT 500
     `).all(days);
 
-    // Debug: log counts so we can diagnose in server logs
-    const total = rows.length;
-    const withTicker = rows.filter(r => r.ticker && r.ticker.trim()).length;
-    const withFiler  = rows.filter(r => r.filer  && r.filer.trim()).length;
-    slog(`sc13-recent: ${total} rows (last ${days}d), ${withTicker} with ticker, ${withFiler} with filer`);
+    // If no rows in requested window, return most recent available
+    // (form.idx data goes to 2024Q3 — the "recent" window may be after that cutoff)
+    if (!rows.length) {
+      rows = db.prepare(`
+        SELECT ticker, company, filer, filing_type, filed_date, period_date,
+               pct_owned, shares_owned, shares_delta, accession, url
+        FROM sc13_transactions
+        WHERE ticker != '' AND ticker IS NOT NULL
+        ORDER BY filed_date DESC
+        LIMIT 500
+      `).all();
+      slog('sc13-recent: no rows in last ' + days + 'd — returning ' + rows.length + ' most recent available');
+    } else {
+      slog('sc13-recent: ' + rows.length + ' rows in last ' + days + 'd');
+    }
 
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -874,6 +886,8 @@ app.get('/api/sc13-debug', (req, res) => {
     const total = db.prepare('SELECT COUNT(*) AS n FROM sc13_transactions').get().n;
     const withTicker = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL").get().n;
     const withCik    = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE subject_cik IS NOT NULL AND subject_cik != ''").get().n;
+    const maxDate    = db.prepare("SELECT MAX(filed_date) AS d FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL").get().d;
+    const recentWithTicker = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL AND filed_date >= date('now','-30 days')").get().n;
     const tickerSample = db.prepare(`SELECT ticker, company, filer, filing_type, filed_date, subject_cik FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL ORDER BY filed_date DESC LIMIT 10`).all();
     const sample = sym
       ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE ticker = ? ORDER BY filed_date DESC LIMIT 20`).all(sym)
@@ -882,7 +896,7 @@ app.get('/api/sc13-debug', (req, res) => {
       : filer
       ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE filer LIKE ? ORDER BY filed_date DESC LIMIT 20`).all(`%${filer}%`)
       : db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions ORDER BY filed_date DESC LIMIT 10`).all();
-    res.json({ total, withTicker, withCik, tickerSample, sample });
+    res.json({ total, withTicker, withCik, maxDate, recentWithTicker, tickerSample, sample });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
