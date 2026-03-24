@@ -2619,19 +2619,41 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
   });
   state.markerGroups=Object.values(groups);
 
-  // ── SC 13D/G diamond groups (one per filing) ──────────────────────────────
-  // Group by date so multiple same-day filings from the same entity merge
+  // ── SC 13D/G diamond groups ───────────────────────────────────────────────
+  // Source 1: sc13_transactions table (SC 13D/G filings)
   const sc13Groups={};
   sc13Data.forEach(f=>{
     const raw=(f.filed_date||'').slice(0,10); if(!raw)return;
     const d=nearestTradingDay(raw); if(!d)return;
-    // Determine direction: positive shares_delta = buying, negative = selling, null = unknown (treat as buying)
     const isSell = f.shares_delta !== null && f.shares_delta < 0;
     const k=d+'|'+(isSell?'sc13sell':'sc13buy');
-    if(!sc13Groups[k])sc13Groups[k]={date:d,filings:[],isSell,filedDate:raw};
+    if(!sc13Groups[k])sc13Groups[k]={date:d,filings:[],isSell,filedDate:raw,source:'sc13'};
     if(raw < sc13Groups[k].filedDate) sc13Groups[k].filedDate=raw;
     sc13Groups[k].filings.push(f);
   });
+
+  // Source 2: Form 4 trades where insider is a 5%+ beneficial owner
+  // These show in screener when '5% Owner' filter is active
+  const OWNER_KEYWORDS = ['10%','10 PERCENT','OWNER','BENEFICIAL','MAJOR SHAREHOLDER','PRINCIPAL'];
+  trades.forEach(t=>{
+    const title = (t.title||'').toUpperCase();
+    if (!OWNER_KEYWORDS.some(kw => title.includes(kw))) return;
+    const raw=(t.trade||t.filing||'').slice(0,10); if(!raw)return;
+    const d=nearestTradingDay(raw); if(!d)return;
+    const isSell = t.type === 'S' || t.type === 'S-';
+    const k=d+'|'+(isSell?'sc13sell':'sc13buy')+'|f4'; // separate key so no merge with sc13
+    if(!sc13Groups[k]) sc13Groups[k]={
+      date:d, filings:[], isSell, filedDate:raw, source:'form4',
+      pct_owned: null, // not available from Form 4
+    };
+    // Adapt Form 4 trade to sc13 filing shape for tooltip rendering
+    sc13Groups[k].filings.push({
+      filer: t.insider, filing_type: 'Form 4', filed_date: raw,
+      pct_owned: null, shares_delta: isSell ? -(t.qty||0) : (t.qty||0),
+      shares_owned: t.owned, value: t.value,
+    });
+  });
+
   state.sc13Groups=Object.values(sc13Groups);
 
   const tooltip=document.getElementById('chartTooltip')||(() => {
@@ -2687,7 +2709,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
       const pd=priceMap[g.date]; if(!pd)return;
       // Scale diamond size: 5% = base, 10% = 1.4x, 20%+ = 2x, unknown = base
       const pct = g.filings[0]?.pct_owned;
-      const dSize = pct ? Math.min(dBase * (1 + Math.sqrt(pct / 5) * 0.4), dBase * 2.5) : dBase;
+      const tradeVal = g.filings[0]?.value;
+      // Size by pct_owned if available (SC 13D/G), otherwise by trade value (Form 4)
+      const maxSc13Val = 50000000; // $50M cap for value-based sizing
+      const dSize = pct
+        ? Math.min(dBase * (1 + Math.sqrt(pct / 5) * 0.4), dBase * 2.5)
+        : tradeVal
+        ? Math.min(dBase + (dBase * 1.5) * Math.sqrt(Math.max(0, tradeVal) / maxSc13Val), dBase * 2.5)
+        : dBase;
       // Buying = cyan diamond above the bar top; selling = magenta diamond below bar bottom
       const refPrice = g.isSell ? (pd.high||pd.close)*1.012 : (pd.low||pd.close)*0.988;
       const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
