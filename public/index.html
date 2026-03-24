@@ -1509,14 +1509,14 @@ async function loadScreener() {
       return;
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-    if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
+    if (state.minVal > 0) trades = trades.filter(t => t._isSc13 || t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
         if (t._isSc13) return true; // SC 13D/G rows not filtered by role
         const title = (t.title || '').toUpperCase();
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
-        if (state.activeRole === 'Dir')  return title.includes('DIRECTOR');
+        if (state.activeRole === 'Dir')  return title.includes('DIRECTOR') || title.includes('BOARD') || title.includes('TRUSTEE');
         return true;
       });
     }
