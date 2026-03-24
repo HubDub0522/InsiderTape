@@ -2397,8 +2397,9 @@ async function loadStockView(ticker, opts={}) {
   if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
-  // Render SC 13D/G entries into sidebar
+  // Re-render sidebar now that sc13Data is available — merges 13D/G into trade list
   renderSc13Sidebar(state.sc13Data || []);
+  renderSidebarGated(state.tickerTrades || []);
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
