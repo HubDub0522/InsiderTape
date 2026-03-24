@@ -2397,9 +2397,10 @@ async function loadStockView(ticker, opts={}) {
   if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
-  // Re-render sidebar now that sc13Data is available — merges 13D/G into trade list
+  // Re-render sidebar and table now that sc13Data is available — merges 13D/G in time order
   renderSc13Sidebar(state.sc13Data || []);
   renderSidebarGated(state.tickerTrades || []);
+  renderStockTradesTable(state.tickerTrades || []);
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
@@ -3311,15 +3312,52 @@ function renderSidebarSummary(trades) {
 }
 function renderStockTradesTable(trades) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
-  if(!trades.length){el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;return;}
-  el.innerHTML=trades.map(t=>{
+  const sc13 = state.sc13Data || [];
+
+  // Merge Form 4 trades + SC 13D/G filings in time order
+  const items = [...trades.map(t=>({...t,_type:'form4'}))];
+  sc13.forEach(f => {
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    items.push({
+      _type:'sc13', trade:f.filed_date, filing:f.filed_date,
+      insider:f.filer||'Unknown filer', title:f.filing_type||'SC 13D/G',
+      type:isSell?'S':'P',
+      qty:f.shares_delta!=null?Math.abs(f.shares_delta):(f.shares_owned||0),
+      price:0, value:0, owned:f.shares_owned||0,
+      pct_owned:f.pct_owned, shares_delta:f.shares_delta,
+      accession:f.accession, url:f.url,
+    });
+  });
+  items.sort((a,b)=>new Date(b.trade||b.filing)-new Date(a.trade||a.filing));
+
+  if(!items.length){el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;return;}
+  el.innerHTML=items.map(t=>{
+    const isSc13 = t._type==='sc13';
+    if (isSc13) {
+      const dColor = t.type==='S'?'#ff00ff':'#00d4ff';
+      const secLink = t.url
+        ? `<a href="${t.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
+        : '';
+      const deltaStr = t.shares_delta!=null?`${t.shares_delta>0?'+':''}${fmtShares(t.shares_delta)}`:(t.qty?fmtShares(t.qty):'—');
+      const pctStr = t.pct_owned!=null?`${t.pct_owned.toFixed(1)}% owned`:'5%+ owner';
+      return `<tr style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'}">
+        <td style="font-family:'Space Mono',monospace;font-size:11px;border-left:2px solid ${dColor};padding-left:10px">${fmtDate(t.trade)}</td>
+        <td><span style="color:${dColor};font-size:11px;font-weight:600">◆ ${t.insider}</span></td>
+        <td style="color:${dColor};font-size:11px">${(t.title||'SC 13D/G').replace('SC ','')}</td>
+        <td><span class="badge ${t.type==='S'?'badge-sell':'badge-buy'}">${t.type==='S'?'SELL':'BUY'}</span></td>
+        <td style="font-family:'Space Mono',monospace;color:var(--muted)">${deltaStr}</td>
+        <td style="color:var(--muted)">—</td>
+        <td style="color:var(--muted)">—</td>
+        <td style="font-family:'Space Mono',monospace;color:${dColor}">${pctStr}</td>
+        <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}<br>${secLink}</td>
+      </tr>`;
+    }
     const secLink = t.accession
-      ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
+      ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
       : '';
-    return `
-    <tr>
+    return `<tr>
       <td style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
+      <td><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">\${t.insider||'—'}</span>${insiderRoleBadge(t.title||'')}</td>
       <td style="color:var(--muted);font-size:12px">${t.title||''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
       <td style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
@@ -3330,7 +3368,6 @@ function renderStockTradesTable(trades) {
     </tr>`;
   }).join('');
 }
-
 // ── INSIDER PROFILE ───────────────────────────────────────────────
 async function openInsiderProfile(name, title, opts={}) {
   window.scrollTo(0, 0);
