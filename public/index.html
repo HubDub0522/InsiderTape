@@ -1459,12 +1459,40 @@ async function loadScreener() {
   document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
   document.getElementById('summaryBar').innerHTML = '';
   try {
-    const resp = await apiFetch('/api/screener?days=' + days);
+    // When 5% Owner filter is active, fetch SC 13D/G filings alongside Form 4 trades
+    const is5pct = state.activeRole === '5pct';
+    const [resp, sc13Resp] = await Promise.all([
+      apiFetch('/api/screener?days=' + days),
+      is5pct ? apiFetch('/api/sc13-recent?days=' + days).catch(() => []) : Promise.resolve([]),
+    ]);
     if (resp && resp.building) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)...</span></div></td></tr>`;
       setTimeout(loadScreener, 8000); return;
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
+
+    // Merge SC 13D/G filings as synthetic trade rows when 5% Owner filter is active
+    if (is5pct && Array.isArray(sc13Resp) && sc13Resp.length) {
+      const sc13Trades = sc13Resp
+        .filter(f => f.ticker && f.ticker.length <= 6)
+        .map(f => ({
+          ticker:  f.ticker,
+          company: f.company || f.ticker,
+          insider: f.filer || 'Unknown filer',
+          title:   (f.filing_type || 'SC 13D/G') + (f.pct_owned ? ` (${f.pct_owned.toFixed(1)}% owned)` : ''),
+          trade:   f.filed_date,
+          filing:  f.filed_date,
+          type:    (f.shares_delta !== null && f.shares_delta < 0) ? 'S' : 'P',
+          qty:     f.shares_delta != null ? Math.abs(f.shares_delta) : (f.shares_owned || 0),
+          price:   0,
+          value:   0,
+          owned:   f.shares_owned || 0,
+          accession: f.accession,
+          _isSc13: true,
+        }));
+      // Merge — put sc13 rows first since they're the primary signal for this filter
+      trades = [...sc13Trades, ...trades];
+    }
     if (!trades.length) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
@@ -1639,12 +1667,25 @@ function renderScreener() {
     const edgarLink = t.accession
       ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
       : '';
+    if (t._isSc13) {
+      const dColor = t.type === 'S' ? '#ff00ff' : '#00d4ff';
+      return `<tr onclick="openTickerFromScreener('${t.ticker}')" style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'}">
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span>${edgarLink}</td>
+      <td class="ticker-cell">${t.ticker}</td>
+      <td onclick="event.stopPropagation()"><span style="color:${dColor};font-weight:600">◆ ${t.insider||'Unknown filer'}</span><span class="insider-title" style="color:${dColor};opacity:0.8">${t.title||'SC 13D/G'}</span></td>
+      <td><span style="padding:2px 8px;border-radius:3px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;background:${t.type==='S'?'rgba(255,0,255,0.15)':'rgba(0,212,255,0.15)'};color:${dColor};border:1px solid ${t.type==='S'?'rgba(255,0,255,0.4)':'rgba(0,212,255,0.4)'}">${t.type==='S'?'SELL':'BUY'}</span></td>
+      <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--muted)">${t.qty?fmtShares(t.qty):'—'}</td>
+      <td class="hide-mobile" style="color:var(--muted)">—</td>
+      <td style="color:var(--muted)">—</td>
+      <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:${dColor}">${t.owned?fmtShares(t.owned):'—'}</td>
+    </tr>`;
+    }
     return `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${edgarLink}</td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale — lower signal value" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">\${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
       <td class="hide-mobile" style="font-family:'Space Mono',monospace">${fmtShares(t.qty)}</td>
       <td class="hide-mobile" style="font-family:'Space Mono',monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'Space Mono',monospace">${fmt(t.value)}</td>
