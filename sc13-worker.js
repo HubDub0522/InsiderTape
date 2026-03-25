@@ -508,74 +508,65 @@ async function runRecentBackfill(daysBack) {
   const sinceStr = since.toISOString().slice(0, 10);
   const today    = new Date().toISOString().slice(0, 10);
 
-  log(`Recent SC 13D/G via getcurrent: ${sinceStr} to ${today}`);
+  log(`SC 13D/G EFTS backfill: ${sinceStr} to ${today}`);
 
+  // Use same EFTS endpoint as daily-worker (proven to work), just with SC 13D/G form types
+  // Process date range in 30-day chunks to avoid timeout
   const allFilings = [];
-  const seen       = new Set();
+  const seen = new Set();
 
-  // getcurrent with start= paginates through most-recent filings globally.
-  // No dateb needed - start=0 is newest, start=40 is next 40, etc.
-  // SC 13D/G: ~5-20 filings/day, so 90 days = ~450-1800 filings max.
-  for (const typeParam of ['SC+13D', 'SC+13G', 'SC+13D%2FA', 'SC+13G%2FA']) {
-    for (let start = 0; start < 5000; start += 40) {
-      const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=${typeParam}&dateb=&owner=include&count=40&search_text=&start=${start}&output=atom`;
-      if (start === 0) log(`SC 13D/G URL (${typeParam}): ${url}`);
+  let chunkEnd = new Date(today);
+  while (true) {
+    const chunkStart = new Date(chunkEnd);
+    chunkStart.setDate(chunkStart.getDate() - 30);
+    const startStr = chunkStart.toISOString().slice(0,10);
+    const endStr   = chunkEnd.toISOString().slice(0,10);
+    if (endStr <= sinceStr) break;
+    const actualStart = startStr < sinceStr ? sinceStr : startStr;
+
+    log(`SC 13D/G EFTS chunk: ${actualStart} to ${endStr}`);
+
+    for (let from = 0; from < 2000; from += 100) {
+      // Try the same EFTS endpoint that works for Form 4
+      const url = `https://efts.sec.gov/LATEST/search-index?forms=SC+13D,SC+13G,SC+13D%2FA,SC+13G%2FA&dateRange=custom&startdt=${actualStart}&enddt=${endStr}&from=${from}&size=100`;
+      if (from === 0) log(`EFTS URL: ${url}`);
       try {
         const { status, body } = await get(url, 30000);
-        if (status !== 200) { log(`EDGAR HTTP ${status}`); break; }
+        if (status !== 200) { log(`EFTS HTTP ${status}`); break; }
+        const data = JSON.parse(body.toString('utf8'));
+        const hits = data.hits?.hits || [];
+        if (from === 0) log(`EFTS hits for ${actualStart}-${endStr}: ${data.hits?.total?.value || 0} total`);
+        if (!hits.length) break;
 
-        const text = body.toString('utf8');
-        if (!text.includes('<entry>')) break; // no more filings
-
-        const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
-        let m;
-        let pageCount = 0;
-        let oldestOnPage = '';
-
-        while ((m = entryRe.exec(text))) {
-          const entry = m[1];
-
-          const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
-          const filedDate = dateMatch ? dateMatch[1] : today;
-          if (!oldestOnPage || filedDate < oldestOnPage) oldestOnPage = filedDate;
-
-          if (filedDate < sinceStr) continue; // skip entries outside our window
-
-          const idMatch = entry.match(/accession-number=([0-9]{10}-[0-9]{2}-[0-9]{6})/);
-          if (!idMatch) continue;
-          const accDash = idMatch[1];
-          if (seen.has(accDash)) continue;
+        for (const h of hits) {
+          const raw = h._id || '';
+          const colonAt = raw.indexOf(':');
+          const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
+          if (!accDash || seen.has(accDash)) continue;
           seen.add(accDash);
 
-          const ftMatch = entry.match(/<category[^>]*term="([^"]+)"/);
-          const ft = ftMatch ? ftMatch[1] : typeParam.replace(/\+/g,' ').replace('%2F','/');
+          const ft = h._source?.form_type || 'SC 13D';
           if (!SC13_TYPES.has(ft)) continue;
 
-          const cikMatch = entry.match(/edgar\/data\/(\d+)\//);
-          const cik = cikMatch ? cikMatch[1] : accDash.slice(0,10).replace(/^0+/,'');
+          const filedDate = h._source?.file_date || endStr;
+          const entityName = h._source?.entity_name || '';
+          const ciks = h._source?.period_of_report ? [] : (h._source?.ciks || []);
+          const cik = ciks[0] || accDash.slice(0,10).replace(/^0+/,'');
 
-          const nameMatch = entry.match(/<company-name>(.*?)<\/company-name>/)
-                         || entry.match(/<title>([^<]{5,80})<\/title>/);
-          const filerHint = nameMatch ? nameMatch[1].replace(/&amp;/g,'&').trim() : '';
-
-          allFilings.push({ filerHint, formType:ft, filedDate,
-            accession:accDash, secUrl:edgarIndexUrl(accDash, cik) });
-          pageCount++;
+          allFilings.push({ filerHint: entityName, formType: ft, filedDate,
+            accession: accDash, secUrl: edgarIndexUrl(accDash, cik) });
         }
-
-        if (start === 0 || pageCount > 0) log(`SC 13D/G (${typeParam}) start=${start}: ${pageCount} new, oldest=${oldestOnPage}`);
-
-        // Stop if oldest entry on this page is before our window
-        if (oldestOnPage && oldestOnPage < sinceStr) break;
-        if (!oldestOnPage) break;
-
-        await new Promise(r => setTimeout(r, 300));
-      } catch(e) { log(`SC 13D/G error: ${e.message}`); break; }
+        await new Promise(r => setTimeout(r, 200));
+      } catch(e) { log(`EFTS error: ${e.message}`); break; }
     }
+
+    chunkEnd = new Date(chunkStart);
+    if (chunkStart.toISOString().slice(0,10) <= sinceStr) break;
+    await new Promise(r => setTimeout(r, 500));
   }
 
-  if (!allFilings.length) { log('Recent SC 13D/G: 0 filings found'); return 0; }
-  log(`Recent SC 13D/G: ${allFilings.length} filings found`);
+  if (!allFilings.length) { log('SC 13D/G: 0 filings found via EFTS'); return 0; }
+  log(`SC 13D/G: ${allFilings.length} filings found`);
 
   const batch = allFilings.map(f => [
     '', '', f.filerHint||'',
@@ -583,7 +574,7 @@ async function runRecentBackfill(daysBack) {
     null, null, null, f.accession, f.secUrl, null,
   ]);
   const inserted = insertMany(batch);
-  log(`Recent SC 13D/G: ${inserted} new records inserted`);
+  log(`SC 13D/G: ${inserted} new records inserted`);
 
   const updFiler = db.prepare(`UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')`);
   const doUpdate = db.transaction(items => {
@@ -591,8 +582,7 @@ async function runRecentBackfill(daysBack) {
     for (const f of items) if (f.filerHint) n += updFiler.run(f.filerHint, f.accession).changes;
     return n;
   });
-  const updated = doUpdate(allFilings);
-  if (updated > 0) log(`SC 13D/G: ${updated} filer names set`);
+  doUpdate(allFilings);
   return inserted;
 }
 
