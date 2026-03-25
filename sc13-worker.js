@@ -98,11 +98,21 @@ const insertSc13 = db.prepare(`
      pct_owned, shares_owned, shares_delta, accession, url, subject_cik)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 `);
-const insertMany = db.transaction(rows => {
+function insertMany(rows) {
+  // Insert in chunks of 200 rows — sc13-worker is async so we can yield between chunks
+  // (called with await insertManyAsync in the parsing function)
+  const insertChunk = db.transaction(chunk => {
+    let n = 0;
+    for (const r of chunk) n += insertSc13.run(...r).changes;
+    return n;
+  });
   let n = 0;
-  for (const r of rows) n += insertSc13.run(...r).changes;
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    n += insertChunk(rows.slice(i, i + CHUNK));
+  }
   return n;
-});
+}
 
 // ── Logging ───────────────────────────────────────────────────────────────
 function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
@@ -463,7 +473,7 @@ async function enrichRecentTickers() {
     SELECT id, subject_cik FROM sc13_transactions
     WHERE (ticker IS NULL OR ticker = '')
       AND subject_cik IS NOT NULL AND subject_cik != ''
-    ORDER BY filed_date DESC LIMIT 2000
+    ORDER BY filed_date DESC LIMIT 500
   `).all();
 
   if (fastRows.length > 0) {
@@ -505,6 +515,7 @@ async function enrichRecentTickers() {
         }
       } catch(e) {}
       if ((i + 1) % 100 === 0) log(`Fast enrichment: ${i+1}/${fastRows.length}, ${n} resolved`);
+      if ((i + 1) % 50 === 0) await new Promise(r => setTimeout(r, 5)); // yield to event loop
     }
     log(`Ticker enrichment fast-path: ${n}/${fastRows.length} resolved`);
   }
