@@ -408,8 +408,23 @@ async function runHistoricalBackfillForQuarters(quarterKeys) {
 // For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
 // The SUBJECT company CIK appears on the index page as "(Subject)".
 async function enrichRecentTickers() {
+  // One-time migration: extract subject_cik from url for rows inserted before this fix
+  const urlMigration = db.prepare(`
+    UPDATE sc13_transactions
+    SET subject_cik = CAST(
+      SUBSTR(url, INSTR(url, '/data/') + 6,
+        INSTR(SUBSTR(url, INSTR(url, '/data/') + 6), '/') - 1
+      ) AS TEXT
+    )
+    WHERE (subject_cik IS NULL OR subject_cik = '')
+      AND url IS NOT NULL AND url LIKE '%/data/%/%'
+      AND ticker IS NULL OR ticker = ''
+  `).run();
+  if (urlMigration.changes > 0) log(`Subject CIK migration: ${urlMigration.changes} rows updated from URL`);
+
   // Shared cache and lookup function — defined first so both phases can use it
   const cikTickerCache = {};
+  let _lookupLogCount = 0;
   async function lookupTickerByCik(cikOrList) {
     if (!cikOrList) return null;
     const cikList = cikOrList.toString().split(',').map(c => c.trim()).filter(Boolean);
@@ -427,6 +442,11 @@ async function enrichRecentTickers() {
         const company = (data.name || '').trim();
         const result  = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
         cikTickerCache[cik] = result;
+        // Log first few lookups to verify the API is working
+        if (_lookupLogCount < 5) {
+          log(`CIK lookup ${padded}: ticker="${ticker}" company="${company.slice(0,30)}" result=${result?'OK':'null'}`);
+          _lookupLogCount++;
+        }
         if (result) return result;
       } catch(e) { cikTickerCache[cik] = null; }
     }
