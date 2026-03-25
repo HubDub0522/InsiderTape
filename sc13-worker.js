@@ -357,21 +357,7 @@ async function runHistoricalBackfill() {
   }
   if (skippedQuarters.length) log(`Clearing ${skippedQuarters.length} previously-skipped quarters: ${skippedQuarters.join(', ')}`);
 
-  // Migration: clear 2024Q4+ quarters so they re-fetch with SCHEDULE 13D/G type names.
-  // EDGAR renamed SC 13D -> SCHEDULE 13D in 2024Q4, so previous fetches matched nothing.
-  const migrationDone = db.prepare("SELECT 1 FROM sc13_quarter_log WHERE quarter='SCHEDULE_13_MIGRATION'").get();
-  if (!migrationDone) {
-    log('Migration: clearing 2024Q4+ quarters to re-fetch with SCHEDULE 13D/G type names...');
-    for (let yr = 2024; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
-      const startQ = yr === 2024 ? 4 : 1;
-      const endQ   = yr === FORM_IDX_CUTOFF_YEAR ? FORM_IDX_CUTOFF_Q : 4;
-      for (let q = startQ; q <= endQ; q++) {
-        db.prepare("DELETE FROM sc13_quarter_log WHERE quarter=?").run(`${yr}Q${q}`);
-      }
-    }
-    db.prepare("INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES ('SCHEDULE_13_MIGRATION',1)").run();
-    log('Migration complete: quarters cleared for re-fetch');
-  }
+  // Migration moved to main()
 
   log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q}`);
 
@@ -697,13 +683,37 @@ async function main() {
   // Poll mode: run historical backfill only if not yet complete.
   // With 80 quarters all marked done, skip entirely — don't waste boot time iterating.
   // Build the full expected set of quarter keys
+  // Migration: re-fetch 2024Q4+ with SCHEDULE 13D/G type names (EDGAR renamed in 2024Q4)
+  const migrationDone = db.prepare("SELECT 1 FROM sc13_quarter_log WHERE quarter='SCHEDULE_13_MIGRATION'").get();
+  if (!migrationDone) {
+    log('Migration: clearing 2024Q4+ quarters for SCHEDULE 13D/G re-fetch...');
+    const _now3 = new Date();
+    const _curY = _now3.getFullYear();
+    const _curQ = Math.floor(_now3.getMonth() / 3) + 1;
+    const _cutY = _curQ === 1 ? _curY - 1 : _curY;
+    const _cutQ = _curQ === 1 ? 4 : _curQ - 1;
+    for (let yr = 2024; yr <= _cutY; yr++) {
+      const startQ = yr === 2024 ? 4 : 1;
+      const endQ   = yr === _cutY ? _cutQ : 4;
+      for (let q = startQ; q <= endQ; q++) {
+        db.prepare("DELETE FROM sc13_quarter_log WHERE quarter=?").run(`${yr}Q${q}`);
+        log(`  Cleared ${yr}Q${q} for re-fetch`);
+      }
+    }
+    db.prepare("INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES ('SCHEDULE_13_MIGRATION',1)").run();
+    log('Migration complete');
+  }
+
+  const _n = new Date();
+  const _fy = _n.getFullYear(), _fq = Math.floor(_n.getMonth()/3)+1;
+  const _cutY2 = _fq===1?_fy-1:_fy, _cutQ2 = _fq===1?4:_fq-1;
   const expectedQuarters = new Set();
-  for (let yr = 2004; yr <= 2024; yr++) {
-    const maxQ = yr === 2024 ? 3 : 4;
+  for (let yr = 2004; yr <= _cutY2; yr++) {
+    const maxQ = yr === _cutY2 ? _cutQ2 : 4;
     for (let q = 1; q <= maxQ; q++) expectedQuarters.add(`${yr}Q${q}`);
   }
   const doneSet = new Set(
-    db.prepare("SELECT quarter FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '2024Q3'")
+    db.prepare(`SELECT quarter FROM sc13_quarter_log WHERE quarter >= '2004Q1' AND quarter <= '${_cutY2}Q${_cutQ2}'`)
       .all().map(r => r.quarter)
   );
   const missing = [...expectedQuarters].filter(k => !doneSet.has(k));
