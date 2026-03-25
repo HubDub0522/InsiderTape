@@ -3374,7 +3374,7 @@ function renderSidebarTrades(trades) {
       const _sAmt=t.shares_delta!=null?t.shares_delta:(t.shares_owned||t.owned||0);
       const deltaStr=_sAmt?`<span style="color:var(--muted);font-size:10px">${_sAmt>0&&t.shares_delta!=null?'+':''}${fmtShares(Math.abs(_sAmt))} shares</span>`:'';
       return `<div class="trade-card" style="background:${dBg};border-color:${dBorder}">
-        <div class="trade-card-top"><span style="color:${dColor};font-size:10px;font-family:'Space Mono',monospace;font-weight:700">◆ ${(t.title||'SC 13D/G').replace('SC ','')}</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
+        <div class="trade-card-top"><span style="color:${dColor};font-size:10px;font-family:'Space Mono',monospace;font-weight:700">◆ ${(t.title||'SC 13D/G').replace('SC ','')}</span><span title="${sc13Tooltip(t.title)}" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;margin-left:4px;flex-shrink:0;font-family:'Space Mono',monospace">?</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
         <div class="trade-insider" style="color:var(--text)">${t.insider}</div>
         <div class="trade-role" style="color:${dColor};font-size:10px">5%+ BENEFICIAL OWNER · ${tc==='buy'?'ACCUMULATING':'REDUCING'}</div>
         <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">${pctStr}${deltaStr}</div>
@@ -3457,7 +3457,7 @@ function renderStockTradesTable(trades) {
       return `<tr style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'}">
         <td style="font-family:'Space Mono',monospace;font-size:11px;border-left:2px solid ${dColor};padding-left:10px">${fmtDate(t.trade)}</td>
         <td><span style="color:${dColor};font-size:11px;font-weight:600">◆ ${t.insider}</span></td>
-        <td style="color:${dColor};font-size:11px">${(t.title||'SC 13D/G').replace('SC ','')}</td>
+        <td style="color:${dColor};font-size:11px">${(t.title||'SC 13D/G').replace('SC ','')} <span title="${sc13Tooltip(t.title)}" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;vertical-align:middle;font-family:'Space Mono',monospace">?</span></td>
         <td><span class="badge ${t.type==='S'?'badge-sell':'badge-buy'}">${t.type==='S'?'SELL':'BUY'}</span></td>
         <td style="font-family:'Space Mono',monospace;color:var(--muted)">${deltaStr}</td>
         <td style="color:var(--muted)">—</td>
