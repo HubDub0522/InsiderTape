@@ -20,7 +20,7 @@ log(`DB path: ${DB_PATH}`);
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 5000');
+db.pragma('busy_timeout = 15000'); // wait up to 15s if DB locked by sc13-worker
 db.pragma('synchronous = NORMAL');
 
 db.exec(`
