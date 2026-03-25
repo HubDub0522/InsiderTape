@@ -149,9 +149,11 @@ function edgarIndexUrl(accession, cik) {
 
 // SC 13D/G form type variants as they appear in form.idx
 const SC13_TYPES = new Set([
+  // Legacy form type names (pre-2024Q4)
   'SC 13D', 'SC 13G', 'SC 13D/A', 'SC 13G/A',
   'SC13D',  'SC13G',  'SC13D/A',  'SC13G/A',
-  'SC 13D/A', 'SC 13G/A',
+  // Current form type names (EDGAR renamed these in 2024Q4+)
+  'SCHEDULE 13D', 'SCHEDULE 13G', 'SCHEDULE 13D/A', 'SCHEDULE 13G/A',
 ]);
 
 // ── HISTORICAL BACKFILL via EDGAR quarterly form.idx ─────────────────────
@@ -355,14 +357,20 @@ async function runHistoricalBackfill() {
   }
   if (skippedQuarters.length) log(`Clearing ${skippedQuarters.length} previously-skipped quarters: ${skippedQuarters.join(', ')}`);
 
-  // Hard override: always re-fetch 2024Q4 through current-1 quarter
-  // These were previously skipped by the EFTS cutoff and need form.idx data
-  for (let yr = 2024; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
-    const startQ = yr === 2024 ? 4 : 1;
-    const endQ   = yr === FORM_IDX_CUTOFF_YEAR ? FORM_IDX_CUTOFF_Q : 4;
-    for (let q = startQ; q <= endQ; q++) {
-      db.prepare("DELETE FROM sc13_quarter_log WHERE quarter=? AND rows <= 0").run(`${yr}Q${q}`);
+  // Migration: clear 2024Q4+ quarters so they re-fetch with SCHEDULE 13D/G type names.
+  // EDGAR renamed SC 13D -> SCHEDULE 13D in 2024Q4, so previous fetches matched nothing.
+  const migrationDone = db.prepare("SELECT 1 FROM sc13_quarter_log WHERE quarter='SCHEDULE_13_MIGRATION'").get();
+  if (!migrationDone) {
+    log('Migration: clearing 2024Q4+ quarters to re-fetch with SCHEDULE 13D/G type names...');
+    for (let yr = 2024; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
+      const startQ = yr === 2024 ? 4 : 1;
+      const endQ   = yr === FORM_IDX_CUTOFF_YEAR ? FORM_IDX_CUTOFF_Q : 4;
+      for (let q = startQ; q <= endQ; q++) {
+        db.prepare("DELETE FROM sc13_quarter_log WHERE quarter=?").run(`${yr}Q${q}`);
+      }
     }
+    db.prepare("INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES ('SCHEDULE_13_MIGRATION',1)").run();
+    log('Migration complete: quarters cleared for re-fetch');
   }
 
   log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q}`);
