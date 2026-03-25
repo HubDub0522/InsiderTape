@@ -875,6 +875,29 @@ app.get('/api/dir-debug', (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// One-time migration: fix truncated filer names in sc13_transactions
+// Truncated names start with lowercase (mid-word) or are very short
+try {
+  const badFilers = db.prepare(`
+    UPDATE sc13_transactions
+    SET filer = ''
+    WHERE filer IS NOT NULL AND filer != ''
+      AND (
+        -- Starts with lowercase = truncated mid-word
+        SUBSTR(filer, 1, 1) = LOWER(SUBSTR(filer, 1, 1))
+        -- Or starts with a space
+        OR SUBSTR(filer, 1, 1) = ' '
+        -- Or contains filing type keywords (shouldn't be in filer name)
+        OR filer LIKE '%SCHEDULE 13%'
+        OR filer LIKE '%SC 13%'
+        -- Or suspiciously short (under 4 chars)
+        OR LENGTH(TRIM(filer)) < 4
+      )
+      AND filing_type IN ('SC 13D','SC 13G','SC 13D/A','SC 13G/A','SCHEDULE 13D','SCHEDULE 13G','SCHEDULE 13D/A','SCHEDULE 13G/A')
+  `).run();
+  if (badFilers.changes > 0) slog('SC 13D/G filer cleanup: cleared ' + badFilers.changes + ' truncated/bad filer names');
+} catch(e) {}
+
 // Usage: /api/sc13-debug?symbol=PHR  or  /api/sc13-debug?filer=Pale+Fire
 app.get('/api/sc13-debug', (req, res) => {
   const sym   = (req.query.symbol || '').toUpperCase().trim();
