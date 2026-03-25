@@ -2511,6 +2511,33 @@ setTimeout(() => {
 }, 5000); // 5s after startup — just enough for DB to be ready
 
 setTimeout(() => {
+  // Pre-warm stock-lists cache so Stock View landing loads instantly
+  try {
+    const http = require('http');
+    http.get('http://localhost:' + (process.env.PORT || 10000) + '/api/stock-lists', r => {
+      let d = '';
+      r.on('data', c => d += c);
+      r.on('end', () => {
+        try { _stockListsCache = JSON.parse(d); _stockListsCacheTime = Date.now(); slog('Stock-lists pre-warmed'); } catch(_) {}
+      });
+    }).on('error', () => {});
+  } catch(e) {}
+}, 30000);
+
+setTimeout(() => {
+  // Pre-warm monitor data so Monitor page loads instantly
+  try {
+    const http = require('http');
+    const port = process.env.PORT || 10000;
+    const warmUrl = `/api/screener?days=92`;
+    http.get('http://localhost:' + port + warmUrl, r => {
+      r.resume(); // drain response
+      slog('Monitor screener pre-warmed');
+    }).on('error', () => {});
+  } catch(e) {}
+}, 45000);
+
+setTimeout(() => {
   warmPriceCache()
     .then(() => preComputeDrift())
     .then(() => preComputeProximity())
