@@ -1686,7 +1686,7 @@ function renderScreener() {
       return `<tr onclick="${hasTicker ? `openTickerFromScreener('${t.ticker}')` : ''}" style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'};${hasTicker?'cursor:pointer':'cursor:default'}">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><br>${edgarLink}</td>
       <td>${tickerDisplay}</td>
-      <td onclick="event.stopPropagation()"><span style="color:${dColor};font-weight:600">◆ ${t.insider||'Unknown filer'}</span><span class="insider-title" style="color:${dColor};opacity:0.8">${t.title||'SC 13D/G'}</span></td>
+      <td onclick="event.stopPropagation()"><span style="color:${dColor};font-weight:600">◆ ${(t.insider||'').replace(/^[,\s]+/,'').trim() || '5%+ Owner'}</span><span class="insider-title" style="color:${dColor};opacity:0.8">${t.title||'SC 13D/G'}</span></td>
       <td><span style="padding:2px 8px;border-radius:3px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;background:${t.type==='S'?'rgba(255,0,255,0.15)':'rgba(0,212,255,0.15)'};color:${dColor};border:1px solid ${t.type==='S'?'rgba(255,0,255,0.4)':'rgba(0,212,255,0.4)'}">${t.type==='S'?'SELL':'BUY'}</span></td>
       <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--muted)">${t.qty?fmtShares(t.qty):'—'}</td>
       <td class="hide-mobile" style="color:var(--muted)">—</td>
