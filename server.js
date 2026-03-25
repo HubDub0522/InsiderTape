@@ -368,6 +368,12 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filed_date ON sc13_transactions(filed_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filer      ON sc13_transactions(filer)`);
+  // Composite indexes for the heaviest screener queries
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_type_filing  ON trades(type, filing_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_type_trade   ON trades(type, trade_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_filing_type  ON trades(filing_date DESC, type, value)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker_filed   ON sc13_transactions(ticker, filed_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker_type    ON sc13_transactions(ticker, filing_type, filed_date DESC)`);
   // Migrate existing DB
   try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
 } catch(e) { console.warn('SC13 schema init warning:', e.message); }
