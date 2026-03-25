@@ -191,9 +191,11 @@ async function fetchQuarterIndex(year, q) {
   // instead of the actual form.idx for recent or in-progress quarters.
   // Real form.idx starts with a header like "Form Type  Company Name..."
   // Fake files start with "Description:", "Last Data Re", or similar.
-  const firstLines = lines.slice(0, 5).join(' ');
-  if (/Description:|Last Data Re|Comments:|This file/i.test(firstLines) &&
-      !/Form Type/i.test(firstLines)) {
+  // Check first meaningful line - real form.idx starts with "Form Type" header
+  const firstMeaningfulLine = lines.find(l => l.trim().length > 10) || '';
+  const isReadme = /^(Description|Last Data Received|Comments|This file contains)/i.test(firstMeaningfulLine.trim())
+                || (lines.slice(0,5).join(' ').includes('Description:') && !firstMeaningfulLine.includes('Form Type'));
+  if (isReadme) {
     log(`${key}: form.idx is readme — trying company.idx fallback...`);
     // EDGAR sometimes returns readme for recent quarters on form.idx
     // company.idx has same filing data in same format
@@ -356,6 +358,16 @@ async function runHistoricalBackfill() {
     }
   }
   if (skippedQuarters.length) log(`Clearing ${skippedQuarters.length} previously-skipped quarters: ${skippedQuarters.join(', ')}`);
+
+  // Hard override: always re-fetch 2024Q4 through current-1 quarter
+  // These were previously skipped by the EFTS cutoff and need form.idx data
+  for (let yr = 2024; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
+    const startQ = yr === 2024 ? 4 : 1;
+    const endQ   = yr === FORM_IDX_CUTOFF_YEAR ? FORM_IDX_CUTOFF_Q : 4;
+    for (let q = startQ; q <= endQ; q++) {
+      db.prepare("DELETE FROM sc13_quarter_log WHERE quarter=? AND rows <= 0").run(`${yr}Q${q}`);
+    }
+  }
 
   log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q}`);
 
