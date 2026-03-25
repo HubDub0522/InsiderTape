@@ -1480,8 +1480,9 @@ async function loadScreener() {
       .map(f => ({
         ticker:   f.ticker,
         company:  f.company || f.ticker,
-        // Use filer name, fall back to company (subject of filing), then filing type
-        insider:  f.filer || f.company || '5%+ Owner',
+        // filer = investor name, company = subject company name
+        // Strip any accidental filing_type suffix from filer name
+        insider:  (f.filer || f.company || '5%+ Owner').replace(/\s*(SCHEDULE\s+13[DG].*|SC\s+13[DG].*)$/i,'').trim() || f.company || '5%+ Owner',
         title:    (f.filing_type || 'SC 13D/G') + (f.pct_owned != null ? ' · ' + f.pct_owned.toFixed(1) + '% owned' : ''),
         trade:    f.filed_date,
         filing:   f.filed_date,
@@ -1683,7 +1684,7 @@ function renderScreener() {
         ? `<span class="ticker-cell" style="color:var(--accent)">${t.ticker}</span>`
         : `<span style="font-size:11px;color:var(--muted);font-family:'DM Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;display:block" title="${t._rawCompany||t.ticker}">${(t._rawCompany||t.ticker||'?').slice(0,15)}</span>`;
       return `<tr onclick="${hasTicker ? `openTickerFromScreener('${t.ticker}')` : ''}" style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'};${hasTicker?'cursor:pointer':'cursor:default'}">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span>${edgarLink}</td>
+      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><br>${edgarLink}</td>
       <td>${tickerDisplay}</td>
       <td onclick="event.stopPropagation()"><span style="color:${dColor};font-weight:600">◆ ${t.insider||'Unknown filer'}</span><span class="insider-title" style="color:${dColor};opacity:0.8">${t.title||'SC 13D/G'}</span></td>
       <td><span style="padding:2px 8px;border-radius:3px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;background:${t.type==='S'?'rgba(255,0,255,0.15)':'rgba(0,212,255,0.15)'};color:${dColor};border:1px solid ${t.type==='S'?'rgba(255,0,255,0.4)':'rgba(0,212,255,0.4)'}">${t.type==='S'?'SELL':'BUY'}</span></td>
