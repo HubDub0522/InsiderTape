@@ -2848,7 +2848,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
     // ── SC 13D/G diamonds ───────────────────────────────────────────────────
     // Fixed size — these aren't transaction-value-scaled the same way
     // Base diamond size, scaled by pct_owned (larger stake = bigger diamond)
-    const dBase = window.innerWidth <= 640 ? 7 : 9;
+    const dBase = window.innerWidth <= 640 ? 10 : 14;
     state.sc13Groups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
