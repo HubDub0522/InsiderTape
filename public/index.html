@@ -1222,20 +1222,7 @@ function hideGlobalSuggest() {
 
 let _suggestionJustSelected = false;
 // Delegated mousedown handler on the suggest box — fires before blur, safe with any chars
-document.getElementById('globalSuggest').addEventListener('mousedown', e => {
-  e.preventDefault(); // prevent input blur
-  const row = e.target.closest('[data-sidx]');
-  if (!row) return;
-  const box = document.getElementById('globalSuggest');
-  const sug = box._suggestions;
-  if (!sug) return;
-  const idx = parseInt(row.dataset.sidx, 10);
-  const s = sug[idx];
-  if (!s) return;
-  _suggestionJustSelected = true;
-  setTimeout(() => { _suggestionJustSelected = false; }, 200);
-  selectGlobalSuggest(s.type, s.label);
-});
+// suggest box removed — no globalSuggest listener needed
 
 // Keep old searchTicker as alias
 function searchTicker() { globalSearch(); }
