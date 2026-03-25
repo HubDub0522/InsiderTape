@@ -211,7 +211,9 @@ async function fetchQuarterIndex(year, q) {
         // company.idx has different column order: Company Name, Form Type, CIK, Date, Filename
         // We need to re-parse it differently
         log(`${key}: using company.idx (${bodyText.length} bytes)`);
-        // Fall through to parsing below with a flag
+        // Re-split lines from the new content
+        lines.length = 0;
+        bodyText.split('\n').forEach(l => lines.push(l));
         isCompanyIdx = true;
       } else {
         db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
@@ -345,8 +347,9 @@ async function runHistoricalBackfill() {
     for (let q = startQ; q <= endQ; q++) {
       const key = `${yr}Q${q}`;
       const existing = db.prepare('SELECT rows FROM sc13_quarter_log WHERE quarter=?').get(key);
-      // If this quarter was marked with 0 rows it was skipped by the old code - re-fetch
-      if (existing && existing.rows === 0) {
+      // Clear if: never attempted (!existing), rows=0 (skipped), rows=-1 (readme/failed)
+      // Don't clear quarters that were properly fetched (rows > 0)
+      if (!existing || existing.rows <= 0) {
         db.prepare('DELETE FROM sc13_quarter_log WHERE quarter=?').run(key);
         skippedQuarters.push(key);
       }
