@@ -267,7 +267,7 @@ try {
     enabled     INTEGER NOT NULL DEFAULT 1,
     min_score   INTEGER NOT NULL DEFAULT 70,   -- only fire for signals scored >= this
     min_value   INTEGER NOT NULL DEFAULT 0,    -- only fire for trades >= this dollar value
-    types       TEXT    NOT NULL DEFAULT 'conviction,cluster,first_buy,exit_warning', -- comma-separated
+    types       TEXT    NOT NULL DEFAULT 'conviction,cluster,first_buy,exit_warning,sc13d,sc13g', -- comma-separated
     tickers     TEXT    NOT NULL DEFAULT '',   -- comma-separated ticker filter, empty = all
     sectors     TEXT    NOT NULL DEFAULT '',   -- comma-separated sector filter, empty = all
     roles       TEXT    NOT NULL DEFAULT '',   -- comma-separated role filter, empty = all
@@ -1806,17 +1806,26 @@ async function fetchPriceBars(sym) {
 // Warm price cache for the most-active insider tickers at startup
 async function warmPriceCache() {
   try {
-    const rows = db.prepare(`
+    // Form 4 most-active tickers
+    const form4Rows = db.prepare(`
       SELECT ticker FROM trades
       WHERE TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-365 days')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-      GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 50
+      GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 75
     `).all();
-    slog(`Warming price cache for ${rows.length} tickers...`);
-    for (let i = 0; i < rows.length; i += 10) {
-      const batch = rows.slice(i, i + 10).map(r => r.ticker);
+    // SC 13D/G enriched tickers (recent filings)
+    const sc13Rows = db.prepare(`
+      SELECT DISTINCT ticker FROM sc13_transactions
+      WHERE ticker != '' AND ticker IS NOT NULL
+        AND filed_date >= date('now', '-180 days')
+      ORDER BY filed_date DESC LIMIT 50
+    `).all();
+    const allTickers = [...new Set([...form4Rows, ...sc13Rows].map(r => r.ticker))].slice(0, 100);
+    slog(`Warming price cache for ${allTickers.length} tickers...`);
+    for (let i = 0; i < allTickers.length; i += 10) {
+      const batch = allTickers.slice(i, i + 10);
       await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 10 < rows.length) await new Promise(r => setTimeout(r, 500));
+      if (i + 10 < allTickers.length) await new Promise(r => setTimeout(r, 400));
     }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
@@ -3231,8 +3240,8 @@ async function sendAlertEmail(toEmail, signals) {
   const resend = new Resend(RESEND_KEY);
 
   const signalRows = signals.map(s => {
-    const color = s.signal_type === 'EXIT_WARNING' ? '#ff4466' : s.signal_type === 'CLUSTER' ? '#00d4ff' : s.signal_type === 'FIRST_BUY' ? '#f5a623' : '#00ff88';
-    const icon  = s.signal_type === 'EXIT_WARNING' ? '⚠️' : s.signal_type === 'CLUSTER' ? '🔵' : s.signal_type === 'FIRST_BUY' ? '🆕' : '⚡';
+    const color = s.signal_type === 'EXIT_WARNING' ? '#ff4466' : s.signal_type === 'CLUSTER' ? '#00d4ff' : s.signal_type === 'FIRST_BUY' ? '#f5a623' : s.signal_type === 'SC13D' ? '#00d4ff' : s.signal_type === 'SC13G' ? '#60a5fa' : '#00ff88';
+    const icon  = s.signal_type === 'EXIT_WARNING' ? '⚠️' : s.signal_type === 'CLUSTER' ? '🔵' : s.signal_type === 'FIRST_BUY' ? '🆕' : s.signal_type === 'SC13D' ? '◆' : s.signal_type === 'SC13G' ? '◇' : '⚡';
     return `
       <div style="border:1px solid #1e2d3d;border-radius:6px;padding:16px;margin-bottom:12px;background:#0d1117">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
@@ -3305,6 +3314,16 @@ async function runAlertCheck() {
 
     if (!recentTrades.length) return;
 
+    // SC 13D/G: check for new filings in last 48h
+    const recentSc13 = db.prepare(`
+      SELECT ticker, company, filer, filing_type, filed_date
+      FROM sc13_transactions
+      WHERE filed_date >= date('now', '-2 days')
+        AND ticker != '' AND ticker IS NOT NULL
+      ORDER BY filed_date DESC
+      LIMIT 200
+    `).all();
+
     // First-buy detection: insiders who filed a buy in last 48h AND had a 2yr+ gap
     // Uses same CTE logic as /api/firstbuys but scoped to recent filings only
     const firstBuyRows = db.prepare(`
@@ -3342,7 +3361,7 @@ async function runAlertCheck() {
     `).all();
 
     // Build simple signals from trades (server-side signal detection)
-    const signals = buildSignalsFromTrades(recentTrades, firstBuyRows);
+    const signals = buildSignalsFromTrades(recentTrades, firstBuyRows, recentSc13);
     if (!signals.length) return;
 
     for (const user of users) {
@@ -3399,7 +3418,7 @@ async function runAlertCheck() {
 }
 
 // Server-side signal builder — lightweight version of the client scoring
-function buildSignalsFromTrades(trades, firstBuyRows = []) {
+function buildSignalsFromTrades(trades, firstBuyRows = [], sc13Rows = []) {
   const signals = [];
   const byTicker = {};
 
@@ -3498,6 +3517,29 @@ function buildSignalsFromTrades(trades, firstBuyRows = []) {
       role_key:    roleKey,
       headline:    'First buy in years · ' + (fb.title || 'Insider'),
       detail:      (fb.insider || '') + ' · ' + gapLabel + ' · ' + formatVal(fb.latest_value || 0),
+    });
+  }
+
+  // SC 13D / SC 13G signals
+  for (const f of (sc13Rows || [])) {
+    if (!f.ticker || !f.filing_type) continue;
+    const isActivist = (f.filing_type || '').toUpperCase().includes('13D') &&
+                       !(f.filing_type || '').toUpperCase().includes('13G');
+    const sector = getTickerSector(f.ticker);
+    signals.push({
+      ticker:      f.ticker,
+      company:     f.company || f.ticker,
+      signal_type: isActivist ? 'SC13D' : 'SC13G',
+      score:       isActivist ? 82 : 65,
+      value:       0,
+      date:        f.filed_date,
+      sector:      sector ? sector[0] : null,
+      subsector:   sector ? sector[1] : null,
+      role_key:    'institutional',
+      headline:    isActivist
+        ? 'SC 13D — Activist stake · ' + (f.filer || '5%+ Owner')
+        : 'SC 13G — Institutional 5%+ ownership · ' + (f.filer || '5%+ Owner'),
+      detail:      (f.filing_type || 'SC 13D/G') + ' · ' + f.filed_date,
     });
   }
 
