@@ -2848,20 +2848,12 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
     // ── SC 13D/G diamonds ───────────────────────────────────────────────────
     // Fixed size — these aren't transaction-value-scaled the same way
     // Base diamond size, scaled by pct_owned (larger stake = bigger diamond)
-    const dBase = window.innerWidth <= 640 ? 10 : 14;
+    const dBase = window.innerWidth <= 640 ? 12 : 16;
     state.sc13Groups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
-      // Scale diamond size: 5% = base, 10% = 1.4x, 20%+ = 2x, unknown = base
-      const pct = g.filings[0]?.pct_owned;
-      const tradeVal = g.filings[0]?.value;
-      // Size by pct_owned if available (SC 13D/G), otherwise by trade value (Form 4)
-      const maxSc13Val = 50000000; // $50M cap for value-based sizing
-      const dSize = pct
-        ? Math.min(dBase * (1 + Math.sqrt(pct / 5) * 0.4), dBase * 2.5)
-        : tradeVal
-        ? Math.min(dBase + (dBase * 1.5) * Math.sqrt(Math.max(0, tradeVal) / maxSc13Val), dBase * 2.5)
-        : dBase;
+      // Fixed size — pct_owned and value not available for SC 13D/G filings
+      const dSize = dBase;
       // Buying = cyan diamond above the bar top; selling = magenta diamond below bar bottom
       const refPrice = g.isSell ? (pd.high||pd.close)*1.012 : (pd.low||pd.close)*0.988;
       const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
