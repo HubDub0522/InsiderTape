@@ -302,12 +302,16 @@ async function runHistoricalBackfill() {
   let total   = 0;
 
   // EDGAR only reliably serves form.idx for completed quarters up to ~6 months ago.
-  // For recent quarters (2024Q4 and later), form.idx may return a readme/metadata
-  // file instead of the actual filing index. Recent data is handled by EFTS instead.
-  const FORM_IDX_CUTOFF_YEAR = 2024;
-  const FORM_IDX_CUTOFF_Q    = 3; // stop at 2024Q3 inclusive
+  // Extend backfill through all completed quarters up to (but not including) current.
+  // The current quarter's form.idx is refreshed separately by runRecentBackfill().
+  const _now2 = new Date();
+  const curYear = _now2.getFullYear();
+  const curQ    = Math.floor(_now2.getMonth() / 3) + 1;
+  // Last completed quarter = one before current
+  const FORM_IDX_CUTOFF_YEAR = curQ === 1 ? curYear - 1 : curYear;
+  const FORM_IDX_CUTOFF_Q    = curQ === 1 ? 4 : curQ - 1;
 
-  log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q} (EFTS handles recent quarters)`);
+  log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q}`);
 
   for (let yr = 2004; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
     const maxQ = (yr === FORM_IDX_CUTOFF_YEAR) ? FORM_IDX_CUTOFF_Q : 4;
@@ -508,68 +512,42 @@ async function runRecentBackfill(daysBack) {
   const sinceStr = since.toISOString().slice(0, 10);
   const today    = new Date().toISOString().slice(0, 10);
 
-  log(`SC 13D/G backfill: ${sinceStr} to ${today}`);
+  // The form.idx for the CURRENT quarter is updated daily by EDGAR.
+  // Re-fetch it on every poll run to pick up new filings.
+  // Previous quarters are already fully backfilled and cached.
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curQ    = Math.floor(now.getMonth() / 3) + 1;
 
-  // EFTS forms= doesn't work for space-containing types like "SC 13D".
-  // Use EDGAR full-text search with q= to search for the form type in the document text.
-  // This is what EDGAR's own search UI does at https://efts.sec.gov/LATEST/search-index
-  const allFilings = [];
-  const seen = new Set();
+  // Also fetch the previous quarter in case we missed any late-filed entries
+  const quarters = [];
+  quarters.push({ year: curYear, q: curQ });
+  // Add previous quarter
+  if (curQ === 1) quarters.push({ year: curYear - 1, q: 4 });
+  else            quarters.push({ year: curYear,     q: curQ - 1 });
 
-  // Process in 30-day chunks
-  let chunkEnd = new Date(today + 'T12:00:00Z');
-  while (true) {
-    const chunkStart = new Date(chunkEnd);
-    chunkStart.setDate(chunkStart.getDate() - 30);
-    const endStr   = chunkEnd.toISOString().slice(0,10);
-    const startStr = chunkStart.toISOString().slice(0,10);
-    const actualStart = startStr < sinceStr ? sinceStr : startStr;
-    if (endStr <= sinceStr) break;
+  let totalInserted = 0;
+  for (const { year, q } of quarters) {
+    const key = `${year}Q${q}`;
+    log(`Refreshing ${key} form.idx for recent SC 13D/G filings...`);
 
-    // Try EFTS with category=form-type parameter (used by EDGAR search UI)
-    for (const formQ of ['SC+13D', 'SC+13G', 'SC+13D%2FA', 'SC+13G%2FA']) {
-      for (let from = 0; from < 2000; from += 100) {
-        const url = `https://efts.sec.gov/LATEST/search-index?q=%22${formQ}%22&dateRange=custom&startdt=${actualStart}&enddt=${endStr}&from=${from}&size=100&category=form-type`;
-        if (from === 0) log(`SC13 EFTS q= URL: ${url}`);
-        try {
-          const { status, body } = await get(url, 30000);
-          if (status !== 200) { log(`EFTS HTTP ${status}`); break; }
-          const data = JSON.parse(body.toString('utf8'));
-          const hits = data.hits?.hits || [];
-          if (from === 0) log(`EFTS q=${formQ} ${actualStart}-${endStr}: ${data.hits?.total?.value||0} total`);
-          if (!hits.length) break;
+    // Temporarily remove from log so fetchFormIdx re-fetches it
+    const prev = db.prepare('SELECT rows FROM sc13_quarter_log WHERE quarter=?').get(key);
+    db.prepare('DELETE FROM sc13_quarter_log WHERE quarter=?').run(key);
 
-          for (const h of hits) {
-            const raw = h._id || '';
-            const colonAt = raw.indexOf(':');
-            const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g,'-');
-            if (!accDash || seen.has(accDash)) continue;
-            seen.add(accDash);
-            const ft = h._source?.form_type || formQ.replace(/\+/g,' ').replace('%2F','/');
-            const filedDate = h._source?.file_date || endStr;
-            const entityName = h._source?.entity_name || '';
-            const cik = (h._source?.ciks||[])[0] || accDash.slice(0,10).replace(/^0+/,'');
-            allFilings.push({ filerHint:entityName, formType:ft, filedDate,
-              accession:accDash, secUrl:edgarIndexUrl(accDash, cik) });
-          }
-          await new Promise(r => setTimeout(r, 200));
-        } catch(e) { log(`EFTS error: ${e.message}`); break; }
-      }
+    const inserted = await fetchFormIdx(year, q);
+    totalInserted += inserted;
+
+    // Restore log entry with updated count
+    if (prev) {
+      db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)')
+        .run(key, (prev.rows || 0) + inserted);
     }
-
-    if (chunkStart.toISOString().slice(0,10) <= sinceStr) break;
-    chunkEnd = new Date(chunkStart);
-    await new Promise(r => setTimeout(r, 300));
   }
 
-  if (!allFilings.length) { log('SC 13D/G: 0 filings found'); return 0; }
-  log(`SC 13D/G: ${allFilings.length} filings found`);
-  const batch = allFilings.map(f => ['','',f.filerHint||'',f.formType,f.filedDate,f.filedDate,null,null,null,f.accession,f.secUrl,null]);
-  const inserted = insertMany(batch);
-  log(`SC 13D/G: ${inserted} new records inserted`);
-  const updFiler = db.prepare(`UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')`);
-  db.transaction(items => { for (const f of items) if (f.filerHint) updFiler.run(f.filerHint, f.accession); })(allFilings);
-  return inserted;
+  if (totalInserted > 0) log(`Recent SC 13D/G: ${totalInserted} new records from form.idx refresh`);
+  else log(`Recent SC 13D/G: 0 new records (form.idx current)`);
+  return totalInserted;
 }
 
 
