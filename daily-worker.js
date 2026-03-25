@@ -700,48 +700,56 @@ async function main() {
   // This keeps the site responsive on deploy/restart.
   log('Skipping startup backfill — hourly poll + 3am backfill handle updates.');
 
-  // 2. RSS poll: hourly during US market hours (9am-5pm ET Mon-Fri), otherwise skip
-  //    Heavy 3am ET daily backfill to catch anything missed
-  function isMarketHours() {
-    const now = new Date();
-    const day = now.getUTCDay(); // 0=Sun, 6=Sat
-    if (day === 0 || day === 6) return false;
-    // ET offset: UTC-5 (EST) or UTC-4 (EDT). Use UTC-4 as conservative
-    const etHour = (now.getUTCHours() - 4 + 24) % 24;
-    return etHour >= 9 && etHour < 17;
+  // ── Scheduled polls (ET times, weekdays only) ──────────────────
+  // Noon ET poll  : 12:00 ET = 16:00 UTC
+  // Close+15 poll : 16:15 ET = 20:15 UTC
+  // Overnight backfill: 3:00 ET = 07:00 UTC
+  // No continuous hourly polling — keeps server lean for traffic spikes
+
+  function etHour() {
+    // ET = UTC-4 (EDT) or UTC-5 (EST). Use UTC-4 as safe approximation.
+    return (new Date().getUTCHours() - 4 + 24) % 24;
+  }
+  function isWeekday() {
+    const day = new Date().getUTCDay(); // 0=Sun, 6=Sat
+    return day >= 1 && day <= 5;
   }
 
-  function scheduleHourlyPoll() {
-    const now = new Date();
-    const msToNextHour = (60 - now.getUTCMinutes()) * 60 * 1000 - now.getUTCSeconds() * 1000;
-    setTimeout(async () => {
-      if (isMarketHours()) {
-        log('Hourly RSS poll (market hours)...');
-        await runRSSPoll().catch(e => log(`Poll error: ${e.message}`));
-      }
-      scheduleHourlyPoll(); // schedule next hour
-    }, msToNextHour);
+  // Schedule a daily run at a fixed UTC time (HH:MM)
+  function scheduleDailyAt(utcHour, utcMin, label, fn) {
+    function msToNext() {
+      const now = new Date();
+      const target = new Date(now);
+      target.setUTCHours(utcHour, utcMin, 0, 0);
+      if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+      return target - now;
+    }
+    function run() {
+      const ms = msToNext();
+      log(`Next ${label} in ${Math.round(ms/60000)}min`);
+      setTimeout(async () => {
+        if (isWeekday() || label.includes('backfill')) {
+          log(`${label} starting...`);
+          await fn().catch(e => log(`${label} error: ${e.message}`));
+        } else {
+          log(`${label} skipped (weekend)`);
+        }
+        run(); // reschedule for next day
+      }, ms);
+    }
+    run();
   }
 
-  function schedule3amBackfill() {
-    const now = new Date();
-    // 3am ET = 7am UTC (EST) or 7am UTC (using UTC-4 = 3am ET)
-    const target = new Date(now);
-    target.setUTCHours(7, 0, 0, 0); // 3am ET (UTC-4)
-    if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-    const msToTarget = target - now;
-    log(`Next 3am ET backfill in ${Math.round(msToTarget/3600000)}h`);
-    setTimeout(async () => {
-      log('3am ET daily backfill starting...');
-      await runBackfill(2).catch(e => log(`3am backfill error: ${e.message}`));
-      schedule3amBackfill(); // reschedule for next day
-    }, msToTarget);
-  }
+  // Noon ET poll (16:00 UTC)
+  scheduleDailyAt(16, 0, 'Noon ET RSS poll', runRSSPoll);
 
-  log('Starting hourly RSS poll (market hours only) + 3am daily backfill...');
-  scheduleHourlyPoll();
-  schedule3amBackfill();
-  // Delay initial poll 2 minutes so site is fully responsive on boot
+  // 4:15pm ET poll — 15min after market close (20:15 UTC)
+  scheduleDailyAt(20, 15, '4:15pm ET RSS poll', runRSSPoll);
+
+  // 3:00am ET overnight backfill (07:00 UTC) — runs every day incl. weekends
+  scheduleDailyAt(7, 0, '3am ET overnight backfill', () => runBackfill(2));
+
+  // Initial poll 2 minutes after startup so site is fully responsive first
   log('Initial RSS poll delayed 2min to allow site to load...');
   setTimeout(() => runRSSPoll().catch(e => log(`Initial poll error: ${e.message}`)), 2 * 60 * 1000);
 }
