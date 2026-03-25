@@ -535,7 +535,7 @@ async function runRecentBackfill(daysBack) {
     const prev = db.prepare('SELECT rows FROM sc13_quarter_log WHERE quarter=?').get(key);
     db.prepare('DELETE FROM sc13_quarter_log WHERE quarter=?').run(key);
 
-    const inserted = await fetchFormIdx(year, q);
+    const inserted = await fetchQuarterIndex(year, q);
     totalInserted += inserted;
 
     // Restore log entry with updated count
