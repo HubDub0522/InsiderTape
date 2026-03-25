@@ -4794,6 +4794,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput'
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
 let _analysisData = null;     // 30-day trades cache
+let _sc13AnalysisData = null; // 30-day SC 13D/G filings cache for analysis
 let _analysisDataLong = null; // 3-year trades cache — loaded lazily by subpages that need it
 let _analysisDataLongLoading = false;
 let _analysisDataLongCallbacks = [];
@@ -4840,9 +4841,13 @@ async function loadAnalysisPage(subpage) {
   if (!_analysisData) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
     try {
-      const raw = await apiFetch('/api/screener?days=30');
+      const [raw, sc13Raw] = await Promise.all([
+        apiFetch('/api/screener?days=30'),
+        apiFetch('/api/sc13-recent?days=30').catch(() => []),
+      ]);
       _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
-    } catch(e) { _analysisData = []; }
+      _sc13AnalysisData = Array.isArray(sc13Raw) ? sc13Raw : [];
+    } catch(e) { _analysisData = []; _sc13AnalysisData = []; }
   }
 
   // Pre-fetch drift and proximity in background so tiles are instant when clicked
@@ -5627,6 +5632,19 @@ function scoreOpportunityRanker(rows) {
       .map(c => c.ticker)
   );
 
+  // SC 13D/G signals: build per-ticker maps from recent 13D/G filings
+  const sc13BuyTickers  = new Set(); // tickers with SC 13D/G buys in last 30 days
+  const sc13SellTickers = new Set(); // tickers with SC 13D/G sells (reduced stake) in last 30 days
+  const sc13DActivist   = new Set(); // tickers with SC 13D specifically (activist intent)
+  (_sc13AnalysisData || []).forEach(f => {
+    if (!f.ticker) return;
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    const isActivist = (f.filing_type || '').toUpperCase().includes('13D') &&
+                       !(f.filing_type || '').toUpperCase().includes('13G');
+    if (isSell) sc13SellTickers.add(f.ticker);
+    else { sc13BuyTickers.add(f.ticker); if (isActivist) sc13DActivist.add(f.ticker); }
+  });
+
 
   // Regime Shift: tickers with a bullish regime signal (buyer flip or buy accel)
   const regimeBullish = new Set();
@@ -5641,6 +5659,19 @@ function scoreOpportunityRanker(rows) {
       });
   } catch(e) {}
 
+
+  // SC 13D/G regime confirmation: boost bullish/bearish regime signals
+  // A regime shift confirmed by a major ownership change is significantly stronger
+  (_sc13AnalysisData || []).forEach(f => {
+    if (!f.ticker) return;
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    if (!isSell && regimeBullish.has(f.ticker)) {
+      // Bullish regime + 13D/G buying = very strong signal (already counted in sc13BuyTickers)
+    }
+    if (isSell && regimeBearish.has(f.ticker)) {
+      // Bearish regime + 13D/G selling = confirmed distribution
+    }
+  });
 
   // Event Proximity: tickers with an upcoming event signal
   const proximityMap = {};  // ticker → { score, daysTo, isAbnormal }
@@ -5713,10 +5744,14 @@ function scoreOpportunityRanker(rows) {
 
     // ── 10. Regime Shift signal (+8 pts bullish / −8 pts bearish) ─
     if (regimeBullish.has(r.ticker)) {
-      score += 8; factors.push(`Bullish regime shift detected`);
+      const sc13Confirms = sc13BuyTickers.has(r.ticker);
+      score += sc13Confirms ? 14 : 8;
+      factors.push(sc13Confirms ? `Bullish regime shift + SC 13D/G buying — dual confirmation` : `Bullish regime shift detected`);
     }
     if (regimeBearish.has(r.ticker)) {
-      score -= 8; factors.push(`⚠ Sell spike regime detected`);
+      const sc13Confirms = sc13SellTickers.has(r.ticker);
+      score -= sc13Confirms ? 14 : 8;
+      factors.push(sc13Confirms ? `⚠ Bearish regime + major holder selling — dual warning` : `⚠ Sell spike regime detected`);
     }
 
 
@@ -5738,6 +5773,16 @@ function scoreOpportunityRanker(rows) {
       score -= 12; factors.push(`⚠ Active exit warning signal`);
     }
 
+    // ── 15. SC 13D/G ownership signal ─────────────────────────────
+    if (sc13DActivist.has(r.ticker)) {
+      score += 18; factors.push(`SC 13D activist stake — major shareholder pushing for change`);
+    } else if (sc13BuyTickers.has(r.ticker)) {
+      score += 10; factors.push(`SC 13G — institutional 5%+ ownership confirmed`);
+    }
+    if (sc13SellTickers.has(r.ticker)) {
+      score -= 10; factors.push(`⚠ SC 13D/G — major holder reducing stake`);
+    }
+
     score = Math.min(100, Math.max(1, Math.round(score)));
 
     const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
@@ -5751,6 +5796,8 @@ function scoreOpportunityRanker(rows) {
       clusterTickers.has(r.ticker)      ? ['CLUSTER',   'var(--accent)',  'rgba(0,212,255,0.1)']   : null,
       regimeBullish.has(r.ticker)        ? ['REGIME↑',  'var(--buy)',     'rgba(0,255,136,0.08)']  : null,
       regimeBearish.has(r.ticker)        ? ['REGIME↓',  'var(--sell)',    'rgba(255,68,102,0.08)'] : null,
+      sc13DActivist.has(r.ticker)        ? ['SC 13D',   '#00d4ff',        'rgba(0,212,255,0.1)']   : null,
+      sc13BuyTickers.has(r.ticker) && !sc13DActivist.has(r.ticker) ? ['SC 13G', '#60a5fa', 'rgba(96,165,250,0.1)'] : null,
 
       prox && prox.daysTo <= 14          ? ['EVENT PROX','var(--sell)',    'rgba(255,68,102,0.08)'] : null,
       firstBuyTickers.has(r.ticker)      ? ['1ST BUY',   'var(--accent)', 'rgba(0,212,255,0.08)']  : null,
@@ -6054,6 +6101,19 @@ function detectExitWarnings(trades, priceHighs={}) {
     if (concurrentBuyers.length >= 2 && totalBuyVal > totalSellVal * 0.3) {
       score -= 10;
       context.push(`${concurrentBuyers.length} insiders also buying — mixed signal, less bearish`);
+    }
+
+    // ── SC 13D/G: major holder reducing stake is a strong exit signal ──
+    const sc13 = (_sc13AnalysisData || []).filter(f => f.ticker === ticker);
+    const sc13Sells = sc13.filter(f => f.shares_delta !== null && f.shares_delta < 0);
+    const sc13Buys  = sc13.filter(f => !f.shares_delta || f.shares_delta >= 0);
+    if (sc13Sells.length > 0) {
+      score += 20;
+      signals.push(`${sc13Sells.length} SC 13D/G filing${sc13Sells.length>1?'s':''} show major holder reducing stake`);
+    }
+    if (sc13Buys.length > 0 && sc13Sells.length === 0) {
+      score -= 8;
+      context.push(`SC 13G/D — major holder still accumulating, reduces bearish signal`);
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
