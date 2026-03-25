@@ -251,11 +251,7 @@ async function fetchQuarterIndex(year, q) {
       log(`  ${key} sample [${line.length}]: "${line.slice(0, 200)}"`);
       debugPrinted++;
     }
-    // For company.idx, also check the raw form type bytes
-    if (isCompanyIdx && scanned <= 2) {
-      const rawFT = line.slice(62, 80);
-      log(`  ${key} company.idx formType raw: ${JSON.stringify(rawFT)}`);
-    }
+
 
     // Date filed — EDGAR uses ISO (YYYY-MM-DD) in newer files,
     // MM/DD/YYYY in older quarterly files. Handle both.
@@ -279,19 +275,32 @@ async function fetchQuarterIndex(year, q) {
     if (parts.length !== 3) continue;
     const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
 
-    // Filer name: between col 12 and the CIK column
-    // Try padded CIK first, then raw CIK (format varies across quarters)
-    const cikPadded = cik.padStart(10, '0');
-    let cikPos      = line.indexOf(cikPadded);
-    if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + ' ');
-    if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + '\t');
-    const filerRaw  = cikPos > 12 ? line.slice(12, cikPos) : '';
-    const filer     = filerRaw.replace(/\s{2,}/g, ' ').trim();
+    // form.idx: filer name is between col 12 and CIK position
+    // company.idx: col 0-62 = SUBJECT company name (not the filer/investor)
+    let filer = '';
+    let subjectCompanyName = '';
+    if (isCompanyIdx) {
+      // company.idx: company name = subject company (the one being reported on)
+      subjectCompanyName = line.slice(0, 62).trim();
+    } else {
+      // form.idx: company name is between formtype col and CIK
+      const cikPadded = cik.padStart(10, '0');
+      let cikPos      = line.indexOf(cikPadded);
+      if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + ' ');
+      if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + '\t');
+      const filerRaw  = cikPos > 12 ? line.slice(12, cikPos) : '';
+      filer = filerRaw.replace(/\s{2,}/g, ' ').trim();
+    }
+
+    // For company.idx: cik = subject company CIK (the company being reported on)
+    // For form.idx: cik = filer CIK (the investor) — subject_cik resolved later
+    // Store as subject_cik so enrichRecentTickers can resolve ticker via data.sec.gov
+    const subjectCik = isCompanyIdx ? cik.padStart(10,'0') : null;
 
     batch.push([
-      '',          // ticker — resolved later by enrichRecentTickers()
-      '',          // company — resolved later
-      filer,       // filer = investor (directly available in form.idx)
+      '',                    // ticker — resolved later
+      subjectCompanyName,    // company = subject company name (from company.idx)
+      filer,                 // filer = investor name (blank for company.idx rows)
       formType,
       filedDate,
       filedDate,
@@ -300,17 +309,13 @@ async function fetchQuarterIndex(year, q) {
       null,        // shares_delta
       accDash,
       edgarIndexUrl(accDash, cik),
-      null, // subject_cik
+      subjectCik,  // subject_cik — allows fast ticker resolution
     ]);
   }
 
   if (!batch.length) {
     // Diagnostic: log sample of form types found to see what's actually in the file
-    // Search for SC 13 entries directly to diagnose
-    const sc13Lines = lines.filter(l => l.includes('SC 13'));
-    const sc13Sample = sc13Lines.slice(0,3).map(l => l.slice(0,100)).join(' | ');
-    log(`${key}: 0 inserted (scanned ${scanned} matching, ${lines.length} total lines, pastHeader=${pastHeader}, isCompanyIdx=${isCompanyIdx})`);
-    log(`${key}: SC 13 lines found: ${sc13Lines.length}, sample: ${sc13Sample || 'none'}`);
+    log(`${key}: 0 inserted (scanned ${scanned} matching, ${lines.length} total lines)`);
     db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, 0);
     return 0;
   }
@@ -573,24 +578,6 @@ async function runRecentBackfill(daysBack) {
   // Add previous quarter
   if (curQ === 1) quarters.push({ year: curYear - 1, q: 4 });
   else            quarters.push({ year: curYear,     q: curQ - 1 });
-
-  // One-time diagnostic: show all SC* form types in current quarter's form.idx
-  if (quarters.length > 0) {
-    const { year: dy, q: dq } = quarters[0];
-    try {
-      const diagUrl = `https://www.sec.gov/Archives/edgar/full-index/${dy}/QTR${dq}/form.idx`;
-      const { status: ds, body: db2 } = await get(diagUrl, 60000);
-      if (ds === 200) {
-        const diagText = db2.toString('utf8');
-        const scTypes = {};
-        for (const line of diagText.split('\n')) {
-          const ft = line.slice(0, 12).trim();
-          if (ft.startsWith('SC')) scTypes[ft] = (scTypes[ft] || 0) + 1;
-        }
-        log(`${dy}Q${dq} form.idx SC* types: ${JSON.stringify(scTypes)}`);
-      }
-    } catch(e) {}
-  }
 
   let totalInserted = 0;
   for (const { year, q } of quarters) {
