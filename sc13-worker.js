@@ -184,6 +184,7 @@ async function fetchQuarterIndex(year, q) {
     bodyText = body.toString('utf8');
   } catch(e) { log(`${key}: fetch error — ${e.message}`); return 0; }
 
+  let isCompanyIdx = false;
   const lines = bodyText.split('\n');
 
   // Detect non-index files: EDGAR sometimes returns a readme/metadata file
@@ -193,10 +194,33 @@ async function fetchQuarterIndex(year, q) {
   const firstLines = lines.slice(0, 5).join(' ');
   if (/Description:|Last Data Re|Comments:|This file/i.test(firstLines) &&
       !/Form Type/i.test(firstLines)) {
-    log(`${key}: EDGAR returned non-index file (readme/metadata), skipping`);
-    log(`${key}: first line: "${lines[0]?.slice(0,80)}"`);
-    db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
-    return 0;
+    log(`${key}: form.idx is readme — trying company.idx fallback...`);
+    // EDGAR sometimes returns readme for recent quarters on form.idx
+    // company.idx has same filing data in same format
+    try {
+      const url2 = `https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${q}/company.idx`;
+      const r2 = await get(url2, 90000);
+      if (r2.status === 200) {
+        bodyText = r2.body.toString('utf8');
+        const fl2 = bodyText.split('\n').slice(0,5).join(' ');
+        if (/Description:|Last Data Re|Comments:/i.test(fl2) && !/Company Name/i.test(fl2)) {
+          log(`${key}: company.idx also readme — skipping quarter`);
+          db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
+          return 0;
+        }
+        // company.idx has different column order: Company Name, Form Type, CIK, Date, Filename
+        // We need to re-parse it differently
+        log(`${key}: using company.idx (${bodyText.length} bytes)`);
+        // Fall through to parsing below with a flag
+        isCompanyIdx = true;
+      } else {
+        db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
+        return 0;
+      }
+    } catch(e) {
+      db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
+      return 0;
+    }
   }
 
   let pastHeader = false;
@@ -211,8 +235,8 @@ async function fetchQuarterIndex(year, q) {
     }
     if (line.length < 40) continue;
 
-    // Form type is left-aligned in the first ~12 characters
-    const formType = line.slice(0, 12).trim();
+    // form.idx: Form Type first (cols 0-12), company.idx: Company Name first then Form Type (cols 62-74)
+    const formType = isCompanyIdx ? line.slice(62, 74).trim() : line.slice(0, 12).trim();
     if (!SC13_TYPES.has(formType)) continue;
     scanned++;
 
@@ -310,6 +334,25 @@ async function runHistoricalBackfill() {
   // Last completed quarter = one before current
   const FORM_IDX_CUTOFF_YEAR = curQ === 1 ? curYear - 1 : curYear;
   const FORM_IDX_CUTOFF_Q    = curQ === 1 ? 4 : curQ - 1;
+
+  // One-time migration: clear log entries for quarters that were previously skipped
+  // due to the old EFTS cutoff (2024Q4 through last completed quarter).
+  // These quarters are now handled by form.idx and need to be fetched.
+  const skippedQuarters = [];
+  for (let yr = 2024; yr <= FORM_IDX_CUTOFF_YEAR; yr++) {
+    const startQ = yr === 2024 ? 4 : 1;
+    const endQ   = yr === FORM_IDX_CUTOFF_YEAR ? FORM_IDX_CUTOFF_Q : 4;
+    for (let q = startQ; q <= endQ; q++) {
+      const key = `${yr}Q${q}`;
+      const existing = db.prepare('SELECT rows FROM sc13_quarter_log WHERE quarter=?').get(key);
+      // If this quarter was marked with 0 rows it was skipped by the old code - re-fetch
+      if (existing && existing.rows === 0) {
+        db.prepare('DELETE FROM sc13_quarter_log WHERE quarter=?').run(key);
+        skippedQuarters.push(key);
+      }
+    }
+  }
+  if (skippedQuarters.length) log(`Clearing ${skippedQuarters.length} previously-skipped quarters: ${skippedQuarters.join(', ')}`);
 
   log(`Historical backfill: 2004 Q1 through ${FORM_IDX_CUTOFF_YEAR} Q${FORM_IDX_CUTOFF_Q}`);
 
