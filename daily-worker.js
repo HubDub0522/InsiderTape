@@ -372,9 +372,9 @@ async function fetchViaAtom(sinceDate) {
 
 
 async function pollRSS() {
-  // For the live 2-min poll, grab everything from today (fast, usually <40 new)
-  const today = new Date().toISOString().slice(0, 10);
-  return fetchRecentFilings(today);
+  // Cover last 2 days so filings from yesterday aren't missed between scheduled polls
+  const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  return fetchRecentFilings(since);
 }
 
 // ── EDGAR daily index (definitive — lists every filing for each day) ─
@@ -583,13 +583,22 @@ async function processBatch(filings, label) {
       log(`  ${i + CONCURRENCY}/${newFilings.length} — inserted:${inserted} failed:${failed}`);
     // Yield to event loop so Express can serve requests during backfill
     await new Promise(r => setImmediate(r));
+    // Extra yield every 10 batches to prevent sustained lock pressure
+    if (Math.floor(i / CONCURRENCY) % 10 === 0) await new Promise(r => setTimeout(r, 10));
   }
 
   log(`${label} done — inserted:${inserted} failed:${failed} from ${newFilings.length} filings`);
 
   // Mark all processed filings as seen so future backfills skip them instantly
-  const markMany = db.transaction(items => { for (const f of items) markSeen.run(f.accession); });
-  markMany(newFilings);
+  // Mark seen in small chunks with event loop yields between them
+  // to avoid blocking Express during large backfills
+  const MARK_CHUNK = 50;
+  for (let i = 0; i < newFilings.length; i += MARK_CHUNK) {
+    const chunk = newFilings.slice(i, i + MARK_CHUNK);
+    const markChunk = db.transaction(items => { for (const f of items) markSeen.run(f.accession); });
+    markChunk(chunk);
+    if (i + MARK_CHUNK < newFilings.length) await new Promise(r => setImmediate(r));
+  }
 
   return inserted;
 }
