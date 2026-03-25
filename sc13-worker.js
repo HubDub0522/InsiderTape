@@ -712,8 +712,11 @@ async function main() {
     runHistoricalBackfillForQuarters(missing).catch(e => log(`Historical backfill error: ${e.message}`));
   }
 
-  // Re-check for new filings every 4 hours — 5 day window to catch any gaps
-  log('SC 13D/G worker: polling every 4 hours');
+  // Always run enrichment on startup to resolve tickers for any unenriched rows
+  log('SC 13D/G worker: running enrichment then polling every 4 hours');
+  enrichRecentTickers().catch(e => log(`Enrichment error: ${e.message}`));
+
+  // Re-check for new filings every 4 hours
   setInterval(() => {
     runRecentBackfill(5)
       .then(() => enrichRecentTickers())
