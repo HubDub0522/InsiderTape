@@ -249,6 +249,11 @@ async function fetchQuarterIndex(year, q) {
       log(`  ${key} sample [${line.length}]: "${line.slice(0, 200)}"`);
       debugPrinted++;
     }
+    // For company.idx, also check the raw form type bytes
+    if (isCompanyIdx && scanned <= 2) {
+      const rawFT = line.slice(62, 80);
+      log(`  ${key} company.idx formType raw: ${JSON.stringify(rawFT)}`);
+    }
 
     // Date filed — EDGAR uses ISO (YYYY-MM-DD) in newer files,
     // MM/DD/YYYY in older quarterly files. Handle both.
@@ -574,6 +579,24 @@ async function runRecentBackfill(daysBack) {
   // Add previous quarter
   if (curQ === 1) quarters.push({ year: curYear - 1, q: 4 });
   else            quarters.push({ year: curYear,     q: curQ - 1 });
+
+  // One-time diagnostic: show all SC* form types in current quarter's form.idx
+  if (quarters.length > 0) {
+    const { year: dy, q: dq } = quarters[0];
+    try {
+      const diagUrl = `https://www.sec.gov/Archives/edgar/full-index/${dy}/QTR${dq}/form.idx`;
+      const { status: ds, body: db2 } = await get(diagUrl, 60000);
+      if (ds === 200) {
+        const diagText = db2.toString('utf8');
+        const scTypes = {};
+        for (const line of diagText.split('\n')) {
+          const ft = line.slice(0, 12).trim();
+          if (ft.startsWith('SC')) scTypes[ft] = (scTypes[ft] || 0) + 1;
+        }
+        log(`${dy}Q${dq} form.idx SC* types: ${JSON.stringify(scTypes)}`);
+      }
+    } catch(e) {}
+  }
 
   let totalInserted = 0;
   for (const { year, q } of quarters) {
