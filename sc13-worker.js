@@ -508,81 +508,67 @@ async function runRecentBackfill(daysBack) {
   const sinceStr = since.toISOString().slice(0, 10);
   const today    = new Date().toISOString().slice(0, 10);
 
-  log(`SC 13D/G EFTS backfill: ${sinceStr} to ${today}`);
+  log(`SC 13D/G backfill: ${sinceStr} to ${today}`);
 
-  // Use same EFTS endpoint as daily-worker (proven to work), just with SC 13D/G form types
-  // Process date range in 30-day chunks to avoid timeout
+  // EFTS forms= doesn't work for space-containing types like "SC 13D".
+  // Use EDGAR full-text search with q= to search for the form type in the document text.
+  // This is what EDGAR's own search UI does at https://efts.sec.gov/LATEST/search-index
   const allFilings = [];
   const seen = new Set();
 
-  let chunkEnd = new Date(today);
+  // Process in 30-day chunks
+  let chunkEnd = new Date(today + 'T12:00:00Z');
   while (true) {
     const chunkStart = new Date(chunkEnd);
     chunkStart.setDate(chunkStart.getDate() - 30);
-    const startStr = chunkStart.toISOString().slice(0,10);
     const endStr   = chunkEnd.toISOString().slice(0,10);
-    if (endStr <= sinceStr) break;
+    const startStr = chunkStart.toISOString().slice(0,10);
     const actualStart = startStr < sinceStr ? sinceStr : startStr;
+    if (endStr <= sinceStr) break;
 
-    log(`SC 13D/G EFTS chunk: ${actualStart} to ${endStr}`);
+    // Try EFTS with category=form-type parameter (used by EDGAR search UI)
+    for (const formQ of ['SC+13D', 'SC+13G', 'SC+13D%2FA', 'SC+13G%2FA']) {
+      for (let from = 0; from < 2000; from += 100) {
+        const url = `https://efts.sec.gov/LATEST/search-index?q=%22${formQ}%22&dateRange=custom&startdt=${actualStart}&enddt=${endStr}&from=${from}&size=100&category=form-type`;
+        if (from === 0) log(`SC13 EFTS q= URL: ${url}`);
+        try {
+          const { status, body } = await get(url, 30000);
+          if (status !== 200) { log(`EFTS HTTP ${status}`); break; }
+          const data = JSON.parse(body.toString('utf8'));
+          const hits = data.hits?.hits || [];
+          if (from === 0) log(`EFTS q=${formQ} ${actualStart}-${endStr}: ${data.hits?.total?.value||0} total`);
+          if (!hits.length) break;
 
-    for (let from = 0; from < 2000; from += 100) {
-      // Try the same EFTS endpoint that works for Form 4
-      const url = `https://efts.sec.gov/LATEST/search-index?forms=SC+13D,SC+13G,SC+13D%2FA,SC+13G%2FA&dateRange=custom&startdt=${actualStart}&enddt=${endStr}&from=${from}&size=100`;
-      if (from === 0) log(`EFTS URL: ${url}`);
-      try {
-        const { status, body } = await get(url, 30000);
-        if (status !== 200) { log(`EFTS HTTP ${status}`); break; }
-        const data = JSON.parse(body.toString('utf8'));
-        const hits = data.hits?.hits || [];
-        if (from === 0) log(`EFTS hits for ${actualStart}-${endStr}: ${data.hits?.total?.value || 0} total`);
-        if (!hits.length) break;
-
-        for (const h of hits) {
-          const raw = h._id || '';
-          const colonAt = raw.indexOf(':');
-          const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
-          if (!accDash || seen.has(accDash)) continue;
-          seen.add(accDash);
-
-          const ft = h._source?.form_type || 'SC 13D';
-          if (!SC13_TYPES.has(ft)) continue;
-
-          const filedDate = h._source?.file_date || endStr;
-          const entityName = h._source?.entity_name || '';
-          const ciks = h._source?.period_of_report ? [] : (h._source?.ciks || []);
-          const cik = ciks[0] || accDash.slice(0,10).replace(/^0+/,'');
-
-          allFilings.push({ filerHint: entityName, formType: ft, filedDate,
-            accession: accDash, secUrl: edgarIndexUrl(accDash, cik) });
-        }
-        await new Promise(r => setTimeout(r, 200));
-      } catch(e) { log(`EFTS error: ${e.message}`); break; }
+          for (const h of hits) {
+            const raw = h._id || '';
+            const colonAt = raw.indexOf(':');
+            const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g,'-');
+            if (!accDash || seen.has(accDash)) continue;
+            seen.add(accDash);
+            const ft = h._source?.form_type || formQ.replace(/\+/g,' ').replace('%2F','/');
+            const filedDate = h._source?.file_date || endStr;
+            const entityName = h._source?.entity_name || '';
+            const cik = (h._source?.ciks||[])[0] || accDash.slice(0,10).replace(/^0+/,'');
+            allFilings.push({ filerHint:entityName, formType:ft, filedDate,
+              accession:accDash, secUrl:edgarIndexUrl(accDash, cik) });
+          }
+          await new Promise(r => setTimeout(r, 200));
+        } catch(e) { log(`EFTS error: ${e.message}`); break; }
+      }
     }
 
-    chunkEnd = new Date(chunkStart);
     if (chunkStart.toISOString().slice(0,10) <= sinceStr) break;
-    await new Promise(r => setTimeout(r, 500));
+    chunkEnd = new Date(chunkStart);
+    await new Promise(r => setTimeout(r, 300));
   }
 
-  if (!allFilings.length) { log('SC 13D/G: 0 filings found via EFTS'); return 0; }
+  if (!allFilings.length) { log('SC 13D/G: 0 filings found'); return 0; }
   log(`SC 13D/G: ${allFilings.length} filings found`);
-
-  const batch = allFilings.map(f => [
-    '', '', f.filerHint||'',
-    f.formType, f.filedDate, f.filedDate,
-    null, null, null, f.accession, f.secUrl, null,
-  ]);
+  const batch = allFilings.map(f => ['','',f.filerHint||'',f.formType,f.filedDate,f.filedDate,null,null,null,f.accession,f.secUrl,null]);
   const inserted = insertMany(batch);
   log(`SC 13D/G: ${inserted} new records inserted`);
-
   const updFiler = db.prepare(`UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')`);
-  const doUpdate = db.transaction(items => {
-    let n = 0;
-    for (const f of items) if (f.filerHint) n += updFiler.run(f.filerHint, f.accession).changes;
-    return n;
-  });
-  doUpdate(allFilings);
+  db.transaction(items => { for (const f of items) if (f.filerHint) updFiler.run(f.filerHint, f.accession); })(allFilings);
   return inserted;
 }
 
