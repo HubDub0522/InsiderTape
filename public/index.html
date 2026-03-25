@@ -908,7 +908,11 @@
         <div>
           <div class="screener-title">RECENT INSIDER TRADES</div>
           <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
-          <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
+          <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
+          <div id="sc13Banner" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);border-radius:6px;font-size:11px;color:var(--muted);line-height:1.6;max-width:700px">
+            <span style="color:var(--accent);font-family:'Space Mono',monospace;font-weight:700">◆ About 5%+ Ownership Filings</span><br>
+            SC 13D and SC 13G filings report when an investor crosses the <strong style="color:var(--text)">5% ownership threshold</strong> in a public company. Unlike Form 4 trades, these filings do not disclose a transaction price, share count, or dollar value — they only confirm that a significant ownership stake exists. Dashes (—) in the price, value, and shares columns are expected. The filing date and filer name are the key signals.
+          </div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           
@@ -1453,6 +1457,18 @@ function toggleDays(el) {
   saveFilters();
 }
 
+
+function sc13Tooltip(filingType) {
+  const t = (filingType || '').toUpperCase();
+  if (t.includes('13D')) return t.includes('/A')
+    ? 'SC 13D/A: Amendment to an SC 13D. A shareholder who previously disclosed 5%+ ownership is updating their filing — ownership, intentions, or other details have changed.'
+    : 'SC 13D: Filed when an investor acquires more than 5% of a company and has activist intent — plans to influence management, push for a sale, or seek board seats. High-signal event.';
+  if (t.includes('13G')) return t.includes('/A')
+    ? 'SC 13G/A: Amendment to an SC 13G. A passive 5%+ holder is updating their ownership percentage, typically after buying or selling shares.'
+    : 'SC 13G: Filed when an investor acquires more than 5% of a company passively — no intent to influence control. Common for index funds and institutional investors.';
+  return 'Beneficial ownership filing: reports a 5%+ stake in a public company.';
+}
+
 async function loadScreener() {
   state.minVal = parseInt(document.getElementById('minVal').value) || 0;
   const days = state.days || 7;
@@ -1642,6 +1658,10 @@ function renderConvictionCards(trades) {
 function renderScreener() {
   window.scrollTo(0, 0);
   const data = state.screenerData;
+  // Show sc13 info banner when 5% Owner filter active or sc13 rows present
+  const hasSc13 = state.activeRole === '5pct' || data.some(t => t._isSc13);
+  const banner = document.getElementById('sc13Banner');
+  if (banner) banner.style.display = hasSc13 ? 'block' : 'none';
   const buys = data.filter(t => t.type==='P'), sells = data.filter(t => t.type==='S'||t.type==='S-');
   const totalBuyVal = buys.reduce((s,t)=>s+t.value,0), totalSellVal = sells.reduce((s,t)=>s+t.value,0);
   document.getElementById('summaryBar').innerHTML = `
@@ -1686,7 +1706,7 @@ function renderScreener() {
       return `<tr onclick="${hasTicker ? `openTickerFromScreener('${t.ticker}')` : ''}" style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'};${hasTicker?'cursor:pointer':'cursor:default'}">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><br>${edgarLink}</td>
       <td>${tickerDisplay}</td>
-      <td onclick="event.stopPropagation()"><span style="color:${dColor};font-weight:600">◆ ${(t.insider||'').replace(/^[,\s]+/,'').trim() || '5%+ Owner'}</span><span class="insider-title" style="color:${dColor};opacity:0.8">${t.title||'SC 13D/G'}</span></td>
+      <td onclick="event.stopPropagation()"><span style="color:${dColor};font-weight:600">◆ ${(t.insider||'').replace(/^[,\s]+/,'').trim() || '5%+ Owner'}</span><span class="insider-title" style="color:${dColor};opacity:0.8">${t.title||'SC 13D/G'}</span><span title="${sc13Tooltip(t.title)}" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;margin-left:5px;flex-shrink:0;font-family:'Space Mono',monospace">?</span></td>
       <td><span style="padding:2px 8px;border-radius:3px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;background:${t.type==='S'?'rgba(255,0,255,0.15)':'rgba(0,212,255,0.15)'};color:${dColor};border:1px solid ${t.type==='S'?'rgba(255,0,255,0.4)':'rgba(0,212,255,0.4)'}">${t.type==='S'?'SELL':'BUY'}</span></td>
       <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--muted)">${t.qty?fmtShares(t.qty):'—'}</td>
       <td class="hide-mobile" style="color:var(--muted)">—</td>
