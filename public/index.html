@@ -798,7 +798,7 @@
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" id="tickerInput" placeholder="Search ticker or insider name…" maxlength="60" autocomplete="off">
     <button class="search-btn" onclick="globalSearch()">GO</button>
-    <div id="globalSuggest" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-radius:8px;z-index:200;box-shadow:0 8px 28px rgba(0,0,0,0.5);overflow:hidden;max-height:320px;overflow-y:auto"></div>
+
   </div>
   <nav class="nav-tabs">
     <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
@@ -1198,45 +1198,7 @@ function globalSearch() {
 }
 
 let _globalSuggestTimer = null;
-function onGlobalInput(val) {
-  if (_suppressSuggest) return;
-  clearTimeout(_globalSuggestTimer);
-  const box = document.getElementById('globalSuggest');
-  if (!val || val.length < 1) { if (box) box.style.display = 'none'; return; }
-  _globalSuggestTimer = setTimeout(async () => {
-    const suggestions = [];
-    try {
-      const res = await apiFetch('/api/search?q=' + encodeURIComponent(val));
-      // Ticker matches first
-      (res.tickers || []).forEach(t => {
-        suggestions.push({ type: 'ticker', label: t.ticker, sub: t.company || t.ticker, icon: '📈' });
-      });
-      // Then insider name matches
-      (res.insiders || []).forEach(i => {
-        suggestions.push({ type: 'insider', label: i.name, sub: i.title || 'Insider profile', icon: '👤' });
-      });
-    } catch(_) {
-      // Fallback: just offer the typed value as ticker or name
-      const upper = val.toUpperCase().replace(/[^A-Z]/g, '');
-      if (upper.length >= 1) suggestions.push({ type: 'ticker', label: upper, sub: 'Go to Stock View', icon: '📈' });
-      suggestions.push({ type: 'insider', label: val, sub: 'Search insiders by name', icon: '👤' });
-    }
-    if (!box) return;
-    if (!suggestions.length) { box.style.display = 'none'; return; }
-    box.innerHTML = suggestions.slice(0, 10).map((s, idx) => `
-      <div data-sidx="${idx}"
-           style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04);transition:background .1s"
-           onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background=''">
-        <span style="font-size:14px;flex-shrink:0">${s.icon}</span>
-        <div style="min-width:0">
-          <div style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${s.type==='ticker'?'var(--accent)':'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.label}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.sub}</div>
-        </div>
-      </div>`).join('');
-    box._suggestions = suggestions.slice(0, 10);
-    box.style.display = 'block';
-  }, 60);
-}
+function onGlobalInput(val) { /* suggest removed */ }
 
 function selectGlobalSuggest(type, label) {
   document.getElementById('tickerInput').value = label;
@@ -1289,7 +1251,7 @@ document.getElementById('tickerInput').addEventListener('keydown', e => {
     setTimeout(globalSearch, 0);
   }
 });
-document.getElementById('tickerInput').addEventListener('input', e => onGlobalInput(e.target.value));
+// suggest box removed
 document.addEventListener('click', e => { if (!e.target.closest('.search-wrap')) hideGlobalSuggest(); });
 
 // F2: Reliable scroll-to-top — window.scrollTo(0,0) alone fails on iOS Safari
@@ -5003,7 +4965,7 @@ function renderAnalysisDashboard() {
       id: 'ranker',
       icon: '🏆',
       name: 'Insider Opportunity Ranker',
-      desc: 'The master score. Combines signals from every tool on this page — clusters, regime shifts, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
+      desc: 'The master score. Combines signals from every tool on this page — clusters, regime shifts, event proximity, first-buy signals, exit warnings, 52-week low proximity, and SC 13D/G institutional ownership — into one ranked list.',
       count: _rankerCache ? _rankerCache.length : '…',
       countLabel: 'tickers ranked',
       loading: rankerLoading,
@@ -5055,7 +5017,7 @@ function renderAnalysisDashboard() {
       id: 'exitwarning',
       icon: '🔴',
       name: 'Insider Exit Warning',
-      desc: 'Detects when multiple insiders, especially executives, are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. Warning signs of coordinated insider distribution.',
+      desc: 'Detects when multiple insiders, especially executives, are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. Also flags SC 13D/G filings showing major holders reducing their stake.',
       count: (() => { try { const _ew = detectExitWarnings(trades, window._exitWarningPriceHighs||{}); window._exitWarningTileCache = _ew; return _ew.length; } catch(e) { return 0; } })(),
       countLabel: 'warnings active',
       top3: (() => { try { return (window._exitWarningTileCache || detectExitWarnings(trades, window._exitWarningPriceHighs||{})).slice(0,3).map(w => ({
@@ -5132,7 +5094,7 @@ function renderAnalysisDashboard() {
     id: 'regimeshift',
     icon: '📡',
     name: 'Regime Shift Detector',
-    desc: 'Detects when insider behavior changes materially vs their own 6-month baseline: chronic sellers suddenly buying, dormant insiders activating, selling intensity spiking. Catches inflection before price.',
+    desc: 'Detects when insider behavior changes materially vs their own 6-month baseline: chronic sellers suddenly buying, dormant insiders activating, selling intensity spiking. SC 13D/G ownership changes are factored in — a bullish regime confirmed by institutional accumulation scores significantly higher.',
     count: _regimeData.length,
     countLabel: 'regime shifts detected',
     top3: regimeTop3.map(r => ({
@@ -6457,9 +6419,27 @@ function renderClusterEngine(trades) {
   </div>`;
 }
 
-function detectAdvancedClusters(trades) {
+function detectAdvancedClusters(trades, sc13Data) {
+  // Merge SC 13D/G buys as synthetic trades for cluster detection
+  const sc13Buys = (sc13Data || _sc13AnalysisData || [])
+    .filter(f => f.ticker && (!f.shares_delta || f.shares_delta >= 0))
+    .map(f => ({
+      ticker:   f.ticker,
+      company:  f.company || f.ticker,
+      insider:  f.filer || '5%+ Owner',
+      title:    f.filing_type || 'SC 13D/G',
+      trade:    f.filed_date,
+      filing:   f.filed_date,
+      type:     'P',
+      qty:      f.shares_owned || 0,
+      price:    0,
+      value:    0,
+      _isSc13:  true,
+    }));
+  const allTrades = [...trades, ...sc13Buys];
+
   // Only open-market buys, sorted by transaction date
-  const buys = trades
+  const buys = allTrades
     .filter(t => t.type === 'P' && (t.trade || t.filing))
     .sort((a,b) => (a.trade||a.filing||'').localeCompare(b.trade||b.filing||''));
 
@@ -6474,7 +6454,7 @@ function detectAdvancedClusters(trades) {
 
   // Group by ticker
   const byTicker = {};
-  trades.forEach(t => { if (!byTicker[t.ticker]) byTicker[t.ticker] = []; byTicker[t.ticker].push(t); });
+  allTrades.forEach(t => { if (!byTicker[t.ticker]) byTicker[t.ticker] = []; byTicker[t.ticker].push(t); });
 
   const results = [];
 
@@ -6546,7 +6526,7 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   const pricesAll  = clusterBuys.map(t => t.price).filter(p => p > 0);
   const uniquePrices = new Set(pricesAll.map(p => p.toFixed(2)));
   const uniqueDates  = new Set(tradeDates.filter(Boolean));
-  const isStockPlan  = insiderCount >= 5 && uniquePrices.size === 1 && uniqueDates.size <= 2;
+  const isStockPlan  = insiderCount >= 4 && uniquePrices.size === 1 && uniqueDates.size <= 2;
   if (isStockPlan) {
     score -= 40;
     penalties.push(`⚠️ Likely stock plan / ESPP — ${insiderCount} insiders, identical price $${pricesAll[0]?.toFixed(2)}`);
@@ -8173,7 +8153,7 @@ function renderMonitorShell(body) {
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div><div class="live-badge" title="Data updated hourly during market hours"><div class="live-dot"></div>LIVE · HOURLY</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 and SC 13D/G filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
     </div>
     <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
       <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">TOTAL INSIDER ACTIVITY GAUGES</div>
@@ -9625,7 +9605,7 @@ function loadPremiumPage() {
   const featureCards = [
     {
       icon: '📬', title: 'EMAIL ALERTS',
-      desc: 'Get notified within minutes of a qualifying insider filing. Filter by sector (Healthcare, Tech, Energy and more), insider role (CEO, CFO, Director), minimum trade size, and signal type. Set it once — never miss a high-conviction buy again.',
+      desc: 'Get notified within minutes of a qualifying insider filing — including SC 13D activist stakes and SC 13G institutional accumulation. Filter by sector, role, minimum trade size, and signal type. Set it once — never miss a high-conviction buy again.',
       mock: alertsMockup
     },
     {
@@ -9635,7 +9615,7 @@ function loadPremiumPage() {
     },
     {
       icon: '📊', title: 'ANALYSIS DASHBOARD',
-      desc: 'Sector-level breakdowns, conviction scoring, cluster detection, and trend analysis. See where the buy pressure is concentrated across the whole market, not just individual stocks.',
+      desc: 'Sector-level breakdowns, conviction scoring, cluster detection, SC 13D/G institutional signals, and trend analysis. See where buy pressure is concentrated across the whole market, not just individual stocks.',
       mock: analysisMockup
     },
     {
@@ -9645,7 +9625,7 @@ function loadPremiumPage() {
     },
     {
       icon: '🚨', title: 'MONITOR',
-      desc: 'Every signal ranked by strength across all detection engines — cluster buys, first-time purchases after years of inactivity, C-suite conviction outliers, and exit warnings. Updated continuously throughout the trading day.',
+      desc: 'Every signal ranked by strength across all detection engines — cluster buys, SC 13D/G ownership changes, first-time purchases after years of inactivity, C-suite conviction outliers, and exit warnings. Updated continuously throughout the trading day.',
       mock: monitorMockup
     },
     {
@@ -9670,7 +9650,7 @@ function loadPremiumPage() {
 
       <div style="text-align:center;margin-bottom:56px">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
-        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required disclosures when they buy or sell their own stock. InsiderTape Premium gives you every tool to act on that signal before the crowd does.</div>
+        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders and institutional investors file legally required disclosures when they buy, sell, or cross the 5% ownership threshold. InsiderTape Premium gives you every tool to act on those signals before the crowd does.</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:56px;margin-bottom:72px">
