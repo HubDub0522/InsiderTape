@@ -738,15 +738,37 @@ async function main() {
   }
 
   // Always run enrichment on startup to resolve tickers for any unenriched rows
-  log('SC 13D/G worker: running enrichment then polling every 4 hours');
+  log('SC 13D/G worker: running enrichment then scheduling polls...');
   enrichRecentTickers().catch(e => log(`Enrichment error: ${e.message}`));
 
-  // Re-check for new filings every 4 hours
-  setInterval(() => {
-    runRecentBackfill(5)
-      .then(() => enrichRecentTickers())
-      .catch(e => log(`Poll error: ${e.message}`));
-  }, 4 * 60 * 60 * 1000);
+  // ── SC 13D/G scheduled polls ────────────────────────────────────
+  // 4:30pm ET = 20:30 UTC — catch filings made during/after market hours
+  // 3:30am ET = 07:30 UTC — overnight sweep + enrichment run
+  // No continuous 4-hour polling — lean on schedule instead
+
+  function scheduleSc13At(utcHour, utcMin, label) {
+    function msToNext() {
+      const now = new Date();
+      const target = new Date(now);
+      target.setUTCHours(utcHour, utcMin, 0, 0);
+      if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
+      return target - now;
+    }
+    function run() {
+      const ms = msToNext();
+      log(`Next SC 13D/G ${label} in ${Math.round(ms/60000)}min`);
+      setTimeout(async () => {
+        log(`SC 13D/G ${label} starting...`);
+        await runRecentBackfill(5).catch(e => log(`${label} backfill error: ${e.message}`));
+        await enrichRecentTickers().catch(e => log(`${label} enrichment error: ${e.message}`));
+        run(); // reschedule
+      }, ms);
+    }
+    run();
+  }
+
+  scheduleSc13At(20, 30, '4:30pm ET poll');   // 20:30 UTC = 4:30pm ET
+  scheduleSc13At(7,  30, '3:30am ET sweep');  // 07:30 UTC = 3:30am ET
 }
 
 main().catch(e => {
