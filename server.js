@@ -2496,7 +2496,7 @@ function runSc13(daysBack = 90) {
   });
 }
 // Start 10 seconds after boot so daily-worker gets priority on the DB connection
-setTimeout(() => runSc13(90), 10000);
+setTimeout(() => runSc13(90), 20000); // 20s delay — lets daily-worker finish startup writes first
 
 // H5: Sequential chain — price warm → drift → proximity → scoreboard
 // Prevents all three from hammering external price APIs simultaneously.
