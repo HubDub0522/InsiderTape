@@ -87,6 +87,7 @@ try {
     WHERE subject_cik IS NOT NULL
       AND subject_cik NOT LIKE '%,%'
       AND LENGTH(subject_cik) > 0
+      AND (filer IS NOT NULL AND filer != '')
   `).run();
   if (cleared.changes > 0) log(`Cleared ${cleared.changes} stale single-CIK subject_cik values`);
 } catch(e) {}
@@ -408,7 +409,9 @@ async function runHistoricalBackfillForQuarters(quarterKeys) {
 // For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
 // The SUBJECT company CIK appears on the index page as "(Subject)".
 async function enrichRecentTickers() {
-  // One-time migration: extract subject_cik from url for rows inserted before this fix
+  // Migration: extract subject_cik from URL only for company.idx rows
+  // (identified by having company name set but blank filer — company.idx format)
+  // form.idx rows have the FILER's CIK in the URL, not the subject company's CIK
   const urlMigration = db.prepare(`
     UPDATE sc13_transactions
     SET subject_cik = CAST(
@@ -418,7 +421,9 @@ async function enrichRecentTickers() {
     )
     WHERE (subject_cik IS NULL OR subject_cik = '')
       AND url IS NOT NULL AND url LIKE '%/data/%/%'
-      AND ticker IS NULL OR ticker = ''
+      AND (ticker IS NULL OR ticker = '')
+      AND company IS NOT NULL AND company != ''
+      AND (filer IS NULL OR filer = '')
   `).run();
   if (urlMigration.changes > 0) log(`Subject CIK migration: ${urlMigration.changes} rows updated from URL`);
 
