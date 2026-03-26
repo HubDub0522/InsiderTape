@@ -572,14 +572,27 @@ async function enrichRecentTickers() {
   if (!rows.length) { log('Ticker enrichment phase 2: nothing to enrich'); return; }
   log(`Ticker enrichment phase 2: ${rows.length} rows to resolve via index page`);
 
+  let _p2LogCount = 0;
   async function getSubjectCik(accession, indexUrl) {
     try {
+      if (!indexUrl) return null;
       const { status, body } = await get(indexUrl, 15000);
+      if (_p2LogCount < 3) {
+        log(`Phase 2 sample: status=${status} url=${indexUrl.slice(0,80)}`);
+        _p2LogCount++;
+      }
       if (status !== 200) return null;
       const html = body.toString('utf8');
-      const m = html.match(/companyName[^>]*>[^<]+\((\d{7,10})\)\s*\(Subject\)/i)
-             || html.match(/\((\d{7,10})\)\s*\(Subject\)/i)
-             || html.match(/subject\s+company[^:]*:.*?CIK[^:]*:\s*(\d{7,10})/is);
+      // Try multiple patterns for different EDGAR index page formats
+      const m = html.match(/\((\d{7,10})\)\s*\(Subject\)/i)
+             || html.match(/companyName[^>]*>[^<]+\((\d{7,10})\)/i)
+             || html.match(/CIK=0*(\d{7,10})[^>]*>\s*[^<]+\s*<\/a>\s*\(Subject\)/i)
+             || html.match(/subject[^<]{0,200}CIK[^0-9]*(\d{7,10})/is);
+      if (_p2LogCount <= 3 && !m) {
+        // Log snippet of HTML to diagnose pattern mismatch
+        const subjectIdx = html.toLowerCase().indexOf('subject');
+        if (subjectIdx >= 0) log(`Phase 2 HTML near 'subject': ${html.slice(Math.max(0,subjectIdx-50),subjectIdx+150).replace(/\s+/g,' ')}`);
+      }
       return m ? m[1].replace(/^0+/, '') : null;
     } catch(e) { return null; }
   }
