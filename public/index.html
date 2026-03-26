@@ -2312,8 +2312,8 @@ function renderStockLanding(lists) {
       ? section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)
       : premiumSectionBlur('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards, 'Top Insider Buying — ranked by dollar value')}
     ${auth.isPremium
-      ? section('Heavy Selling', 'Watch list · Last 14 days', '🔴', sellCards)
-      : premiumSectionBlur('Heavy Selling', 'Watch list · Last 14 days', '🔴', sellCards, 'Heavy Selling watchlist')}
+      ? section('Heavy Selling', 'Watch list · Last 30 days', '🔴', sellCards)
+      : premiumSectionBlur('Heavy Selling', 'Watch list · Last 30 days', '🔴', sellCards, 'Heavy Selling watchlist')}
   </div>`;
 }
 
@@ -2961,6 +2961,10 @@ function buildPressureChart(mainChart,trades,priceData) {
     priceLineVisible:false,
     lastValueVisible:false,
     priceFormat:{type:'price',precision:1,minMove:0.1},
+    baseLineVisible:true,
+    baseLineColor:'rgba(80,100,120,0.6)',
+    baseLineWidth:1,
+    baseLineStyle:LightweightCharts.LineStyle?.Dashed ?? 1,
   });
   histSeries.setData(allDates.map(t=>{
     const v=valueByDate[t]??0;
@@ -4930,6 +4934,77 @@ function buildRegimeShiftData(longTrades, recentTrades) {
   return results.sort((a, b) => b.score - a.score);
 }
 
+function renderRepeat13DG(sc13Data) {
+  if (!sc13Data || !sc13Data.length) return '';
+
+  // Group filings by ticker, last 30 days only
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10);
+  const byTicker = {};
+  sc13Data.forEach(f => {
+    if (!f.ticker || !f.filed_date || f.filed_date < cutoff) return;
+    if (!byTicker[f.ticker]) byTicker[f.ticker] = { buys: [], sells: [], company: f.company || f.ticker };
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    if (isSell) byTicker[f.ticker].sells.push(f);
+    else byTicker[f.ticker].buys.push(f);
+  });
+
+  // Find tickers with 2+ buys or 2+ sells
+  const repeatBuys  = Object.entries(byTicker)
+    .filter(([,v]) => v.buys.length >= 2)
+    .sort((a,b) => b[1].buys.length - a[1].buys.length)
+    .slice(0, 12);
+  const repeatSells = Object.entries(byTicker)
+    .filter(([,v]) => v.sells.length >= 2)
+    .sort((a,b) => b[1].sells.length - a[1].sells.length)
+    .slice(0, 12);
+
+  if (!repeatBuys.length && !repeatSells.length) return '';
+
+  function repeatRow(ticker, data, isSell) {
+    const filings = isSell ? data.sells : data.buys;
+    const color   = isSell ? '#ff00ff' : '#00d4ff';
+    const bg      = isSell ? 'rgba(255,0,255,0.04)' : 'rgba(0,212,255,0.04)';
+    const border  = isSell ? 'rgba(255,0,255,0.15)' : 'rgba(0,212,255,0.15)';
+    const types   = [...new Set(filings.map(f => (f.filing_type||'').replace('SCHEDULE ','').replace('SC ','')))].join(', ');
+    const filers  = [...new Set(filings.map(f => f.filer || f.company || '').filter(Boolean))].slice(0,2).join(' · ');
+    const latest  = filings.map(f => f.filed_date).sort().reverse()[0];
+    return `<div onclick="loadStockView('${ticker}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${bg};border:1px solid ${border};border-radius:6px;cursor:pointer;margin-bottom:8px;transition:border-color 0.15s"
+      onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='${border}'">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${color};min-width:48px">${ticker}</span>
+        <div>
+          <div style="font-size:11px;color:var(--text);font-weight:600">${data.company}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${filers || types}</div>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:12px">
+        <div style="font-family:'Space Mono',monospace;font-size:12px;color:${color};font-weight:700">${filings.length}× ${isSell?'sell':'buy'}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${types} · ${fmtDate(latest)}</div>
+      </div>
+    </div>`;
+  }
+
+  const buySection = repeatBuys.length ? `
+    <div style="margin-top:32px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:4px">◆ REPEAT 13D/G BUYING</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Tickers with 2+ institutional buying filings in the last 30 days — sustained accumulation signal</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px">
+        ${repeatBuys.map(([ticker, data]) => repeatRow(ticker, data, false)).join('')}
+      </div>
+    </div>` : '';
+
+  const sellSection = repeatSells.length ? `
+    <div style="margin-top:28px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:4px">◆ REPEAT 13D/G SELLING</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Tickers with 2+ major holder reducing filings in the last 30 days — watch for continued distribution</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px">
+        ${repeatSells.map(([ticker, data]) => repeatRow(ticker, data, true)).join('')}
+      </div>
+    </div>` : '';
+
+  return buySection + sellSection;
+}
+
 function renderAnalysisDashboard() {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
@@ -5139,6 +5214,7 @@ function renderAnalysisDashboard() {
     <div class="analysis-tool-grid">
       ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
+    ${renderRepeat13DG(_sc13AnalysisData || [])}
   </div>`;
   } catch(e) {
     body.innerHTML = `<div style="padding:40px;color:var(--sell);font-family:Space Mono,monospace;font-size:12px">Analysis render error: ${e.message}</div>`;
