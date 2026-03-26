@@ -94,6 +94,20 @@ try {
   if (cleared.changes > 0) log(`Cleared ${cleared.changes} stale single-CIK subject_cik values`);
 } catch(e) {}
 
+// Permanently mark rows that have had subject_cik set for 14+ days with no ticker resolved
+// These are definitively unresolvable (private funds, non-public entities, defunct companies)
+try {
+  const skipped = db.prepare(`
+    UPDATE sc13_transactions SET subject_cik = 'SKIP'
+    WHERE (ticker IS NULL OR ticker = '')
+      AND subject_cik IS NOT NULL
+      AND subject_cik != ''
+      AND subject_cik != 'SKIP'
+      AND filed_date < date('now', '-14 days')
+  `).run();
+  if (skipped.changes > 0) log(`Permanently skipped ${skipped.changes} aged unresolvable rows`);
+} catch(e) {}
+
 const insertSc13 = db.prepare(`
   INSERT OR IGNORE INTO sc13_transactions
     (ticker, company, filer, filing_type, filed_date, period_date,
