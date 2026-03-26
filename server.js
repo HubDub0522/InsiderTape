@@ -610,11 +610,97 @@ app.get('/api/history', (req, res) => {
 
 // INSIDER BUY/SELL RATIO HISTORY — monthly rolling counts for the ratio chart
 // Transaction count based (not dollar), officers/directors only excluded 10%-only owners
+// ── INSIDER SENTIMENT INDEX — for Peak/Trough chart ─────────────────────────
+// Returns monthly insider buy% (smoothed) + S&P 500 monthly OHLC via Yahoo
+app.get('/api/insider-sentiment', async (req, res) => {
+  try {
+    const months = 120; // 10 years
+    // Monthly insider data: buy value / (buy + sell value) per month
+    const rows = db.prepare(`
+      SELECT
+        strftime('%Y-%m', trade_date) AS month,
+        strftime('%Y-%m', trade_date) || '-01' AS month_date,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
+        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count
+      FROM trades
+      WHERE trade_date >= date('now', '-' || ? || ' months')
+        AND trade_date <= date('now')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(value, 0) >= 10000
+      GROUP BY month
+      HAVING buy_val + sell_val > 0
+      ORDER BY month ASC
+    `).all(months);
+
+    // Compute raw buy% per month
+    const monthly = rows.map(r => ({
+      date: r.month_date,
+      buyPct: r.buy_val / (r.buy_val + r.sell_val),
+      buyVal: r.buy_val,
+      sellVal: r.sell_val,
+      buyCount: r.buy_count,
+      sellCount: r.sell_count,
+    }));
+
+    // 3-month rolling average to smooth noise
+    const smoothed = monthly.map((m, i) => {
+      const slice = monthly.slice(Math.max(0, i-2), i+1);
+      const avgBuyPct = slice.reduce((s,x) => s + x.buyPct, 0) / slice.length;
+      return { ...m, smoothedBuyPct: avgBuyPct };
+    });
+
+    // Compute percentile thresholds for calibration
+    const vals = smoothed.map(m => m.smoothedBuyPct).sort((a,b) => a-b);
+    const p10 = vals[Math.floor(vals.length * 0.10)] || 0.15;
+    const p25 = vals[Math.floor(vals.length * 0.25)] || 0.20;
+    const p75 = vals[Math.floor(vals.length * 0.75)] || 0.40;
+    const p90 = vals[Math.floor(vals.length * 0.90)] || 0.50;
+    const median = vals[Math.floor(vals.length * 0.50)] || 0.30;
+
+    // Fetch S&P 500 monthly data from Yahoo Finance
+    const endTs   = Math.floor(Date.now() / 1000);
+    const startTs = endTs - months * 31 * 86400;
+    let spxData = [];
+    try {
+      const { status, body } = await get(
+        `https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1mo&period1=${startTs}&period2=${endTs}`,
+        15000
+      );
+      if (status === 200) {
+        const d = JSON.parse(body.toString());
+        const r = d?.chart?.result?.[0];
+        if (r?.timestamp && r?.indicators?.quote?.[0]) {
+          const q = r.indicators.quote[0];
+          spxData = r.timestamp.map((t, i) => ({
+            date: new Date(t * 1000).toISOString().slice(0, 7) + '-01',
+            close: q.close?.[i] || null,
+            open:  q.open?.[i]  || null,
+            high:  q.high?.[i]  || null,
+            low:   q.low?.[i]   || null,
+          })).filter(x => x.close);
+        }
+      }
+    } catch(e) { slog('SPX fetch error: ' + e.message); }
+
+    res.json({
+      insider: smoothed,
+      spx:     spxData,
+      thresholds: { p10, p25, median, p75, p90 },
+    });
+  } catch(e) {
+    slog('insider-sentiment error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/insider-ratio-history', (req, res) => {
   try {
     const grain  = req.query.grain === 'monthly' ? 'monthly' : 'weekly';
-    const weeks  = Math.min(parseInt(req.query.weeks  || '52'), 156); // up to 3 years
-    const months = Math.min(parseInt(req.query.months || '24'), 60);
+    const weeks  = Math.min(parseInt(req.query.weeks  || '52'), 520); // up to 10 years
+    const months = Math.min(parseInt(req.query.months || '24'), 120); // up to 10 years
 
     let rows;
     if (grain === 'weekly') {
