@@ -3061,14 +3061,14 @@ app.get('/api/stock-lists', (req, res) => {
       LIMIT 16
     `).all();
 
-    // Heavy sells: last 14 days
+    // Heavy sells: last 30 days
     const heavySells = db.prepare(`
       SELECT
         ticker, MAX(company) AS company,
         COUNT(DISTINCT insider) AS seller_count,
         SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val
       FROM trades
-      WHERE trade_date >= date('now','-14 days')
+      WHERE trade_date >= date('now','-30 days')
       AND trade_date <= date('now')
         AND TRIM(type) IN ('S','S-')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
