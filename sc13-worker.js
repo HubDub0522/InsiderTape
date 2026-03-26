@@ -196,10 +196,14 @@ async function fetchQuarterIndex(year, q) {
     const { status, body } = await get(url, 90000);
     if (status !== 200) { log(`${key}: HTTP ${status} — skipping`); return 0; }
     bodyText = body.toString('utf8');
+    // Free the raw buffer immediately to reduce peak memory
+    body.fill(0);
   } catch(e) { log(`${key}: fetch error — ${e.message}`); return 0; }
 
   let isCompanyIdx = false;
+  // Split then immediately free the source string
   const lines = bodyText.split('\n');
+  bodyText = null; // free ~50MB string ASAP
 
   // Detect non-index files: EDGAR sometimes returns a readme/metadata file
   // instead of the actual form.idx for recent or in-progress quarters.
@@ -227,9 +231,11 @@ async function fetchQuarterIndex(year, q) {
         // company.idx has different column order: Company Name, Form Type, CIK, Date, Filename
         // We need to re-parse it differently
         log(`${key}: using company.idx (${bodyText.length} bytes)`);
-        // Re-split lines from the new content
+        // Re-split lines from the new content, free old data first
         lines.length = 0;
-        bodyText.split('\n').forEach(l => lines.push(l));
+        const newLines = bodyText.split('\n');
+        bodyText = null; // free company.idx string ASAP
+        newLines.forEach(l => lines.push(l));
         isCompanyIdx = true;
       } else {
         db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
@@ -244,6 +250,7 @@ async function fetchQuarterIndex(year, q) {
   let pastHeader = false;
   const batch = [];
   let scanned = 0;
+  let totalInserted = 0;
   let debugPrinted = 0;
 
   for (const line of lines) {
@@ -323,19 +330,30 @@ async function fetchQuarterIndex(year, q) {
       edgarIndexUrl(accDash, cik),
       subjectCik,  // subject_cik — allows fast ticker resolution
     ]);
+
+    // Flush every 500 rows to keep memory low instead of accumulating all ~15k rows
+    if (batch.length >= 500) {
+      totalInserted += insertMany(batch);
+      batch.length = 0; // free the array
+    }
   }
 
-  if (!batch.length) {
-    // Diagnostic: log sample of form types found to see what's actually in the file
-    log(`${key}: 0 inserted (scanned ${scanned} matching, ${lines.length} total lines)`);
+  // Free the lines array now that parsing is done
+  const lineCount = lines.length;
+  lines.length = 0;
+
+  if (scanned === 0) {
+    log(`${key}: 0 inserted (scanned 0 matching, ${lineCount} total lines)`);
     db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, 0);
     return 0;
   }
 
-  const inserted = insertMany(batch);
-  db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, inserted);
-  log(`${key}: ${inserted} inserted (${scanned} SC 13D/G matched, ${lines.length} total lines)`);
-  return inserted;
+  // Flush any remaining rows
+  if (batch.length > 0) totalInserted += insertMany(batch);
+
+  db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, totalInserted);
+  log(`${key}: ${totalInserted} inserted (${scanned} SC 13D/G matched, ${lineCount} total lines)`);
+  return totalInserted;
 }
 
 async function runHistoricalBackfill() {
