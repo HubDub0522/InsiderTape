@@ -2480,7 +2480,7 @@ function runSc13(daysBack = 90) {
   slog(`=== spawning sc13-worker (${daysBack} days backfill) ===`);
   const worker = spawn(
     process.execPath,
-    ['--max-old-space-size=200', path.join(__dirname, 'sc13-worker.js'), String(daysBack), 'poll'],
+    ['--max-old-space-size=256', path.join(__dirname, 'sc13-worker.js'), String(daysBack), 'poll'],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[sc13] ' + l)));
