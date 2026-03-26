@@ -844,8 +844,10 @@
       <div class="filter-panel-inner">
       <span class="filter-label">Trade Type</span>
       <div class="filter-chips" style="margin-bottom:20px">
-        <div class="chip buy-chip active"  data-type="P"  onclick="toggleChip(this)">Buy</div>
-        <div class="chip sell-chip active" data-type="S"  onclick="toggleChip(this)">Sell</div>
+        <div class="chip buy-chip active"  data-type="P"     onclick="toggleChip(this)">Buy</div>
+        <div class="chip sell-chip active" data-type="S"     onclick="toggleChip(this)">Sell</div>
+        <div class="chip" data-type="SC13BUY"  onclick="toggleChip(this)" style="color:#00d4ff;border-color:rgba(0,212,255,0.4)" title="SC 13D/G filings showing 5%+ institutional accumulation">◆ 13D/G Buy</div>
+        <div class="chip" data-type="SC13SELL" onclick="toggleChip(this)" style="color:#ff00ff;border-color:rgba(255,0,255,0.4)" title="SC 13D/G filings showing major holder reducing stake">◆ 13D/G Sell</div>
       </div>
       <div class="filter-section">
         <span class="filter-label">Insider Role</span>
@@ -854,7 +856,6 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="5pct" onclick="toggleRole(this)" title="10%+ beneficial owners & major shareholders (Form 4). SC 13D/G diamonds visible on stock charts.">5% Owner</div>
         </div>
       </div>
       <div class="filter-section">
@@ -1346,6 +1347,7 @@ function toggleChip(el) {
   const type = el.dataset.type;
   if (el.classList.contains('active')) state.activeTypes.add(type);
   else state.activeTypes.delete(type);
+  // SC13BUY/SC13SELL are handled at render time — they filter _isSc13 rows by type
   saveFilters();
 }
 function toggleRole(el) {
@@ -1425,7 +1427,7 @@ async function loadScreener() {
   document.getElementById('summaryBar').innerHTML = '';
   try {
     // When 5% Owner filter is active, fetch SC 13D/G filings alongside Form 4 trades
-    const is5pct = state.activeRole === '5pct';
+    const is5pct = state.activeRole === '5pct' || state.activeTypes.has('SC13BUY') || state.activeTypes.has('SC13SELL');
     const isAll  = !state.activeRole || state.activeRole === 'all';
 
     // 5% Owner: fetch only SC 13D/G. All: fetch both. Others: only Form 4.
@@ -1473,7 +1475,19 @@ async function loadScreener() {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
     }
-    if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
+    if (state.activeTypes.size > 0) {
+      const wantSc13Buy  = state.activeTypes.has('SC13BUY');
+      const wantSc13Sell = state.activeTypes.has('SC13SELL');
+      const wantFormBuy  = state.activeTypes.has('P');
+      const wantFormSell = state.activeTypes.has('S');
+      trades = trades.filter(t => {
+        if (t._isSc13) {
+          const isSc13Sell = t.type === 'S';
+          return isSc13Sell ? wantSc13Sell : wantSc13Buy;
+        }
+        return state.activeTypes.has(t.type);
+      });
+    }
     if (state.minVal > 0) trades = trades.filter(t => t._isSc13 || t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
@@ -2434,7 +2448,7 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn rf-btn active" id="chartRole-all" data-role="all" data-color="var(--accent)" onclick="toggleRoleFilter('all',this)" title="All insiders">ALL</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-exec" data-role="exec" data-color="#a78bfa" onclick="toggleRoleFilter('exec',this)" title="CEO, CFO, COO, President, Chairman">EXEC</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-director" data-role="director" data-color="#60a5fa" onclick="toggleRoleFilter('director',this)" title="Board Directors">DIR</button>
-            <button class="tf-btn cf-btn rf-btn" id="chartRole-owner10" data-role="owner10" data-color="#f59e0b" onclick="toggleRoleFilter('owner10',this)" title="10%+ beneficial owners">10%</button>
+            <button class="tf-btn cf-btn rf-btn" id="chartRole-owner10" data-role="owner10" data-color="#00d4ff" onclick="toggleRoleFilter('owner10',this)" title="SC 13D/G filings — 5%+ institutional ownership">13D/G</button>
             <div style="margin-left:auto;display:flex;gap:4px">
               <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn ct-btn active" title="Candlestick chart" style="padding:4px 8px">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block">
@@ -9396,29 +9410,35 @@ function loadPremiumPage() {
   const analysisMockup = `<svg viewBox="0 0 340 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
     <rect width="340" height="175" fill="#080b0f"/>
     <rect width="340" height="12" fill="#0d1421"/>
-    <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">ANALYSIS — LAST 30 DAYS</text>
-    <rect x="4" y="14" width="100" height="44" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="12" y="25" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="0.5">BUY PRESSURE</text>
-    <text x="12" y="42" fill="#22c55e" font-family="monospace" font-size="16" font-weight="700">74%</text>
-    <text x="12" y="53" fill="#22c55e" font-family="monospace" font-size="6">▲ STRONG BUY</text>
-    <rect x="118" y="14" width="100" height="44" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="126" y="25" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="0.5">AVG CONVICTION</text>
-    <text x="126" y="42" fill="#00d4ff" font-family="monospace" font-size="16" font-weight="700">8.4</text>
-    <text x="126" y="53" fill="#4a6580" font-family="monospace" font-size="6">of 10</text>
-    <rect x="232" y="14" width="104" height="44" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="240" y="25" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="0.5">CLUSTER BUYS</text>
-    <text x="240" y="42" fill="#f59e0b" font-family="monospace" font-size="16" font-weight="700">12</text>
-    <text x="240" y="53" fill="#4a6580" font-family="monospace" font-size="6">tickers · 30D</text>
-    <rect x="4" y="64" width="332" height="107" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="14" y="77" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">SECTOR BREAKDOWN</text>
-    <line x1="4" y1="82" x2="336" y2="82" stroke="#1e2d3d" stroke-width="0.5"/>
-    ${[
-      ['Technology','62%','#00d4ff',168],['Healthcare','18%','#22c55e',49],
-      ['Energy','12%','#f59e0b',33],['Financials','5%','#8b5cf6',14],['Other','3%','#4a6580',8]
-    ].map(([s,p,c,w],i)=>`
-    <text x="14" y="${97+i*15}" fill="#c0ccd8" font-family="monospace" font-size="7">${s}</text>
-    <rect x="100" y="${89+i*15}" width="${w}" height="8" rx="1" fill="${c}" opacity="0.75"/>
-    <text x="${106+w}" y="${97+i*15}" fill="${c}" font-family="monospace" font-size="7"> ${p}</text>`).join('')}
+    <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">ANALYSIS TOOLS — 30 DAY SCAN</text>
+    <rect x="4" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="12" y="25" fill="#f59e0b" font-family="monospace" font-size="6" letter-spacing="0.5">⚡ OPPORTUNITY RANKER</text>
+    <text x="12" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">NVDA · Score 94</text>
+    <text x="12" y="44" fill="#4a6580" font-family="monospace" font-size="6">Cluster + Regime↑ + SC 13D</text>
+    <rect x="177" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="185" y="25" fill="#ff4466" font-family="monospace" font-size="6" letter-spacing="0.5">⚠ EXIT WARNING</text>
+    <text x="185" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">TDW · Score 78 — HIGH</text>
+    <text x="185" y="44" fill="#4a6580" font-family="monospace" font-size="6">4 execs selling · $2M combined</text>
+    <rect x="4" y="58" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="12" y="69" fill="#00d4ff" font-family="monospace" font-size="6" letter-spacing="0.5">🔵 CLUSTER DETECTION</text>
+    <text x="12" y="79" fill="#c0ccd8" font-family="monospace" font-size="6">META · 4 insiders · 7 days</text>
+    <text x="12" y="88" fill="#4a6580" font-family="monospace" font-size="6">$18.4M combined · Score 87</text>
+    <rect x="177" y="58" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="185" y="69" fill="#22c55e" font-family="monospace" font-size="6" letter-spacing="0.5">📡 REGIME SHIFT</text>
+    <text x="185" y="79" fill="#c0ccd8" font-family="monospace" font-size="6">AAPL · Seller flipped buyer</text>
+    <text x="185" y="88" fill="#4a6580" font-family="monospace" font-size="6">CFO · 2yr gap · +SC 13G confirm</text>
+    <rect x="4" y="102" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="12" y="113" fill="#8b5cf6" font-family="monospace" font-size="6" letter-spacing="0.5">🆕 FIRST BUY SIGNALS</text>
+    <text x="12" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">MSFT · CEO · 3yr gap</text>
+    <text x="12" y="132" fill="#4a6580" font-family="monospace" font-size="6">First open-market buy on record</text>
+    <rect x="177" y="102" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
+    <text x="185" y="113" fill="#f59e0b" font-family="monospace" font-size="6" letter-spacing="0.5">📅 EVENT PROXIMITY</text>
+    <text x="185" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">AMZN · Earnings in 12 days</text>
+    <text x="185" y="132" fill="#4a6580" font-family="monospace" font-size="6">Insider buying before catalyst</text>
+    <rect x="4" y="146" width="332" height="25" rx="3" fill="#0d1421" stroke="rgba(0,212,255,0.2)" stroke-width="0.5"/>
+    <text x="12" y="157" fill="#00d4ff" font-family="monospace" font-size="6" letter-spacing="0.5">🏆 INSIDER SCOREBOARD</text>
+    <text x="150" y="157" fill="#4a6580" font-family="monospace" font-size="6">Track which insiders have the best buy timing accuracy</text>
+    <text x="12" y="166" fill="#4a6580" font-family="monospace" font-size="6">Ranked by 90-day forward returns after each insider buy</text>
   </svg>`;
 
   // MONITOR: tab bar + signal list rows
@@ -9602,7 +9622,7 @@ function loadPremiumPage() {
     },
     {
       icon: '📊', title: 'ANALYSIS DASHBOARD',
-      desc: 'Sector-level breakdowns, conviction scoring, cluster detection, SC 13D/G institutional signals, and trend analysis. See where buy pressure is concentrated across the whole market, not just individual stocks.',
+      desc: 'Six AI-powered scan tools running across all insider activity: Opportunity Ranker, Cluster Detection, Exit Warning, Regime Shift Detector, First Buy Signals, and Event Proximity — plus an Insider Scoreboard ranking traders by their historical accuracy.',
       mock: analysisMockup
     },
     {
