@@ -53,9 +53,16 @@ app.use(cors());
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
+      // HTML: always revalidate so users get fresh content
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
+    } else if (/\.(js|css|woff2?|ttf|eot)$/.test(filePath)) {
+      // JS/CSS/fonts: cache 1 hour (short enough to get updates, long enough to help)
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+    } else if (/\.(png|jpg|jpeg|gif|svg|ico|webp)$/.test(filePath)) {
+      // Images: cache 24 hours
+      res.setHeader('Cache-Control', 'public, max-age=86400');
     }
   }
 }));
@@ -109,7 +116,7 @@ app.get('/api/disk', (req, res) => {
   // DB status
   if (db) {
     try {
-      const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
+      const n = _stmtTradeCount.get().n;
       report.db_status = { ok: true, total_trades: n, using_path: DB_PATH };
     } catch(e) {
       report.db_status = { ok: false, error: e.message };
@@ -624,8 +631,19 @@ function msUntilNextOpen(now, etOffset) {
 // ─── API ROUTES ───────────────────────────────────────────────
 
 // SCREENER
+// Screener cache: keyed by days+limit, 30s TTL — same data for all users in that window
+const _screenerCache = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k,v] of _screenerCache) if (now - v.t > 30000) _screenerCache.delete(k);
+}, 30000);
+
 app.get('/api/screener', (req, res) => {
   try {
+    const cacheKey = (req.query.days||'30') + '|' + (req.query.limit||'');
+    const cached = _screenerCache.get(cacheKey);
+    if (cached && Date.now() - cached.t < 30000) return res.json(cached.d);
+
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     if (n === 0) {
       // DB is empty — auto-trigger daily ingestion if not already running
@@ -684,6 +702,10 @@ app.get('/api/screener', (req, res) => {
       }
     }
 
+    const etag = '"' + rows.length + '-' + (rows[0]?.filing || '') + '"';
+    _screenerCache.set(cacheKey, { d: rows, t: Date.now(), etag });
+    res.setHeader('ETag', etag);
+    if (req.headers['if-none-match'] === etag) return res.status(304).end();
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -721,8 +743,14 @@ app.get('/api/history', (req, res) => {
 // Transaction count based (not dollar), officers/directors only excluded 10%-only owners
 // ── INSIDER SENTIMENT INDEX — for Peak/Trough chart ─────────────────────────
 // Returns monthly insider buy% (smoothed) + S&P 500 monthly OHLC via Yahoo
+let _sentimentCache = null;
+let _sentimentCacheTime = 0;
+
 app.get('/api/insider-sentiment', async (req, res) => {
   try {
+    if (_sentimentCache && Date.now() - _sentimentCacheTime < 3600000) { // 1hr cache
+      return res.json(_sentimentCache);
+    }
     const months = 120; // 10 years
     // Monthly insider data: buy value / (buy + sell value) per month
     const rows = db.prepare(`
@@ -794,11 +822,10 @@ app.get('/api/insider-sentiment', async (req, res) => {
       }
     } catch(e) { slog('SPX fetch error: ' + e.message); }
 
-    res.json({
-      insider: smoothed,
-      spx:     spxData,
-      thresholds: { p10, p25, median, p75, p90 },
-    });
+    const sentimentResult = { insider: smoothed, spx: spxData, thresholds: { p10, p25, median, p75, p90 } };
+    _sentimentCache = sentimentResult;
+    _sentimentCacheTime = Date.now();
+    res.json(sentimentResult);
   } catch(e) {
     slog('insider-sentiment error: ' + e.message);
     res.status(500).json({ error: e.message });
@@ -896,8 +923,10 @@ app.get('/api/insider-ratio-history', (req, res) => {
 });
 // Returns buy/sell counts and values for today, week, month, quarter windows
 // Much faster than fetching all trades client-side — does aggregation in SQL
+let _monitorSentCache = null, _monitorSentTime = 0;
 app.get('/api/monitor-sentiment', (req, res) => {
   try {
+    if (_monitorSentCache && Date.now() - _monitorSentTime < 60000) return res.json(_monitorSentCache);
     const now = new Date();
     const etOffset = -5;
     const etNow = new Date(now.getTime() + etOffset * 3600000);
@@ -946,12 +975,15 @@ app.get('/api/monitor-sentiment', (req, res) => {
       return row;
     }
 
-    res.json({
+    const monitorResult = {
       today:   { cutStr: todayStr,   ...windowStats(todayStr,   todayStr)   },
       week:    { cutStr: weekStr,    ...windowStats(weekStr,    todayStr)   },
       month:   { cutStr: monthStr,   ...windowStats(monthStr,   todayStr)   },
       quarter: { cutStr: quarterStr, ...windowStats(quarterStr, todayStr)   },
-    });
+    };
+    _monitorSentCache = monitorResult;
+    _monitorSentTime = Date.now();
+    res.json(monitorResult);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/ticker', (req, res) => {
@@ -977,9 +1009,16 @@ app.get('/api/ticker', (req, res) => {
 
 // SC 13D/G — returns all beneficial ownership filings for a given ticker
 // Recent SC 13D/G filings across all tickers — used by screener 5% Owner filter
+let _sc13RecentCache = null;
+let _sc13RecentCacheTime = 0;
+
 app.get('/api/sc13-recent', (req, res) => {
   try {
     const days = Math.min(parseInt(req.query.days || '30'), 3650);
+    // Cache for 60s — sc13 data changes at most twice a day
+    if (_sc13RecentCache && Date.now() - _sc13RecentCacheTime < 60000) {
+      return res.json(_sc13RecentCache);
+    }
     // The ticker-enriched rows come from form.idx which only goes to 2024Q3.
     // So a date filter of 'last 365 days' returns 0 rows with tickers.
     // Fix: always return all available rows with tickers, sorted by filed_date DESC.
@@ -992,6 +1031,8 @@ app.get('/api/sc13-recent', (req, res) => {
       ORDER BY filed_date DESC
       LIMIT 1000
     `).all();
+    _sc13RecentCache = rows;
+    _sc13RecentCacheTime = Date.now();
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -1790,8 +1831,10 @@ function buildSectorResult(days) {
   return { sectors, days, total_buy_val: sectors.reduce((s, x) => s + x.buy_val, 0) };
 }
 
+let _sectorsCache = null, _sectorsCacheTime = 0;
 app.get('/api/sectors', (req, res) => {
   try {
+    if (_sectorsCache && Date.now() - _sectorsCacheTime < 120000) return res.json(_sectorsCache);
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 30;
     const now  = Date.now();
     const entry = _sectorResultCache[days];
@@ -1808,7 +1851,7 @@ app.get('/api/sectors', (req, res) => {
 });
 
 // ─── DEBUG ENDPOINT — shows DB stats for diagnosing data issues ───────────
-app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
+app.get('/api/ping', (req, res) => _sectorsCache = ({ ok: true, t: Date.now() }));
 
 app.get('/api/debug', (req, res) => {
   try {
@@ -1857,6 +1900,8 @@ app.get('/api/debug', (req, res) => {
       sync_running: syncRunning,
       daily_running: dailyRunning,
     });
+    _sectorsCacheTime = Date.now();
+    res.json(_sectorsCache);
   } catch(e) { res.status(500).json({ error: e.message, db_path: DB_PATH }); }
 });
 
@@ -2666,6 +2711,12 @@ app.get('/api/scoreboard', (req, res) => {
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
+
+// Pre-prepared statements for hot paths
+let _stmtTradeCount;
+function initPreparedStatements() {
+  _stmtTradeCount = db.prepare('SELECT COUNT(*) AS n FROM trades');
+}
 
 // ── SC 13D/G worker ──────────────────────────────────────────────────────────
 let sc13Running = false;
