@@ -453,6 +453,7 @@ async function enrichRecentTickers() {
       AND (ticker IS NULL OR ticker = '')
       AND company IS NOT NULL AND company != ''
       AND (filer IS NULL OR filer = '')
+      AND subject_cik != 'SKIP'
   `).run();
   if (urlMigration.changes > 0) log(`Subject CIK migration: ${urlMigration.changes} rows updated from URL`);
 
@@ -501,6 +502,7 @@ async function enrichRecentTickers() {
     SELECT id, subject_cik FROM sc13_transactions
     WHERE (ticker IS NULL OR ticker = '')
       AND subject_cik IS NOT NULL AND subject_cik != ''
+      AND subject_cik != 'SKIP'
     ORDER BY filed_date DESC LIMIT 500
   `).all();
 
@@ -551,13 +553,13 @@ async function enrichRecentTickers() {
   // so Phase 2 (index page scraping) gets a chance to find them
   if (fastRows.length > 0 && n === 0) {
     const cleared = db.prepare(`
-      UPDATE sc13_transactions SET subject_cik = NULL
+      UPDATE sc13_transactions SET subject_cik = 'SKIP'
       WHERE (ticker IS NULL OR ticker = '')
-        AND subject_cik IS NOT NULL AND subject_cik != ''
+        AND subject_cik IS NOT NULL AND subject_cik != '' AND subject_cik != 'SKIP'
         AND (filer IS NULL OR filer = '')
       LIMIT 500
     `).run();
-    if (cleared.changes > 0) log(`Cleared ${cleared.changes} unresolvable subject_cik values — will retry via index page`);
+    if (cleared.changes > 0) log(`Marked ${cleared.changes} unresolvable rows as SKIP — Phase 2 will handle via index page`);
   }
   }
 
@@ -565,7 +567,7 @@ async function enrichRecentTickers() {
   const rows = db.prepare(`
     SELECT id, accession, url FROM sc13_transactions
     WHERE (ticker IS NULL OR ticker = '')
-      AND (subject_cik IS NULL OR subject_cik = '')
+      AND (subject_cik IS NULL OR subject_cik = '' OR subject_cik = 'SKIP')
     ORDER BY filed_date DESC LIMIT 100
   `).all();
 
