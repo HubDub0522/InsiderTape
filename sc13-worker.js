@@ -87,6 +87,7 @@ try {
     UPDATE sc13_transactions SET subject_cik = NULL
     WHERE subject_cik IS NOT NULL
       AND subject_cik NOT LIKE '%,%'
+      AND subject_cik != 'SKIP'
       AND LENGTH(subject_cik) > 0
       AND (filer IS NOT NULL AND filer != '')
   `).run();
