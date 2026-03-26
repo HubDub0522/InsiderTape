@@ -140,15 +140,67 @@ app.use((req, res, next) => {
 });
 
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
-// Simple in-memory per-IP limiter — no dependency required.
-// Heavy endpoints: 30 req/min. All other /api/* endpoints: 120 req/min.
-// Static files are not rate-limited.
-const _rlStore = new Map(); // ip → { count, resetAt }
-const HEAVY_PATHS = ['/api/drift', '/api/proximity', '/api/scoreboard', '/api/firstbuys'];
+// ═══════════════════════════════════════════════════════════════
+// BOT PROTECTION + BRUTE FORCE DEFENSE
+// ═══════════════════════════════════════════════════════════════
+
+// ── IP ban list (in-memory, resets on restart) ──────────────────
+const _bannedIPs  = new Set();  // permanent session bans
+const _strikeMap  = new Map();  // ip → { strikes, bannedUntil }
+const _bruteStore = new Map();  // ip → { count, firstAt } for auth endpoints
+
+function getIP(req) {
+  return (req.headers['x-forwarded-for']?.split(',')[0].trim()
+    || req.socket.remoteAddress
+    || 'unknown').replace('::ffff:', '');
+}
+
+function strike(ip, count = 1) {
+  const s = _strikeMap.get(ip) || { strikes: 0, bannedUntil: 0 };
+  s.strikes += count;
+  // Progressive bans: 5 strikes = 5min, 10 = 30min, 15+ = 24hr
+  if (s.strikes >= 15)     s.bannedUntil = Date.now() + 24 * 3600000;
+  else if (s.strikes >= 10) s.bannedUntil = Date.now() + 30 * 60000;
+  else if (s.strikes >= 5)  s.bannedUntil = Date.now() + 5  * 60000;
+  _strikeMap.set(ip, s);
+}
+
+function isBanned(ip) {
+  if (_bannedIPs.has(ip)) return true;
+  const s = _strikeMap.get(ip);
+  return s && Date.now() < s.bannedUntil;
+}
+
+// ── Known bad user-agents ───────────────────────────────────────
+const BAD_UA_PATTERNS = [
+  /python-requests/i, /scrapy/i, /curl\//i, /wget\//i, /httpx/i,
+  /aiohttp/i, /go-http-client/i, /java\//i, /libwww/i, /lwp-/i,
+  /mechanize/i, /twisted/i, /axios\/0\./i,
+  /zgrab/i, /masscan/i, /nmap/i, /nikto/i, /sqlmap/i,
+  /semrush/i, /dotbot/i, /ahrefsbot/i, /mj12bot/i, /blexbot/i,
+  /petalbot/i, /serpstatbot/i, /seokicks/i,
+];
+
+// ── Honeypot paths — no legit user ever visits these ───────────
+// Hitting one gets your IP banned for 24hr
+const HONEYPOT_PATHS = [
+  '/admin', '/wp-admin', '/wp-login.php', '/.env', '/config.php',
+  '/phpmyadmin', '/mysql', '/adminer', '/.git/config',
+  '/api/v1/users', '/api/admin', '/api/dump', '/api/export',
+  '/backup', '/db', '/database', '/shell', '/cmd',
+];
+
+// ── Rate limit store ────────────────────────────────────────────
+const _rlStore = new Map();
+const HEAVY_PATHS = [
+  '/api/drift', '/api/proximity', '/api/scoreboard', '/api/firstbuys',
+  '/api/insider-sentiment', '/api/insider-ratio',
+];
+
 function rateLimiter(maxReq, windowMs) {
   return (req, res, next) => {
-    if (!req.path.startsWith('/api/')) return next(); // only limit API calls
-    const ip  = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+    if (!req.path.startsWith('/api/')) return next();
+    const ip  = getIP(req);
     const key = ip + '|' + maxReq;
     const now = Date.now();
     let slot = _rlStore.get(key);
@@ -158,24 +210,81 @@ function rateLimiter(maxReq, windowMs) {
     }
     slot.count++;
     if (slot.count > maxReq) {
+      // Add a strike after sustained hammering
+      if (slot.count > maxReq * 3) strike(ip, 1);
       res.setHeader('Retry-After', Math.ceil((slot.resetAt - now) / 1000));
-      return res.status(429).json({ error: 'Too many requests — slow down' });
+      return res.status(429).json({ error: 'Too many requests' });
     }
     next();
   };
 }
-// Clean up expired entries every 5 minutes to prevent unbounded memory growth
+
+// Clean up expired entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [k, v] of _rlStore) { if (now > v.resetAt) _rlStore.delete(k); }
+  for (const [k, v] of _rlStore)   { if (now > v.resetAt)    _rlStore.delete(k); }
+  for (const [k, v] of _strikeMap) { if (now > v.bannedUntil && v.strikes < 5) _strikeMap.delete(k); }
+  for (const [k, v] of _bruteStore){ if (now - v.firstAt > 3600000) _bruteStore.delete(k); }
 }, 5 * 60 * 1000);
 
+// ── Main protection middleware (runs on every request) ──────────
+app.use((req, res, next) => {
+  const ip = getIP(req);
+  const ua = req.headers['user-agent'] || '';
+  const path = req.path.toLowerCase();
+
+  // 1. Honeypot — instant 24hr ban
+  if (HONEYPOT_PATHS.some(p => path === p || path.startsWith(p + '/'))) {
+    _bannedIPs.has(ip) || strike(ip, 10); // fast-track to ban
+    slog(`[HONEYPOT] ${ip} hit ${req.path}`);
+    return res.status(404).send('Not found');
+  }
+
+  // 2. Banned IP
+  if (isBanned(ip)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  // 3. Bad user-agent (API calls only — don't block browsers fetching assets)
+  if (req.path.startsWith('/api/') && BAD_UA_PATTERNS.some(p => p.test(ua))) {
+    strike(ip, 2);
+    slog(`[BOT-UA] ${ip} "${ua.slice(0,60)}"`);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  // 4. Missing user-agent on API calls (bots often omit it)
+  if (req.path.startsWith('/api/') && !ua) {
+    strike(ip, 1);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  next();
+});
+
+// ── Rate limiting ───────────────────────────────────────────────
 app.use((req, res, next) => {
   const isHeavy = HEAVY_PATHS.some(p => req.path.startsWith(p));
   return isHeavy
-    ? rateLimiter(30, 60000)(req, res, next)
-    : rateLimiter(120, 60000)(req, res, next);
+    ? rateLimiter(20, 60000)(req, res, next)   // heavy: 20/min
+    : rateLimiter(90, 60000)(req, res, next);  // normal: 90/min
 });
+
+// ── Brute force protection for auth endpoints ───────────────────
+// Max 5 auth attempts per IP per hour
+function authBruteGuard(req, res, next) {
+  const ip  = getIP(req);
+  const now = Date.now();
+  let slot  = _bruteStore.get(ip) || { count: 0, firstAt: now };
+  if (now - slot.firstAt > 3600000) slot = { count: 0, firstAt: now }; // reset hourly
+  slot.count++;
+  _bruteStore.set(ip, slot);
+  if (slot.count > 5) {
+    strike(ip, 2);
+    slog(`[BRUTE] ${ip} — ${slot.count} auth attempts`);
+    return res.status(429).json({ error: 'Too many attempts — try again later' });
+  }
+  next();
+}
 
 // ─── DB ───────────────────────────────────────────────────────
 let db;
@@ -3252,7 +3361,7 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 // ── POST /api/auth/request-link ──────────────────────────────
-app.post('/api/auth/request-link', express.json(), async (req, res) => {
+app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'Valid email required' });
@@ -3300,7 +3409,7 @@ app.post('/api/auth/request-link', express.json(), async (req, res) => {
 });
 
 // ── GET /api/auth/verify ─────────────────────────────────────
-app.get('/api/auth/verify', (req, res) => {
+app.get('/api/auth/verify', authBruteGuard, (req, res) => {
   const { token, next: nextUrl } = req.query;
   if (!token) return res.redirect('/signup?error=missing_token');
   try {
@@ -4017,6 +4126,19 @@ app.get('*', (req, res) => {
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Security headers on every response
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+  }
+  next();
 });
 
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
