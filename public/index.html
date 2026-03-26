@@ -910,7 +910,7 @@
           <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
           <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
           <div id="sc13Banner" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);border-radius:6px;font-size:11px;color:var(--muted);line-height:1.6;max-width:700px">
-            <span style="color:var(--accent);font-family:'Space Mono',monospace;font-weight:700">◆ About 5%+ Ownership Filings</span><br>
+            <span style="color:var(--accent);font-family:'Space Mono',monospace;font-weight:700">◆ About 13D/G Filings</span><br>
             SC 13D and SC 13G filings report when an investor crosses the <strong style="color:var(--text)">5% ownership threshold</strong> in a public company. Unlike Form 4 trades, these filings do not disclose a transaction price, share count, or dollar value — they only confirm that a significant ownership stake exists. Dashes (—) in the price, value, and shares columns are expected. The filing date and filer name are the key signals.
           </div>
         </div>
@@ -2423,8 +2423,8 @@ async function loadStockView(ticker, opts={}) {
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item" style="color:#00d4ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 5%+ Owner Buy</div>
-            <div class="legend-item" style="color:#ff00ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 5%+ Owner Sell</div>
+            <div class="legend-item" style="color:#00d4ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 13D/G Buy</div>
+            <div class="legend-item" style="color:#ff00ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 13D/G Sell</div>
           </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
@@ -3265,8 +3265,8 @@ function renderTradeMarkerList(trades) {
     const hasBuy  = sc13.some(f=>f.shares_delta===null||f.shares_delta>=0);
     const hasSell = sc13.some(f=>f.shares_delta!==null&&f.shares_delta<0);
     let legend = '';
-    if (hasBuy)  legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:4px"><span style="color:#00d4ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#00d4ff">5%+ OWNER BUY</span></div>`;
-    if (hasSell) legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,0,255,0.06);border:1px solid rgba(255,0,255,0.3);border-radius:4px"><span style="color:#ff00ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#ff00ff">5%+ OWNER SELL</span></div>`;
+    if (hasBuy)  legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:4px"><span style="color:#00d4ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#00d4ff">13D/G BUY</span></div>`;
+    if (hasSell) legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,0,255,0.06);border:1px solid rgba(255,0,255,0.3);border-radius:4px"><span style="color:#ff00ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#ff00ff">13D/G SELL</span></div>`;
     if (legend) el.innerHTML += legend;
   }
 }
