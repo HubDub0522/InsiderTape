@@ -482,6 +482,15 @@ async function enrichRecentTickers() {
           _lookupLogCount++;
         }
         if (result) return result;
+        // Mark non-public entities (funds, individuals) so we skip them next run
+        if (!ticker && company) {
+          const isNonPublic = /LLC|LP|L\.P\.|Fund|Partners|Capital|Management|Corp\.|Inc\.|Trust|Holding|Group|Associates|Advisors|& Co|Individual|Person/i.test(company)
+            || /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(company.trim()); // looks like "First Last" person name
+          if (isNonPublic) {
+            // cache as permanently null — don't re-query this CIK
+            cikTickerCache[cik] = null;
+          }
+        }
       } catch(e) { cikTickerCache[cik] = null; }
     }
     return null;
@@ -537,6 +546,19 @@ async function enrichRecentTickers() {
       if ((i + 1) % 50 === 0) await new Promise(r => setTimeout(r, 5)); // yield to event loop
     }
     log(`Ticker enrichment fast-path: ${n}/${fastRows.length} resolved`);
+
+  // If resolution rate is very low, clear subject_cik on unresolved rows
+  // so Phase 2 (index page scraping) gets a chance to find them
+  if (fastRows.length > 0 && n === 0) {
+    const cleared = db.prepare(`
+      UPDATE sc13_transactions SET subject_cik = NULL
+      WHERE (ticker IS NULL OR ticker = '')
+        AND subject_cik IS NOT NULL AND subject_cik != ''
+        AND (filer IS NULL OR filer = '')
+      LIMIT 500
+    `).run();
+    if (cleared.changes > 0) log(`Cleared ${cleared.changes} unresolvable subject_cik values — will retry via index page`);
+  }
   }
 
   // Phase 2: slow-path — rows without subject_cik, fetch the filing index page
