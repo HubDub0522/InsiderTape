@@ -238,6 +238,10 @@
   .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
   .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
   .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(255,170,0,0.08); }
+  .chip.sc13buy-chip         { color: #00d4ff; border-color: rgba(0,212,255,0.3); }
+  .chip.sc13buy-chip.active  { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,0.12); }
+  .chip.sc13sell-chip        { color: #ff00ff; border-color: rgba(255,0,255,0.3); }
+  .chip.sc13sell-chip.active { border-color: #ff00ff; color: #ff00ff; background: rgba(255,0,255,0.12); }
   .filter-range { display: flex; flex-direction: column; gap: 8px; }
   .filter-range select, .filter-range input[type=number] { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; color: var(--text); font-size: 12px; outline: none; width: 100%; }
   .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
@@ -846,8 +850,8 @@
       <div class="filter-chips" style="margin-bottom:20px">
         <div class="chip buy-chip active"  data-type="P"     onclick="toggleChip(this)">Buy</div>
         <div class="chip sell-chip active" data-type="S"     onclick="toggleChip(this)">Sell</div>
-        <div class="chip" data-type="SC13BUY"  onclick="toggleChip(this)" style="color:#00d4ff;border-color:rgba(0,212,255,0.4)" title="SC 13D/G filings showing 5%+ institutional accumulation">◆ 13D/G Buy</div>
-        <div class="chip" data-type="SC13SELL" onclick="toggleChip(this)" style="color:#ff00ff;border-color:rgba(255,0,255,0.4)" title="SC 13D/G filings showing major holder reducing stake">◆ 13D/G Sell</div>
+        <div class="chip sc13buy-chip" data-type="SC13BUY" onclick="toggleChip(this)" title="SC 13D/G filings showing 5%+ institutional accumulation">◆ 13D/G Buy</div>
+        <div class="chip sc13sell-chip" data-type="SC13SELL" onclick="toggleChip(this)" title="SC 13D/G filings showing major holder reducing stake">◆ 13D/G Sell</div>
       </div>
       <div class="filter-section">
         <span class="filter-label">Insider Role</span>
