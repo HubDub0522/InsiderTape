@@ -1070,8 +1070,9 @@ app.get('/api/f13', async (req, res) => {
     const lastFetch = _f13TickerFetchedAt[sym] || 0;
     const hasData = rows.length > 0;
     const needsHistory = !hasData || (Date.now() - lastFetch > 7 * 86400000);
-    if (needsHistory && !f13Running) {
+    if (needsHistory && !f13Running && !_f13TickerFetchedAt[sym + '_inflight']) {
       _f13TickerFetchedAt[sym] = Date.now();
+      _f13TickerFetchedAt[sym + '_inflight'] = true;
       // Spawn f13-worker in ticker mode (non-blocking — runs after response sent)
       setImmediate(() => {
         const { spawn } = require('child_process');
@@ -1082,7 +1083,10 @@ app.get('/api/f13', async (req, res) => {
         );
         worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13-ticker] ' + l)));
         worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13-ticker] ERR: ' + l)));
-        worker.on('exit', code => { if (code !== 0) slog(`f13-ticker worker exited (code ${code}) for ${sym}`); });
+        worker.on('exit', code => {
+          delete _f13TickerFetchedAt[sym + '_inflight'];
+          if (code !== 0) slog(`f13-ticker worker exited (code ${code}) for ${sym}`);
+        });
       });
     }
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -2823,8 +2827,10 @@ runDaily(3);
 setTimeout(() => {
   const hasF13 = db.prepare("SELECT COUNT(*) AS n FROM f13_changes WHERE filed_date >= date('now', '-180 days')").get();
   if (!hasF13 || hasF13.n === 0) {
-    slog('No recent 13F data — running f13-worker...');
-    runF13('default');
+    if (!f13Running) {
+      slog('No recent 13F data — running f13-worker...');
+      runF13('default');
+    }
   } else {
     slog(`13F data current (${hasF13.n} recent changes)`);
   }
