@@ -2689,14 +2689,39 @@ function runF13(mode = 'default') {
 // Also run once at startup if not yet processed current quarter
 function scheduleF13() {
   const now = new Date();
-  const month = now.getUTCMonth() + 1; // 1-12
-  const day   = now.getUTCDate();
-  const etOffset = -5; // approximate, ignores DST
-  // Trigger months: Feb(2), May(5), Aug(8), Nov(11) on day 20
+  const month  = now.getUTCMonth() + 1;
+  const day    = now.getUTCDate();
+  const hour   = now.getUTCHours();
+  const etOffset = -5;
+
+  // During 13F filing windows (45 days after each quarter-end), run daily poll at 5pm ET
+  // Filing windows: Jan 1–Feb 14, Apr 1–May 15, Jul 1–Aug 14, Oct 1–Nov 14
+  const filingWindows = [
+    { startM: 1, startD: 1,  endM: 2,  endD: 14 }, // Q4 filings
+    { startM: 4, startD: 1,  endM: 5,  endD: 15 }, // Q1 filings
+    { startM: 7, startD: 1,  endM: 8,  endD: 14 }, // Q2 filings
+    { startM: 10, startD: 1, endM: 11, endD: 14 }, // Q3 filings
+  ];
+
+  const inFilingWindow = filingWindows.some(w => {
+    const afterStart = month > w.startM || (month === w.startM && day >= w.startD);
+    const beforeEnd  = month < w.endM   || (month === w.endM   && day <= w.endD);
+    return afterStart && beforeEnd;
+  });
+
+  // 5pm ET = 22:00 UTC (approximate, ignores DST)
+  if (inFilingWindow && hour === 22 && !f13Running) {
+    slog('13F filing window — running incremental poll...');
+    runF13('poll');
+  }
+
+  // Full quarterly refresh on the 20th of trigger months at 10am ET
   const triggerMonths = new Set([2, 5, 8, 11]);
-  if (triggerMonths.has(month) && day === 20 && now.getUTCHours() === (10 - etOffset)) {
+  if (triggerMonths.has(month) && day === 20 && hour === (10 - etOffset) && !f13Running) {
+    slog('13F quarterly refresh — running full quarter...');
     runF13('default');
   }
+
   // Check again in 1 hour
   setTimeout(scheduleF13, 60 * 60 * 1000);
 }
