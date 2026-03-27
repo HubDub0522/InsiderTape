@@ -519,25 +519,27 @@ async function processQuarter(year, q, repYear, repQ) {
 
       totalFilers++;
     } catch(e) {
-      // Skip individual filer errors silently
+      if ((i + 1) % 100 === 0) log(`${key}: note — some filers skipped (e.g. ${e.message?.slice(0,50)})`);
     }
 
-    // Every 50 filers, resolve CUSIPs and flush to DB
-    if (totalFilers > 0 && totalFilers % 50 === 0) {
-      log(`${key}: processed ${i+1}/${toProcess.length} filers, ${pendingRows.length} pending changes...`);
-      const uniqueCusips = [...new Set(cusipBatch)];
-      const tickerMap = await resolveCusips(uniqueCusips);
-      const insertMany = db.transaction(rows => {
-        for (const r of rows) {
-          const ticker = tickerMap[r.cusip] || '';
-          insertChange.run(ticker, r.cusip, r.filerCik, r.filerName, r.quarter,
-            r.filedDate, r.shares, r.delta, r.value, r.pctChange, r.isNew, r.isExit);
-          if (ticker) totalChanges++;
-        }
-      });
-      insertMany(pendingRows);
-      pendingRows.length = 0;
-      cusipBatch = [];
+    // Every 50 iterations, log progress and flush to DB
+    if ((i + 1) % 50 === 0) {
+      log(`${key}: ${i+1}/${toProcess.length} scanned, ${totalFilers} with holdings, ${pendingRows.length} pending changes...`);
+      if (pendingRows.length > 0) {
+        const uniqueCusips = [...new Set(cusipBatch)];
+        const tickerMap = await resolveCusips(uniqueCusips);
+        const insertMany = db.transaction(rows => {
+          for (const r of rows) {
+            const ticker = tickerMap[r.cusip] || '';
+            insertChange.run(ticker, r.cusip, r.filerCik, r.filerName, r.quarter,
+              r.filedDate, r.shares, r.delta, r.value, r.pctChange, r.isNew, r.isExit);
+            if (ticker) totalChanges++;
+          }
+        });
+        insertMany(pendingRows);
+        pendingRows.length = 0;
+        cusipBatch = [];
+      }
     }
   }
 
