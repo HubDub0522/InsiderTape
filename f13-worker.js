@@ -336,9 +336,13 @@ async function processQuarter(year, q) {
   const key = `${year}Q${q}`;
 
   const already = db.prepare('SELECT filers FROM f13_quarter_log WHERE quarter=?').get(key);
-  if (already) {
+  if (already && already.filers > 0) {
     log(`${key}: already processed (${already.filers} filers), skipping`);
     return 0;
+  }
+  if (already && already.filers === 0) {
+    log(`${key}: prior run had 0 filers (likely failed) — retrying`);
+    db.prepare('DELETE FROM f13_quarter_log WHERE quarter=?').run(key);
   }
 
   log(`${key}: streaming EDGAR form.idx for 13F-HR filings...`);
