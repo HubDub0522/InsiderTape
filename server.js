@@ -2911,7 +2911,8 @@ function requireAdminSecret(req, res) {
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 // ── F13 admin endpoints ───────────────────────────────────────────────────────
 app.get('/api/admin/f13-status', (req, res) => {
-  if (req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
   try {
     const quarterLog = db.prepare('SELECT * FROM f13_quarter_log ORDER BY quarter DESC').all();
     const totalChanges = db.prepare('SELECT COUNT(*) AS n FROM f13_changes').get();
@@ -2922,7 +2923,8 @@ app.get('/api/admin/f13-status', (req, res) => {
 });
 
 app.get('/api/admin/f13-run', (req, res) => {
-  if (req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
   const mode = req.query.mode || 'default';
   if (f13Running) return res.json({ ok: false, message: 'already running' });
   // Clear stale 0-filer quarter log entries so they get reprocessed
