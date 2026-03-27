@@ -331,10 +331,7 @@ async function getInfoTableUrl(accession, cik) {
     if (status !== 200) return null;
 
     // EDGAR returns HTML-styled versions at xslForm13F_X02/ paths — skip those
-    // We need the raw XML. Priority order:
-    // 1. Any .xml file NOT in xslForm13F subfolder (raw data file)
-    // 2. Specifically named infotable files
-    // Extract all XML hrefs, filter out the styled versions
+    // We need the raw XML infotable, not the submission wrapper (primary_doc.xml)
     const xmlHrefs = [];
     const hrefRe = /href="([^"]*\.xml)"/gi;
     let hm;
@@ -342,10 +339,10 @@ async function getInfoTableUrl(accession, cik) {
       xmlHrefs.push(hm[1]);
     }
 
-    // Prefer raw XML: not in xslForm subfolder, prioritise infotable names
+    // Priority: explicit infotable file (not xslForm, not primary_doc)
     const rawXml = xmlHrefs.find(h => !h.includes('xslForm') &&
         /infotable|information_table|13finfotable/i.test(h))
-      || xmlHrefs.find(h => !h.includes('xslForm') && /primary_doc/i.test(h))
+      || xmlHrefs.find(h => !h.includes('xslForm') && !h.includes('primary_doc') && h.endsWith('.xml'))
       || xmlHrefs.find(h => !h.includes('xslForm'));
 
     if (!rawXml) return null;
@@ -493,9 +490,21 @@ async function processQuarter(year, q, repYear, repQ) {
       if (!xmlUrl) continue;
 
       // Fetch and parse XML holdings
-      const { status, body } = await get(xmlUrl, 30000);
+      let { status, body } = await get(xmlUrl, 30000);
       if (i < 3) log(`${key}: filer[${i}] xml status=${status} bodyLen=${body?.length||0}`);
       if (status !== 200) continue;
+
+      // If this is a submission wrapper (edgarSubmission), find the actual infotable
+      if (body.includes('<edgarSubmission') || body.includes('<submissionType>')) {
+        const tableFile = body.match(/<filename>([^<]*infotable[^<]*\.xml)<\/filename>/i)
+          || body.match(/<filename>([^<]*\.xml)<\/filename>/i);
+        if (tableFile) {
+          const acc2 = f.accession.replace(/-/g, '');
+          const tableUrl = `https://www.sec.gov/Archives/edgar/data/${f.cik}/${acc2}/${tableFile[1]}`;
+          const r2 = await get(tableUrl, 30000);
+          if (r2.status === 200) body = r2.body;
+        }
+      }
 
       const holdings = parseHoldings(body);
       if (i < 3) {
