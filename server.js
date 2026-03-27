@@ -1886,7 +1886,7 @@ app.get('/api/sectors', (req, res) => {
 });
 
 // ─── DEBUG ENDPOINT — shows DB stats for diagnosing data issues ───────────
-app.get('/api/ping', (req, res) => _sectorsCache = ({ ok: true, t: Date.now() }));
+app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
 
 app.get('/api/debug', (req, res) => {
   try {
