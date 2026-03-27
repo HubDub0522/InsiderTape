@@ -332,8 +332,11 @@ async function getInfoTableUrl(accession, cik) {
 }
 
 // ── Quarter processing ────────────────────────────────────────────────────────
-async function processQuarter(year, q) {
-  const key = `${year}Q${q}`;
+async function processQuarter(year, q, repYear, repQ) {
+  // year/q = EDGAR filing index quarter (when the 13F was filed)
+  // repYear/repQ = reporting quarter (what positions it discloses)
+  if (!repYear) { repYear = year; repQ = q - 1; if (repQ < 1) { repQ = 4; repYear--; } }
+  const key = `${repYear}Q${repQ}`; // store by reporting quarter
 
   const already = db.prepare('SELECT filers FROM f13_quarter_log WHERE quarter=?').get(key);
   if (already && already.filers > 0) {
@@ -345,7 +348,7 @@ async function processQuarter(year, q) {
     db.prepare('DELETE FROM f13_quarter_log WHERE quarter=?').run(key);
   }
 
-  log(`${key}: streaming EDGAR form.idx for 13F-HR filings...`);
+  log(`${key}: streaming EDGAR ${year}/QTR${q}/form.idx for 13F-HR filings...`);
 
   // Try form.idx first, fall back to company.idx
   const formIdxUrl = `https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${q}/form.idx`;
@@ -566,13 +569,18 @@ function getPriorQuarter(year, q) {
 function getCurrentQuarters(n) {
   const now = new Date();
   const results = [];
+  // 13F filings are in the EDGAR index for the quarter they were FILED in,
+  // not the quarter they REPORT on.
+  // 2025Q4 positions → filed Jan-Feb 2026 → in 2026/QTR1/form.idx
+  // 2025Q3 positions → filed Oct-Nov 2025 → in 2025/QTR4/form.idx
+  // So we look at the current EDGAR index quarter and the one before.
   let year = now.getUTCFullYear();
   let q = Math.ceil((now.getUTCMonth() + 1) / 3);
-  // 13Fs are filed 45 days after quarter end — back up one quarter to get latest available
-  q--;
-  if (q < 1) { q = 4; year--; }
   for (let i = 0; i < n; i++) {
-    results.push({ year, q });
+    // The reporting quarter is one behind the filing quarter
+    let repYear = year, repQ = q - 1;
+    if (repQ < 1) { repQ = 4; repYear--; }
+    results.push({ year, q, repYear, repQ });
     q--;
     if (q < 1) { q = 4; year--; }
   }
@@ -590,9 +598,8 @@ async function pollIncremental() {
   log(`Incremental poll: checking EDGAR for 13F-HR filings ${startDate} → ${endDate}`);
 
   // Determine which quarter these filings belong to
-  // A filing today is for the most recent completed quarter
-  const { year, q } = getCurrentQuarters(1)[0];
-  const key = `${year}Q${q}`;
+  const { year, q, repYear, repQ } = getCurrentQuarters(1)[0];
+  const key = `${repYear}Q${repQ}`; // keyed by reporting quarter
 
   // Load filers already processed this quarter so we skip them
   const processedFilers = new Set(
@@ -913,8 +920,8 @@ async function main() {
   log(`OpenFIGI key: ${OPENFIGI_KEY ? 'configured' : 'none (25 req/min)'}`);
 
   let total = 0;
-  for (const { year, q } of quarters) {
-    total += await processQuarter(year, q);
+  for (const { year, q, repYear, repQ } of quarters) {
+    total += await processQuarter(year, q, repYear, repQ);
     if (quarters.length > 1) await new Promise(r => setTimeout(r, 2000));
   }
 
