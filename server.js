@@ -360,6 +360,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_f13_ticker  ON f13_changes(ticker);
     CREATE INDEX IF NOT EXISTS idx_f13_quarter ON f13_changes(quarter);
     CREATE INDEX IF NOT EXISTS idx_f13_date    ON f13_changes(filed_date);
+    CREATE INDEX IF NOT EXISTS idx_f13_dual    ON f13_changes(quarter, ticker, shares_delta);
   `);
 } catch (e) {
   console.error(`Cannot open DB at ${DB_PATH}: ${e.message}`);
@@ -2824,6 +2825,28 @@ setTimeout(() => {
     }
   } else {
     slog(`13F data current (${hasF13.n} recent changes)`);
+    // Pre-warm f13 summary and dual caches in background
+    setTimeout(() => {
+      try {
+        const quarterRow = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY processed_at DESC LIMIT 1').get();
+        if (quarterRow) {
+          const q = quarterRow.quarter;
+          const currentCount = db.prepare('SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE quarter=? AND ticker!=?').get(q, '');
+          const quarters = currentCount.n >= 100 ? [q] :
+            db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
+          const qPlaceholders = quarters.map(() => '?').join(',');
+          // Warm summary cache
+          _f13SummaryCache = {
+            quarter: quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q,
+            topBuys: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(shares_delta) AS total_shares_added, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC, total_value DESC LIMIT 20`).all(...quarters),
+            topSells: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(shares_delta) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta < 0 AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC LIMIT 20`).all(...quarters),
+            newPositions: db.prepare(`SELECT ticker, COUNT(*) AS new_filer_count, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND is_new = 1 AND ticker != '' GROUP BY ticker ORDER BY new_filer_count DESC, total_value DESC LIMIT 20`).all(...quarters),
+          };
+          _f13SummaryCacheTime = Date.now();
+          slog(`13F summary cache pre-warmed (${_f13SummaryCache.topBuys.length} top buys)`);
+        }
+      } catch(e) { slog(`13F cache pre-warm error: ${e.message}`); }
+    }, 5000);
   }
   scheduleF13();
 }, 60000);
