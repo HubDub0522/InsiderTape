@@ -431,8 +431,8 @@ async function processQuarter(year, q, repYear, repQ) {
 
   log(`${key}: processing ${toProcess.length} unique filers (${unique.length - toProcess.length} capped)`);
 
-  // Load prior quarter's holdings for diffing
-  const priorKey = getPriorQuarter(year, q);
+  // Load prior quarter's holdings for diffing (based on reporting quarter)
+  const priorKey = getPriorQuarter(repYear, repQ);
   const priorHoldings = {}; // { filerCik: { cusip: shares } }
   if (priorKey) {
     const priorRows = db.prepare(`
