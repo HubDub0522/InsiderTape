@@ -193,7 +193,7 @@ const BAD_UA_PATTERNS = [
 const HONEYPOT_PATHS = [
   '/admin', '/wp-admin', '/wp-login.php', '/.env', '/config.php',
   '/phpmyadmin', '/mysql', '/adminer', '/.git/config',
-  '/api/v1/users', '/api/admin', '/api/dump', '/api/export',
+  '/api/v1/users', '/api/dump', '/api/export',
   '/backup', '/db', '/database', '/shell', '/cmd',
 ];
 
