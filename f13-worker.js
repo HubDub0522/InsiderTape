@@ -737,6 +737,139 @@ async function pollIncremental() {
   return totalChanges;
 }
 
+// ── On-demand ticker history via CUSIP search ────────────────────────────────
+// Searches EDGAR EFTS for all 13F filings mentioning this ticker's CUSIP,
+// then fetches and diffs only the quarters we don't already have.
+async function fetchTickerHistory(sym) {
+  // First resolve ticker → CUSIP via our cache or OpenFIGI
+  // We look up what CUSIP we already have for this ticker in f13_changes
+  const existingRow = db.prepare('SELECT cusip FROM f13_changes WHERE ticker=? AND cusip!=? LIMIT 1').get(sym, '');
+  let cusip = existingRow?.cusip || '';
+
+  if (!cusip) {
+    // Try resolving via OpenFIGI by ticker symbol
+    await rateLimitOpenFigi();
+    try {
+      const { status, body } = await post('https://api.openfigi.com/v3/mapping',
+        [{ idType: 'TICKER', idValue: sym, exchCode: 'US' }], 15000);
+      if (status === 200) {
+        const data = JSON.parse(body);
+        const match = data[0]?.data?.find(d => d.securityType === 'Common Stock' && d.shareClassFIGI);
+        // OpenFIGI doesn't return CUSIP directly in v3 mapping — use ticker search on EFTS instead
+      }
+    } catch(e) {}
+  }
+
+  // Search EFTS for 13F filings mentioning this ticker by name
+  // This finds all institutional holders across all quarters
+  const eftsUrl = `https://efts.sec.gov/LATEST/search-index?q=%22${encodeURIComponent(sym)}%22&forms=13F-HR&dateRange=custom&startdt=2022-01-01&enddt=${new Date().toISOString().slice(0,10)}&hits.hits._source=period_of_report,file_date,entity_name&hits.hits.total.value=true`;
+
+  let hits = [];
+  try {
+    const { status, body } = await get(eftsUrl, 20000);
+    if (status !== 200) { log(`EFTS ticker search HTTP ${status} for ${sym}`); return; }
+    const data = JSON.parse(body);
+    hits = data.hits?.hits || [];
+    log(`${sym}: EFTS found ${hits.length} 13F filings mentioning ticker`);
+  } catch(e) { log(`${sym}: EFTS error — ${e.message}`); return; }
+
+  if (!hits.length) { log(`${sym}: no historical 13F data found`); return; }
+
+  // Group by quarter — we only need one filing per filer per quarter
+  // Determine which quarters we already have data for this ticker
+  const existingQuarters = new Set(
+    db.prepare('SELECT DISTINCT quarter FROM f13_changes WHERE ticker=?').all(sym).map(r => r.quarter)
+  );
+
+  // Collect unique filer/quarter combos we don't have yet
+  const toFetch = []; // { cik, accession, filedDate, filerName, quarter }
+  const seen = new Set();
+  for (const hit of hits) {
+    const src = hit._source || {};
+    const accession = (hit._id || '').replace(/[^0-9\-]/g, '');
+    if (!accession) continue;
+    const cikStr = accession.split('-')[0].replace(/^0+/, '');
+    const filedDate = src.file_date || '';
+    if (!filedDate || !cikStr) continue;
+
+    // Determine quarter from filed date
+    const d = new Date(filedDate);
+    const fileYear = d.getUTCFullYear();
+    const fileMonth = d.getUTCMonth() + 1;
+    // 13F filed in Jan-Feb covers Q4 of prior year; Apr-May=Q1; Jul-Aug=Q2; Oct-Nov=Q3
+    let quarter;
+    if (fileMonth <= 2)       quarter = `${fileYear-1}Q4`;
+    else if (fileMonth <= 5)  quarter = `${fileYear}Q1`;
+    else if (fileMonth <= 8)  quarter = `${fileYear}Q2`;
+    else                      quarter = `${fileYear}Q3`;
+
+    if (existingQuarters.has(quarter)) continue; // already have this quarter
+    const key = `${cikStr}|${quarter}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    // Normalize accession
+    const parts = accession.replace(/\.txt$/i,'').split('-');
+    if (parts.length !== 3) continue;
+    const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
+
+    toFetch.push({ cik: cikStr, accession: accDash, filedDate, filerName: src.entity_name || '', quarter });
+  }
+
+  if (!toFetch.length) { log(`${sym}: all quarters already have data`); return; }
+  log(`${sym}: fetching ${toFetch.length} filer/quarter combos across ${new Set(toFetch.map(f=>f.quarter)).size} quarters`);
+
+  const insertChange = db.prepare(`
+    INSERT OR REPLACE INTO f13_changes
+      (ticker, cusip, filer_cik, filer_name, quarter, filed_date,
+       shares, shares_delta, value_usd, pct_change, is_new, is_exit)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+
+  let resolved = 0;
+  // Process in batches of 10 to stay within rate limits
+  for (let i = 0; i < toFetch.length; i += 10) {
+    const batch = toFetch.slice(i, i + 10);
+    await Promise.allSettled(batch.map(async f => {
+      try {
+        const xmlUrl = await getInfoTableUrl(f.accession, f.cik);
+        if (!xmlUrl) return;
+        const { status, body } = await get(xmlUrl, 20000);
+        if (status !== 200) return;
+        const holdings = parseHoldings(body);
+
+        // Find the holding for our target ticker
+        // We need to match by ticker — look for CUSIP we already know, or scan all and resolve
+        const targetCusip = cusip;
+        let targetHolding = targetCusip ? holdings.find(h => h.cusip === targetCusip) : null;
+
+        if (!targetHolding && !targetCusip && holdings.length > 0) {
+          // Resolve all CUSIPs to find which one is our ticker
+          const allCusips = [...new Set(holdings.map(h => h.cusip))];
+          const tickerMap = await resolveCusips(allCusips.slice(0, 50)); // limit to 50
+          const matchCusip = Object.entries(tickerMap).find(([c, t]) => t === sym)?.[0];
+          if (matchCusip) {
+            cusip = matchCusip; // cache for subsequent iterations
+            targetHolding = holdings.find(h => h.cusip === matchCusip);
+          }
+        }
+
+        if (!targetHolding) return;
+
+        // Simple insert — no prior-quarter diff for historical data
+        // shares_delta = shares (new position baseline)
+        insertChange.run(sym, targetHolding.cusip, f.cik, f.filerName, f.quarter,
+          f.filedDate, targetHolding.shares, targetHolding.shares, targetHolding.value,
+          null, 1, 0); // treat all historical as "new" since we have no diff
+        resolved++;
+      } catch(e) { /* skip */ }
+    }));
+    if (i + 10 < toFetch.length) await new Promise(r => setTimeout(r, 500));
+  }
+
+  log(`${sym}: inserted ${resolved} historical 13F position records`);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
   const args = process.argv.slice(2);
@@ -750,6 +883,17 @@ async function main() {
     log(`=== 13F incremental poll complete ===`);
     process.exit(0);
     return;
+
+  } else if (args[0] === 'ticker' && args[1]) {
+    // On-demand ticker mode — fetch historical 13F data for one specific ticker
+    const sym = args[1].toUpperCase().trim();
+    log(`=== 13F worker v${WORKER_VERSION} start (ticker: ${sym}) ===`);
+    log(`OpenFIGI key: ${OPENFIGI_KEY ? 'configured' : 'none (25 req/min)'}`);
+    await fetchTickerHistory(sym);
+    log(`=== 13F ticker fetch complete for ${sym} ===`);
+    process.exit(0);
+    return;
+
   } else if (args[0] === 'Q' && args[1] && args[2]) {
     quarters = [{ year: parseInt(args[1]), q: parseInt(args[2]) }];
     log(`Manual mode: processing ${args[1]}Q${args[2]}`);
