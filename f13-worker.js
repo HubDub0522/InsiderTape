@@ -329,16 +329,30 @@ async function getInfoTableUrl(accession, cik) {
   try {
     const { status, body } = await get(indexUrl, 15000);
     if (status !== 200) return null;
-    // Priority: explicit infotable file > any XML
-    // New EDGAR format uses xslForm13F_X02/ subfolder
-    const m = body.match(/href="([^"]*(?:infotable|information_table|13finfotable)[^"]*\.xml)"/i)
-           || body.match(/href="([^"]*xslForm13F[^"]*\.xml)"/i)
-           || body.match(/href="([^"]*primary_doc[^"]*\.xml)"/i)
-           || body.match(/href="([^"]*\.xml)"/i);
-    if (!m) return null;
-    const xmlPath = m[1].startsWith('http') ? m[1]
-      : m[1].startsWith('/') ? `https://www.sec.gov${m[1]}`
-      : `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${m[1]}`;
+
+    // EDGAR returns HTML-styled versions at xslForm13F_X02/ paths — skip those
+    // We need the raw XML. Priority order:
+    // 1. Any .xml file NOT in xslForm13F subfolder (raw data file)
+    // 2. Specifically named infotable files
+    // Extract all XML hrefs, filter out the styled versions
+    const xmlHrefs = [];
+    const hrefRe = /href="([^"]*\.xml)"/gi;
+    let hm;
+    while ((hm = hrefRe.exec(body)) !== null) {
+      xmlHrefs.push(hm[1]);
+    }
+
+    // Prefer raw XML: not in xslForm subfolder, prioritise infotable names
+    const rawXml = xmlHrefs.find(h => !h.includes('xslForm') &&
+        /infotable|information_table|13finfotable/i.test(h))
+      || xmlHrefs.find(h => !h.includes('xslForm') && /primary_doc/i.test(h))
+      || xmlHrefs.find(h => !h.includes('xslForm'));
+
+    if (!rawXml) return null;
+
+    const xmlPath = rawXml.startsWith('http') ? rawXml
+      : rawXml.startsWith('/') ? `https://www.sec.gov${rawXml}`
+      : `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${rawXml}`;
     return xmlPath;
   } catch(e) { return null; }
 }
