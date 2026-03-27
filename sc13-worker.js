@@ -94,6 +94,19 @@ try {
   if (cleared.changes > 0) log(`Cleared ${cleared.changes} stale single-CIK subject_cik values`);
 } catch(e) {}
 
+// Fix rows where the resolved ticker is actually the institutional filer, not the subject
+// These got the filer's CIK in subject_cik and resolved to MS, GS, etc. incorrectly
+try {
+  const badRows = db.prepare(`
+    UPDATE sc13_transactions
+    SET ticker = '', company = '', subject_cik = 'SKIP'
+    WHERE ticker IN ('MS','GS','JPM','BAC','C','WFC','BLK','BX','APO','KKR','CG','ARES',
+                     'BRK-A','BRK-B','V','MA','AXP','SCHW','STT','BK','NTRS')
+      AND (filer IS NULL OR filer = '')
+  `).run();
+  if (badRows.changes > 0) log(`Fixed ${badRows.changes} rows with institutional filer incorrectly set as subject ticker`);
+} catch(e) {}
+
 // Permanently mark rows that have had subject_cik set for 14+ days with no ticker resolved
 // These are definitively unresolvable (private funds, non-public entities, defunct companies)
 try {
@@ -446,6 +459,13 @@ async function runHistoricalBackfillForQuarters(quarterKeys) {
 //
 // For SC 13D/G the filer CIK (first 10 digits of accession) is the INVESTOR.
 // The SUBJECT company CIK appears on the index page as "(Subject)".
+const KNOWN_FILER_TICKERS = new Set([
+  // Major institutional investors that file 13D/G as investors, not subjects
+  'MS','GS','JPM','BAC','C','WFC','BLK','BX','APO','KKR','CG','ARES',
+  'BRK-A','BRK-B','V','MA','AXP','SCHW','STT','BK','NTRS',
+  'VANGUARD','FIDELITY', // these won't match but belt+suspenders
+]);
+
 async function enrichRecentTickers() {
   // Migration: extract subject_cik from URL only for company.idx rows
   // (identified by having company name set but blank filer — company.idx format)
@@ -487,7 +507,15 @@ async function enrichRecentTickers() {
         const result  = ticker && ticker.match(/^[A-Z]{1,7}(-[A-Z]{1,2})?$/) ? { ticker, company } : null;
         cikTickerCache[cik] = result;
 
-        if (result) return result;
+        if (result) {
+          // If this CIK resolves to a known institutional filer, it's likely the investor
+          // (filer), not the subject company — reject it so Phase 2 uses the correct subject
+          if (KNOWN_FILER_TICKERS.has(result.ticker)) {
+            cikTickerCache[cik] = null;
+            continue;
+          }
+          return result;
+        }
         // Mark non-public entities (funds, individuals) so we skip them next run
         if (!ticker && company) {
           const isNonPublic = /LLC|LP|L\.P\.|Fund|Partners|Capital|Management|Corp\.|Inc\.|Trust|Holding|Group|Associates|Advisors|& Co|Individual|Person/i.test(company)
