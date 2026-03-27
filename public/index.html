@@ -1421,7 +1421,7 @@ async function loadScreener() {
       return;
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-    if (state.minVal > 0) trades = trades.filter(t => t._isSc13 || t.value >= state.minVal);
+    if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
 
@@ -2481,7 +2481,7 @@ let _chartType = 'candle'; // 'candle' | 'line'
 async function buildChart(priceData, trades, f13Data) {
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
-    const cb = () => buildChart(priceData, trades, sc13Data);
+    const cb = () => buildChart(priceData, trades, state.f13Data || []);
     cb._isBuildChart = true;
     window._onLCReady(cb);
     return;
@@ -3179,7 +3179,7 @@ function renderTradeMarkerList(trades) {
   if(trades.length>15)el.innerHTML+=`<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length-15} more — see table below</div>`;
 
   // Append diamond legend entries if there's sc13/5%-owner data
-  const sc13 = state.sc13Data || [];
+  const f13 = state.f13Data || [];
   if (sc13.length > 0) {
     const hasBuy  = sc13.some(f=>f.shares_delta===null||f.shares_delta>=0);
     const hasSell = sc13.some(f=>f.shares_delta!==null&&f.shares_delta<0);
@@ -3286,51 +3286,11 @@ function renderSidebarSummary(trades) {
 }
 function renderStockTradesTable(trades) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
-  const sc13 = state.sc13Data || [];
-
-  // Merge Form 4 trades + SC 13D/G filings in time order
-  const items = [...trades.map(t=>({...t,_type:'form4'}))];
-  sc13.forEach(f => {
-    const isSell = f.shares_delta !== null && f.shares_delta < 0;
-    items.push({
-      _type:'sc13', trade:f.filed_date, filing:f.filed_date,
-      insider:f.filer||'Unknown filer', title:f.filing_type||'SC 13D/G',
-      type:isSell?'S':'P',
-      qty:f.shares_delta!=null?Math.abs(f.shares_delta):(f.shares_owned||0),
-      price:0, value:0, owned:f.shares_owned||0,
-      pct_owned:f.pct_owned, shares_delta:f.shares_delta,
-      shares_owned:f.shares_owned,
-      accession:f.accession, url:f.url,
-    });
-  });
-  items.sort((a,b)=>new Date(b.trade||b.filing)-new Date(a.trade||a.filing));
-
-  if(!items.length){el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;return;}
-  el.innerHTML=items.map(t=>{
-    if (isSc13) {
-      const dColor = t.type==='S'?'#ff00ff':'#00d4ff';
-      const secLink = t.url
-        ? `<a href="${t.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
-        : '';
-      const sharesNum = t.shares_delta!=null ? t.shares_delta
-                      : t.shares_owned>0 ? t.shares_owned
-                      : t.owned>0 ? t.owned : t.qty||0;
-      const deltaStr = sharesNum
-        ? (t.shares_delta!=null ? (t.shares_delta>0?'+':'')+fmtShares(t.shares_delta) : fmtShares(sharesNum))
-        : '—';
-      const pctStr = t.pct_owned!=null?`${t.pct_owned.toFixed(1)}% owned`:'5%+ owner';
-      return `<tr style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'}">
-        <td style="font-family:'Space Mono',monospace;font-size:11px;border-left:2px solid ${dColor};padding-left:10px">${fmtDate(t.trade)}</td>
-        <td><span style="color:${dColor};font-size:11px;font-weight:600">◆ ${t.insider}</span></td>
-        <td style="color:${dColor};font-size:11px">${(t.title||'SC 13D/G').replace('SC ','')} <span title="SC 13D/G filing type" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;vertical-align:middle;font-family:'Space Mono',monospace">?</span></td>
-        <td><span class="badge ${t.type==='S'?'badge-sell':'badge-buy'}">${t.type==='S'?'SELL':'BUY'}</span></td>
-        <td style="font-family:'Space Mono',monospace;color:var(--muted)">${deltaStr}</td>
-        <td style="color:var(--muted)">—</td>
-        <td style="color:var(--muted)">—</td>
-        <td style="font-family:'Space Mono',monospace;color:${dColor}">${pctStr}</td>
-        <td style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}<br>${secLink}</td>
-      </tr>`;
-    }
+  if(!trades.length){
+    el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;
+    return;
+  }
+  el.innerHTML=trades.map(t=>{
     const secLink = t.accession
       ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
       : '';
