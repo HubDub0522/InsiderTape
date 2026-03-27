@@ -1255,20 +1255,30 @@ async function apiFetch(path, opts={}) {
            : path.startsWith('/api/screener')  ? 90000
            : path.startsWith('/api/price')     ? 35000
            : 45000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    let resp = await fetch(API_BASE + path, { signal: controller.signal, ...opts });
-    // Retry once on 503 (cold-start) with 2s backoff
-    if (resp.status === 503) {
-      await new Promise(r => setTimeout(r, 2000));
-      resp = await fetch(API_BASE + path, opts);
+  // Retry up to 4 times on 503 (Render cold start can take 10-30s)
+  const delays = [2000, 4000, 6000, 8000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      const resp = await fetch(API_BASE + path, { signal: controller.signal, ...opts });
+      clearTimeout(timer);
+      if (resp.status === 503 && attempt < delays.length) {
+        await new Promise(r => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
+      return await resp.json();
+    } catch(e) {
+      clearTimeout(timer);
+      if (attempt < delays.length && (e.message?.includes('503') || e.name === 'AbortError')) {
+        await new Promise(r => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      throw e;
     }
-    if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
-    return await resp.json();
-  } finally {
-    clearTimeout(timer);
   }
+  throw new Error(`Server unavailable after retries: ${path}`);
 }
 async function fetchInsiderForTicker(ticker) { return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`); }
 async function fetchInsiderByName(name) {
@@ -2095,21 +2105,20 @@ async function loadStockLanding() {
 
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div></div>`;
 
-  // Retry up to 3 times — handles cold-start 503s
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      if (!_stockListsCache) {
-        _stockListsCache = await apiFetch('/api/stock-lists');
-      }
-      renderStockLanding(_stockListsCache);
-      return;
-    } catch(e) {
-      if (attempt < 2) {
-        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-      } else {
-        content.innerHTML = `<div class="empty-state"><div class="empty-icon">📈</div><div>Search a ticker above to get started</div></div>`;
-      }
+  // apiFetch already handles 503 retries with backoff — just call once
+  try {
+    if (!_stockListsCache) {
+      _stockListsCache = await apiFetch('/api/stock-lists');
     }
+    renderStockLanding(_stockListsCache);
+  } catch(e) {
+    // Server still starting — show helpful message with retry button
+    content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:60px 20px;text-align:center">
+      <div style="font-size:32px;margin-bottom:16px">⏳</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:8px">SERVER STARTING UP</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:24px">The server is waking from sleep. This takes 10–15 seconds.</div>
+      <button onclick="_stockListsCache=null;loadStockLanding()" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:10px 24px;font-family:'Space Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">RETRY →</button>
+    </div>`;
   }
 }
 
@@ -9187,19 +9196,20 @@ async function loadAuth() {
 
   // Retry auth up to 3 times with backoff — handles cold-start 503s
   let data = {};
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const authDelays = [3000, 5000, 8000, 10000];
+  for (let attempt = 0; attempt < authDelays.length + 1; attempt++) {
     try {
       const resp = await fetch('/api/auth/me');
       if (resp.ok || resp.status === 401) {
-        data = await resp.json();
+        data = await resp.json().catch(() => ({}));
         break;
       }
-      // 503 = dyno still waking — wait and retry
-      if (resp.status === 503 && attempt < 2) {
-        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-      }
+      if (resp.status === 503 && attempt < authDelays.length) {
+        await new Promise(r => setTimeout(r, authDelays[attempt]));
+      } else { break; }
     } catch(_) {
-      if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+      if (attempt < authDelays.length) await new Promise(r => setTimeout(r, authDelays[attempt]));
+      else break;
     }
   }
 
