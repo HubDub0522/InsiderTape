@@ -409,7 +409,7 @@ async function processQuarter(year, q) {
 
   log(`${key}: found ${found.length} 13F-HR filings`);
   if (!found.length) {
-    db.prepare('INSERT OR REPLACE INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,0,0,datetime("now"))').run(key);
+    db.prepare('INSERT OR REPLACE INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,0,0,?)').run(key, new Date().toISOString().slice(0,19));
     return 0;
   }
 
@@ -549,7 +549,7 @@ async function processQuarter(year, q) {
     insertMany(pendingRows);
   }
 
-  db.prepare('INSERT OR REPLACE INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,datetime("now"))').run(key, totalFilers, totalChanges);
+  db.prepare('INSERT OR REPLACE INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,?)').run(key, totalFilers, totalChanges, new Date().toISOString().slice(0,19));
   log(`${key}: done — ${totalFilers} filers, ${totalChanges} changes with tickers`);
   return totalChanges;
 }
