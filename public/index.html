@@ -4649,6 +4649,7 @@ let _f13SummaryData  = null;     // 13F summary cache for analysis tiles
 let _f13SummaryLoading = false;
 let _firstBuyCache = null;      // firstbuys API results cache
 let _f13SummaryCache = null;    // 13F summary cache for analysis tiles
+let _f13DualCache = null;       // dual conviction cache
 let _rankerCache = null;        // opportunity ranker scored results cache
 let _rankerRawRows = null;      // raw rows from /api/ranker before price enrichment
 let _insiderScoreCache = null;  // top insider accuracy scores cache
@@ -4825,6 +4826,31 @@ function buildF13BuyTile() {
   };
 }
 
+function buildF13DualTile() {
+  const d = _f13DualCache;
+  const items = d ? (d.results || []) : [];
+  const quarter = d?.quarter || '…';
+  const loading = !d;
+  return {
+    id: 'f13dual',
+    icon: '⚡',
+    name: 'Dual Conviction',
+    desc: `Tickers where insiders bought on the open market AND institutions added positions in ${quarter}. Two independent signals pointing the same direction — the strongest setup in the dataset.`,
+    count: items.length || (d ? 0 : '…'),
+    countLabel: 'dual-confirmed tickers',
+    loading,
+    top3: items.slice(0,3).map(r => ({
+      ticker: r.ticker,
+      label: `${r.institution_count} inst · ${r.insider_count} insider${r.insider_count!==1?'s':''}`,
+      sub: fmt(r.insider_value) + ' insider · ' + fmt(r.inst_value) + ' inst',
+      color: 'var(--buy)',
+    })),
+    accentColor: 'var(--buy)',
+    accentBg: 'rgba(0,255,136,0.05)',
+    accentBorder: 'rgba(0,255,136,0.25)',
+  };
+}
+
 function buildF13SellTile() {
   const d = _f13SummaryCache;
   const items = d ? (d.topSells || []) : [];
@@ -4871,6 +4897,54 @@ function buildF13NewTile() {
     accentBg: 'rgba(255,215,0,0.05)',
     accentBorder: 'rgba(255,215,0,0.25)',
   };
+}
+
+function renderF13DualSubpage() {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('analysisViewBody');
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+
+  if (!_f13DualCache) {
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Scanning for dual signals...</span></div></div>`;
+    return;
+  }
+
+  const d = _f13DualCache;
+  const items = d.results || [];
+
+  const rows = items.map(r => `
+    <div onclick="loadStockView('${r.ticker}')" style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s;position:relative;overflow:hidden"
+      onmouseover="this.style.borderColor='var(--buy)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="position:absolute;top:0;left:0;bottom:0;width:3px;background:var(--buy)"></div>
+      <div style="display:flex;align-items:center;gap:14px;padding-left:8px">
+        <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--buy);min-width:56px">${r.ticker}</span>
+        <div>
+          <div style="display:flex;gap:10px;margin-bottom:4px">
+            <span style="font-size:11px;background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;color:var(--buy)">▲ ${r.insider_count} insider${r.insider_count!==1?'s':''} buying</span>
+            <span style="font-size:11px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.25);border-radius:4px;padding:2px 8px;color:var(--accent)">◆ ${r.institution_count} institutions adding</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted)">Insider: ${fmt(r.insider_value)} · Institutional: ${fmt(r.inst_value)} · Last buy: ${fmtDate(r.latest_insider_buy)}</div>
+        </div>
+      </div>
+      <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);flex-shrink:0">VIEW →</div>
+    </div>`).join('');
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:20px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ DUAL CONVICTION</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying + institutions accumulating simultaneously · ${d.quarter} · Strongest convergence signal in the dataset</div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid rgba(0,255,136,0.2);border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:12px;color:var(--muted);line-height:1.7">
+      Requires <span style="color:var(--text)">1+ open-market insider purchase</span> in the last 90 days AND <span style="color:var(--text)">2+ institutions independently adding</span> in <span style="color:var(--text)">${d.quarter}</span>. Neither signal alone is enough — convergence between people who know the company from the inside and professionals who analyzed it from the outside is what makes this rare.
+    </div>
+    ${items.length
+      ? `<div style="display:grid;gap:10px">${rows}</div>`
+      : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
+          No dual conviction signals found for ${d.quarter}.<br>
+          <span style="font-size:11px">This is rare by design — requires both signals simultaneously. Check back as more 13F data loads.</span>
+        </div>`}
+  </div>`;
 }
 
 function renderF13Subpage(type) {
@@ -4982,6 +5056,15 @@ function renderAnalysisDashboard() {
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _f13SummaryCache = { quarter: null, topBuys: [], topSells: [], newPositions: [] }; });
+  }
+
+  // Kick off dual conviction fetch if not cached
+  if (!_f13DualCache) {
+    apiFetch('/api/f13-dual').then(data => {
+      _f13DualCache = data;
+      const body = document.getElementById('analysisViewBody');
+      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+    }).catch(() => { _f13DualCache = { quarter: null, results: [] }; });
   }
 
   const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
@@ -5163,7 +5246,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool, buildF13BuyTile(), buildF13SellTile(), buildF13NewTile()].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool, buildF13DualTile(), buildF13BuyTile(), buildF13SellTile(), buildF13NewTile()].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5281,6 +5364,10 @@ function renderAnalysisSubpage(id) {
 
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
+  }
+
+  else if (id === 'f13dual') {
+    renderF13DualSubpage();
   }
 
   else if (id === 'f13buy' || id === 'f13sell' || id === 'f13new') {
