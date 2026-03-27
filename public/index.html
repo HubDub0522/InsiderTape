@@ -4806,14 +4806,18 @@ function buildF13BuyTile() {
   const d = _f13SummaryCache;
   const items = d ? (d.topBuys || []) : [];
   const quarter = d?.quarter || '…';
+  const isLoading = !d;
+  const isEmpty = d && items.length === 0;
   return {
     id: 'f13buy',
     icon: '🏛',
     name: 'Institutional Accumulation',
-    desc: `Tickers with the most institutions adding to positions in ${quarter}. Based on 13F filings — quarterly disclosures from funds managing $100M+.`,
-    count: items.length || (d ? 0 : '…'),
+    desc: isEmpty
+      ? 'Quarterly 13F data is still processing. Check back after the worker completes — this tile will populate automatically.'
+      : `Tickers with the most institutions adding to positions in ${quarter}. Based on 13F filings — quarterly disclosures from funds managing $100M+.`,
+    count: isLoading ? '…' : items.length,
     countLabel: 'tickers with multiple adders',
-    loading: !d,
+    loading: isLoading,
     top3: items.slice(0,3).map(r => ({
       ticker: r.ticker,
       label: `${r.institution_count} institutions`,
@@ -4855,14 +4859,15 @@ function buildF13SellTile() {
   const d = _f13SummaryCache;
   const items = d ? (d.topSells || []) : [];
   const quarter = d?.quarter || '…';
+  const isLoading = !d;
   return {
     id: 'f13sell',
     icon: '🏛',
     name: 'Institutional Distribution',
     desc: `Tickers with the most institutions reducing or exiting positions in ${quarter}. Multiple institutions selling is a meaningful caution signal.`,
-    count: items.length || (d ? 0 : '…'),
+    count: isLoading ? '…' : items.length,
     countLabel: 'tickers with multiple sellers',
-    loading: !d,
+    loading: isLoading,
     top3: items.slice(0,3).map(r => ({
       ticker: r.ticker,
       label: `${r.institution_count} institutions`,
@@ -4879,14 +4884,15 @@ function buildF13NewTile() {
   const d = _f13SummaryCache;
   const items = d ? (d.newPositions || []) : [];
   const quarter = d?.quarter || '…';
+  const isLoading = !d;
   return {
     id: 'f13new',
     icon: '🆕',
     name: 'New Institutional Positions',
     desc: `Tickers where multiple institutions opened a brand-new position in ${quarter} — no prior holding. High-conviction fresh interest from the smart money.`,
-    count: items.length || (d ? 0 : '…'),
+    count: isLoading ? '…' : items.length,
     countLabel: 'tickers with new institutional interest',
-    loading: !d,
+    loading: isLoading,
     top3: items.slice(0,3).map(r => ({
       ticker: r.ticker,
       label: `${r.new_filer_count} new holders`,
@@ -5090,21 +5096,22 @@ function renderAnalysisDashboard() {
       accentBorder: 'rgba(255,215,0,0.25)',
     },
     {
-      id: 'conviction',
+      id: 'f13dual',
       icon: '⚡',
-      name: 'High Conviction Trades',
-      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size over the last 5 years. Surfaces insiders making their biggest, most deliberate bets.',
-      count: _convData.length,
-      countLabel: 'signals detected',
-      top3: convTop3.map(c => ({
-        ticker: c.ticker,
-        label: `Score ${c.score}`,
-        sub: c.reasons[0] || '',
-        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
+      name: 'Dual Conviction',
+      desc: 'Tickers where insiders bought on the open market AND institutions added positions in the same period. Two independent signals pointing the same direction — the strongest setup in the dataset.',
+      count: _f13DualCache ? (_f13DualCache.results||[]).length : '…',
+      countLabel: 'dual-confirmed tickers',
+      loading: !_f13DualCache,
+      top3: (_f13DualCache?.results||[]).slice(0,3).map(r => ({
+        ticker: r.ticker,
+        label: `${r.institution_count} inst · ${r.insider_count} insider${r.insider_count!==1?'s':''}`,
+        sub: fmt(r.insider_value) + ' insider · ' + fmt(r.inst_value) + ' inst',
+        color: 'var(--buy)',
       })),
       accentColor: 'var(--buy)',
-      accentBg: 'rgba(0,255,136,0.06)',
-      accentBorder: 'rgba(0,255,136,0.2)',
+      accentBg: 'rgba(0,255,136,0.05)',
+      accentBorder: 'rgba(0,255,136,0.25)',
     },
     {
       id: 'clusters',
@@ -5224,7 +5231,7 @@ function renderAnalysisDashboard() {
     icon: '🚨',
     name: 'First Buy in Years',
     desc: 'Detects insiders making their first open-market purchase after 3+ years of inactivity on a stock. A rare, deliberate signal — insiders who stayed inactive for years and then suddenly buy.',
-    count: _firstBuyCache ? _firstBuyCache.length : '…',
+    count: _firstBuyCache !== null ? _firstBuyCache.length : '…',
     countLabel: 'signals found',
     loading: _firstBuyCache === null,
     top3: firstBuyTop3.map(s => ({
@@ -5246,7 +5253,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool, buildF13DualTile(), buildF13BuyTile(), buildF13SellTile(), buildF13NewTile()].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool, buildF13BuyTile(), buildF13SellTile(), buildF13NewTile()].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -9312,6 +9319,14 @@ function requirePremiumForPeriod(days) {
 }
 
 // ── Sidebar guard (blurs sidebar for free users in stock view) ─
+function switchSidebarTab(tab, el) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const trades = state.tickerTrades || [];
+  if (tab === 'summary') renderSidebarSummary(trades);
+  else renderSidebarTrades(trades);
+}
+
 function renderSidebarGated(trades) {
   renderSidebarTrades(trades);
 }
