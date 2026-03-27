@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>How to Actually Use Insider Trading Data | InsiderTape</title>
-<meta name="description" content="SEC insider filings (Form 4, SC 13D, SC 13G) are public and free. Here's a practical framework for separating signal from noise and building both insider and institutional ownership data into your process.">
+<meta name="description" content="SEC insider filings (Form 4 and 13F) are public and free. Here's a practical framework for separating signal from noise and building both insider and institutional ownership data into your process.">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://insidertape.com/articles/how-to-use-insider-data.html">
 <meta property="og:type" content="article">
@@ -251,65 +251,61 @@
       <p><strong>Where insider data is most powerful:</strong> as a confirmation tool. You've done your fundamental work. You think the stock is undervalued. You see strong insider buying. Now you have two independent sources of signal pointing the same direction. That's a better entry point than either signal alone.</p>
     </div>
 
-    <h2>THE OTHER FILING TYPE: SC 13D AND SC 13G</h2>
+    <h2>THE OTHER SIGNAL: 13F INSTITUTIONAL HOLDINGS</h2>
 
-    <p>Form 4 tells you what company insiders are doing. But there's a second category of ownership signal that most investors completely miss: <strong>SC 13D and SC 13G filings</strong>. These are triggered not by executives, but by outside investors including hedge funds, institutions, and activists, who cross the 5% ownership threshold in any publicly traded company.</p>
+    <p>Form 4 tells you what company insiders are doing. But there's a second category of ownership data that most retail investors overlook entirely: <strong>13F filings</strong>. Every investment manager overseeing more than $100 million in equity assets is required to disclose their full portfolio to the SEC every quarter. Berkshire Hathaway, Citadel, Bridgewater, Appaloosa — all of them, every 90 days.</p>
 
-    <p>The filing requirement exists because a 5% ownership stake carries real economic and governance weight. Other shareholders have a right to know that kind of concentrated interest has formed, and corporate boards deserve to know who's quietly building a position in their stock.</p>
+    <p>Unlike Form 4, which captures real-time transaction data, the 13F is a quarterly snapshot. It tells you what a fund held at the end of the quarter, typically disclosed 45 days after quarter-end. The lag matters — by the time you see it, the position may have changed — but the signal is still meaningful because it reveals conviction that was sustained across months, not a quick trade.</p>
 
-    <h3>13D vs 13G: intent is everything</h3>
+    <h3>What makes 13F data useful</h3>
 
-    <p>Both forms disclose the same basic fact: an outside party owns more than 5%. The critical distinction is what they intend to do with it.</p>
+    <p>The real value isn't in any single 13F filing. It's in the change between quarters. When multiple institutions independently add to the same position in the same quarter — without coordinating — that convergence is a signal. Each fund made its own analysis, ran its own models, and arrived at the same conclusion: this stock is worth owning more of.</p>
 
     <ul>
-      <li><strong>SC 13G</strong> is the passive version. Index funds like Vanguard and BlackRock file these constantly because they mechanically accumulate large stakes in every company as investors put money into index funds. A 13G from a major passive manager is largely routine: it tells you they own 5%+, but not that they have any view on the stock.</li>
-      <li><strong>SC 13D</strong> is the active version. You file a 13D when you're not passive; when you may seek to influence the company's direction, push for strategic changes, pursue board representation, or pressure management toward a sale. Filing a 13D is, in effect, a public declaration of intent. It puts the board on notice.</li>
+      <li><strong>New positions</strong> are the most interesting signal. A fund that has never owned a stock initiating a position means an analyst team did enough work to build conviction from scratch and push it through an investment committee. That's not a small thing.</li>
+      <li><strong>Additions</strong> (increasing an existing stake) suggest the fund's thesis is playing out, or they want more exposure at current prices.</li>
+      <li><strong>Reductions and exits</strong> are worth watching for the inverse reason — multiple funds trimming simultaneously suggests softening conviction across the institutional base.</li>
     </ul>
 
     <div class="callout">
-      <p><strong>The conversion to watch for:</strong> When a fund that previously filed a 13G converts to a 13D, it means a formerly passive holder has decided to go active. They've changed their stated intent from "we own this as an investment" to "we intend to influence this company." That transition almost always precedes a catalyst: board changes, a strategic review, or a sale process.</p>
+      <p><strong>Form 4 vs 13F:</strong> Form 4 tells you what insiders with deep company knowledge are doing with their own money right now. 13F tells you what professional investors managing billions decided was worth holding at the end of last quarter. Both signals are strongest when they point the same direction.</p>
     </div>
 
-    <h3>How to read a 13D/G alongside Form 4</h3>
+    <h3>How to use it alongside Form 4</h3>
 
-    <p>The two filing types are complementary, not redundant. Form 4 shows you what the people running the company think. SC 13D/G shows you what significant outside capital thinks. When both point in the same direction, you have a stronger case than either alone.</p>
+    <p>The most interesting setups combine both data sources. When a company is seeing strong open-market buying from executives on Form 4 — people who know the company from the inside — and simultaneously showing institutional accumulation on 13F data, you have two independent sources of conviction pointing the same direction. The insiders believe in the business. The professionals believe in the stock. That's rare, and worth paying attention to.</p>
 
-    <p>Some of the most interesting setups in the data involve a company where an activist has filed a 13D (external pressure building) and insiders are simultaneously buying on Form 4 (internal confidence signaling). The activist believes the stock is undervalued and wants something to change. The insiders agree. That combination is rare and worth taking seriously.</p>
+    <p>Conversely, watch for divergence: heavy executive buying alongside institutional exits can mean the executives are more optimistic than the market, or that institutions are selling for unrelated fund flow reasons. Context matters. Neither signal is conclusive on its own.</p>
 
-    <p>Conversely, be cautious when insider buying on Form 4 coincides with 13G amendments showing institutional holders quietly reducing their stakes. Large passive funds trimming while executives buy can mean the executives are more optimistic than the institutional market, or it can mean the institutions are rebalancing for unrelated reasons. You need the full picture.</p>
-
-    <h3>What 13D/G filings don't tell you</h3>
+    <h3>The limits of 13F data</h3>
 
     <ul>
-      <li><strong>No transaction price.</strong> Unlike Form 4, SC 13D/G filings don't disclose what the filer paid per share. You know what percentage they own, not their cost basis. Cross-reference the filing date with the chart to estimate entry range.</li>
-      <li><strong>Passive 13G is almost always noise.</strong> When you see a Vanguard or State Street 13G/A for a major company, it typically reflects index fund flows, not a conviction call. Filter these out unless the ownership percentage is moving significantly in a direction.</li>
-      <li><strong>The 10-day lag matters.</strong> A fund can accumulate up to 5% of a company in complete secrecy. They only disclose after crossing the threshold, and they have 10 days to do so. By the time the filing appears, the stock has often already moved.</li>
-      <li><strong>Activists can be wrong.</strong> High-profile activist funds with strong track records still lose campaigns. Management digs in, the board rejects the thesis, and the fund exits quietly a year later. The 13D is a signal of intent, not a guarantee of outcome.</li>
+      <li><strong>The 45-day lag is real.</strong> Q4 data is disclosed in mid-February. A fund could have exited the position entirely in January. You're always looking at a historical snapshot, not a live view.</li>
+      <li><strong>Large passive funds are noise.</strong> When Vanguard or State Street shows up as a holder, it almost always reflects index fund flows, not a discretionary call. Filter on active managers with real track records.</li>
+      <li><strong>Small changes at large funds may be irrelevant.</strong> A fund adding 50,000 shares of a stock they hold 10 million of is not a meaningful signal. Look at percentage changes, not absolute numbers.</li>
     </ul>
 
     <div class="callout green">
-      <p><strong>The most useful 13D signal</strong> comes from funds you've never heard of taking a first-time stake in a smaller company, combined with specific language in Item 4 (the "Purpose of Transaction" section) about operational changes or a potential sale. Vague language means they're keeping options open. Specific language is a harder signal.</p>
+      <p><strong>The strongest 13F signal</strong> is a stock appearing in new positions across multiple previously unrelated funds in the same quarter, especially smaller or mid-cap companies where institutional attention is less routine. That kind of convergence is hard to manufacture.</p>
     </div>
 
-    <p>On InsiderTape, SC 13D/G filings appear as <strong>◆ diamonds</strong> on stock charts (cyan for accumulation, magenta for reduction), overlaid directly on the price history alongside Form 4 trade markers. They also appear in the trade list for each stock in time order, so you can see both types of ownership signal on the same timeline without switching between data sources.</p>
+    <p>On InsiderTape, 13F changes appear as <strong>◆ diamonds</strong> on stock price charts — cyan for accumulation quarters, magenta for reduction quarters — overlaid on the same timeline as Form 4 trade markers. The sidebar on each stock page shows which institutions added or reduced by quarter, with share counts and percentage changes. The Analysis page surfaces the broadest patterns: which tickers are seeing the most institutional accumulation, the most exits, and the most new positions opened this quarter.</p>
 
     <h2>BUILDING A ROUTINE</h2>
 
     <p>The most practical way to use this data isn't to react to every filing as it comes in. The better move is to build it into a weekly or daily review process.</p>
 
-    <p>Something like: each morning, scan the last 24 hours of P-code transactions over a minimum dollar threshold (say, $100K+). Flag any tickers where multiple insiders have bought in the last 30 days. At the same time, scan for any new SC 13D filings from funds you don't recognize, as these are lower frequency but higher signal. Add anything interesting to a watchlist with notes on the transaction details. Then, once a week, go through the watchlist and do actual fundamental work on anything that looks worth investigating.</p>
+    <p>Each morning, scan the last 24 hours of P-code Form 4 transactions over a minimum dollar threshold (say, $100K+). Flag any tickers where multiple insiders have bought in the last 30 days — that's the cluster signal. Separately, check the Analysis page for institutional accumulation trends from the most recent 13F quarter. Any overlap between those two lists is worth serious attention. Add candidates to a watchlist with notes on the transaction details, then do actual fundamental work on anything that looks worth investigating.</p>
 
-    <p>That's it. The screening takes five minutes. The research takes as long as it takes. The insider data is the filter, not the conclusion.</p>
-
-    <p>The investors who use this most effectively treat it the same way they'd treat a screener for price-to-book or revenue growth: it surfaces candidates worth looking at, and then you do the work to figure out whether the candidate is actually worth owning.</p>
+    <p>That's it. The screening takes five minutes. The research takes as long as it takes. The insider and institutional data is the filter, not the conclusion.</p>
 
     <div class="callout orange">
-      <p><strong>One final note on SC 13D/G:</strong> always read the actual filing, not just the summary. The "Purpose of Transaction" section on a 13D is where the real signal lives. Boilerplate language means they're keeping options open. Specific language about board seats, a strategic review, or a sale process is a materially different situation, and worth reading carefully before you act.</p>
+      <p><strong>One final note:</strong> always look at the pattern, not just the event. A single insider buy or a single institutional addition is interesting context. The same insider buying three times in six months, or five institutions independently opening new positions in the same quarter — that's a pattern that's hard to explain away.</p>
     </div>
 
     <div class="cta-box">
       <h3>START SCREENING TODAY</h3>
-      <p>InsiderTape tracks both Form 4 insider trades and SC 13D/G beneficial ownership filings. P-code purchases, selling pressure, activist stakes: filtered, sorted, and shown on the same chart.</p>
+      <p>InsiderTape surfaces Form 4 insider trades and 13F institutional changes on the same timeline — so you can see both signals at once.</p>
       <a class="cta-btn" href="/">OPEN INSIDERTAPE →</a>
     </div>
 
