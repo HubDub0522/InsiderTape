@@ -1032,10 +1032,14 @@ app.get('/api/ticker', (req, res) => {
 // ── 13F Holdings API ─────────────────────────────────────────────────────────
 
 // GET /api/f13?symbol=AAPL — 13F position changes for a ticker (chart + sidebar)
-app.get('/api/f13', (req, res) => {
+// Per-ticker 13F cache — tracks which tickers have had historical fetch attempted
+const _f13TickerFetchedAt = {};
+
+app.get('/api/f13', async (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
   try {
+    // Return what we have immediately — non-blocking
     const rows = db.prepare(`
       SELECT ticker, cusip, filer_cik, filer_name, quarter, filed_date,
              shares, shares_delta, value_usd, pct_change, is_new, is_exit
@@ -1044,7 +1048,29 @@ app.get('/api/f13', (req, res) => {
       ORDER BY filed_date DESC
       LIMIT 200
     `).all(sym);
+
     res.json(rows);
+
+    // After responding, trigger on-demand historical fetch if we have no data
+    // or haven't checked this ticker in the last 7 days
+    const lastFetch = _f13TickerFetchedAt[sym] || 0;
+    const hasData = rows.length > 0;
+    const needsHistory = !hasData || (Date.now() - lastFetch > 7 * 86400000);
+    if (needsHistory && !f13Running) {
+      _f13TickerFetchedAt[sym] = Date.now();
+      // Spawn f13-worker in ticker mode (non-blocking — runs after response sent)
+      setImmediate(() => {
+        const { spawn } = require('child_process');
+        const worker = spawn(
+          process.execPath,
+          ['--max-old-space-size=128', path.join(__dirname, 'f13-worker.js'), 'ticker', sym],
+          { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
+        );
+        worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13-ticker] ' + l)));
+        worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13-ticker] ERR: ' + l)));
+        worker.on('exit', code => { if (code !== 0) slog(`f13-ticker worker exited (code ${code}) for ${sym}`); });
+      });
+    }
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
