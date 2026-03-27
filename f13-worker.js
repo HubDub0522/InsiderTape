@@ -290,28 +290,35 @@ function parseXmlValue(xml, tag) {
 
 function parseHoldings(xmlBody) {
   const holdings = [];
-  // Split on infoTable tags
+
+  // Strip XML namespace prefixes so tags match regardless of schema version
+  // e.g. <ns1:infoTable> → <infoTable>, <com:cusip> → <cusip>
+  const xml = xmlBody.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*):([a-zA-Z])/g, '<$1$3');
+
+  // Match infoTable blocks — handles both old and new EDGAR 13F schemas
+  // Also try informationTable wrapper if no infoTable found
   const tableRe = /<infoTable>([\s\S]*?)<\/infoTable>/gi;
   let m;
-  while ((m = tableRe.exec(xmlBody)) !== null) {
+  let found = false;
+  while ((m = tableRe.exec(xml)) !== null) {
+    found = true;
     const block = m[1];
-    const cusip  = parseXmlValue(block, 'cusip').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    const cusip     = parseXmlValue(block, 'cusip').replace(/[^A-Z0-9]/gi, '').toUpperCase();
     const sharesStr = parseXmlValue(block, 'sshPrnamt');
     const valueStr  = parseXmlValue(block, 'value');
     const type      = parseXmlValue(block, 'sshPrnamtType').toUpperCase();
     const putCall   = parseXmlValue(block, 'putCall').toUpperCase();
 
-    // Skip options/puts/calls — only want equity positions
     if (putCall === 'PUT' || putCall === 'CALL') continue;
-    // Skip if not shares (some are principal amounts for bonds)
     if (type && type !== 'SH') continue;
     if (!cusip || cusip.length < 6) continue;
 
     const shares = parseInt(sharesStr, 10) || 0;
-    const value  = (parseInt(valueStr, 10) || 0) * 1000; // convert from thousands
+    const value  = (parseInt(valueStr, 10) || 0) * 1000;
 
     if (shares > 0) holdings.push({ cusip, shares, value });
   }
+
   return holdings;
 }
 
@@ -322,11 +329,16 @@ async function getInfoTableUrl(accession, cik) {
   try {
     const { status, body } = await get(indexUrl, 15000);
     if (status !== 200) return null;
-    // Look for infotable.xml or primary_doc.xml
+    // Priority: explicit infotable file > any XML
+    // New EDGAR format uses xslForm13F_X02/ subfolder
     const m = body.match(/href="([^"]*(?:infotable|information_table|13finfotable)[^"]*\.xml)"/i)
+           || body.match(/href="([^"]*xslForm13F[^"]*\.xml)"/i)
+           || body.match(/href="([^"]*primary_doc[^"]*\.xml)"/i)
            || body.match(/href="([^"]*\.xml)"/i);
     if (!m) return null;
-    const xmlPath = m[1].startsWith('http') ? m[1] : `https://www.sec.gov${m[1].startsWith('/') ? '' : `/Archives/edgar/data/${cik}/${acc}/`}${m[1]}`;
+    const xmlPath = m[1].startsWith('http') ? m[1]
+      : m[1].startsWith('/') ? `https://www.sec.gov${m[1]}`
+      : `https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${m[1]}`;
     return xmlPath;
   } catch(e) { return null; }
 }
@@ -472,7 +484,11 @@ async function processQuarter(year, q, repYear, repQ) {
       if (status !== 200) continue;
 
       const holdings = parseHoldings(body);
-      if (i < 3) log(`${key}: filer[${i}] holdings=${holdings.length}`);
+      if (i < 3) {
+        // Show first 500 chars of XML to diagnose tag format
+        const xmlPreview = body.replace(/\s+/g,' ').slice(0, 300);
+        log(`${key}: filer[${i}] holdings=${holdings.length} xmlStart=${xmlPreview}`);
+      }
       if (!holdings.length) continue;
 
       // Diff against prior quarter
