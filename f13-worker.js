@@ -463,13 +463,16 @@ async function processQuarter(year, q, repYear, repQ) {
     try {
       // Get XML URL from filing index
       const xmlUrl = await getInfoTableUrl(f.accession, f.cik);
+      if (i < 3) log(`${key}: filer[${i}] cik=${f.cik} acc=${f.accession} xmlUrl=${xmlUrl||'NULL'}`);
       if (!xmlUrl) continue;
 
       // Fetch and parse XML holdings
       const { status, body } = await get(xmlUrl, 30000);
+      if (i < 3) log(`${key}: filer[${i}] xml status=${status} bodyLen=${body?.length||0}`);
       if (status !== 200) continue;
 
       const holdings = parseHoldings(body);
+      if (i < 3) log(`${key}: filer[${i}] holdings=${holdings.length}`);
       if (!holdings.length) continue;
 
       // Diff against prior quarter
@@ -519,7 +522,8 @@ async function processQuarter(year, q, repYear, repQ) {
 
       totalFilers++;
     } catch(e) {
-      if ((i + 1) % 100 === 0) log(`${key}: note — some filers skipped (e.g. ${e.message?.slice(0,50)})`);
+      if (i < 10) log(`${key}: filer[${i}] ERROR: ${e.message?.slice(0,100)}`);
+      else if ((i + 1) % 100 === 0) log(`${key}: note — some filers skipped (e.g. ${e.message?.slice(0,50)})`);
     }
 
     // Every 50 iterations, log progress and flush to DB
