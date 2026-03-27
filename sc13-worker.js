@@ -484,13 +484,9 @@ async function enrichRecentTickers() {
         const data   = JSON.parse(body.toString('utf8'));
         const ticker  = (data.tickers?.[0] || '').toUpperCase().trim();
         const company = (data.name || '').trim();
-        const result  = ticker && ticker.match(/^[A-Z]{1,6}$/) ? { ticker, company } : null;
+        const result  = ticker && ticker.match(/^[A-Z]{1,7}(-[A-Z]{1,2})?$/) ? { ticker, company } : null;
         cikTickerCache[cik] = result;
-        // Log first few lookups to verify the API is working
-        if (_lookupLogCount < 5) {
-          log(`CIK lookup ${padded}: ticker="${ticker}" company="${company.slice(0,30)}" result=${result?'OK':'null'}`);
-          _lookupLogCount++;
-        }
+
         if (result) return result;
         // Mark non-public entities (funds, individuals) so we skip them next run
         if (!ticker && company) {
