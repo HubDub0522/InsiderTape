@@ -2419,22 +2419,34 @@ async function loadStockView(ticker, opts={}) {
   const cc = document.getElementById('chartContainer');
   if (cc) cc.innerHTML = `<div class="loading-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Loading price data…</span></div>`;
 
-  // ── PHASE 2: Await price data + 13F data and inject chart ──────────────────
-  [priceData] = await Promise.all([
-    pricePromise,
-    f13Promise.then(d => { state.f13Data = Array.isArray(d) ? d : []; }),
-  ]);
+  // ── PHASE 2: Await price data first — render chart immediately ───────────────
+  priceData = await pricePromise;
   // Abort if superseded by a newer loadStockView call
   if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
-  // Resolve unknown filer names on-demand, then re-render
+  // Render sidebar and trades table with Form 4 data
   renderSidebarGated(state.tickerTrades || []);
   renderStockTradesTable(state.tickerTrades || []);
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    await buildChart(priceData, insiderData, state.f13Data || []);
+    // Build chart immediately with whatever 13F data we have (may be empty on first load)
+    state.f13Data = state.f13Data || [];
+    await buildChart(priceData, insiderData, state.f13Data);
+
+    // ── PHASE 2b: Layer 13F diamonds on top once data arrives ─────────────────
+    f13Promise.then(d => {
+      if (mySeq !== _loadStockViewSeq) return; // superseded
+      state.f13Data = Array.isArray(d) ? d : [];
+      // Redraw overlay with 13F data if chart is still showing
+      if (state.drawCircles && state.f13Data.length > 0) {
+        // Re-build circle overlay with f13 data layered in
+        buildChart(priceData, insiderData, state.f13Data).catch(() => {});
+        // Also update sidebar to show 13F institutional section
+        renderSidebarGated(state.tickerTrades || []);
+      }
+    }).catch(() => { state.f13Data = []; });
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
     const prev    = priceData[priceData.length-2];
