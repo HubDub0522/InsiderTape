@@ -642,7 +642,9 @@ app.get('/api/screener', (req, res) => {
   try {
     const cacheKey = (req.query.days||'30') + '|' + (req.query.limit||'');
     const cached = _screenerCache.get(cacheKey);
-    if (cached && Date.now() - cached.t < 30000) return res.json(cached.d);
+    const _reqDays = parseInt(req.query.days||'30');
+    const cacheTTL = _reqDays >= 90 ? 120000 : 30000; // 90+ day queries cached 2min; short queries 30s
+    if (cached && Date.now() - cached.t < cacheTTL) return res.json(cached.d);
 
     const n = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
     if (n === 0) {
@@ -712,6 +714,9 @@ app.get('/api/screener', (req, res) => {
 
 // HISTORY — like screener but uses trade_date (not filing_date) for the window
 // Used by analysis tools that need historical data: drift, regime shift, first-buy
+const _historyCache = new Map();
+setInterval(() => { const n=Date.now(); for(const [k,v] of _historyCache) if(n-v.t>120000) _historyCache.delete(k); }, 60000);
+
 app.get('/api/history', (req, res) => {
   try {
     const days  = Math.min(Math.max(parseInt(req.query.days || '1825'), 1), 1825);
@@ -831,6 +836,8 @@ app.get('/api/insider-sentiment', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+const _ratioHistCache = new Map();
 
 app.get('/api/insider-ratio-history', (req, res) => {
   try {
@@ -1244,11 +1251,16 @@ app.get('/api/search', (req, res) => {
 // FIRST BUY IN YEARS — scans entire DB history, no date filter
 // Uses window functions to find insiders whose most recent buy on a ticker
 // came after a long gap since their previous buy on that same ticker.
+const _firstBuysCache = new Map(); // key=mingap|lookback|limit → {d, t}
+
 app.get('/api/firstbuys', (req, res) => {
   try {
-    const minGapDays   = parseInt(req.query.mingap   || '180');  // default 6 months
-    const lookbackDays = parseInt(req.query.lookback || '90');   // how recent must new buy be
+    const minGapDays   = parseInt(req.query.mingap   || '180');
+    const lookbackDays = parseInt(req.query.lookback || '90');
     const limit        = parseInt(req.query.limit    || '100');
+    const fbKey = `${minGapDays}|${lookbackDays}|${limit}`;
+    const fbCached = _firstBuysCache.get(fbKey);
+    if (fbCached && Date.now() - fbCached.t < 300000) return res.json(fbCached.d); // 5min TTL
 
     // Optimised approach: only consider insiders who have a buy in the lookback window.
     // Then for each such (insider, ticker) pair find the previous buy date.
@@ -2597,7 +2609,7 @@ async function preComputeScoreboard() {
 
         // Cap returns at ±500% to eliminate reverse-split artifacts
         // (e.g. Ault Global has done multiple reverse splits causing 7000%+ fake returns)
-        const CAP = 500;
+        const CAP = 200; // cap at 200% to eliminate split artifacts
         const capRet = r => Math.max(-CAP, Math.min(CAP, r));
 
         const rets90   = completed.map(s => capRet(s.ret90));
@@ -2635,8 +2647,8 @@ async function preComputeScoreboard() {
           if (yr1Bars.length < 20) return;
           const yr1Lo = Math.min(...yr1Bars.map(b => b.low || b.close));
           if ((s.buyPrice - yr1Lo) / yr1Lo * 100 <= 20) nearLowCount++;
-          if (s.ret90  !== null) { ret90sum  += Math.max(-500, Math.min(500, s.ret90));  retN++; }
-          if (s.ret180 !== null)   ret180sum += s.ret180;
+          if (s.ret90  !== null) { ret90sum  += Math.max(-200, Math.min(200, s.ret90));  retN++; }
+          if (s.ret180 !== null)   ret180sum += Math.max(-200, Math.min(200, s.ret180));
         });
 
         const n         = scored.length;
