@@ -302,6 +302,20 @@ try {
   try { db.exec('DROP TABLE IF EXISTS sc13_transactions'); } catch(_) {}
   try { db.exec('DROP TABLE IF EXISTS sc13_quarter_log'); } catch(_) {}
 
+  // 13F retention: keep only last 8 quarters (2 years) — delete older data
+  try {
+    // Find the 8th most recent quarter we have data for
+    const oldest = db.prepare(`
+      SELECT quarter FROM f13_quarter_log
+      ORDER BY quarter DESC LIMIT 1 OFFSET 7
+    `).get();
+    if (oldest) {
+      const del = db.prepare(`DELETE FROM f13_changes WHERE quarter < ?`).run(oldest.quarter);
+      const delQ = db.prepare(`DELETE FROM f13_quarter_log WHERE quarter < ?`).run(oldest.quarter);
+      if (del.changes > 0) console.log(`[startup] 13F retention: removed ${del.changes} rows older than 8 quarters`);
+    }
+  } catch(_) {}
+
   // Create 13F tables if not yet created by f13-worker
   db.exec(`
     CREATE TABLE IF NOT EXISTS f13_changes (
@@ -1100,9 +1114,14 @@ app.get('/api/f13-summary', (req, res) => {
   try {
     if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
     const quarter = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY processed_at DESC LIMIT 1').get();
-    if (!quarter) return res.json({ quarter: null, topBuys: [], topSells: [], mostInstitutions: [] });
+    if (!quarter) return res.json({ quarter: null, topBuys: [], topSells: [], newPositions: [], dualConviction: [] });
 
     const q = quarter.quarter;
+    // Use last 2 quarters combined if current quarter is sparse (< 100 tickers with data)
+    const currentCount = db.prepare('SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE quarter=? AND ticker!=?').get(q, '');
+    const quarters = currentCount.n >= 100 ? [q] :
+      db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
+    const qPlaceholders = quarters.map(() => '?').join(',');
 
     // Tickers with most institutions adding
     const topBuys = db.prepare(`
@@ -1111,11 +1130,11 @@ app.get('/api/f13-summary', (req, res) => {
              SUM(shares_delta) AS total_shares_added,
              SUM(value_usd) AS total_value
       FROM f13_changes
-      WHERE quarter = ? AND shares_delta > 0 AND ticker != ''
+      WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != ''
       GROUP BY ticker
       ORDER BY institution_count DESC, total_value DESC
       LIMIT 20
-    `).all(q);
+    `).all(...quarters);
 
     // Tickers with most institutions reducing/exiting
     const topSells = db.prepare(`
@@ -1124,11 +1143,11 @@ app.get('/api/f13-summary', (req, res) => {
              SUM(shares_delta) AS total_shares_removed,
              SUM(value_usd) AS total_value
       FROM f13_changes
-      WHERE quarter = ? AND shares_delta < 0 AND ticker != ''
+      WHERE quarter IN (${qPlaceholders}) AND shares_delta < 0 AND ticker != ''
       GROUP BY ticker
       ORDER BY institution_count DESC
       LIMIT 20
-    `).all(q);
+    `).all(...quarters);
 
     // Tickers with most new positions opened
     const newPositions = db.prepare(`
@@ -1136,15 +1155,59 @@ app.get('/api/f13-summary', (req, res) => {
              COUNT(*) AS new_filer_count,
              SUM(value_usd) AS total_value
       FROM f13_changes
-      WHERE quarter = ? AND is_new = 1 AND ticker != ''
+      WHERE quarter IN (${qPlaceholders}) AND is_new = 1 AND ticker != ''
       GROUP BY ticker
       ORDER BY new_filer_count DESC, total_value DESC
       LIMIT 20
-    `).all(q);
+    `).all(...quarters);
 
-    const result = { quarter: q, topBuys, topSells, newPositions };
+    const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
+    const result = { quarter: quarterLabel, topBuys, topSells, newPositions };
     _f13SummaryCache = result;
     _f13SummaryCacheTime = Date.now();
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/f13-dual — tickers with BOTH insider buying AND institutional accumulation
+let _f13DualCache = null, _f13DualCacheTime = 0;
+app.get('/api/f13-dual', (req, res) => {
+  try {
+    if (_f13DualCache && Date.now() - _f13DualCacheTime < 3600000) return res.json(_f13DualCache);
+
+    // Get the most recent quarter we have 13F data for
+    const quarterRow = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY processed_at DESC LIMIT 1').get();
+    if (!quarterRow) return res.json({ quarter: null, results: [] });
+    const q = quarterRow.quarter;
+
+    // Tickers with 2+ institutions ADDING this quarter AND 1+ insider BUYING in last 90 days
+    const results = db.prepare(`
+      SELECT
+        f.ticker,
+        COUNT(DISTINCT f.filer_cik)    AS institution_count,
+        SUM(f.value_usd)               AS inst_value,
+        COUNT(DISTINCT t.insider)      AS insider_count,
+        SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS insider_value,
+        MAX(t.trade_date)              AS latest_insider_buy,
+        MAX(f.filed_date)              AS latest_inst_filing
+      FROM f13_changes f
+      INNER JOIN trades t ON t.ticker = f.ticker
+        AND t.type = 'P'
+        AND t.trade_date >= date('now', '-90 days')
+        AND t.value >= 10000
+      WHERE f.quarter = ?
+        AND f.shares_delta > 0
+        AND f.ticker != ''
+        AND f.ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','GLD','SLV','TLT','HYG','LQD')
+      GROUP BY f.ticker
+      HAVING institution_count >= 2 AND insider_count >= 1
+      ORDER BY institution_count DESC, insider_count DESC, inst_value DESC
+      LIMIT 30
+    `).all(q);
+
+    const result = { quarter: q, results };
+    _f13DualCache = result;
+    _f13DualCacheTime = Date.now();
     res.json(result);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
