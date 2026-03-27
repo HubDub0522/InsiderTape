@@ -4161,38 +4161,37 @@ async function loadInsiderRatioChart() {
 
 function renderSentimentChart(el, insider, spx, thresholds) {
   const W = 800;
-  const H_SPX  = 200;
-  const H_IND  = 130;
-  const H_TOTAL = H_SPX + H_IND + 32; // 32px gap between panels
+  const H_SPX   = 200;
+  const H_IND   = 130;
+  const H_TOTAL = H_SPX + H_IND + 32;
   const PAD = { top: 28, right: 44, bottom: 36, left: 58 };
   const cW = W - PAD.left - PAD.right;
 
-  // Align insider and spx by date
   const spxMap = {};
   spx.forEach(s => { spxMap[s.date] = s; });
-
-  // Use insider dates as the timeline backbone
   const dates = insider.map(d => d.date);
 
-  // SPX panel coords
-  const spxVals = dates.map(d => spxMap[d] ? spxMap[d].close : null);
+  // SPX panel
+  const spxVals  = dates.map(d => spxMap[d] ? spxMap[d].close : null);
   const spxValid = spxVals.filter(v => v !== null);
-  const spxMin = spxValid.length ? Math.min(...spxValid) * 0.97 : 0;
-  const spxMax = spxValid.length ? Math.max(...spxValid) * 1.02 : 6000;
-  const cH_spx = H_SPX - PAD.top - 8;
-  const xCoord = i => PAD.left + (i / Math.max(dates.length - 1, 1)) * cW;
-  const ySpx   = v => PAD.top + cH_spx - ((v - spxMin) / (spxMax - spxMin)) * cH_spx;
+  const spxMin   = spxValid.length ? Math.min(...spxValid) * 0.97 : 0;
+  const spxMax   = spxValid.length ? Math.max(...spxValid) * 1.02 : 6000;
+  const cH_spx   = H_SPX - PAD.top - 8;
+  const xCoord   = i => PAD.left + (i / Math.max(dates.length - 1, 1)) * cW;
+  const ySpx     = v => PAD.top + cH_spx - ((v - spxMin) / (spxMax - spxMin)) * cH_spx;
 
-  // Indicator panel coords (below SPX)
-  const indTop = H_SPX + 32;
-  const cH_ind = H_IND - 16;
-  const indVals = insider.map(d => d.smoothedBuyPct);
+  // Indicator panel — INVERTED so high buy% = low on chart (market near top)
+  const indTop  = H_SPX + 32;
+  const cH_ind  = H_IND - 16;
   const { p10, p25, median, p75, p90 } = thresholds;
-  const indMin = Math.min(...indVals, p10) - 0.02;
-  const indMax = Math.max(...indVals, p90) + 0.02;
-  const yInd = v => indTop + 8 + cH_ind - ((v - indMin) / (indMax - indMin)) * cH_ind;
+  const indVals = insider.map(d => d.smoothedBuyPct);
+  const indMin  = Math.min(...indVals, p10) - 0.02;
+  const indMax  = Math.max(...indVals, p90) + 0.02;
+  // INVERTED: high value → low y position
+  const yInd    = v => indTop + 8 + ((v - indMin) / (indMax - indMin)) * cH_ind;
+  const yIndBase = indTop + 8 + cH_ind; // bottom of indicator panel
 
-  // Build SPX path
+  // SPX path
   let spxPath = '', spxArea = '';
   const spxPts = [];
   dates.forEach((d, i) => {
@@ -4207,66 +4206,55 @@ function renderSentimentChart(el, insider, spx, thresholds) {
       ' L ' + spxPts[spxPts.length-1][0].toFixed(1) + ',' + bY + ' Z';
   }
 
-  // Build indicator path + color segments
-  const indPts = insider.map((d, i) => [xCoord(i), yInd(d.smoothedBuyPct), d.smoothedBuyPct]);
-
-  // Color the indicator line by zone
-  function indColor(v) {
-    if (v >= p90) return '#00ff88';
-    if (v >= p75) return '#22c55e';
-    if (v <= p10) return '#ff4466';
-    if (v <= p25) return '#ff8800';
-    return '#00d4ff';
+  // Histogram bars — each bar from baseline to inverted y position
+  function barColor(v) {
+    if (v >= p90) return '#ff4466'; // extreme buy = danger (market near top)
+    if (v >= p75) return '#ff8800';
+    if (v <= p10) return '#00ff88'; // extreme sell = opportunity (market near bottom)
+    if (v <= p25) return '#22c55e';
+    return '#4a6580';
   }
 
-  // Build colored line segments
-  let indSegments = '';
-  for (let i = 1; i < indPts.length; i++) {
-    const [x1,y1,v1] = indPts[i-1];
-    const [x2,y2,v2] = indPts[i];
-    const c = indColor((v1+v2)/2);
-    indSegments += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/>`;
-  }
-
-  // Indicator dots
-  const indDots = indPts.map(([x,y,v], i) =>
-    `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="transparent" stroke="transparent"
+  const barW = Math.max(1, (cW / dates.length) - 0.5);
+  const bars = insider.map((d, i) => {
+    const x   = xCoord(i) - barW / 2;
+    const yTop = yInd(d.smoothedBuyPct);
+    const h   = Math.abs(yIndBase - yTop);
+    const c   = barColor(d.smoothedBuyPct);
+    return `<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1,h).toFixed(1)}"
+      fill="${c}" opacity="0.75"
       class="sentiment-dot"
       data-date="${dates[i]}"
-      data-val="${(v*100).toFixed(1)}"
-      data-buys="${insider[i].buyCount}"
-      data-sells="${insider[i].sellCount}"
-      data-buyval="${insider[i].buyVal}"
-      data-sellval="${insider[i].sellVal}"/>`
-  ).join('');
+      data-val="${(d.smoothedBuyPct*100).toFixed(1)}"
+      data-buys="${d.buyCount}"
+      data-sells="${d.sellCount}"
+      data-buyval="${d.buyVal}"
+      data-sellval="${d.sellVal}"/>`;
+  }).join('');
 
-  // Threshold lines for indicator
+  // Threshold lines (inverted positions)
   const threshLines = [
-    [p90, '#00ff88', 'STRONG BUY ZONE'],
-    [p75, '#22c55e66', ''],
-    [median, '#4a658066', 'MEDIAN'],
-    [p25, '#ff880066', ''],
-    [p10, '#ff4466', 'STRONG SELL ZONE'],
+    [p90, '#ff446688', 'BUY EXTREME'],
+    [p75, '#ff880044', ''],
+    [median, '#4a658044', 'MEDIAN'],
+    [p25, '#22c55e44', ''],
+    [p10, '#00ff8888', 'SELL EXTREME'],
   ].map(([v, c, lbl]) => {
     const y = yInd(v).toFixed(1);
-    const label = lbl ? `<text x="${PAD.left + cW + 3}" y="${+y+3}" fill="${c}" font-family="monospace" font-size="6" text-anchor="start">${lbl.split(' ')[0]}</text>` : '';
+    const label = lbl ? `<text x="${PAD.left + cW + 3}" y="${+y+3}" fill="${c.slice(0,7)}" font-family="monospace" font-size="6.5" text-anchor="start">${lbl}</text>` : '';
     return `<line x1="${PAD.left}" y1="${y}" x2="${PAD.left+cW}" y2="${y}" stroke="${c}" stroke-width="0.8" stroke-dasharray="${v===median?'4,3':'2,3'}"/>${label}`;
   }).join('');
 
-  // X-axis labels (show year boundaries + every 2 years)
+  // X-axis labels
   const xLabels = dates.map((d, i) => {
-    const isJan = d.slice(5,7) === '01';
-    const year  = d.slice(0,4);
-    if (!isJan) return '';
+    if (d.slice(5,7) !== '01') return '';
     const x = xCoord(i).toFixed(1);
-    return `<text x="${x}" y="${H_TOTAL - 6}" fill="#4a6580" font-family="monospace" font-size="8" text-anchor="middle">${year}</text>
+    return `<text x="${x}" y="${H_TOTAL - 6}" fill="#4a6580" font-family="monospace" font-size="8" text-anchor="middle">${d.slice(0,4)}</text>
             <line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${H_TOTAL - 18}" stroke="#1e2d3d" stroke-width="0.5" stroke-dasharray="2,4"/>`;
   }).join('');
 
-  // SPX Y-axis ticks
-  const spxTicks = [spxMin, ...Array.from({length:5},(_,i) => spxMin + (i+1)*(spxMax-spxMin)/5)]
-    .filter(v => v > spxMin)
-    .slice(0,5)
+  // SPX Y ticks
+  const spxTicks = Array.from({length:5},(_,i) => spxMin + (i+1)*(spxMax-spxMin)/5)
     .map(v => {
       const y = ySpx(v).toFixed(1);
       const lbl = v >= 1000 ? (v/1000).toFixed(1)+'k' : v.toFixed(0);
@@ -4274,26 +4262,27 @@ function renderSentimentChart(el, insider, spx, thresholds) {
               <line x1="${PAD.left-2}" y1="${y}" x2="${PAD.left+cW}" y2="${y}" stroke="#1e2d3d22" stroke-width="0.5"/>`;
     }).join('');
 
-  // Current values
   const lastInsider = insider[insider.length-1];
-  const lastVal = lastInsider.smoothedBuyPct;
-  const lastSpx = spxValid.length ? spxValid[spxValid.length-1] : null;
-  const zone = lastVal >= p90 ? {label:'STRONG BUY', color:'#00ff88'}
-             : lastVal >= p75 ? {label:'BUYING',     color:'#22c55e'}
-             : lastVal <= p10 ? {label:'STRONG SELL', color:'#ff4466'}
-             : lastVal <= p25 ? {label:'SELLING',    color:'#ff8800'}
-             :                  {label:'NEUTRAL',    color:'#4a6580'};
+  const lastVal  = lastInsider.smoothedBuyPct;
+  const lastSpx  = spxValid.length ? spxValid[spxValid.length-1] : null;
+
+  // Inverted interpretation for zone label
+  const zone = lastVal >= p90 ? {label:'BUY EXTREME',  color:'#ff4466'}
+             : lastVal >= p75 ? {label:'ELEVATED',      color:'#ff8800'}
+             : lastVal <= p10 ? {label:'SELL EXTREME',  color:'#00ff88'}
+             : lastVal <= p25 ? {label:'DEPRESSED',     color:'#22c55e'}
+             :                  {label:'NEUTRAL',       color:'#4a6580'};
 
   el.innerHTML = `
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap">
         <div>
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">INSIDER SENTIMENT · S&P 500 PEAK/TROUGH INDICATOR</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">Monthly insider buy% (3-month smoothed) vs S&P 500 · 10 years · High = market near top · Low = market near bottom</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)">INSIDER SENTIMENT · S&amp;P 500 PEAK/TROUGH INDICATOR</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Monthly insider buy% (3-month smoothed) vs S&amp;P 500 · 10 years · High bars = insiders selling heavily (market near top) · Low bars = insiders buying heavily (market near bottom)</div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0">
           <div style="font-family:'Space Mono',monospace;font-size:11px">
-            <span style="color:var(--muted)">Indicator: </span>
+            <span style="color:var(--muted)">Now: </span>
             <span style="color:${zone.color};font-weight:700">${(lastVal*100).toFixed(1)}%</span>
             <span style="margin-left:6px;padding:2px 7px;border-radius:3px;font-size:9px;letter-spacing:1px;border:1px solid ${zone.color}44;background:${zone.color}11;color:${zone.color}">${zone.label}</span>
           </div>
@@ -4310,57 +4299,26 @@ function renderSentimentChart(el, insider, spx, thresholds) {
             </linearGradient>
           </defs>
 
-          <!-- SPX panel label -->
-          <text x="${PAD.left}" y="16" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1.5">S&P 500</text>
-
-          <!-- SPX area + line -->
+          <text x="${PAD.left}" y="16" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1.5">S&amp;P 500</text>
           ${spxArea ? `<path d="${spxArea}" fill="url(#spxGrad)"/>` : ''}
           ${spxPath ? `<path d="${spxPath}" fill="none" stroke="#00d4ff" stroke-width="1.5" stroke-linejoin="round"/>` : ''}
-
-          <!-- SPX Y ticks -->
           ${spxTicks}
 
-          <!-- Divider between panels -->
-          <line x1="${PAD.left}" y1="${H_SPX + 14}" x2="${PAD.left+cW}" y2="${H_SPX + 14}" stroke="#1e2d3d" stroke-width="1"/>
-
-          <!-- Indicator panel label -->
-          <text x="${PAD.left}" y="${indTop}" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1.5">INSIDER SENTIMENT INDEX</text>
-
-          <!-- Threshold zone bands -->
-          <rect x="${PAD.left}" y="${yInd(p90).toFixed(1)}" width="${cW}" height="${(yInd(p75)-yInd(p90)).toFixed(1)}" fill="rgba(0,255,136,0.05)"/>
-          <rect x="${PAD.left}" y="${yInd(p25).toFixed(1)}" width="${cW}" height="${(yInd(p10)-yInd(p25)).toFixed(1)}" fill="rgba(255,68,102,0.05)"/>
-
-          <!-- Threshold lines -->
+          <text x="${PAD.left}" y="${indTop - 6}" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1.5">INSIDER BUY %</text>
           ${threshLines}
-
-          <!-- Indicator colored line -->
-          ${indSegments}
-
-          <!-- X axis -->
+          ${bars}
           ${xLabels}
-
-          <!-- Hover dots (invisible, for tooltip) -->
-          ${indDots}
         </svg>
 
-        <!-- Tooltip -->
-        <div id="sentimentTooltip" style="display:none;position:fixed;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 14px;font-size:11px;pointer-events:none;z-index:100;min-width:180px;box-shadow:0 4px 20px rgba(0,0,0,0.5)"></div>
-      </div>
-
-      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--muted)">
-        <span><span style="color:#00ff88">●</span> Strong Buy Zone — market likely near trough</span>
-        <span><span style="color:#ff4466">●</span> Strong Sell Zone — market likely near peak</span>
-        <span><span style="color:#00d4ff">—</span> S&P 500 (left panel)</span>
-        <span style="opacity:0.6">Indicator = 3-month smoothed insider buy% (buy$÷total$)</span>
+        <div id="sentimentTooltip" style="position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:220px;box-shadow:0 4px 20px rgba(0,0,0,0.6)"></div>
       </div>
     </div>`;
 
-  // Wire up hover tooltip
+  // Hover tooltip
   setTimeout(() => {
-    const svg    = document.getElementById('sentimentSvg');
-    const tip    = document.getElementById('sentimentTooltip');
+    const svg = document.getElementById('sentimentSvg');
+    const tip = document.getElementById('sentimentTooltip');
     if (!svg || !tip) return;
-
     svg.querySelectorAll('.sentiment-dot').forEach(dot => {
       dot.addEventListener('mouseenter', e => {
         const v    = parseFloat(dot.dataset.val);
@@ -4370,14 +4328,14 @@ function renderSentimentChart(el, insider, spx, thresholds) {
         const bv   = parseFloat(dot.dataset.buyval);
         const sv   = parseFloat(dot.dataset.sellval);
         const spxV = spxMap[dot.dataset.date];
-        const z    = v >= p90*100 ? {l:'STRONG BUY',c:'#00ff88'}
-                   : v >= p75*100 ? {l:'BUYING',    c:'#22c55e'}
-                   : v <= p10*100 ? {l:'STRONG SELL',c:'#ff4466'}
-                   : v <= p25*100 ? {l:'SELLING',   c:'#ff8800'}
-                   :                {l:'NEUTRAL',   c:'#4a6580'};
+        const z    = v >= p90*100 ? {l:'BUY EXTREME',  c:'#ff4466'}
+                   : v >= p75*100 ? {l:'ELEVATED',      c:'#ff8800'}
+                   : v <= p10*100 ? {l:'SELL EXTREME',  c:'#00ff88'}
+                   : v <= p25*100 ? {l:'DEPRESSED',     c:'#22c55e'}
+                   :                {l:'NEUTRAL',        c:'#4a6580'};
         tip.innerHTML = `
           <div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${d}</div>
-          <div style="font-size:13px;font-weight:700;color:${z.c};margin-bottom:4px">${v.toFixed(1)}% buy${' · ' + z.l}</div>
+          <div style="font-size:13px;font-weight:700;color:${z.c};margin-bottom:4px">${v.toFixed(1)}% buy · ${z.l}</div>
           <div style="color:var(--buy);font-size:10px">▲ ${buys} buys · ${fmt(bv)}</div>
           <div style="color:var(--sell);font-size:10px">▼ ${sells} sells · ${fmt(sv)}</div>
           ${spxV ? `<div style="color:var(--muted);font-size:10px;margin-top:4px;border-top:1px solid var(--border);padding-top:4px">S&P 500: ${spxV.close.toLocaleString()}</div>` : ''}`;
@@ -4391,6 +4349,7 @@ function renderSentimentChart(el, insider, spx, thresholds) {
     });
   }, 80);
 }
+
 
 // loadNotableLeaderboard removed — not called anywhere (v1.8)
 
@@ -8210,7 +8169,7 @@ function renderMonitorShell(body) {
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 and SC 13D/G filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 filings and 13F institutional disclosures. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
     </div>
     <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
       <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">TOTAL INSIDER ACTIVITY GAUGES</div>
@@ -8973,7 +8932,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
   <div style="max-width:1200px;margin:0 auto">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
     <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
-      InsiderTape tracks SEC Form 4 insider trades and SC 13D/G beneficial ownership filings in real time — cluster buys, activist accumulation, and conviction signals.
+      InsiderTape tracks SEC Form 4 insider trades and 13F institutional holdings in real time — cluster buys, institutional accumulation, and conviction signals.
       Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
