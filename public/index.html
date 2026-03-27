@@ -1267,7 +1267,7 @@ async function apiFetch(path, opts={}) {
   const ms = path.startsWith('/api/scoreboard') ? 90000
            : (path.startsWith('/api/proximity')) ? 90000
            : path.startsWith('/api/firstbuys') ? 60000
-           : path.startsWith('/api/screener')  ? 60000
+           : path.startsWith('/api/screener')  ? 90000
            : path.startsWith('/api/price')     ? 35000
            : 45000;
   const fetchPromise = fetch(API_BASE + path, opts).then(resp => {
@@ -5052,6 +5052,104 @@ function renderRepeat13DG(sc13Data) {
   return buySection + sellSection;
 }
 
+function buildRepeat13DGTile(direction) {
+  const sc13 = _sc13AnalysisData || [];
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10);
+  const byTicker = {};
+  sc13.forEach(f => {
+    if (!f.ticker || !f.filed_date || f.filed_date < cutoff) return;
+    if (!byTicker[f.ticker]) byTicker[f.ticker] = { buys: [], sells: [], company: f.company || f.ticker };
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    if (isSell) byTicker[f.ticker].sells.push(f);
+    else byTicker[f.ticker].buys.push(f);
+  });
+  const isBuy = direction === 'buy';
+  const results = Object.entries(byTicker)
+    .filter(([,v]) => (isBuy ? v.buys : v.sells).length >= 2)
+    .sort((a,b) => (isBuy ? b[1].buys.length - a[1].buys.length : b[1].sells.length - a[1].sells.length));
+
+  const top3 = results.slice(0,3).map(([ticker, data]) => {
+    const filings = isBuy ? data.buys : data.sells;
+    const types = [...new Set(filings.map(f => (f.filing_type||'').replace('SCHEDULE ','').replace('SC ','')))].join(', ');
+    return {
+      ticker,
+      label: filings.length + '× ' + (isBuy ? 'buy' : 'sell'),
+      sub: types + ' · ' + filings.map(f=>f.filed_date).sort().reverse()[0],
+      color: isBuy ? '#00d4ff' : '#ff00ff',
+    };
+  });
+
+  return {
+    id: isBuy ? 'repeat13dgbuy' : 'repeat13dgsell',
+    icon: isBuy ? '◆' : '◇',
+    name: isBuy ? 'Repeat 13D/G Buying' : 'Repeat 13D/G Selling',
+    desc: isBuy
+      ? 'Tickers with 2 or more SC 13D/G buying filings in the last 30 days — sustained institutional accumulation from major holders.'
+      : 'Tickers with 2 or more SC 13D/G selling or reduction filings in the last 30 days — watch for continued distribution.',
+    count: results.length,
+    countLabel: 'tickers found',
+    loading: false,
+    top3,
+    accentColor: isBuy ? '#00d4ff' : '#ff00ff',
+    accentBg: isBuy ? 'rgba(0,212,255,0.05)' : 'rgba(255,0,255,0.05)',
+    accentBorder: isBuy ? 'rgba(0,212,255,0.25)' : 'rgba(255,0,255,0.25)',
+  };
+}
+
+function renderRepeat13DGSubpage(direction) {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('analysisViewBody');
+  const isBuy = direction === 'buy';
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+  const color = isBuy ? '#00d4ff' : '#ff00ff';
+  const sc13 = _sc13AnalysisData || [];
+  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10);
+  const byTicker = {};
+  sc13.forEach(f => {
+    if (!f.ticker || !f.filed_date || f.filed_date < cutoff) return;
+    if (!byTicker[f.ticker]) byTicker[f.ticker] = { buys: [], sells: [], company: f.company || f.ticker };
+    const isSell = f.shares_delta !== null && f.shares_delta < 0;
+    if (isSell) byTicker[f.ticker].sells.push(f);
+    else byTicker[f.ticker].buys.push(f);
+  });
+  const results = Object.entries(byTicker)
+    .filter(([,v]) => (isBuy ? v.buys : v.sells).length >= 2)
+    .sort((a,b) => (isBuy ? b[1].buys.length - a[1].buys.length : b[1].sells.length - a[1].sells.length));
+
+  const rows = results.map(([ticker, data]) => {
+    const filings = isBuy ? data.buys : data.sells;
+    const types = [...new Set(filings.map(f => (f.filing_type||'').replace('SCHEDULE ','').replace('SC ','')))].join(', ');
+    const filers = [...new Set(filings.map(f => f.filer||f.company||'').filter(Boolean))].slice(0,2).join(' · ');
+    const latest = filings.map(f=>f.filed_date).sort().reverse()[0];
+    return `<div onclick="loadStockView('${ticker}')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
+      onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="display:flex;align-items:center;gap:14px">
+        <span style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:${color};min-width:52px">${ticker}</span>
+        <div>
+          <div style="font-size:12px;color:var(--text);font-weight:600">${data.company}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">${filers || types}</div>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:12px">
+        <div style="font-family:'Space Mono',monospace;font-size:13px;color:${color};font-weight:700">${filings.length}× ${isBuy?'buy':'sell'}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${types} · ${fmtDate(latest)}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:20px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${isBuy ? '◆ REPEAT 13D/G BUYING' : '◇ REPEAT 13D/G SELLING'}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${isBuy
+        ? 'Tickers with 2+ institutional buying filings in the last 30 days — sustained accumulation signal'
+        : 'Tickers with 2+ major holder reducing filings in the last 30 days — watch for continued distribution'}</div>
+    </div>
+    ${results.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px">${rows}</div>`
+      : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No repeat 13D/G ${isBuy?'buying':'selling'} detected in the last 30 days.</div>`}
+  </div>`;
+}
+
 function renderAnalysisDashboard() {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
@@ -5259,9 +5357,8 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool, buildRepeat13DGTile('buy'), buildRepeat13DGTile('sell')].map(t => renderAnalysisTile(t)).join('')}
     </div>
-    ${renderRepeat13DG(_sc13AnalysisData || [])}
   </div>`;
   } catch(e) {
     body.innerHTML = `<div style="padding:40px;color:var(--sell);font-family:Space Mono,monospace;font-size:12px">Analysis render error: ${e.message}</div>`;
@@ -5378,6 +5475,12 @@ function renderAnalysisSubpage(id) {
 
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
+
+  } else if (id === 'repeat13dgbuy') {
+    renderRepeat13DGSubpage('buy');
+
+  } else if (id === 'repeat13dgsell') {
+    renderRepeat13DGSubpage('sell');
   }
 }
 
@@ -5400,7 +5503,7 @@ function renderRegimeShiftSubpage() {
   </div>`;
 
   // Build once long trades are available
-  withLongTrades(longTrades => {
+  ensureAnalysisDataLong(longTrades => {
     const trades = _analysisData || [];
     const results = buildRegimeShiftData(longTrades, trades);
     const el = document.getElementById('regimeShiftResults');
@@ -8275,7 +8378,7 @@ function renderMonitorShell(body) {
   body.innerHTML = `
   <div style="max-width:1100px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:20px">
-      <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div><div class="live-badge" title="Data updated hourly during market hours"><div class="live-dot"></div>LIVE · HOURLY</div></div>
+      <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
       <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 and SC 13D/G filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
     </div>
@@ -8423,7 +8526,7 @@ async function runMonitorWindow(tab, body) {
     if (needsSignalFetch || needsSentimentFetch) {
       const fetches = [];
       if (needsSignalFetch) {
-        fetches.push(apiFetch('/api/screener?days=92'));
+        fetches.push(apiFetch('/api/screener?days=90'));
         fetches.push(apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []));
       } else {
         fetches.push(Promise.resolve(null));
@@ -10080,7 +10183,7 @@ function renderAlertPrefs(p) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
       <div>
         <div style="font-size:13px;color:var(--text);font-weight:600">Alerts ${enabled ? '<span style="font-size:10px;color:var(--accent);margin-left:6px;font-family:Space Mono,monospace">ON</span>' : '<span style="font-size:10px;color:var(--muted);margin-left:6px;font-family:Space Mono,monospace">OFF</span>'}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">Updated hourly during market hours, 3am ET nightly</div>
+
       </div>
       <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:${enabled?'var(--accent)':'#1e2d3d'};cursor:pointer;position:relative;transition:background 0.2s">
         <div id="alertToggleKnob" style="position:absolute;top:3px;left:${enabled?'21':'3'}px;width:16px;height:16px;border-radius:50%;background:${enabled?'#000':'#4a6580'};transition:all 0.2s"></div>
