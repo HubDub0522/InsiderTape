@@ -4675,7 +4675,7 @@ async function loadAnalysisPage(subpage) {
         apiFetch('/api/f13-summary').catch(() => null),
       ]);
       _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
-      if (f13Raw) _f13SummaryData = f13Raw;
+      if (f13Raw) { _f13SummaryCache = f13Raw; _f13SummaryData = f13Raw; }
     } catch(e) { _analysisData = []; }
   }
 
@@ -5049,13 +5049,14 @@ function renderAnalysisDashboard() {
       }
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _firstBuyCache = []; });
+    }).catch((e) => { console.warn('firstbuys fetch failed:', e); _firstBuyCache = []; });
   }
 
-  // Kick off 13F summary fetch if not cached
+  // Kick off 13F summary fetch if not already loaded by loadAnalysisPage
   if (!_f13SummaryCache) {
     apiFetch('/api/f13-summary').then(data => {
       _f13SummaryCache = data;
+      _f13SummaryData  = data;
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }).catch(() => { _f13SummaryCache = { quarter: null, topBuys: [], topSells: [], newPositions: [] }; });
@@ -5067,11 +5068,11 @@ function renderAnalysisDashboard() {
       _f13DualCache = data;
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _f13DualCache = { quarter: null, results: [] }; });
+    }).catch((e) => { console.warn('f13-dual fetch failed:', e); _f13DualCache = { quarter: null, results: [] }; });
   }
 
   const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
-  const rankerLoading = !_rankerCache && !_rankerRawRows;
+  const rankerLoading = !_rankerCache;
 
   const tools = [
     {
@@ -5473,7 +5474,7 @@ async function computeLeaderboardScores() {
   try {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
     // Server returns {computing:true} when still warming up — retry in 30s
-    if (data.computing && !data.accuracy.length) {
+    if (data.computing && !(data.accuracy||[]).length) {
       setTimeout(computeLeaderboardScores, 15000);
       return;
     }
