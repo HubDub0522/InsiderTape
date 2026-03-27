@@ -18,7 +18,7 @@
 <!-- Favicon: radar icon -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <!-- SEO meta -->
-<meta name="description" content="Track what corporate insiders are buying and selling. InsiderTape surfaces SEC Form 4 and 13D/G filings in real time — so you can see cluster buys, activist accumulation, and first buys before they become headlines.">
+<meta name="description" content="Track what corporate insiders are buying and selling. InsiderTape surfaces SEC Form 4 filings in real time — so you can see cluster buys, conviction signals, and first buys before they become headlines.">
 <meta name="keywords" content="insider trading tracker, SEC Form 4, insider buying, insider selling, stock screener, cluster buy, corporate insider trades">
 <meta name="author" content="InsiderTape">
 <meta name="robots" content="index, follow">
@@ -26,13 +26,13 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://insidertape.com">
 <meta property="og:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
-<meta property="og:description" content="Track corporate insiders and institutional 5% owners buying and selling. SEC Form 4 and 13D/G filings in real time — cluster buys, activist accumulation, and conviction signals.">
+<meta property="og:description" content="Track corporate insiders buying and selling. SEC Form 4 filings in real time — cluster buys, conviction signals, and first-time purchases.">
 <meta property="og:image" content="https://insidertape.com/og-image.png">
 <!-- Twitter/X Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@insidertape">
 <meta name="twitter:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
-<meta name="twitter:description" content="Track insider trades and institutional 5%+ owners. SEC Form 4 and 13D/G filings in real time.">
+<meta name="twitter:description" content="Track insider trades in real time. SEC Form 4 filings — cluster buys, conviction signals, and more.">
 <meta name="twitter:image" content="https://insidertape.com/og-image.png">
 <!-- Preconnect to critical external origins to reduce latency -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -238,10 +238,6 @@
   .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
   .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
   .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(255,170,0,0.08); }
-  .chip.sc13buy-chip         { color: var(--muted); border-color: var(--border); }
-  .chip.sc13buy-chip.active  { border-color: #00d4ff; color: #00d4ff; background: rgba(0,212,255,0.12); }
-  .chip.sc13sell-chip        { color: var(--muted); border-color: var(--border); }
-  .chip.sc13sell-chip.active { border-color: #ff00ff; color: #ff00ff; background: rgba(255,0,255,0.12); }
   .filter-range { display: flex; flex-direction: column; gap: 8px; }
   .filter-range select, .filter-range input[type=number] { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; color: var(--text); font-size: 12px; outline: none; width: 100%; }
   .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
@@ -850,8 +846,6 @@
       <div class="filter-chips" style="margin-bottom:20px">
         <div class="chip buy-chip active"  data-type="P"     onclick="toggleChip(this)">Buy</div>
         <div class="chip sell-chip active" data-type="S"     onclick="toggleChip(this)">Sell</div>
-        <div class="chip sc13buy-chip" data-type="SC13BUY" onclick="toggleChip(this)" title="SC 13D/G filings showing 5%+ institutional accumulation">◆ 13D/G Buy</div>
-        <div class="chip sc13sell-chip" data-type="SC13SELL" onclick="toggleChip(this)" title="SC 13D/G filings showing major holder reducing stake">◆ 13D/G Sell</div>
       </div>
       <div class="filter-section">
         <span class="filter-label">Insider Role</span>
@@ -902,7 +896,7 @@
       <div class="filter-data-source" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
         <p style="font-size:11px;color:var(--muted);line-height:1.6">
-          Insider filings sourced directly from SEC EDGAR Form 4 filings. Institutional 5%+ ownership changes tracked via SC 13D/G filings.<br><br>
+          Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
           <span style="color:var(--accent)">Note:</span> SEC rules allow insiders up to 2 business days to file after a transaction. InsiderTape ingests new filings throughout the trading day.
         </p>
       </div>
@@ -913,13 +907,7 @@
         <div>
           <div class="screener-title">RECENT INSIDER TRADES</div>
           <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
-          <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
-          <div id="sc13Banner" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);border-radius:6px;font-size:11px;color:var(--muted);line-height:1.6;max-width:700px">
-            <span style="color:var(--accent);font-family:'Space Mono',monospace;font-weight:700">◆ About 13D/G Filings</span><br>
-            SC 13D and SC 13G filings report when an investor crosses the <strong style="color:var(--text)">5% ownership threshold</strong> in a public company. Unlike Form 4 trades, these filings do not disclose a transaction price, share count, or dollar value — they only confirm that a significant ownership stake exists. Dashes (—) in the price, value, and shares columns are expected. The filing date and filer name are the key signals.
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:12px">
+          <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div><div style="display:flex;align-items:center;gap:12px">
           
           <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v1.6</div>
         </div>
@@ -1360,11 +1348,11 @@ function toggleRole(el) {
   el.classList.add('active'); state.activeRole = el.dataset.role;
   saveFilters();
   // When viewing a stock chart, rebuild overlay
-  if (state.currentTicker && (state.priceData || state.sc13Data)) {
+  if (state.currentTicker && state.priceData) {
     buildCircleOverlay(
       document.getElementById('chart-container'),
       state.chart, state.mainSeries,
-      state.trades || [], state.priceData || [], state.sc13Data || []
+      state.trades || [], state.priceData || [], []
     );
   }
 }
@@ -1413,16 +1401,6 @@ function toggleDays(el) {
 }
 
 
-function sc13Tooltip(filingType) {
-  const t = (filingType || '').toUpperCase();
-  if (t.includes('13D')) return t.includes('/A')
-    ? 'SC 13D/A: Amendment to an SC 13D. A shareholder who previously disclosed 5%+ ownership is updating their filing — ownership, intentions, or other details have changed.'
-    : 'SC 13D: Filed when an investor acquires more than 5% of a company and has activist intent — plans to influence management, push for a sale, or seek board seats. High-signal event.';
-  if (t.includes('13G')) return t.includes('/A')
-    ? 'SC 13G/A: Amendment to an SC 13G. A passive 5%+ holder is updating their ownership percentage, typically after buying or selling shares.'
-    : 'SC 13G: Filed when an investor acquires more than 5% of a company passively — no intent to influence control. Common for index funds and institutional investors.';
-  return 'Beneficial ownership filing: reports a 5%+ stake in a public company.';
-}
 
 async function loadScreener() {
   state.minVal = parseInt(document.getElementById('minVal').value) || 0;
@@ -1430,72 +1408,24 @@ async function loadScreener() {
   document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>Loading insider filings...</span></div></td></tr>`;
   document.getElementById('summaryBar').innerHTML = '';
   try {
-    // When 5% Owner filter is active, fetch SC 13D/G filings alongside Form 4 trades
-    const is5pct = state.activeRole === '5pct' || state.activeTypes.has('SC13BUY') || state.activeTypes.has('SC13SELL');
-    const isAll  = !state.activeRole || state.activeRole === 'all';
 
-    // 5% Owner: fetch only SC 13D/G. All: fetch both. Others: only Form 4.
-    const [resp, sc13Resp] = await Promise.all([
-      is5pct ? Promise.resolve([]) : apiFetch('/api/screener?days=' + days),
-      (is5pct || isAll) ? apiFetch('/api/sc13-recent?days=' + days).catch(() => []) : Promise.resolve([]),
-    ]);
+    const resp = await apiFetch('/api/screener?days=' + days);
     if (resp && resp.building) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div><span>⏳ Server is loading SEC data (~60 sec on first start)...</span></div></td></tr>`;
       setTimeout(loadScreener, 8000); return;
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
 
-    // Convert SC 13D/G rows into screener-compatible objects
-    const sc13Trades = (Array.isArray(sc13Resp) ? sc13Resp : [])
-      .filter(f => f.ticker)
-      .map(f => ({
-        ticker:   f.ticker,
-        company:  f.company || f.ticker,
-        // filer = investor name, company = subject company name
-        // Strip any accidental filing_type suffix from filer name
-        insider:  (f.filer || f.company || '5%+ Owner').replace(/\s*(SCHEDULE\s+13[DG].*|SC\s+13[DG].*)$/i,'').trim() || f.company || '5%+ Owner',
-        title:    (f.filing_type || 'SC 13D/G') + (f.pct_owned != null ? ' · ' + f.pct_owned.toFixed(1) + '% owned' : ''),
-        trade:    f.filed_date,
-        filing:   f.filed_date,
-        type:     (f.shares_delta !== null && f.shares_delta < 0) ? 'S' : 'P',
-        qty:      f.shares_delta != null ? Math.abs(f.shares_delta) : (f.shares_owned || 0),
-        price:    0,
-        value:    0,
-        owned:    f.shares_owned || 0,
-        accession: f.accession,
-        _isSc13:  true,
-      }));
-
-    if (is5pct) {
-      // 5% Owner: show ONLY SC 13D/G filings
-      trades = sc13Trades;
-    } else if (isAll) {
-      // All: merge SC 13D/G into Form 4 results, sorted by date
-      trades = [...trades, ...sc13Trades]
-        .sort((a, b) => (b.trade || b.filing || '').localeCompare(a.trade || a.filing || ''));
-    }
 
     if (!trades.length) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
     }
-    if (state.activeTypes.size > 0) {
-      const wantSc13Buy  = state.activeTypes.has('SC13BUY');
-      const wantSc13Sell = state.activeTypes.has('SC13SELL');
-      const wantFormBuy  = state.activeTypes.has('P');
-      const wantFormSell = state.activeTypes.has('S');
-      trades = trades.filter(t => {
-        if (t._isSc13) {
-          const isSc13Sell = t.type === 'S';
-          return isSc13Sell ? wantSc13Sell : wantSc13Buy;
-        }
-        return state.activeTypes.has(t.type);
-      });
-    }
+    if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
     if (state.minVal > 0) trades = trades.filter(t => t._isSc13 || t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
-        if (t._isSc13) return true; // SC 13D/G rows not filtered by role
+
         const title = (t.title || '').toUpperCase();
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
@@ -1626,9 +1556,6 @@ function renderScreener() {
   window.scrollTo(0, 0);
   const data = state.screenerData;
   // Show sc13 info banner when 5% Owner filter active or sc13 rows present
-  const hasSc13 = state.activeRole === '5pct' || data.some(t => t._isSc13);
-  const banner = document.getElementById('sc13Banner');
-  if (banner) banner.style.display = hasSc13 ? 'block' : 'none';
   const buys = data.filter(t => t.type==='P'), sells = data.filter(t => t.type==='S'||t.type==='S-');
   const totalBuyVal = buys.reduce((s,t)=>s+t.value,0), totalSellVal = sells.reduce((s,t)=>s+t.value,0);
   document.getElementById('summaryBar').innerHTML = `
@@ -1663,24 +1590,7 @@ function renderScreener() {
     const edgarLink = t.accession
       ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
       : '';
-    if (t._isSc13) {
-      const dColor = t.type === 'S' ? '#ff00ff' : '#00d4ff';
-      // If ticker is a company name (unenriched), show it differently
-      const hasTicker = t.ticker && t.ticker.length <= 6 && /^[A-Z]/.test(t.ticker);
-      const tickerDisplay = hasTicker
-        ? `<span class="ticker-cell" style="color:var(--accent)">${t.ticker}</span>`
-        : `<span style="font-size:11px;color:var(--muted);font-family:'DM Sans',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;display:block" title="${t._rawCompany||t.ticker}">${(t._rawCompany||t.ticker||'?').slice(0,15)}</span>`;
-      return `<tr onclick="${hasTicker ? `openTickerFromScreener('${t.ticker}')` : ''}" style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'};${hasTicker?'cursor:pointer':'cursor:default'}">
-      <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><br>${edgarLink}</td>
-      <td>${tickerDisplay}</td>
-      <td onclick="event.stopPropagation()"><span style="color:${dColor};font-weight:600">◆ ${(t.insider||'').replace(/^[,\s]+/,'').trim() || '5%+ Owner'}</span><span class="insider-title" style="color:${dColor};opacity:0.8">${t.title||'SC 13D/G'}</span><span title="${sc13Tooltip(t.title)}" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;margin-left:5px;flex-shrink:0;font-family:'Space Mono',monospace">?</span></td>
-      <td><span style="padding:2px 8px;border-radius:3px;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;background:${t.type==='S'?'rgba(255,0,255,0.15)':'rgba(0,212,255,0.15)'};color:${dColor};border:1px solid ${t.type==='S'?'rgba(255,0,255,0.4)':'rgba(0,212,255,0.4)'}">${t.type==='S'?'SELL':'BUY'}</span></td>
-      <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--muted)">${t.qty?fmtShares(t.qty):'—'}</td>
-      <td class="hide-mobile" style="color:var(--muted)">—</td>
-      <td style="color:var(--muted)">—</td>
-      <td class="hide-mobile" style="font-family:'Space Mono',monospace;color:${dColor}">${t.owned?fmtShares(t.owned):'—'}</td>
-    </tr>`;
-    }
+    
     return `
     <tr onclick="openTickerFromScreener('${t.ticker}')">
       <td><span style="font-family:'Space Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${edgarLink}</td>
@@ -2309,7 +2219,7 @@ function renderStockLanding(lists) {
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:28px">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 &amp; 13D/G filings</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
     </div>
     ${section('This Week\'s Activity', 'Insider moves · Last 7 days', '⚡', activeCards)}
     ${auth.isPremium
@@ -2382,9 +2292,7 @@ async function loadStockView(ticker, opts={}) {
   if (mySeq !== _loadStockViewSeq) return; // superseded
   state.tickerTrades = insiderData; state.currentPriceData = [];
 
-  // Kick off price fetch and SC 13D/G fetch in background — don't await yet
   const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
-  const sc13Promise  = apiFetch('/api/sc13?symbol='+encodeURIComponent(ticker)).catch(()=>[]);
 
   // Use empty price data for initial render — chart area shows spinner
   let priceData = [];
@@ -2441,8 +2349,8 @@ async function loadStockView(ticker, opts={}) {
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item" style="color:#00d4ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 13D/G Buy</div>
-            <div class="legend-item" style="color:#ff00ff;font-size:10px"><span style="font-size:15px;line-height:1;vertical-align:middle">◆</span> 13D/G Sell</div>
+            
+            
           </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
@@ -2452,7 +2360,7 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn rf-btn active" id="chartRole-all" data-role="all" data-color="var(--accent)" onclick="toggleRoleFilter('all',this)" title="All insiders">ALL</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-exec" data-role="exec" data-color="#a78bfa" onclick="toggleRoleFilter('exec',this)" title="CEO, CFO, COO, President, Chairman">EXEC</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-director" data-role="director" data-color="#60a5fa" onclick="toggleRoleFilter('director',this)" title="Board Directors">DIR</button>
-            <button class="tf-btn cf-btn rf-btn" id="chartRole-owner10" data-role="owner10" data-color="#00d4ff" onclick="toggleRoleFilter('owner10',this)" title="SC 13D/G filings — 5%+ institutional ownership">13D/G</button>
+            
             <div style="margin-left:auto;display:flex;gap:4px">
               <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn ct-btn active" title="Candlestick chart" style="padding:4px 8px">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block">
@@ -2512,32 +2420,18 @@ async function loadStockView(ticker, opts={}) {
   if (cc) cc.innerHTML = `<div class="loading-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted)">Loading price data…</span></div>`;
 
   // ── PHASE 2: Await price data + SC 13D/G data and inject chart ────────────
-  [priceData] = await Promise.all([pricePromise, sc13Promise.then(d => { state.sc13Data = Array.isArray(d) ? d : []; })]);
+  priceData = await pricePromise;
   // Abort if superseded by a newer loadStockView call
   if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
 
   // Resolve unknown filer names on-demand, then re-render
-  const unknownFilers = (state.sc13Data||[]).filter(f => !f.filer && f.accession);
-  if (unknownFilers.length > 0) {
-    // Fire-and-forget: resolve in background and re-render when done
-    Promise.all(unknownFilers.slice(0,10).map(f =>
-      apiFetch('/api/sc13-filer?accession='+encodeURIComponent(f.accession))
-        .then(d => { if (d.filer) f.filer = d.filer; })
-        .catch(()=>{})
-    )).then(() => {
-      renderSidebarGated(state.tickerTrades || []);
-      renderStockTradesTable(state.tickerTrades || []);
-    });
-  }
-  // Re-render sidebar and table now that sc13Data is available — merges 13D/G in time order
-  renderSc13Sidebar(state.sc13Data || []);
   renderSidebarGated(state.tickerTrades || []);
   renderStockTradesTable(state.tickerTrades || []);
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    await buildChart(priceData, insiderData, state.sc13Data || []);
+    await buildChart(priceData, insiderData);
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
     const prev    = priceData[priceData.length-2];
@@ -2581,8 +2475,7 @@ async function loadStockView(ticker, opts={}) {
 function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
 const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
-async function buildChart(priceData, trades, sc13Data) {
-  sc13Data = sc13Data || state.sc13Data || [];
+async function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
     const cb = () => buildChart(priceData, trades, sc13Data);
@@ -2685,7 +2578,7 @@ async function buildChart(priceData, trades, sc13Data) {
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
 
-  buildCircleOverlay(container,chart,mainSeries,trades,cleanData,sc13Data);
+  buildCircleOverlay(container,chart,mainSeries,trades,cleanData);
 
   // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
@@ -2726,7 +2619,7 @@ function setChartType(type) {
   if (priceData && trades) {
     // Remember visible range before rebuild
     const visRange = state.chart ? (() => { try { return state.chart.timeScale().getVisibleRange(); } catch(e) { return null; } })() : null;
-    buildChart(priceData, trades, state.sc13Data || []);
+    buildChart(priceData, trades);
     // Restore visible range after rebuild
     if (visRange) setTimeout(() => { try { state.chart.timeScale().setVisibleRange(visRange); } catch(e) {} }, 60);
     // Re-apply active range button so stats stay correct
@@ -2735,8 +2628,7 @@ function setChartType(type) {
   }
 }
 
-function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
-  sc13Data = sc13Data || [];
+function buildCircleOverlay(container,chart,series,trades,priceData) {
   const show5pct = state.activeRole === '5pct';
   // When 5% Owner filter active: show only SC 13D/G diamonds, hide Form 4 circles
   const showForm4 = !show5pct;
@@ -2771,22 +2663,6 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
   });
   state.markerGroups=Object.values(groups);
 
-  // ── SC 13D/G diamond groups ───────────────────────────────────────────────
-  // Source 1: sc13_transactions table (SC 13D/G filings)
-  const sc13Groups={};
-  sc13Data.forEach(f=>{
-    const raw=(f.filed_date||'').slice(0,10); if(!raw)return;
-    const d=nearestTradingDay(raw); if(!d)return;
-    const isSell = f.shares_delta !== null && f.shares_delta < 0;
-    const k=d+'|'+(isSell?'sc13sell':'sc13buy');
-    if(!sc13Groups[k])sc13Groups[k]={date:d,filings:[],isSell,filedDate:raw,source:'sc13'};
-    if(raw < sc13Groups[k].filedDate) sc13Groups[k].filedDate=raw;
-    sc13Groups[k].filings.push(f);
-  });
-
-  // Diamonds are only for actual SC 13D/G filings (not Form 4 owner trades)
-
-  state.sc13Groups=Object.values(sc13Groups);
 
   const tooltip=document.getElementById('chartTooltip')||(() => {
     const el=document.createElement('div'); el.id='chartTooltip';
@@ -2832,29 +2708,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,sc13Data) {
       state._circles.push({x:ts,y:yCoord,r,group:g});
     });
 
-    // ── SC 13D/G diamonds ───────────────────────────────────────────────────
-    // Fixed size — these aren't transaction-value-scaled the same way
-    // Base diamond size, scaled by pct_owned (larger stake = bigger diamond)
-    const dBase = window.innerWidth <= 640 ? 12 : 16;
-    state.sc13Groups.forEach(g=>{
-      const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
-      const pd=priceMap[g.date]; if(!pd)return;
-      // Fixed size — pct_owned and value not available for SC 13D/G filings
-      const dSize = dBase;
-      // Buying = cyan diamond above the bar top; selling = magenta diamond below bar bottom
-      const refPrice = g.isSell ? (pd.high||pd.close)*1.012 : (pd.low||pd.close)*0.988;
-      const yCoord=series.priceToCoordinate(refPrice); if(yCoord===null||yCoord===undefined)return;
-      // Glow pass (larger, very transparent)
-      drawDiamond(ctx, ts, yCoord, dSize+5,
-        g.isSell ? 'rgba(255,0,255,0.06)' : 'rgba(0,212,255,0.06)',
-        'transparent');
-      // Main diamond
-      drawDiamond(ctx, ts, yCoord, dSize,
-        g.isSell ? 'rgba(255,0,255,0.18)' : 'rgba(0,212,255,0.18)',
-        g.isSell ? 'rgba(255,0,255,0.90)' : 'rgba(0,212,255,0.90)');
-      state._diamonds.push({x:ts,y:yCoord,r:dSize+4,group:g});
-    });
-  }
+  }  // end drawCircles
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
   setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
@@ -3287,8 +3141,8 @@ function renderTradeMarkerList(trades) {
     const hasBuy  = sc13.some(f=>f.shares_delta===null||f.shares_delta>=0);
     const hasSell = sc13.some(f=>f.shares_delta!==null&&f.shares_delta<0);
     let legend = '';
-    if (hasBuy)  legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:4px"><span style="color:#00d4ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#00d4ff">13D/G BUY</span></div>`;
-    if (hasSell) legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,0,255,0.06);border:1px solid rgba(255,0,255,0.3);border-radius:4px"><span style="color:#ff00ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#ff00ff">13D/G SELL</span></div>`;
+    
+    
     if (legend) el.innerHTML += legend;
   }
 }
@@ -3296,73 +3150,6 @@ function renderTradeMarkerList(trades) {
 // ── SC 13D/G sidebar section ───────────────────────────────────────────────
 // Renders beneficial ownership filings below the trade marker list.
 // Only shown when there is sc13 data for the current ticker.
-function renderSc13Sidebar(sc13Data) {
-  // Inject sc13 signal badge into the stock signals area if recent data exists
-  const recentSc13 = (sc13Data || []).filter(f => {
-    const d = new Date(f.filed_date); const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-6);
-    return d >= cutoff;
-  });
-  const sigArea = document.getElementById('sc13-signal-badge');
-  if (sigArea) {
-    if (recentSc13.length > 0) {
-      const hasBuy = recentSc13.some(f => f.shares_delta === null || f.shares_delta >= 0);
-      const hasSell = recentSc13.some(f => f.shares_delta !== null && f.shares_delta < 0);
-      const color = hasBuy && !hasSell ? 'rgba(0,212,255,0.9)' : hasSell && !hasBuy ? 'rgba(255,0,255,0.9)' : 'rgba(180,180,180,0.8)';
-      const label = hasBuy && !hasSell ? '🔷 13D/G ACCUMULATING' : hasSell && !hasBuy ? '🔶 13D/G REDUCING' : '🔷 13D/G ACTIVITY';
-      sigArea.innerHTML = `<span style="color:${color};font-size:10px;font-family:'Space Mono',monospace;letter-spacing:1px" title="${recentSc13.length} institutional 13D/G filing(s) in last 6 months">${label}</span>`;
-    } else { sigArea.innerHTML = ''; }
-  }
-  // Find or create the sc13 container — it lives just below the trade marker list
-  let el = document.getElementById('sc13SidebarSection');
-  if (!el) {
-    const parent = document.getElementById('tradeMarkerList')?.parentElement;
-    if (!parent) return;
-    el = document.createElement('div');
-    el.id = 'sc13SidebarSection';
-    parent.appendChild(el);
-  }
-
-  // SC 13D/G entries now merged into main sidebar trade list — hide separate section
-  el.innerHTML = ''; return;
-  if (!sc13Data || !sc13Data.length) { el.innerHTML = ''; return; }
-
-  const sorted = [...sc13Data].sort((a,b) => b.filed_date.localeCompare(a.filed_date));
-
-  el.innerHTML = `
-    <div style="margin-top:14px">
-      <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:8px;text-transform:uppercase">
-        ◆ Beneficial Ownership (13D/G)
-      </div>
-      ${sorted.slice(0,6).map(f => {
-        const isSell = f.shares_delta !== null && f.shares_delta < 0;
-        const color  = isSell ? '#ff00ff' : '#00d4ff';
-        const border = isSell ? 'rgba(255,0,255,0.25)' : 'rgba(0,212,255,0.25)';
-        const bg     = isSell ? 'rgba(255,0,255,0.06)' : 'rgba(0,212,255,0.06)';
-        const deltaStr = f.shares_delta !== null
-          ? `<span style="color:${color};font-size:10px"> ${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)} shares</span>`
-          : '';
-        const pctStr = f.pct_owned != null
-          ? `<span style="font-family:'Space Mono',monospace;font-size:10px;color:${color}">${f.pct_owned.toFixed(1)}% owned</span>`
-          : '';
-        const typeLabel = (f.filing_type||'SC 13D/G').replace('SC ','');
-        return `<div style="display:flex;flex-direction:column;gap:3px;padding:8px 10px;background:${bg};border:1px solid ${border};border-radius:4px;margin-bottom:6px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-            <span style="font-family:'Space Mono',monospace;font-size:9px;color:${color};font-weight:700;letter-spacing:1px">${typeLabel}</span>
-            <span style="font-family:'Space Mono',monospace;font-size:9px;color:var(--muted)">${fmtDate(f.filed_date)}</span>
-          </div>
-          <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.filer||'Unknown filer'}</div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${pctStr}${deltaStr}</div>
-        </div>`;
-      }).join('')}
-      ${sorted.length > 6 ? `<div style="font-size:11px;color:var(--muted);padding:2px 0">+${sorted.length-6} more filings</div>` : ''}
-    </div>`;
-}
-
-function switchSidebarTab(tab,el) {
-  document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active');
-  if(tab==='trades'){renderSidebarGated(state.tickerTrades);}else{if(!requirePremium('Summary tab — insider conviction analysis'))return;renderSidebarSummary(state.tickerTrades);}
-
-}
 function renderSidebarTrades(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
   const sc13 = state.sc13Data || [];
@@ -3385,23 +3172,9 @@ function renderSidebarTrades(trades) {
 
   if(!items.length){el.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;return;}
   el.innerHTML=items.map(t=>{
-    const isSc13=t._type==='sc13';
     const tc=tradeClass(t.type);
     const isOwner=!isSc13&&['10%','OWNER','BENEFICIAL','MAJOR','PRINCIPAL'].some(k=>(t.title||'').toUpperCase().includes(k));
-    if(isSc13){
-      const dColor=tc==='buy'?'#00d4ff':'#ff00ff';
-      const dBg=tc==='buy'?'rgba(0,212,255,0.06)':'rgba(255,0,255,0.06)';
-      const dBorder=tc==='buy'?'rgba(0,212,255,0.25)':'rgba(255,0,255,0.25)';
-      const pctStr=t.pct_owned!=null?`<span style="color:${dColor};font-size:10px">${t.pct_owned.toFixed(1)}% owned</span>`:'';
-      const _sAmt=t.shares_delta!=null?t.shares_delta:(t.shares_owned||t.owned||0);
-      const deltaStr=_sAmt?`<span style="color:var(--muted);font-size:10px">${_sAmt>0&&t.shares_delta!=null?'+':''}${fmtShares(Math.abs(_sAmt))} shares</span>`:'';
-      return `<div class="trade-card" style="background:${dBg};border-color:${dBorder}">
-        <div class="trade-card-top"><span style="color:${dColor};font-size:10px;font-family:'Space Mono',monospace;font-weight:700">◆ ${(t.title||'SC 13D/G').replace('SC ','')}</span><span title="${sc13Tooltip(t.title)}" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;margin-left:4px;flex-shrink:0;font-family:'Space Mono',monospace">?</span><span class="trade-date">${fmtDate(t.trade||t.filing)}</span></div>
-        <div class="trade-insider" style="color:var(--text)">${t.insider}</div>
-        <div class="trade-role" style="color:${dColor};font-size:10px">5%+ BENEFICIAL OWNER · ${tc==='buy'?'ACCUMULATING':'REDUCING'}</div>
-        <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">${pctStr}${deltaStr}</div>
-      </div>`;
-    }
+    
     const color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--option)';
     const ownerBadge=''; // removed — title-based 5%+ detection is unreliable
     return `<div class="trade-card ${tc}">
@@ -3463,7 +3236,6 @@ function renderStockTradesTable(trades) {
 
   if(!items.length){el.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>`;return;}
   el.innerHTML=items.map(t=>{
-    const isSc13 = t._type==='sc13';
     if (isSc13) {
       const dColor = t.type==='S'?'#ff00ff':'#00d4ff';
       const secLink = t.url
@@ -3479,7 +3251,7 @@ function renderStockTradesTable(trades) {
       return `<tr style="background:${t.type==='S'?'rgba(255,0,255,0.03)':'rgba(0,212,255,0.03)'}">
         <td style="font-family:'Space Mono',monospace;font-size:11px;border-left:2px solid ${dColor};padding-left:10px">${fmtDate(t.trade)}</td>
         <td><span style="color:${dColor};font-size:11px;font-weight:600">◆ ${t.insider}</span></td>
-        <td style="color:${dColor};font-size:11px">${(t.title||'SC 13D/G').replace('SC ','')} <span title="${sc13Tooltip(t.title)}" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;vertical-align:middle;font-family:'Space Mono',monospace">?</span></td>
+        <td style="color:${dColor};font-size:11px">${(t.title||'SC 13D/G').replace('SC ','')} <span title="SC 13D/G filing type" style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);font-size:9px;color:var(--muted);cursor:help;vertical-align:middle;font-family:'Space Mono',monospace">?</span></td>
         <td><span class="badge ${t.type==='S'?'badge-sell':'badge-buy'}">${t.type==='S'?'SELL':'BUY'}</span></td>
         <td style="font-family:'Space Mono',monospace;color:var(--muted)">${deltaStr}</td>
         <td style="color:var(--muted)">—</td>
@@ -4808,7 +4580,6 @@ document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput'
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
 let _analysisData = null;     // 30-day trades cache
-let _sc13AnalysisData = null; // 30-day SC 13D/G filings cache for analysis
 let _analysisDataLong = null; // 3-year trades cache — loaded lazily by subpages that need it
 let _analysisDataLongLoading = false;
 let _analysisDataLongCallbacks = [];
@@ -4855,13 +4626,9 @@ async function loadAnalysisPage(subpage) {
   if (!_analysisData) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
     try {
-      const [raw, sc13Raw] = await Promise.all([
-        apiFetch('/api/screener?days=30'),
-        apiFetch('/api/sc13-recent?days=30').catch(() => []),
-      ]);
+      const raw = await apiFetch('/api/screener?days=30');
       _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
-      _sc13AnalysisData = Array.isArray(sc13Raw) ? sc13Raw : [];
-    } catch(e) { _analysisData = []; _sc13AnalysisData = []; }
+    } catch(e) { _analysisData = []; }
   }
 
   // Pre-fetch drift and proximity in background so tiles are instant when clicked
@@ -4981,174 +4748,8 @@ function buildRegimeShiftData(longTrades, recentTrades) {
   return results.sort((a, b) => b.score - a.score);
 }
 
-function renderRepeat13DG(sc13Data) {
-  if (!sc13Data || !sc13Data.length) return '';
 
-  // Group filings by ticker, last 30 days only
-  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10);
-  const byTicker = {};
-  sc13Data.forEach(f => {
-    if (!f.ticker || !f.filed_date || f.filed_date < cutoff) return;
-    if (!byTicker[f.ticker]) byTicker[f.ticker] = { buys: [], sells: [], company: f.company || f.ticker };
-    const isSell = f.shares_delta !== null && f.shares_delta < 0;
-    if (isSell) byTicker[f.ticker].sells.push(f);
-    else byTicker[f.ticker].buys.push(f);
-  });
 
-  // Find tickers with 2+ buys or 2+ sells
-  const repeatBuys  = Object.entries(byTicker)
-    .filter(([,v]) => v.buys.length >= 2)
-    .sort((a,b) => b[1].buys.length - a[1].buys.length)
-    .slice(0, 12);
-  const repeatSells = Object.entries(byTicker)
-    .filter(([,v]) => v.sells.length >= 2)
-    .sort((a,b) => b[1].sells.length - a[1].sells.length)
-    .slice(0, 12);
-
-  if (!repeatBuys.length && !repeatSells.length) return '';
-
-  function repeatRow(ticker, data, isSell) {
-    const filings = isSell ? data.sells : data.buys;
-    const color   = isSell ? '#ff00ff' : '#00d4ff';
-    const bg      = isSell ? 'rgba(255,0,255,0.04)' : 'rgba(0,212,255,0.04)';
-    const border  = isSell ? 'rgba(255,0,255,0.15)' : 'rgba(0,212,255,0.15)';
-    const types   = [...new Set(filings.map(f => (f.filing_type||'').replace('SCHEDULE ','').replace('SC ','')))].join(', ');
-    const filers  = [...new Set(filings.map(f => f.filer || f.company || '').filter(Boolean))].slice(0,2).join(' · ');
-    const latest  = filings.map(f => f.filed_date).sort().reverse()[0];
-    return `<div onclick="loadStockView('${ticker}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:${bg};border:1px solid ${border};border-radius:6px;cursor:pointer;margin-bottom:8px;transition:border-color 0.15s"
-      onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='${border}'">
-      <div style="display:flex;align-items:center;gap:12px">
-        <span style="font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:${color};min-width:48px">${ticker}</span>
-        <div>
-          <div style="font-size:11px;color:var(--text);font-weight:600">${data.company}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">${filers || types}</div>
-        </div>
-      </div>
-      <div style="text-align:right;flex-shrink:0;margin-left:12px">
-        <div style="font-family:'Space Mono',monospace;font-size:12px;color:${color};font-weight:700">${filings.length}× ${isSell?'sell':'buy'}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">${types} · ${fmtDate(latest)}</div>
-      </div>
-    </div>`;
-  }
-
-  const buySection = repeatBuys.length ? `
-    <div style="margin-top:32px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:4px">◆ REPEAT 13D/G BUYING</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Tickers with 2+ institutional buying filings in the last 30 days — sustained accumulation signal</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px">
-        ${repeatBuys.map(([ticker, data]) => repeatRow(ticker, data, false)).join('')}
-      </div>
-    </div>` : '';
-
-  const sellSection = repeatSells.length ? `
-    <div style="margin-top:28px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:4px">◆ REPEAT 13D/G SELLING</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Tickers with 2+ major holder reducing filings in the last 30 days — watch for continued distribution</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px">
-        ${repeatSells.map(([ticker, data]) => repeatRow(ticker, data, true)).join('')}
-      </div>
-    </div>` : '';
-
-  return buySection + sellSection;
-}
-
-function buildRepeat13DGTile(direction) {
-  const sc13 = _sc13AnalysisData || [];
-  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10);
-  const byTicker = {};
-  sc13.forEach(f => {
-    if (!f.ticker || !f.filed_date || f.filed_date < cutoff) return;
-    if (!byTicker[f.ticker]) byTicker[f.ticker] = { buys: [], sells: [], company: f.company || f.ticker };
-    const isSell = f.shares_delta !== null && f.shares_delta < 0;
-    if (isSell) byTicker[f.ticker].sells.push(f);
-    else byTicker[f.ticker].buys.push(f);
-  });
-  const isBuy = direction === 'buy';
-  const results = Object.entries(byTicker)
-    .filter(([,v]) => (isBuy ? v.buys : v.sells).length >= 2)
-    .sort((a,b) => (isBuy ? b[1].buys.length - a[1].buys.length : b[1].sells.length - a[1].sells.length));
-
-  const top3 = results.slice(0,3).map(([ticker, data]) => {
-    const filings = isBuy ? data.buys : data.sells;
-    const types = [...new Set(filings.map(f => (f.filing_type||'').replace('SCHEDULE ','').replace('SC ','')))].join(', ');
-    return {
-      ticker,
-      label: filings.length + '× ' + (isBuy ? 'buy' : 'sell'),
-      sub: types + ' · ' + filings.map(f=>f.filed_date).sort().reverse()[0],
-      color: isBuy ? '#00d4ff' : '#ff00ff',
-    };
-  });
-
-  return {
-    id: isBuy ? 'repeat13dgbuy' : 'repeat13dgsell',
-    icon: isBuy ? '◆' : '◇',
-    name: isBuy ? 'Repeat 13D/G Buying' : 'Repeat 13D/G Selling',
-    desc: isBuy
-      ? 'Tickers with 2 or more SC 13D/G buying filings in the last 30 days — sustained institutional accumulation from major holders.'
-      : 'Tickers with 2 or more SC 13D/G selling or reduction filings in the last 30 days — watch for continued distribution.',
-    count: results.length,
-    countLabel: 'tickers found',
-    loading: false,
-    top3,
-    accentColor: isBuy ? '#00d4ff' : '#ff00ff',
-    accentBg: isBuy ? 'rgba(0,212,255,0.05)' : 'rgba(255,0,255,0.05)',
-    accentBorder: isBuy ? 'rgba(0,212,255,0.25)' : 'rgba(255,0,255,0.25)',
-  };
-}
-
-function renderRepeat13DGSubpage(direction) {
-  window.scrollTo(0, 0);
-  const body = document.getElementById('analysisViewBody');
-  const isBuy = direction === 'buy';
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-  const color = isBuy ? '#00d4ff' : '#ff00ff';
-  const sc13 = _sc13AnalysisData || [];
-  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10);
-  const byTicker = {};
-  sc13.forEach(f => {
-    if (!f.ticker || !f.filed_date || f.filed_date < cutoff) return;
-    if (!byTicker[f.ticker]) byTicker[f.ticker] = { buys: [], sells: [], company: f.company || f.ticker };
-    const isSell = f.shares_delta !== null && f.shares_delta < 0;
-    if (isSell) byTicker[f.ticker].sells.push(f);
-    else byTicker[f.ticker].buys.push(f);
-  });
-  const results = Object.entries(byTicker)
-    .filter(([,v]) => (isBuy ? v.buys : v.sells).length >= 2)
-    .sort((a,b) => (isBuy ? b[1].buys.length - a[1].buys.length : b[1].sells.length - a[1].sells.length));
-
-  const rows = results.map(([ticker, data]) => {
-    const filings = isBuy ? data.buys : data.sells;
-    const types = [...new Set(filings.map(f => (f.filing_type||'').replace('SCHEDULE ','').replace('SC ','')))].join(', ');
-    const filers = [...new Set(filings.map(f => f.filer||f.company||'').filter(Boolean))].slice(0,2).join(' · ');
-    const latest = filings.map(f=>f.filed_date).sort().reverse()[0];
-    return `<div onclick="loadStockView('${ticker}')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
-      onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='var(--border)'">
-      <div style="display:flex;align-items:center;gap:14px">
-        <span style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:${color};min-width:52px">${ticker}</span>
-        <div>
-          <div style="font-size:12px;color:var(--text);font-weight:600">${data.company}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">${filers || types}</div>
-        </div>
-      </div>
-      <div style="text-align:right;flex-shrink:0;margin-left:12px">
-        <div style="font-family:'Space Mono',monospace;font-size:13px;color:${color};font-weight:700">${filings.length}× ${isBuy?'buy':'sell'}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">${types} · ${fmtDate(latest)}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:20px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${isBuy ? '◆ REPEAT 13D/G BUYING' : '◇ REPEAT 13D/G SELLING'}</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">${isBuy
-        ? 'Tickers with 2+ institutional buying filings in the last 30 days — sustained accumulation signal'
-        : 'Tickers with 2+ major holder reducing filings in the last 30 days — watch for continued distribution'}</div>
-    </div>
-    ${results.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px">${rows}</div>`
-      : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No repeat 13D/G ${isBuy?'buying':'selling'} detected in the last 30 days.</div>`}
-  </div>`;
-}
 
 function renderAnalysisDashboard() {
   window.scrollTo(0, 0);
@@ -5357,7 +4958,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool, buildRepeat13DGTile('buy'), buildRepeat13DGTile('sell')].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5475,12 +5076,6 @@ function renderAnalysisSubpage(id) {
 
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
-
-  } else if (id === 'repeat13dgbuy') {
-    renderRepeat13DGSubpage('buy');
-
-  } else if (id === 'repeat13dgsell') {
-    renderRepeat13DGSubpage('sell');
   }
 }
 
@@ -5821,18 +5416,6 @@ function scoreOpportunityRanker(rows) {
       .map(c => c.ticker)
   );
 
-  // SC 13D/G signals: build per-ticker maps from recent 13D/G filings
-  const sc13BuyTickers  = new Set(); // tickers with SC 13D/G buys in last 30 days
-  const sc13SellTickers = new Set(); // tickers with SC 13D/G sells (reduced stake) in last 30 days
-  const sc13DActivist   = new Set(); // tickers with SC 13D specifically (activist intent)
-  (_sc13AnalysisData || []).forEach(f => {
-    if (!f.ticker) return;
-    const isSell = f.shares_delta !== null && f.shares_delta < 0;
-    const isActivist = (f.filing_type || '').toUpperCase().includes('13D') &&
-                       !(f.filing_type || '').toUpperCase().includes('13G');
-    if (isSell) sc13SellTickers.add(f.ticker);
-    else { sc13BuyTickers.add(f.ticker); if (isActivist) sc13DActivist.add(f.ticker); }
-  });
 
 
   // Regime Shift: tickers with a bullish regime signal (buyer flip or buy accel)
@@ -5847,20 +5430,6 @@ function scoreOpportunityRanker(rows) {
           regimeBearish.add(s.ticker);
       });
   } catch(e) {}
-
-
-  // SC 13D/G regime confirmation: boost bullish/bearish regime signals
-  // A regime shift confirmed by a major ownership change is significantly stronger
-  (_sc13AnalysisData || []).forEach(f => {
-    if (!f.ticker) return;
-    const isSell = f.shares_delta !== null && f.shares_delta < 0;
-    if (!isSell && regimeBullish.has(f.ticker)) {
-      // Bullish regime + 13D/G buying = very strong signal (already counted in sc13BuyTickers)
-    }
-    if (isSell && regimeBearish.has(f.ticker)) {
-      // Bearish regime + 13D/G selling = confirmed distribution
-    }
-  });
 
   // Event Proximity: tickers with an upcoming event signal
   const proximityMap = {};  // ticker → { score, daysTo, isAbnormal }
@@ -5933,14 +5502,12 @@ function scoreOpportunityRanker(rows) {
 
     // ── 10. Regime Shift signal (+8 pts bullish / −8 pts bearish) ─
     if (regimeBullish.has(r.ticker)) {
-      const sc13Confirms = sc13BuyTickers.has(r.ticker);
-      score += sc13Confirms ? 14 : 8;
-      factors.push(sc13Confirms ? `Bullish regime shift + SC 13D/G buying — dual confirmation` : `Bullish regime shift detected`);
+      score += 8;
+      factors.push(`Bullish regime shift detected`);
     }
     if (regimeBearish.has(r.ticker)) {
-      const sc13Confirms = sc13SellTickers.has(r.ticker);
-      score -= sc13Confirms ? 14 : 8;
-      factors.push(sc13Confirms ? `⚠ Bearish regime + major holder selling — dual warning` : `⚠ Sell spike regime detected`);
+      score -= 8;
+      factors.push(`⚠ Sell spike regime detected`);
     }
 
 
@@ -5962,16 +5529,6 @@ function scoreOpportunityRanker(rows) {
       score -= 12; factors.push(`⚠ Active exit warning signal`);
     }
 
-    // ── 15. SC 13D/G ownership signal ─────────────────────────────
-    if (sc13DActivist.has(r.ticker)) {
-      score += 18; factors.push(`SC 13D activist stake — major shareholder pushing for change`);
-    } else if (sc13BuyTickers.has(r.ticker)) {
-      score += 10; factors.push(`SC 13G — institutional 5%+ ownership confirmed`);
-    }
-    if (sc13SellTickers.has(r.ticker)) {
-      score -= 10; factors.push(`⚠ SC 13D/G — major holder reducing stake`);
-    }
-
     score = Math.min(100, Math.max(1, Math.round(score)));
 
     const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
@@ -5985,8 +5542,7 @@ function scoreOpportunityRanker(rows) {
       clusterTickers.has(r.ticker)      ? ['CLUSTER',   'var(--accent)',  'rgba(0,212,255,0.1)']   : null,
       regimeBullish.has(r.ticker)        ? ['REGIME↑',  'var(--buy)',     'rgba(0,255,136,0.08)']  : null,
       regimeBearish.has(r.ticker)        ? ['REGIME↓',  'var(--sell)',    'rgba(255,68,102,0.08)'] : null,
-      sc13DActivist.has(r.ticker)        ? ['SC 13D',   '#00d4ff',        'rgba(0,212,255,0.1)']   : null,
-      sc13BuyTickers.has(r.ticker) && !sc13DActivist.has(r.ticker) ? ['SC 13G', '#60a5fa', 'rgba(96,165,250,0.1)'] : null,
+
 
       prox && prox.daysTo <= 14          ? ['EVENT PROX','var(--sell)',    'rgba(255,68,102,0.08)'] : null,
       firstBuyTickers.has(r.ticker)      ? ['1ST BUY',   'var(--accent)', 'rgba(0,212,255,0.08)']  : null,
@@ -6290,19 +5846,6 @@ function detectExitWarnings(trades, priceHighs={}) {
     if (concurrentBuyers.length >= 2 && totalBuyVal > totalSellVal * 0.3) {
       score -= 10;
       context.push(`${concurrentBuyers.length} insiders also buying — mixed signal, less bearish`);
-    }
-
-    // ── SC 13D/G: major holder reducing stake is a strong exit signal ──
-    const sc13 = (_sc13AnalysisData || []).filter(f => f.ticker === ticker);
-    const sc13Sells = sc13.filter(f => f.shares_delta !== null && f.shares_delta < 0);
-    const sc13Buys  = sc13.filter(f => !f.shares_delta || f.shares_delta >= 0);
-    if (sc13Sells.length > 0) {
-      score += 20;
-      signals.push(`${sc13Sells.length} SC 13D/G filing${sc13Sells.length>1?'s':''} show major holder reducing stake`);
-    }
-    if (sc13Buys.length > 0 && sc13Sells.length === 0) {
-      score -= 8;
-      context.push(`SC 13G/D — major holder still accumulating, reduces bearish signal`);
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
@@ -6646,24 +6189,8 @@ function renderClusterEngine(trades) {
   </div>`;
 }
 
-function detectAdvancedClusters(trades, sc13Data) {
-  // Merge SC 13D/G buys as synthetic trades for cluster detection
-  const sc13Buys = (sc13Data || _sc13AnalysisData || [])
-    .filter(f => f.ticker && (!f.shares_delta || f.shares_delta >= 0))
-    .map(f => ({
-      ticker:   f.ticker,
-      company:  f.company || f.ticker,
-      insider:  f.filer || '5%+ Owner',
-      title:    f.filing_type || 'SC 13D/G',
-      trade:    f.filed_date,
-      filing:   f.filed_date,
-      type:     'P',
-      qty:      f.shares_owned || 0,
-      price:    0,
-      value:    0,
-      _isSc13:  true,
-    }));
-  const allTrades = [...trades, ...sc13Buys];
+function detectAdvancedClusters(trades) {
+  const allTrades = trades;
 
   // Only open-market buys, sorted by transaction date
   const buys = allTrades
@@ -6681,7 +6208,7 @@ function detectAdvancedClusters(trades, sc13Data) {
 
   // Group by ticker
   const byTicker = {};
-  allTrades.forEach(t => { if (!byTicker[t.ticker]) byTicker[t.ticker] = []; byTicker[t.ticker].push(t); });
+  trades.forEach(t => { if (!byTicker[t.ticker]) byTicker[t.ticker] = []; byTicker[t.ticker].push(t); });
 
   const results = [];
 
