@@ -9194,20 +9194,35 @@ document.addEventListener('click', e => {
 });
 
 async function loadAuth() {
-  try {
-    // Ping first to wake Render dyno — prevents cold-start timeouts on first page load
-    await fetch('/api/ping').catch(() => {});
-    // No Authorization header needed — HttpOnly cookie is sent automatically by browser
-    const resp = await fetch('/api/auth/me');
-    const data = await resp.json();
-    auth.loggedIn  = data.loggedIn  || false;
-    auth.email     = data.email     || null;
-    auth.isPremium = data.isPremium || false;
-    auth.isAdmin   = data.isAdmin   || false;
-  } catch(_) {}
+  // Fire ping to wake dyno but don't block auth on it
+  fetch('/api/ping').catch(() => {});
+
+  // Retry auth up to 3 times with backoff — handles cold-start 503s
+  let data = {};
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const resp = await fetch('/api/auth/me');
+      if (resp.ok || resp.status === 401) {
+        data = await resp.json();
+        break;
+      }
+      // 503 = dyno still waking — wait and retry
+      if (resp.status === 503 && attempt < 2) {
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      }
+    } catch(_) {
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  auth.loggedIn  = data.loggedIn  || false;
+  auth.email     = data.email     || null;
+  auth.isPremium = data.isPremium || false;
+  auth.isAdmin   = data.isAdmin   || false;
   auth.loaded = true;
   renderAuthHeader();
   checkUrlAuthParams();
+
   // Re-render any page that was gated before auth loaded
   if (auth.isPremium) {
     ['analysisViewBody','monitorViewBody','sectorsViewBody','compareViewBody','watchlistViewBody'].forEach(id => {
@@ -9215,7 +9230,6 @@ async function loadAuth() {
       if (el && el.dataset.blurGated === '1') {
         el.dataset.blurGated = '';
         el.style.position = '';
-        // Re-trigger the appropriate load function
         const view = id.replace('ViewBody','').replace('View','');
         if (view === 'sectors')  { _sectorCache = null; loadSectorsPage(); }
         if (view === 'analysis') loadAnalysisPage();
@@ -9224,6 +9238,24 @@ async function loadAuth() {
         if (view === 'watchlist') loadWatchlistPage();
       }
     });
+
+    // Re-render insider profile if it loaded before auth resolved
+    const insiderBody = document.getElementById('insiderViewBody');
+    if (insiderBody && insiderBody.dataset.showing === 'profile') {
+      const insiderContent = document.getElementById('insiderContent');
+      if (insiderContent) {
+        // Re-render the follow button and premium tiles by re-running current profile
+        const nameEl = insiderBody.querySelector('[data-insider-name]');
+        if (!nameEl) {
+          // Simpler: just re-trigger loadInsiderDashboard to refresh gated tiles
+          loadInsiderDashboard();
+        }
+      }
+    }
+    // Always refresh dashboard tiles if on insider page
+    if (insiderBody && insiderBody.dataset.showing === 'dashboard') {
+      loadInsiderDashboard();
+    }
   }
 }
 
