@@ -907,9 +907,8 @@
         <div>
           <div class="screener-title">RECENT INSIDER TRADES</div>
           <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
-          <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div><div style="display:flex;align-items:center;gap:12px">
-          
-          <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px">v1.6</div>
+          <div style="font-size:10px;color:#2a3d52;font-family:'Space Mono',monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
+          <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:'Space Mono',monospace;letter-spacing:0.5px;margin-top:2px">v1.6</div>
         </div>
       </div>
       <div class="summary-bar" id="summaryBar"></div>
@@ -4907,7 +4906,7 @@ function renderF13Subpage(type) {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
-  const d = _f13SummaryCache;
+  const d = _f13SummaryData;
   if (!d) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading 13F data...</span></div></div>`;
     return;
@@ -4942,6 +4941,40 @@ function renderF13Subpage(type) {
       : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No data yet — 13F processing runs quarterly.<br><span style="font-size:11px">Check back after the next filing deadline.</span></div>`}
   </div>`;
 }
+
+function buildF13Tile(direction) {
+  const summary = _f13SummaryData;
+  const isBuy = direction === 'buy';
+  const list = summary ? (isBuy ? summary.topBuys : summary.topSells) : [];
+  const quarter = summary ? summary.quarter : null;
+  const top3 = list.slice(0, 3).map(r => ({
+    ticker: r.ticker,
+    label: isBuy
+      ? `${r.institution_count} institution${r.institution_count !== 1 ? 's' : ''}`
+      : `${r.institution_count} reducing`,
+    sub: '$' + (Math.abs(r.total_value || 0) >= 1e9
+      ? (r.total_value / 1e9).toFixed(1) + 'B'
+      : (r.total_value / 1e6).toFixed(0) + 'M') + ' total',
+    color: isBuy ? '#00d4ff' : '#ff00ff',
+  }));
+
+  return {
+    id: isBuy ? 'f13buy' : 'f13sell',
+    icon: isBuy ? '◆' : '◇',
+    name: isBuy ? '13F Institutional Accumulation' : '13F Institutional Distribution',
+    desc: isBuy
+      ? 'Tickers with the most institutions adding or opening positions this quarter — sustained smart-money accumulation from 13F filers.'
+      : 'Tickers with the most institutions reducing or exiting positions this quarter — watch for continued distribution.',
+    count: list.length || (summary ? 0 : '…'),
+    countLabel: quarter ? `tickers · ${quarter}` : 'loading…',
+    loading: !summary,
+    top3,
+    accentColor: isBuy ? '#00d4ff' : '#ff00ff',
+    accentBg:    isBuy ? 'rgba(0,212,255,0.05)' : 'rgba(255,0,255,0.05)',
+    accentBorder: isBuy ? 'rgba(0,212,255,0.25)' : 'rgba(255,0,255,0.25)',
+  };
+}
+
 
 function renderAnalysisDashboard() {
   window.scrollTo(0, 0);
