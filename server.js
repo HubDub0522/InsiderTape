@@ -1065,30 +1065,8 @@ app.get('/api/f13', async (req, res) => {
 
     res.json(rows);
 
-    // After responding, trigger on-demand historical fetch if we have no data
-    // or haven't checked this ticker in the last 7 days
-    const lastFetch = _f13TickerFetchedAt[sym] || 0;
-    const hasData = rows.length > 0;
-    const needsHistory = !hasData || (Date.now() - lastFetch > 7 * 86400000);
-    if (needsHistory && !f13Running && !_f13TickerFetchedAt[sym + '_inflight']) {
-      _f13TickerFetchedAt[sym] = Date.now();
-      _f13TickerFetchedAt[sym + '_inflight'] = true;
-      // Spawn f13-worker in ticker mode (non-blocking — runs after response sent)
-      setImmediate(() => {
-        const { spawn } = require('child_process');
-        const worker = spawn(
-          process.execPath,
-          ['--max-old-space-size=128', path.join(__dirname, 'f13-worker.js'), 'ticker', sym],
-          { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
-        );
-        worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13-ticker] ' + l)));
-        worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13-ticker] ERR: ' + l)));
-        worker.on('exit', code => {
-          delete _f13TickerFetchedAt[sym + '_inflight'];
-          if (code !== 0) slog(`f13-ticker worker exited (code ${code}) for ${sym}`);
-        });
-      });
-    }
+    // On-demand ticker history fetch — disabled until quarterly base data is loaded
+    // Will be re-enabled once f13_changes has sufficient coverage
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
