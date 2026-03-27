@@ -361,15 +361,17 @@ async function processQuarter(year, q, repYear, repQ) {
   if (!repYear) { repYear = year; repQ = q - 1; if (repQ < 1) { repQ = 4; repYear--; } }
   const key = `${repYear}Q${repQ}`; // store by reporting quarter
 
-  const already = db.prepare('SELECT filers FROM f13_quarter_log WHERE quarter=?').get(key);
-  if (already && already.filers > 0) {
-    log(`${key}: already processed (${already.filers} filers), skipping`);
+  // Check if this quarter already has substantial data
+  const existingChanges = db.prepare('SELECT COUNT(*) AS n FROM f13_changes WHERE quarter=?').get(key);
+  if (existingChanges && existingChanges.n > 1000) {
+    log(`${key}: already has ${existingChanges.n} changes, skipping`);
+    // Ensure quarter log is consistent
+    db.prepare('INSERT OR REPLACE INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,?)').run(
+      key, existingChanges.n, existingChanges.n, new Date().toISOString().slice(0,19));
     return 0;
   }
-  if (already && already.filers === 0) {
-    log(`${key}: prior run had 0 filers (likely failed) — retrying`);
-    db.prepare('DELETE FROM f13_quarter_log WHERE quarter=?').run(key);
-  }
+  // Clear any stale log entries
+  db.prepare('DELETE FROM f13_quarter_log WHERE quarter=?').run(key);
 
   log(`${key}: streaming EDGAR ${year}/QTR${q}/form.idx for 13F-HR filings...`);
 
@@ -486,12 +488,10 @@ async function processQuarter(year, q, repYear, repQ) {
     try {
       // Get XML URL from filing index
       const xmlUrl = await getInfoTableUrl(f.accession, f.cik);
-      if (i < 3) log(`${key}: filer[${i}] cik=${f.cik} acc=${f.accession} xmlUrl=${xmlUrl||'NULL'}`);
       if (!xmlUrl) continue;
 
       // Fetch and parse XML holdings
       let { status, body } = await get(xmlUrl, 30000);
-      if (i < 3) log(`${key}: filer[${i}] xml status=${status} bodyLen=${body?.length||0}`);
       if (status !== 200) continue;
 
       // If this is a submission wrapper (edgarSubmission), find the actual infotable
@@ -507,11 +507,6 @@ async function processQuarter(year, q, repYear, repQ) {
       }
 
       const holdings = parseHoldings(body);
-      if (i < 3) {
-        // Show first 500 chars of XML to diagnose tag format
-        const xmlPreview = body.replace(/\s+/g,' ').slice(0, 300);
-        log(`${key}: filer[${i}] holdings=${holdings.length} xmlStart=${xmlPreview}`);
-      }
       if (!holdings.length) continue;
 
       // Diff against prior quarter
@@ -561,8 +556,9 @@ async function processQuarter(year, q, repYear, repQ) {
 
       totalFilers++;
     } catch(e) {
+      // count it anyway so quarter log records true attempt count
+      totalFilers++;
       if (i < 10) log(`${key}: filer[${i}] ERROR: ${e.message?.slice(0,100)}`);
-      else if ((i + 1) % 100 === 0) log(`${key}: note — some filers skipped (e.g. ${e.message?.slice(0,50)})`);
     }
 
     // Every 50 iterations, log progress and flush to DB
