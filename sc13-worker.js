@@ -183,6 +183,47 @@ const SC13_TYPES = new Set([
   'SCHEDULE 13D', 'SCHEDULE 13G', 'SCHEDULE 13D/A', 'SCHEDULE 13G/A',
 ]);
 
+// ── Streaming line processor — processes HTTP response line by line ──────────
+// Never holds more than one line + a small buffer in memory.
+// onLine(line) called for each line. Returns { status, lineCount }.
+function getLines(url, ms, onLine) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
+      timeout: ms,
+    }, res => {
+      if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        const loc = res.headers.location;
+        const next = loc.startsWith('http') ? loc : new URL(loc, url).href;
+        return getLines(next, ms, onLine).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return resolve({ status: res.statusCode, lineCount: 0 });
+      }
+      let buf = '';
+      let lineCount = 0;
+      res.on('data', chunk => {
+        buf += chunk.toString('utf8');
+        let idx;
+        while ((idx = buf.indexOf('\n')) >= 0) {
+          onLine(buf.slice(0, idx));
+          buf = buf.slice(idx + 1);
+          lineCount++;
+        }
+      });
+      res.on('end', () => {
+        if (buf.length) { onLine(buf); lineCount++; }
+        resolve({ status: 200, lineCount });
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+  });
+}
+
 // ── HISTORICAL BACKFILL via EDGAR quarterly form.idx ─────────────────────
 //
 // form.idx is a fixed-width text file listing every SEC filing for a quarter.
@@ -206,169 +247,122 @@ async function fetchQuarterIndex(year, q) {
   const url = `https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${q}/form.idx`;
   log(`${key}: fetching form.idx...`);
 
-  let bodyText;
+  // ── Streaming parse — never loads full 50MB file into memory ──
+  // processFile() streams line-by-line, returns { scanned, totalInserted, lineCount }
+  async function processFile(fileUrl, isCompIdx) {
+    let pastHeader = false;
+    const batch = [];
+    let scanned = 0;
+    let totalIns = 0;
+    let lineCount = 0;
+    let debugPrinted = 0;
+    let firstLines = [];
+
+    const { status, lineCount: lc } = await getLines(fileUrl, 90000, line => {
+      lineCount++;
+      if (firstLines.length < 6) firstLines.push(line);
+
+      if (!pastHeader) {
+        if (/^-{5,}/.test(line.trim())) pastHeader = true;
+        return;
+      }
+      if (line.length < 40) return;
+
+      const formType = isCompIdx ? line.slice(62, 74).trim() : line.slice(0, 12).trim();
+      if (!SC13_TYPES.has(formType)) return;
+      scanned++;
+
+      if (debugPrinted < 3) {
+        log(`  ${key} sample [${line.length}]: "${line.slice(0, 200)}"`);
+        debugPrinted++;
+      }
+
+      const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
+      const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      let filedDate = '';
+      if (isoMatch)      filedDate = isoMatch[1];
+      else if (mdyMatch) filedDate = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
+      else return;
+      if (filedDate < '2000-01-01' || filedDate > '2040-01-01') return;
+
+      const fnM = line.match(/edgar\/data\/(\d+)\/(\d[\d-]{14,19})\.txt/i)
+               || line.match(/edgar\/data\/(\d+)\/(\d{10}-\d{2}-\d{6})/);
+      if (!fnM) return;
+      const cik   = fnM[1];
+      const parts = fnM[2].replace(/\.txt$/i,'').split('-');
+      if (parts.length !== 3) return;
+      const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
+
+      let filer = '', subjectCompanyName = '';
+      if (isCompIdx) {
+        subjectCompanyName = line.slice(0, 62).trim();
+      } else {
+        const cikPadded = cik.padStart(10,'0');
+        let cikPos = line.indexOf(cikPadded);
+        if (cikPos < 0) cikPos = line.indexOf(' ' + cik + ' ');
+        if (cikPos < 0) cikPos = line.indexOf(' ' + cik + '\t');
+        filer = cikPos > 12 ? line.slice(12, cikPos).replace(/\s{2,}/g,' ').trim() : '';
+      }
+
+      const subjectCik = isCompIdx ? cik.padStart(10,'0') : null;
+      batch.push(['', subjectCompanyName, filer, formType, filedDate, filedDate,
+        null, null, null, accDash, edgarIndexUrl(accDash, cik), subjectCik]);
+
+      if (batch.length >= 500) {
+        totalIns += insertMany(batch);
+        batch.length = 0;
+      }
+    });
+
+    if (batch.length > 0) totalIns += insertMany(batch);
+    return { status, scanned, totalInserted: totalIns, lineCount, firstLines };
+  }
+
+  // Try form.idx first
+  let result;
   try {
-    const { status, body } = await get(url, 90000);
-    if (status !== 200) { log(`${key}: HTTP ${status} — skipping`); return 0; }
-    bodyText = body.toString('utf8');
-    // Free the raw buffer immediately to reduce peak memory
-    body.fill(0);
+    result = await processFile(url, false);
   } catch(e) { log(`${key}: fetch error — ${e.message}`); return 0; }
 
-  let isCompanyIdx = false;
-  // Split then immediately free the source string
-  const lines = bodyText.split('\n');
-  bodyText = null; // free ~50MB string ASAP
+  if (result.status !== 200) { log(`${key}: HTTP ${result.status} — skipping`); return 0; }
 
-  // Detect non-index files: EDGAR sometimes returns a readme/metadata file
-  // instead of the actual form.idx for recent or in-progress quarters.
-  // Real form.idx starts with a header like "Form Type  Company Name..."
-  // Fake files start with "Description:", "Last Data Re", or similar.
-  // Check first meaningful line - real form.idx starts with "Form Type" header
-  const firstMeaningfulLine = lines.find(l => l.trim().length > 10) || '';
-  const isReadme = /^(Description|Last Data Received|Comments|This file contains)/i.test(firstMeaningfulLine.trim())
-                || (lines.slice(0,5).join(' ').includes('Description:') && !firstMeaningfulLine.includes('Form Type'));
+  // Check if form.idx returned a readme (non-index file)
+  const firstMeaningful = result.firstLines.find(l => l.trim().length > 10) || '';
+  const isReadme = /^(Description|Last Data Received|Comments|This file contains)/i.test(firstMeaningful.trim())
+                || (result.firstLines.join(' ').includes('Description:') && !firstMeaningful.includes('Form Type'));
+
   if (isReadme) {
     log(`${key}: form.idx is readme — trying company.idx fallback...`);
-    // EDGAR sometimes returns readme for recent quarters on form.idx
-    // company.idx has same filing data in same format
+    const url2 = `https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${q}/company.idx`;
     try {
-      const url2 = `https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${q}/company.idx`;
-      const r2 = await get(url2, 90000);
-      if (r2.status === 200) {
-        bodyText = r2.body.toString('utf8');
-        const fl2 = bodyText.split('\n').slice(0,5).join(' ');
-        if (/Description:|Last Data Re|Comments:/i.test(fl2) && !/Company Name/i.test(fl2)) {
-          log(`${key}: company.idx also readme — skipping quarter`);
-          db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
-          return 0;
-        }
-        // company.idx has different column order: Company Name, Form Type, CIK, Date, Filename
-        // We need to re-parse it differently
-        log(`${key}: using company.idx (${bodyText.length} bytes)`);
-        // Re-split lines from the new content, free old data first
-        lines.length = 0;
-        const newLines = bodyText.split('\n');
-        bodyText = null; // free company.idx string ASAP
-        newLines.forEach(l => lines.push(l));
-        isCompanyIdx = true;
-      } else {
+      result = await processFile(url2, true);
+      if (result.status !== 200) {
         db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
         return 0;
       }
+      // Check company.idx is also not a readme
+      const fl2 = result.firstLines.join(' ');
+      if (/Description:|Last Data Re|Comments:/i.test(fl2) && !/Company Name/i.test(fl2)) {
+        log(`${key}: company.idx also readme — skipping quarter`);
+        db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
+        return 0;
+      }
+      log(`${key}: using company.idx`);
     } catch(e) {
       db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, -1);
       return 0;
     }
   }
 
-  let pastHeader = false;
-  const batch = [];
-  let scanned = 0;
-  let totalInserted = 0;
-  let debugPrinted = 0;
-
-  for (const line of lines) {
-    if (!pastHeader) {
-      if (/^-{5,}/.test(line.trim())) { pastHeader = true; }
-      continue;
-    }
-    if (line.length < 40) continue;
-
-    // form.idx: Form Type first (cols 0-12), company.idx: Company Name first then Form Type (cols 62-74)
-    const formType = isCompanyIdx ? line.slice(62, 74).trim() : line.slice(0, 12).trim();
-    if (!SC13_TYPES.has(formType)) continue;
-    scanned++;
-
-    // Debug: print first 3 data lines to confirm format in logs
-    if (debugPrinted < 3) {
-      log(`  ${key} sample [${line.length}]: "${line.slice(0, 200)}"`);
-      debugPrinted++;
-    }
-
-
-    // Date filed — EDGAR uses ISO (YYYY-MM-DD) in newer files,
-    // MM/DD/YYYY in older quarterly files. Handle both.
-    let filedDate = '';
-    const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
-    const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if (isoMatch) {
-      filedDate = isoMatch[1];
-    } else if (mdyMatch) {
-      filedDate = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
-    } else { log(`  ${key} no date: "${line.slice(0,80)}"`); continue; }
-    if (filedDate < '2000-01-01' || filedDate > '2040-01-01') continue;
-
-    // Filename: edgar/data/{CIK}/{accession}.txt
-    // Try with .txt extension first (most common), then without (some newer files)
-    const fnM = line.match(/edgar\/data\/(\d+)\/(\d[\d-]{14,19})\.txt/i)
-             || line.match(/edgar\/data\/(\d+)\/(\d{10}-\d{2}-\d{6})/);
-    if (!fnM) { log(`  ${key} no filename [len=${line.length}]: "${line.slice(0,180)}"`); continue; }
-    const cik   = fnM[1];
-    const parts = fnM[2].replace(/\.txt$/i,'').split('-');
-    if (parts.length !== 3) continue;
-    const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
-
-    // form.idx: filer name is between col 12 and CIK position
-    // company.idx: col 0-62 = SUBJECT company name (not the filer/investor)
-    let filer = '';
-    let subjectCompanyName = '';
-    if (isCompanyIdx) {
-      // company.idx: company name = subject company (the one being reported on)
-      subjectCompanyName = line.slice(0, 62).trim();
-    } else {
-      // form.idx: company name is between formtype col and CIK
-      const cikPadded = cik.padStart(10, '0');
-      let cikPos      = line.indexOf(cikPadded);
-      if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + ' ');
-      if (cikPos < 0)  cikPos = line.indexOf(' ' + cik + '\t');
-      const filerRaw  = cikPos > 12 ? line.slice(12, cikPos) : '';
-      filer = filerRaw.replace(/\s{2,}/g, ' ').trim();
-    }
-
-    // For company.idx: cik = subject company CIK (the company being reported on)
-    // For form.idx: cik = filer CIK (the investor) — subject_cik resolved later
-    // Store as subject_cik so enrichRecentTickers can resolve ticker via data.sec.gov
-    const subjectCik = isCompanyIdx ? cik.padStart(10,'0') : null;
-
-    batch.push([
-      '',                    // ticker — resolved later
-      subjectCompanyName,    // company = subject company name (from company.idx)
-      filer,                 // filer = investor name (blank for company.idx rows)
-      formType,
-      filedDate,
-      filedDate,
-      null,        // pct_owned — not in form.idx
-      null,        // shares_owned
-      null,        // shares_delta
-      accDash,
-      edgarIndexUrl(accDash, cik),
-      subjectCik,  // subject_cik — allows fast ticker resolution
-    ]);
-
-    // Flush every 500 rows to keep memory low instead of accumulating all ~15k rows
-    if (batch.length >= 500) {
-      totalInserted += insertMany(batch);
-      batch.length = 0; // free the array
-    }
-  }
-
-  // Free the lines array now that parsing is done
-  const lineCount = lines.length;
-  lines.length = 0;
-
-  if (scanned === 0) {
-    log(`${key}: 0 inserted (scanned 0 matching, ${lineCount} total lines)`);
+  if (result.scanned === 0) {
+    log(`${key}: 0 inserted (scanned 0 matching, ${result.lineCount} total lines)`);
     db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, 0);
     return 0;
   }
 
-  // Flush any remaining rows
-  if (batch.length > 0) totalInserted += insertMany(batch);
-
-  db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, totalInserted);
-  log(`${key}: ${totalInserted} inserted (${scanned} SC 13D/G matched, ${lineCount} total lines)`);
-  return totalInserted;
+  db.prepare('INSERT OR REPLACE INTO sc13_quarter_log (quarter,rows) VALUES (?,?)').run(key, result.totalInserted);
+  log(`${key}: ${result.totalInserted} inserted (${result.scanned} SC 13D/G matched, ${result.lineCount} total lines)`);
+  return result.totalInserted;
 }
 
 async function runHistoricalBackfill() {
