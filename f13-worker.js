@@ -575,12 +575,182 @@ function getCurrentQuarters(n) {
   return results;
 }
 
+// ── Incremental daily poll via EFTS ──────────────────────────────────────────
+// Uses EDGAR full-text search to find only filings from the last 2 days.
+// Avoids re-streaming the 52MB form.idx — just a few KB of JSON per run.
+async function pollIncremental() {
+  const now = new Date();
+  const endDate   = now.toISOString().slice(0, 10);
+  const startDate = new Date(now - 2 * 86400000).toISOString().slice(0, 10);
+
+  log(`Incremental poll: checking EDGAR for 13F-HR filings ${startDate} → ${endDate}`);
+
+  // Determine which quarter these filings belong to
+  // A filing today is for the most recent completed quarter
+  const { year, q } = getCurrentQuarters(1)[0];
+  const key = `${year}Q${q}`;
+
+  // Load filers already processed this quarter so we skip them
+  const processedFilers = new Set(
+    db.prepare('SELECT filer_cik FROM f13_changes WHERE quarter=?')
+      .all(key).map(r => r.filer_cik)
+  );
+  log(`${key}: ${processedFilers.size} filers already processed this quarter`);
+
+  // Query EFTS for 13F-HR filings in date range
+  const eftsUrl = `https://efts.sec.gov/LATEST/search-index?q=%2213F-HR%22&dateRange=custom&startdt=${startDate}&enddt=${endDate}&forms=13F-HR&hits.hits._source=period_of_report,file_date,entity_name,file_num&hits.hits.total.value=true&hits.hits.hits.total=2000`;
+
+  let newFilings = [];
+  try {
+    const { status, body } = await get(eftsUrl, 20000);
+    if (status !== 200) { log(`EFTS HTTP ${status} — skipping`); return 0; }
+    const data = JSON.parse(body);
+    const hits = data.hits?.hits || [];
+    log(`EFTS returned ${hits.length} 13F-HR filings for ${startDate}→${endDate}`);
+
+    for (const hit of hits) {
+      const src = hit._source || {};
+      // Extract CIK from _id (format: 0001234567-26-000001)
+      const accession = (hit._id || '').replace(/[^0-9\-]/g, '');
+      if (!accession) continue;
+      const cikStr = accession.split('-')[0].replace(/^0+/, '');
+      if (!cikStr || processedFilers.has(cikStr)) continue;
+      newFilings.push({
+        cik: cikStr,
+        accession: accession.padStart(20, '0').replace(/(\d{10})(\d{2})(\d{6})/, '$1-$2-$3'),
+        filedDate: src.file_date || endDate,
+        filerName: src.entity_name || '',
+      });
+    }
+  } catch(e) {
+    log(`EFTS error: ${e.message}`);
+    return 0;
+  }
+
+  if (!newFilings.length) {
+    log(`No new 13F filers to process`);
+    return 0;
+  }
+
+  // Deduplicate by CIK
+  const byCik = {};
+  for (const f of newFilings) {
+    if (!byCik[f.cik] || f.filedDate > byCik[f.cik].filedDate) byCik[f.cik] = f;
+  }
+  const toProcess = Object.values(byCik);
+  log(`Processing ${toProcess.length} new filers for ${key}`);
+
+  // Load prior quarter for diffing
+  const priorKey = getPriorQuarter(year, q);
+  const priorHoldings = {};
+  const priorRows = db.prepare('SELECT filer_cik, cusip, shares, is_exit FROM f13_changes WHERE quarter=?').all(priorKey);
+  for (const row of priorRows) {
+    if (!priorHoldings[row.filer_cik]) priorHoldings[row.filer_cik] = {};
+    priorHoldings[row.filer_cik][row.cusip] = row.is_exit ? 0 : (row.shares || 0);
+  }
+
+  const insertChange = db.prepare(`
+    INSERT OR REPLACE INTO f13_changes
+      (ticker, cusip, filer_cik, filer_name, quarter, filed_date,
+       shares, shares_delta, value_usd, pct_change, is_new, is_exit)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+
+  let totalChanges = 0, totalFilers = 0;
+  const pendingRows = [], cusipBatch = [];
+
+  for (let i = 0; i < toProcess.length; i++) {
+    const f = toProcess[i];
+    try {
+      const xmlUrl = await getInfoTableUrl(f.accession, f.cik);
+      if (!xmlUrl) continue;
+      const { status, body } = await get(xmlUrl, 30000);
+      if (status !== 200) continue;
+      const holdings = parseHoldings(body);
+      if (!holdings.length) continue;
+
+      const prior = priorHoldings[f.cik] || {};
+      const currentCusips = new Set(holdings.map(h => h.cusip));
+
+      for (const h of holdings) {
+        const prevShares = prior[h.cusip];
+        const isNew = prevShares === undefined;
+        const delta = isNew ? h.shares : (h.shares - prevShares);
+        if (!isNew && delta === 0) continue;
+        if (!isNew && Math.abs(delta) / Math.max(prevShares, 1) < 0.01 && Math.abs(h.value - (prior[h.cusip] || 0)) < 100000) continue;
+        const pctChange = isNew ? null : prevShares > 0 ? +((delta / prevShares) * 100).toFixed(1) : null;
+        pendingRows.push({ cusip: h.cusip, filerCik: f.cik, filerName: f.filerName,
+          quarter: key, filedDate: f.filedDate, shares: h.shares, delta, value: h.value,
+          pctChange, isNew: isNew ? 1 : 0, isExit: 0 });
+        cusipBatch.push(h.cusip);
+      }
+
+      for (const [cusip, prevShares] of Object.entries(prior)) {
+        if (!currentCusips.has(cusip) && prevShares > 0) {
+          pendingRows.push({ cusip, filerCik: f.cik, filerName: f.filerName,
+            quarter: key, filedDate: f.filedDate, shares: 0, delta: -prevShares,
+            value: 0, pctChange: -100, isNew: 0, isExit: 1 });
+          cusipBatch.push(cusip);
+        }
+      }
+      totalFilers++;
+    } catch(e) { /* skip individual errors */ }
+
+    // Flush every 25 filers
+    if (totalFilers > 0 && totalFilers % 25 === 0) {
+      const tickerMap = await resolveCusips([...new Set(cusipBatch)]);
+      db.transaction(rows => {
+        for (const r of rows) {
+          const ticker = tickerMap[r.cusip] || '';
+          insertChange.run(ticker, r.cusip, r.filerCik, r.filerName, r.quarter,
+            r.filedDate, r.shares, r.delta, r.value, r.pctChange, r.isNew, r.isExit);
+          if (ticker) totalChanges++;
+        }
+      })(pendingRows);
+      pendingRows.length = 0; cusipBatch.length = 0;
+    }
+  }
+
+  // Final flush
+  if (pendingRows.length > 0) {
+    const tickerMap = await resolveCusips([...new Set(cusipBatch)]);
+    db.transaction(rows => {
+      for (const r of rows) {
+        const ticker = tickerMap[r.cusip] || '';
+        insertChange.run(ticker, r.cusip, r.filerCik, r.filerName, r.quarter,
+          r.filedDate, r.shares, r.delta, r.value, r.pctChange, r.isNew, r.isExit);
+        if (ticker) totalChanges++;
+      }
+    })(pendingRows);
+  }
+
+  // Update quarter log
+  const existing = db.prepare('SELECT filers, changes FROM f13_quarter_log WHERE quarter=?').get(key);
+  db.prepare('INSERT OR REPLACE INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,?)').run(
+    key,
+    (existing?.filers || 0) + totalFilers,
+    (existing?.changes || 0) + totalChanges,
+    new Date().toISOString().slice(0, 19)
+  );
+
+  log(`Incremental poll done — ${totalFilers} new filers, ${totalChanges} changes inserted`);
+  return totalChanges;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 async function main() {
   const args = process.argv.slice(2);
   let quarters;
 
-  if (args[0] === 'Q' && args[1] && args[2]) {
+  if (args[0] === 'poll') {
+    // Incremental daily mode — EFTS query for last 2 days only
+    log(`=== 13F worker v${WORKER_VERSION} start (incremental poll) ===`);
+    log(`OpenFIGI key: ${OPENFIGI_KEY ? 'configured' : 'none (25 req/min)'}`);
+    await pollIncremental();
+    log(`=== 13F incremental poll complete ===`);
+    process.exit(0);
+    return;
+  } else if (args[0] === 'Q' && args[1] && args[2]) {
     quarters = [{ year: parseInt(args[1]), q: parseInt(args[2]) }];
     log(`Manual mode: processing ${args[1]}Q${args[2]}`);
   } else if (args[0] === 'full') {
@@ -597,7 +767,6 @@ async function main() {
   let total = 0;
   for (const { year, q } of quarters) {
     total += await processQuarter(year, q);
-    // Brief pause between quarters to be polite to EDGAR
     if (quarters.length > 1) await new Promise(r => setTimeout(r, 2000));
   }
 
