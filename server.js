@@ -383,7 +383,7 @@ try {
     enabled     INTEGER NOT NULL DEFAULT 1,
     min_score   INTEGER NOT NULL DEFAULT 70,   -- only fire for signals scored >= this
     min_value   INTEGER NOT NULL DEFAULT 0,    -- only fire for trades >= this dollar value
-    types       TEXT    NOT NULL DEFAULT 'conviction,cluster,first_buy,exit_warning,sc13d,sc13g', -- comma-separated
+    types       TEXT    NOT NULL DEFAULT 'conviction,cluster,first_buy,exit_warning', -- comma-separated
     tickers     TEXT    NOT NULL DEFAULT '',   -- comma-separated ticker filter, empty = all
     sectors     TEXT    NOT NULL DEFAULT '',   -- comma-separated sector filter, empty = all
     roles       TEXT    NOT NULL DEFAULT '',   -- comma-separated role filter, empty = all
@@ -481,17 +481,11 @@ try {
       subject_cik  TEXT
     )
   `);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker     ON sc13_transactions(ticker)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filed_date ON sc13_transactions(filed_date DESC)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_filer      ON sc13_transactions(filer)`);
   // Composite indexes for the heaviest screener queries
   db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_type_filing  ON trades(type, filing_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_type_trade   ON trades(type, trade_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_filing_type  ON trades(filing_date DESC, type, value)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker_filed   ON sc13_transactions(ticker, filed_date DESC)`);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_sc13_ticker_type    ON sc13_transactions(ticker, filing_type, filed_date DESC)`);
   // Migrate existing DB
-  try { db.exec(`ALTER TABLE sc13_transactions ADD COLUMN subject_cik TEXT`); } catch(_) {}
 } catch(e) { console.warn('SC13 schema init warning:', e.message); }
 
 // ─── SYNC via child process ────────────────────────────────────
@@ -1016,161 +1010,6 @@ app.get('/api/ticker', (req, res) => {
 
 // SC 13D/G — returns all beneficial ownership filings for a given ticker
 // Recent SC 13D/G filings across all tickers — used by screener 5% Owner filter
-let _sc13RecentCache = null;
-let _sc13RecentCacheTime = 0;
-
-app.get('/api/sc13-recent', (req, res) => {
-  try {
-    const days = Math.min(parseInt(req.query.days || '30'), 3650);
-    // Cache for 60s — sc13 data changes at most twice a day
-    if (_sc13RecentCache && Date.now() - _sc13RecentCacheTime < 60000) {
-      return res.json(_sc13RecentCache);
-    }
-    // The ticker-enriched rows come from form.idx which only goes to 2024Q3.
-    // So a date filter of 'last 365 days' returns 0 rows with tickers.
-    // Fix: always return all available rows with tickers, sorted by filed_date DESC.
-    // The client already has the time period context from Form 4 data.
-    const rows = db.prepare(`
-      SELECT ticker, company, filer, filing_type, filed_date, period_date,
-             pct_owned, shares_owned, shares_delta, accession, url
-      FROM sc13_transactions
-      WHERE ticker != '' AND ticker IS NOT NULL
-      ORDER BY filed_date DESC
-      LIMIT 1000
-    `).all();
-    _sc13RecentCache = rows;
-    _sc13RecentCacheTime = Date.now();
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-
-app.get('/api/sc13', (req, res) => {
-  const sym = (req.query.symbol || '').toUpperCase().trim();
-  if (!sym) return res.status(400).json({ error: 'symbol required' });
-  try {
-    const rows = db.prepare(`
-      SELECT id, ticker, company, filer, filing_type, filed_date, period_date,
-             pct_owned, shares_owned, shares_delta, accession, url
-      FROM sc13_transactions
-      WHERE ticker = ?
-      ORDER BY filed_date DESC
-      LIMIT 200
-    `).all(sym);
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// Resolve filer name on-demand from EDGAR filing index
-app.get('/api/sc13-filer', async (req, res) => {
-  const accession = (req.query.accession || '').replace(/[^0-9\-]/g, '').trim();
-  if (!accession) return res.status(400).json({ error: 'accession required' });
-  try {
-    // Check DB first
-    const row = db.prepare("SELECT filer, subject_cik FROM sc13_transactions WHERE accession=? LIMIT 1").get(accession);
-    if (row?.filer) return res.json({ filer: row.filer });
-
-    // The filer CIK is the first segment of the accession number
-    const filerCik = accession.split('-')[0].replace(/^0+/, '').padStart(10, '0');
-
-    // Use SEC submissions API — most reliable source for entity name
-    const subResp = await fetch(`https://data.sec.gov/submissions/CIK${filerCik}.json`, {
-      headers: { 'User-Agent': 'InsiderTape contact@insidertape.com' }
-    });
-    if (subResp.ok) {
-      const data = await subResp.json();
-      const name = (data.name || '').trim();
-      if (name) {
-        db.prepare("UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')").run(name, accession);
-        return res.json({ filer: name });
-      }
-    }
-
-    // Fallback: try each CIK in subject_cik, return the one without a ticker (= investor)
-    if (row?.subject_cik) {
-      const ciks = row.subject_cik.split(',').map(c => c.trim()).filter(Boolean);
-      for (const cik of ciks) {
-        const padded = cik.replace(/^0+/, '').padStart(10, '0');
-        if (padded === filerCik) continue; // skip — already tried
-        const r2 = await fetch(`https://data.sec.gov/submissions/CIK${padded}.json`, {
-          headers: { 'User-Agent': 'InsiderTape contact@insidertape.com' }
-        });
-        if (!r2.ok) continue;
-        const d2 = await r2.json();
-        const ticker = (d2.tickers?.[0] || '').trim();
-        if (!ticker) { // no ticker = this is the investor/filer
-          const name = (d2.name || '').trim();
-          if (name) {
-            db.prepare("UPDATE sc13_transactions SET filer=? WHERE accession=? AND (filer IS NULL OR filer='')").run(name, accession);
-            return res.json({ filer: name });
-          }
-        }
-      }
-    }
-    res.json({ filer: null });
-  } catch(e) { slog('sc13-filer error: ' + e.message); res.json({ filer: null }); }
-});
-
-// SC 13D/G debug — shows what's in the DB for a given ticker or filer
-// Director count diagnostic
-app.get('/api/dir-debug', (req, res) => {
-  try {
-    const r7   = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-7 days') AND TRIM(type) IN ('P','S','S-') AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
-    const r30  = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-30 days') AND TRIM(type) IN ('P','S','S-') AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
-    const r365 = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-365 days') AND TRIM(type) IN ('P','S','S-') AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
-    const r365_100k = db.prepare("SELECT COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-365 days') AND TRIM(type) IN ('P','S','S-') AND value >= 100000 AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%')").get().n;
-    const sample = db.prepare("SELECT ticker, insider, title, trade_date, value FROM trades WHERE trade_date >= date('now','-365 days') AND TRIM(type)='P' AND (UPPER(title) LIKE '%DIRECTOR%' OR UPPER(title) LIKE '%BOARD%') ORDER BY trade_date DESC LIMIT 20").all();
-    res.json({ r7, r30, r365, r365_100k, note: 'raw counts before GROUP BY dedup', sample });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// One-time migration: fix truncated filer names in sc13_transactions
-// Truncated names start with lowercase (mid-word) or are very short
-try {
-  const badFilers = db.prepare(`
-    UPDATE sc13_transactions
-    SET filer = ''
-    WHERE filer IS NOT NULL AND filer != ''
-      AND (
-        -- Starts with lowercase = truncated mid-word
-        SUBSTR(filer, 1, 1) = LOWER(SUBSTR(filer, 1, 1))
-        -- Or starts with a space
-        OR SUBSTR(filer, 1, 1) = ' '
-        -- Or contains filing type keywords (shouldn't be in filer name)
-        OR filer LIKE '%SCHEDULE 13%'
-        OR filer LIKE '%SC 13%'
-        -- Or suspiciously short (under 4 chars)
-        OR LENGTH(TRIM(filer)) < 4
-      )
-      AND filing_type IN ('SC 13D','SC 13G','SC 13D/A','SC 13G/A','SCHEDULE 13D','SCHEDULE 13G','SCHEDULE 13D/A','SCHEDULE 13G/A')
-  `).run();
-  if (badFilers.changes > 0) slog('SC 13D/G filer cleanup: cleared ' + badFilers.changes + ' truncated/bad filer names');
-} catch(e) {}
-
-// Usage: /api/sc13-debug?symbol=PHR  or  /api/sc13-debug?filer=Pale+Fire
-app.get('/api/sc13-debug', (req, res) => {
-  const sym   = (req.query.symbol || '').toUpperCase().trim();
-  const filer = (req.query.filer  || '').trim();
-  const cik   = (req.query.cik    || '').trim();
-  try {
-    const total = db.prepare('SELECT COUNT(*) AS n FROM sc13_transactions').get().n;
-    const withTicker = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL").get().n;
-    const withCik    = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE subject_cik IS NOT NULL AND subject_cik != ''").get().n;
-    const maxDate    = db.prepare("SELECT MAX(filed_date) AS d FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL").get().d;
-    const recentWithTicker = db.prepare("SELECT COUNT(*) AS n FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL AND filed_date >= date('now','-30 days')").get().n;
-    const tickerSample = db.prepare(`SELECT ticker, company, filer, filing_type, filed_date, subject_cik FROM sc13_transactions WHERE ticker != '' AND ticker IS NOT NULL ORDER BY filed_date DESC LIMIT 10`).all();
-    const sample = sym
-      ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE ticker = ? ORDER BY filed_date DESC LIMIT 20`).all(sym)
-      : cik
-      ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE subject_cik LIKE ? ORDER BY filed_date DESC LIMIT 20`).all(`%${cik}%`)
-      : filer
-      ? db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions WHERE filer LIKE ? ORDER BY filed_date DESC LIMIT 20`).all(`%${filer}%`)
-      : db.prepare(`SELECT id, ticker, company, filer, filing_type, filed_date, accession, subject_cik FROM sc13_transactions ORDER BY filed_date DESC LIMIT 10`).all();
-    res.json({ total, withTicker, withCik, maxDate, recentWithTicker, tickerSample, sample });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// INSIDER
 app.get('/api/insider', (req, res) => {
   const name  = (req.query.name  || '').trim();
   const exact = req.query.exact === '1';
@@ -2729,32 +2568,7 @@ let _stmtTradeCount;
 function initPreparedStatements() {
   _stmtTradeCount = db.prepare('SELECT COUNT(*) AS n FROM trades');
 }
-
-// ── SC 13D/G worker ──────────────────────────────────────────────────────────
-let sc13Running = false;
-function runSc13(daysBack = 90) {
-  if (sc13Running) return;
-  sc13Running = true;
-  slog(`=== spawning sc13-worker (${daysBack} days backfill) ===`);
-  const worker = spawn(
-    process.execPath,
-    ['--max-old-space-size=256', path.join(__dirname, 'sc13-worker.js'), String(daysBack), 'poll'],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  );
-  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[sc13] ' + l)));
-  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[sc13] ERR: ' + l)));
-  worker.on('exit', code => {
-    sc13Running = false;
-    slog(`=== sc13-worker exited (code ${code}) ===`);
-    if (code !== 0) {
-      // Restart on crash after 5 min
-      setTimeout(() => runSc13(2), 5 * 60 * 1000);
-    }
-    // On clean exit: don't restart — sc13-worker runs indefinitely in poll mode
-  });
-}
-// Start 10 seconds after boot so daily-worker gets priority on the DB connection
-setTimeout(() => runSc13(90), 20000); // 20s delay — lets daily-worker finish startup writes first
+ // 20s delay — lets daily-worker finish startup writes first
 
 // H5: Sequential chain — price warm → drift → proximity → scoreboard
 // Prevents all three from hammering external price APIs simultaneously.
@@ -3531,8 +3345,8 @@ async function sendAlertEmail(toEmail, signals) {
   const resend = new Resend(RESEND_KEY);
 
   const signalRows = signals.map(s => {
-    const color = s.signal_type === 'EXIT_WARNING' ? '#ff4466' : s.signal_type === 'CLUSTER' ? '#00d4ff' : s.signal_type === 'FIRST_BUY' ? '#f5a623' : s.signal_type === 'SC13D' ? '#00d4ff' : s.signal_type === 'SC13G' ? '#60a5fa' : '#00ff88';
-    const icon  = s.signal_type === 'EXIT_WARNING' ? '⚠️' : s.signal_type === 'CLUSTER' ? '🔵' : s.signal_type === 'FIRST_BUY' ? '🆕' : s.signal_type === 'SC13D' ? '◆' : s.signal_type === 'SC13G' ? '◇' : '⚡';
+    const color = s.signal_type === 'EXIT_WARNING' ? '#ff4466' : s.signal_type === 'CLUSTER' ? '#00d4ff' : s.signal_type === 'FIRST_BUY' ? '#f5a623' : '#00ff88';
+    const icon  = s.signal_type === 'EXIT_WARNING' ? '⚠️' : s.signal_type === 'CLUSTER' ? '🔵' : s.signal_type === 'FIRST_BUY' ? '🆕' : '⚡';
     return `
       <div style="border:1px solid #1e2d3d;border-radius:6px;padding:16px;margin-bottom:12px;background:#0d1117">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
@@ -3605,16 +3419,6 @@ async function runAlertCheck() {
 
     if (!recentTrades.length) return;
 
-    // SC 13D/G: check for new filings in last 48h
-    const recentSc13 = db.prepare(`
-      SELECT ticker, company, filer, filing_type, filed_date
-      FROM sc13_transactions
-      WHERE filed_date >= date('now', '-2 days')
-        AND ticker != '' AND ticker IS NOT NULL
-      ORDER BY filed_date DESC
-      LIMIT 200
-    `).all();
-
     // First-buy detection: insiders who filed a buy in last 48h AND had a 2yr+ gap
     // Uses same CTE logic as /api/firstbuys but scoped to recent filings only
     const firstBuyRows = db.prepare(`
@@ -3652,7 +3456,7 @@ async function runAlertCheck() {
     `).all();
 
     // Build simple signals from trades (server-side signal detection)
-    const signals = buildSignalsFromTrades(recentTrades, firstBuyRows, recentSc13);
+    const signals = buildSignalsFromTrades(recentTrades, firstBuyRows);
     if (!signals.length) return;
 
     for (const user of users) {
@@ -3709,7 +3513,7 @@ async function runAlertCheck() {
 }
 
 // Server-side signal builder — lightweight version of the client scoring
-function buildSignalsFromTrades(trades, firstBuyRows = [], sc13Rows = []) {
+function buildSignalsFromTrades(trades, firstBuyRows = []) {
   const signals = [];
   const byTicker = {};
 
@@ -3808,29 +3612,6 @@ function buildSignalsFromTrades(trades, firstBuyRows = [], sc13Rows = []) {
       role_key:    roleKey,
       headline:    'First buy in years · ' + (fb.title || 'Insider'),
       detail:      (fb.insider || '') + ' · ' + gapLabel + ' · ' + formatVal(fb.latest_value || 0),
-    });
-  }
-
-  // SC 13D / SC 13G signals
-  for (const f of (sc13Rows || [])) {
-    if (!f.ticker || !f.filing_type) continue;
-    const isActivist = (f.filing_type || '').toUpperCase().includes('13D') &&
-                       !(f.filing_type || '').toUpperCase().includes('13G');
-    const sector = getTickerSector(f.ticker);
-    signals.push({
-      ticker:      f.ticker,
-      company:     f.company || f.ticker,
-      signal_type: isActivist ? 'SC13D' : 'SC13G',
-      score:       isActivist ? 82 : 65,
-      value:       0,
-      date:        f.filed_date,
-      sector:      sector ? sector[0] : null,
-      subsector:   sector ? sector[1] : null,
-      role_key:    'institutional',
-      headline:    isActivist
-        ? 'SC 13D — Activist stake · ' + (f.filer || '5%+ Owner')
-        : 'SC 13G — Institutional 5%+ ownership · ' + (f.filer || '5%+ Owner'),
-      detail:      (f.filing_type || 'SC 13D/G') + ' · ' + f.filed_date,
     });
   }
 
