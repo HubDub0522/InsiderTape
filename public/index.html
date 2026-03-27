@@ -938,10 +938,8 @@
 
 <div id="view-stock" class="view">
   <div id="stockContent">
-    <div class="empty-state">
-      <div class="empty-icon">📈</div>
-      <div style="font-size:15px;color:var(--text)">Search a ticker to get started</div>
-      <div style="font-size:12px">Enter a stock symbol in the search bar above</div>
+    <div style="max-width:1200px;margin:0 auto;padding:24px 20px">
+      <div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div>
     </div>
   </div>
 </div>
@@ -4220,23 +4218,37 @@ function renderSentimentChart(el, insider, spx, thresholds) {
       ' L ' + spxPts[spxPts.length-1][0].toFixed(1) + ',' + bY + ' Z';
   }
 
-  // Histogram bars — each bar from baseline to inverted y position
+  // MACD-style histogram — bars grow from median baseline
+  // Above median = more buying than usual → red (market elevated, near top)
+  // Below median = less buying than usual → green (market depressed, near bottom)
+  // Bar height proportional to deviation from median
+  const yMedian = yInd(median); // center line
+
   function barColor(v) {
-    if (v >= p90) return '#ff4466'; // extreme buy = danger (market near top)
-    if (v >= p75) return '#ff8800';
-    if (v <= p10) return '#00ff88'; // extreme sell = opportunity (market near bottom)
-    if (v <= p25) return '#22c55e';
-    return '#4a6580';
+    const dev = v - median;
+    if (dev > 0) {
+      // Above median (more buying) — red spectrum, market near top
+      if (v >= p90) return '#ff4466';
+      if (v >= p75) return '#ff6644';
+      return '#ff884466';
+    } else {
+      // Below median (less buying) — green spectrum, market near bottom
+      if (v <= p10) return '#00ff88';
+      if (v <= p25) return '#22c55e';
+      return '#22c55e66';
+    }
   }
 
   const barW = Math.max(1, (cW / dates.length) - 0.5);
   const bars = insider.map((d, i) => {
-    const x   = xCoord(i) - barW / 2;
-    const yTop = yInd(d.smoothedBuyPct);
-    const h   = Math.abs(yIndBase - yTop);
-    const c   = barColor(d.smoothedBuyPct);
-    return `<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1,h).toFixed(1)}"
-      fill="${c}" opacity="0.75"
+    const x    = xCoord(i) - barW / 2;
+    const yVal = yInd(d.smoothedBuyPct);
+    // Bar goes from median line to value (inverted axis)
+    const yTop = Math.min(yVal, yMedian);
+    const h    = Math.max(1, Math.abs(yVal - yMedian));
+    const c    = barColor(d.smoothedBuyPct);
+    return `<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"
+      fill="${c}" opacity="0.85"
       class="sentiment-dot"
       data-date="${dates[i]}"
       data-val="${(d.smoothedBuyPct*100).toFixed(1)}"
@@ -4246,17 +4258,19 @@ function renderSentimentChart(el, insider, spx, thresholds) {
       data-sellval="${d.sellVal}"/>`;
   }).join('');
 
+  // Median zero line
+  const medianLine = `<line x1="${PAD.left}" y1="${yMedian.toFixed(1)}" x2="${PAD.left+cW}" y2="${yMedian.toFixed(1)}" stroke="rgba(80,100,120,0.6)" stroke-width="1.5"/>`;
+
   // Threshold lines (inverted positions)
   const threshLines = [
-    [p90, '#ff446688', 'BUY EXTREME'],
-    [p75, '#ff880044', ''],
-    [median, '#4a658044', 'MEDIAN'],
-    [p25, '#22c55e44', ''],
-    [p10, '#00ff8888', 'SELL EXTREME'],
+    [p90, '#ff446666', 'BUY EXTREME'],
+    [p75, '#ff664433', ''],
+    [p25, '#22c55e33', ''],
+    [p10, '#00ff8866', 'SELL EXTREME'],
   ].map(([v, c, lbl]) => {
     const y = yInd(v).toFixed(1);
     const label = lbl ? `<text x="${PAD.left + cW + 3}" y="${+y+3}" fill="${c.slice(0,7)}" font-family="monospace" font-size="6.5" text-anchor="start">${lbl}</text>` : '';
-    return `<line x1="${PAD.left}" y1="${y}" x2="${PAD.left+cW}" y2="${y}" stroke="${c}" stroke-width="0.8" stroke-dasharray="${v===median?'4,3':'2,3'}"/>${label}`;
+    return `<line x1="${PAD.left}" y1="${y}" x2="${PAD.left+cW}" y2="${y}" stroke="${c}" stroke-width="0.8" stroke-dasharray="2,3"/>${label}`;
   }).join('');
 
   // X-axis labels
@@ -4282,7 +4296,7 @@ function renderSentimentChart(el, insider, spx, thresholds) {
 
   // Inverted interpretation for zone label
   const zone = lastVal >= p90 ? {label:'BUY EXTREME',  color:'#ff4466'}
-             : lastVal >= p75 ? {label:'ELEVATED',      color:'#ff8800'}
+             : lastVal >= p75 ? {label:'ELEVATED',      color:'#ff8844'}
              : lastVal <= p10 ? {label:'SELL EXTREME',  color:'#00ff88'}
              : lastVal <= p25 ? {label:'DEPRESSED',     color:'#22c55e'}
              :                  {label:'NEUTRAL',       color:'#4a6580'};
@@ -4320,6 +4334,7 @@ function renderSentimentChart(el, insider, spx, thresholds) {
 
           <text x="${PAD.left}" y="${indTop - 6}" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1.5">INSIDER BUY %</text>
           ${threshLines}
+          ${medianLine}
           ${bars}
           ${xLabels}
         </svg>
@@ -4343,7 +4358,7 @@ function renderSentimentChart(el, insider, spx, thresholds) {
         const sv   = parseFloat(dot.dataset.sellval);
         const spxV = spxMap[dot.dataset.date];
         const z    = v >= p90*100 ? {l:'BUY EXTREME',  c:'#ff4466'}
-                   : v >= p75*100 ? {l:'ELEVATED',      c:'#ff8800'}
+                   : v >= p75*100 ? {l:'ELEVATED',      c:'#ff8844'}
                    : v <= p10*100 ? {l:'SELL EXTREME',  c:'#00ff88'}
                    : v <= p25*100 ? {l:'DEPRESSED',     c:'#22c55e'}
                    :                {l:'NEUTRAL',        c:'#4a6580'};
