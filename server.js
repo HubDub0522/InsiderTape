@@ -298,6 +298,9 @@ let db;
 try {
   db = new Database(DB_PATH);
   console.log(`Opened DB at ${DB_PATH}`);
+  // Drop sc13 tables if they still exist (migrated away from 13D/G)
+  try { db.exec('DROP TABLE IF EXISTS sc13_transactions'); } catch(_) {}
+  try { db.exec('DROP TABLE IF EXISTS sc13_quarter_log'); } catch(_) {}
 } catch (e) {
   console.error(`Cannot open DB at ${DB_PATH}: ${e.message}`);
   // Last-resort fallback: try opening in the local directory
@@ -464,23 +467,6 @@ try {
 
 // ─── SC 13D/G ownership transaction table ────────────────────────────────
 try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS sc13_transactions (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticker       TEXT NOT NULL DEFAULT '',
-      company      TEXT,
-      filer        TEXT,
-      filing_type  TEXT,
-      filed_date   TEXT NOT NULL,
-      period_date  TEXT,
-      pct_owned    REAL,
-      shares_owned INTEGER,
-      shares_delta INTEGER,
-      accession    TEXT UNIQUE,
-      url          TEXT,
-      subject_cik  TEXT
-    )
-  `);
   // Composite indexes for the heaviest screener queries
   db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_type_filing  ON trades(type, filing_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_trades_type_trade   ON trades(type, trade_date DESC)`);
@@ -1010,6 +996,100 @@ app.get('/api/ticker', (req, res) => {
 
 // SC 13D/G — returns all beneficial ownership filings for a given ticker
 // Recent SC 13D/G filings across all tickers — used by screener 5% Owner filter
+// ── 13F Holdings API ─────────────────────────────────────────────────────────
+
+// GET /api/f13?symbol=AAPL — 13F position changes for a ticker (chart + sidebar)
+app.get('/api/f13', (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'symbol required' });
+  try {
+    const rows = db.prepare(`
+      SELECT ticker, cusip, filer_cik, filer_name, quarter, filed_date,
+             shares, shares_delta, value_usd, pct_change, is_new, is_exit
+      FROM f13_changes
+      WHERE ticker = ?
+      ORDER BY filed_date DESC
+      LIMIT 200
+    `).all(sym);
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/f13-recent?days=90 — recent 13F changes across all tickers (screener)
+let _f13RecentCache = null, _f13RecentCacheTime = 0;
+app.get('/api/f13-recent', (req, res) => {
+  try {
+    if (_f13RecentCache && Date.now() - _f13RecentCacheTime < 3600000) return res.json(_f13RecentCache);
+    const rows = db.prepare(`
+      SELECT ticker, filer_name, quarter, filed_date,
+             shares_delta, value_usd, pct_change, is_new, is_exit
+      FROM f13_changes
+      WHERE ticker != '' AND ticker IS NOT NULL
+        AND filed_date >= date('now', '-180 days')
+      ORDER BY filed_date DESC, ABS(value_usd) DESC
+      LIMIT 2000
+    `).all();
+    _f13RecentCache = rows;
+    _f13RecentCacheTime = Date.now();
+    res.json(rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/f13-summary — aggregated stats for analysis tiles
+let _f13SummaryCache = null, _f13SummaryCacheTime = 0;
+app.get('/api/f13-summary', (req, res) => {
+  try {
+    if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
+    const quarter = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY processed_at DESC LIMIT 1').get();
+    if (!quarter) return res.json({ quarter: null, topBuys: [], topSells: [], mostInstitutions: [] });
+
+    const q = quarter.quarter;
+
+    // Tickers with most institutions adding
+    const topBuys = db.prepare(`
+      SELECT ticker,
+             COUNT(*) AS institution_count,
+             SUM(shares_delta) AS total_shares_added,
+             SUM(value_usd) AS total_value
+      FROM f13_changes
+      WHERE quarter = ? AND shares_delta > 0 AND ticker != ''
+      GROUP BY ticker
+      ORDER BY institution_count DESC, total_value DESC
+      LIMIT 20
+    `).all(q);
+
+    // Tickers with most institutions reducing/exiting
+    const topSells = db.prepare(`
+      SELECT ticker,
+             COUNT(*) AS institution_count,
+             SUM(shares_delta) AS total_shares_removed,
+             SUM(value_usd) AS total_value
+      FROM f13_changes
+      WHERE quarter = ? AND shares_delta < 0 AND ticker != ''
+      GROUP BY ticker
+      ORDER BY institution_count DESC
+      LIMIT 20
+    `).all(q);
+
+    // Tickers with most new positions opened
+    const newPositions = db.prepare(`
+      SELECT ticker,
+             COUNT(*) AS new_filer_count,
+             SUM(value_usd) AS total_value
+      FROM f13_changes
+      WHERE quarter = ? AND is_new = 1 AND ticker != ''
+      GROUP BY ticker
+      ORDER BY new_filer_count DESC, total_value DESC
+      LIMIT 20
+    `).all(q);
+
+    const result = { quarter: q, topBuys, topSells, newPositions };
+    _f13SummaryCache = result;
+    _f13SummaryCacheTime = Date.now();
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/insider', (req, res) => {
   const name  = (req.query.name  || '').trim();
   const exact = req.query.exact === '1';
@@ -1910,14 +1990,7 @@ async function warmPriceCache() {
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 75
     `).all();
-    // SC 13D/G enriched tickers (recent filings)
-    const sc13Rows = db.prepare(`
-      SELECT DISTINCT ticker FROM sc13_transactions
-      WHERE ticker != '' AND ticker IS NOT NULL
-        AND filed_date >= date('now', '-180 days')
-      ORDER BY filed_date DESC LIMIT 50
-    `).all();
-    const allTickers = [...new Set([...form4Rows, ...sc13Rows].map(r => r.ticker))].slice(0, 100);
+    const allTickers = [...new Set(form4Rows.map(r => r.ticker))].slice(0, 100);
     slog(`Warming price cache for ${allTickers.length} tickers...`);
     for (let i = 0; i < allTickers.length; i += 10) {
       const batch = allTickers.slice(i, i + 10);
@@ -2559,9 +2632,57 @@ app.get('/api/scoreboard', (req, res) => {
   return res.json({ computing: true, accuracy: [], timing: [] });
 });
 
+// ── 13F WORKER ───────────────────────────────────────────────────────────────
+let f13Running = false;
+
+function runF13(mode = 'default') {
+  if (f13Running) { slog('f13-worker already running, skipping'); return; }
+  f13Running = true;
+  slog(`=== spawning f13-worker (mode=${mode}) ===`);
+  const worker = spawn(
+    process.execPath,
+    ['--max-old-space-size=256', path.join(__dirname, 'f13-worker.js'), ...(mode !== 'default' ? [mode] : [])],
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
+  );
+  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13] ' + l)));
+  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13] ERR: ' + l)));
+  worker.on('exit', code => {
+    f13Running = false;
+    slog(`=== f13-worker exited (code ${code}) ===`);
+  });
+}
+
+// Schedule quarterly — run on the 20th of Feb, May, Aug, Nov (45+ days after quarter end)
+// Also run once at startup if not yet processed current quarter
+function scheduleF13() {
+  const now = new Date();
+  const month = now.getUTCMonth() + 1; // 1-12
+  const day   = now.getUTCDate();
+  const etOffset = -5; // approximate, ignores DST
+  // Trigger months: Feb(2), May(5), Aug(8), Nov(11) on day 20
+  const triggerMonths = new Set([2, 5, 8, 11]);
+  if (triggerMonths.has(month) && day === 20 && now.getUTCHours() === (10 - etOffset)) {
+    runF13('default');
+  }
+  // Check again in 1 hour
+  setTimeout(scheduleF13, 60 * 60 * 1000);
+}
+
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
+
+// Spawn f13-worker 60s after startup if DB has no recent 13F data
+setTimeout(() => {
+  const hasF13 = db.prepare("SELECT COUNT(*) AS n FROM f13_changes WHERE filed_date >= date('now', '-180 days')").get();
+  if (!hasF13 || hasF13.n === 0) {
+    slog('No recent 13F data — running f13-worker...');
+    runF13('default');
+  } else {
+    slog(`13F data current (${hasF13.n} recent changes)`);
+  }
+  scheduleF13();
+}, 60000);
 
 // Pre-prepared statements for hot paths
 let _stmtTradeCount;
