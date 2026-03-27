@@ -1249,12 +1249,14 @@ document.addEventListener('click', e => { if (!e.target.closest('.search-wrap'))
 
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
-  const ms = path.startsWith('/api/scoreboard') ? 90000
-           : (path.startsWith('/api/proximity')) ? 90000
-           : path.startsWith('/api/firstbuys') ? 60000
-           : path.startsWith('/api/screener')  ? 90000
-           : path.startsWith('/api/price')     ? 35000
-           : 45000;
+  const ms = path.startsWith('/api/scoreboard')   ? 120000
+           : path.startsWith('/api/proximity')    ? 120000
+           : path.startsWith('/api/firstbuys')    ? 120000
+           : path.startsWith('/api/screener')     ? 120000
+           : path.startsWith('/api/f13-dual')     ? 90000
+           : path.startsWith('/api/f13-summary')  ? 90000
+           : path.startsWith('/api/price')        ? 35000
+           : 60000;
   // Retry up to 4 times on 503 (Render cold start can take 10-30s)
   const delays = [2000, 4000, 6000, 8000];
   for (let attempt = 0; attempt <= delays.length; attempt++) {
@@ -2942,12 +2944,11 @@ function setRange(days,btn) {
   if(btn) btn.classList.add('active');
 
   // If chart not ready yet (LC still loading), retry once it's ready
-  if(!state.chart||!state.currentPriceData?.length) {
-    if(state.currentPriceData?.length) {
-      window._onLCReady(() => setRange(days, null));
-    }
+  if(!state.chart) {
+    window._onLCReady(() => setRange(days, null));
     return;
   }
+  if(!state.currentPriceData?.length) return;
   const all = state.currentPriceData;
 
   // Determine the visible slice of price data
