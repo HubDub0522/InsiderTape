@@ -1257,14 +1257,20 @@ async function apiFetch(path, opts={}) {
            : path.startsWith('/api/screener')  ? 90000
            : path.startsWith('/api/price')     ? 35000
            : 45000;
-  const fetchPromise = fetch(API_BASE + path, opts).then(resp => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    let resp = await fetch(API_BASE + path, { signal: controller.signal, ...opts });
+    // Retry once on 503 (cold-start) with 2s backoff
+    if (resp.status === 503) {
+      await new Promise(r => setTimeout(r, 2000));
+      resp = await fetch(API_BASE + path, opts);
+    }
     if (!resp.ok) throw new Error(`Server error ${resp.status} on ${path}`);
-    return resp.json();
-  });
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${path}`)), ms)
-  );
-  return Promise.race([fetchPromise, timeoutPromise]);
+    return await resp.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 async function fetchInsiderForTicker(ticker) { return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`); }
 async function fetchInsiderByName(name) {
@@ -2091,13 +2097,21 @@ async function loadStockLanding() {
 
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div></div>`;
 
-  try {
-    if (!_stockListsCache) {
-      _stockListsCache = await apiFetch('/api/stock-lists');
+  // Retry up to 3 times — handles cold-start 503s
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (!_stockListsCache) {
+        _stockListsCache = await apiFetch('/api/stock-lists');
+      }
+      renderStockLanding(_stockListsCache);
+      return;
+    } catch(e) {
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      } else {
+        content.innerHTML = `<div class="empty-state"><div class="empty-icon">📈</div><div>Search a ticker above to get started</div></div>`;
+      }
     }
-    renderStockLanding(_stockListsCache);
-  } catch(e) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-icon">📈</div><div>Search a ticker above to get started</div></div>`;
   }
 }
 
@@ -9197,6 +9211,15 @@ async function loadAuth() {
         if (view === 'watchlist') loadWatchlistPage();
       }
     });
+
+    // Re-render stock landing with premium sections if it's currently showing
+    const stockContent = document.getElementById('stockContent');
+    if (stockContent && _stockListsCache) {
+      const viewStock = document.getElementById('view-stock');
+      if (viewStock && viewStock.classList.contains('active')) {
+        renderStockLanding(_stockListsCache);
+      }
+    }
 
     // Re-render insider profile if it loaded before auth resolved
     const insiderBody = document.getElementById('insiderViewBody');
