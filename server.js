@@ -301,6 +301,39 @@ try {
   // Drop sc13 tables if they still exist (migrated away from 13D/G)
   try { db.exec('DROP TABLE IF EXISTS sc13_transactions'); } catch(_) {}
   try { db.exec('DROP TABLE IF EXISTS sc13_quarter_log'); } catch(_) {}
+
+  // Create 13F tables if not yet created by f13-worker
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS f13_changes (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker        TEXT    NOT NULL DEFAULT '',
+      cusip         TEXT    NOT NULL DEFAULT '',
+      filer_cik     TEXT    NOT NULL DEFAULT '',
+      filer_name    TEXT    NOT NULL DEFAULT '',
+      quarter       TEXT    NOT NULL DEFAULT '',
+      filed_date    TEXT    NOT NULL DEFAULT '',
+      shares        INTEGER,
+      shares_delta  INTEGER,
+      value_usd     INTEGER,
+      pct_change    REAL,
+      is_new        INTEGER DEFAULT 0,
+      is_exit       INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS f13_quarter_log (
+      quarter      TEXT PRIMARY KEY,
+      filers       INTEGER DEFAULT 0,
+      changes      INTEGER DEFAULT 0,
+      processed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS f13_cusip_cache (
+      cusip     TEXT PRIMARY KEY,
+      ticker    TEXT NOT NULL DEFAULT '',
+      cached_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_f13_ticker  ON f13_changes(ticker);
+    CREATE INDEX IF NOT EXISTS idx_f13_quarter ON f13_changes(quarter);
+    CREATE INDEX IF NOT EXISTS idx_f13_date    ON f13_changes(filed_date);
+  `);
 } catch (e) {
   console.error(`Cannot open DB at ${DB_PATH}: ${e.message}`);
   // Last-resort fallback: try opening in the local directory
