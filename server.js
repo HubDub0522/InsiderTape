@@ -302,6 +302,19 @@ try {
   try { db.exec('DROP TABLE IF EXISTS sc13_transactions'); } catch(_) {}
   try { db.exec('DROP TABLE IF EXISTS sc13_quarter_log'); } catch(_) {}
 
+  // 13F quarter log backfill — if data exists but log is empty, write it
+  try {
+    const quarters = db.prepare("SELECT quarter, COUNT(*) AS n FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC").all();
+    for (const { quarter, n } of quarters) {
+      const existing = db.prepare('SELECT quarter FROM f13_quarter_log WHERE quarter=?').get(quarter);
+      if (!existing && n > 100) {
+        db.prepare('INSERT INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,?)').run(
+          quarter, n, n, new Date().toISOString().slice(0,19));
+        console.log(`[startup] f13 quarter log backfilled: ${quarter} (${n} changes)`);
+      }
+    }
+  } catch(_) {}
+
   // 13F retention: keep only last 8 quarters (2 years) — delete older data
   try {
     // Find the 8th most recent quarter we have data for
@@ -2914,6 +2927,16 @@ app.get('/api/admin/f13-status', (req, res) => {
   const secret = process.env.ADMIN_SECRET;
   if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
   try {
+    // Auto-backfill quarter log if data exists but log is empty
+    const quarters = db.prepare("SELECT quarter, COUNT(*) AS n FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC").all();
+    for (const { quarter, n } of quarters) {
+      const existing = db.prepare('SELECT quarter FROM f13_quarter_log WHERE quarter=?').get(quarter);
+      if (!existing && n > 100) {
+        db.prepare('INSERT INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,?)').run(
+          quarter, n, n, new Date().toISOString().slice(0,19));
+        slog(`f13-status: backfilled quarter log for ${quarter} (${n} changes)`);
+      }
+    }
     const quarterLog = db.prepare('SELECT * FROM f13_quarter_log ORDER BY quarter DESC').all();
     const totalChanges = db.prepare('SELECT COUNT(*) AS n FROM f13_changes').get();
     const tickersWithData = db.prepare("SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE ticker != ''").get();
