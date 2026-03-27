@@ -2909,6 +2909,28 @@ function requireAdminSecret(req, res) {
   return false;
 }
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
+// ── F13 admin endpoints ───────────────────────────────────────────────────────
+app.get('/api/admin/f13-status', (req, res) => {
+  if (req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const quarterLog = db.prepare('SELECT * FROM f13_quarter_log ORDER BY quarter DESC').all();
+    const totalChanges = db.prepare('SELECT COUNT(*) AS n FROM f13_changes').get();
+    const tickersWithData = db.prepare("SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE ticker != ''").get();
+    const recentRows = db.prepare("SELECT ticker, filer_name, quarter, filed_date, shares_delta, value_usd FROM f13_changes WHERE ticker != '' ORDER BY filed_date DESC LIMIT 10").all();
+    res.json({ quarterLog, totalChanges: totalChanges.n, tickersWithData: tickersWithData.n, recentRows, f13Running });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/f13-run', (req, res) => {
+  if (req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
+  const mode = req.query.mode || 'default';
+  if (f13Running) return res.json({ ok: false, message: 'already running' });
+  // Clear stale 0-filer quarter log entries so they get reprocessed
+  try { db.prepare("DELETE FROM f13_quarter_log WHERE filers = 0").run(); } catch(_) {}
+  runF13(mode);
+  res.json({ ok: true, message: `f13-worker spawned (mode=${mode})` });
+});
+
 app.get('/api/admin/grant-premium', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   const email = (req.query.email || '').trim().toLowerCase();
