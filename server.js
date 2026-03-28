@@ -1105,7 +1105,7 @@ app.get('/api/f13-recent', (req, res) => {
 });
 
 // GET /api/f13-summary — aggregated stats for analysis tiles
-let _f13SummaryCache = null, _f13SummaryCacheTime = 0;
+let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // cache bust on every deploy
 app.get('/api/f13-summary', (req, res) => {
   try {
     if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
@@ -1133,7 +1133,9 @@ app.get('/api/f13-summary', (req, res) => {
     `).all(...quarters);
 
     // Tickers with most institutions reducing/exiting
-    const topSells = db.prepare(`
+    // Distribution: prefer explicit reductions, fall back to implicit exits
+    // (tickers held in prior quarter but absent or reduced in current)
+    let topSells = db.prepare(`
       SELECT ticker,
              COUNT(*) AS institution_count,
              SUM(ABS(shares_delta)) AS total_shares_removed,
@@ -1147,6 +1149,32 @@ app.get('/api/f13-summary', (req, res) => {
       ORDER BY institution_count DESC, total_shares_removed DESC
       LIMIT 20
     `).all(...quarters);
+
+    // If no explicit reductions, find tickers with most institutions that
+    // appeared in an older quarter but have fewer holders in the latest quarter
+    if (!topSells.length && quarters.length > 0) {
+      const latestQ = quarters[0];
+      const priorQ  = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 1 OFFSET 1').get();
+      if (priorQ) {
+        topSells = db.prepare(`
+          SELECT p.ticker,
+                 COUNT(DISTINCT p.filer_cik) - COUNT(DISTINCT c.filer_cik) AS institution_count,
+                 SUM(p.value_usd) AS total_shares_removed,
+                 SUM(p.value_usd) AS total_value
+          FROM f13_changes p
+          LEFT JOIN f13_changes c ON c.ticker = p.ticker
+            AND c.filer_cik = p.filer_cik
+            AND c.quarter = ?
+          WHERE p.quarter = ?
+            AND p.ticker != ''
+            AND c.filer_cik IS NULL
+          GROUP BY p.ticker
+          HAVING institution_count >= 2
+          ORDER BY institution_count DESC
+          LIMIT 20
+        `).all(latestQ, priorQ.quarter);
+      }
+    }
 
     // Tickers with most new positions opened
     const newPositions = db.prepare(`
@@ -2846,7 +2874,14 @@ setTimeout(() => {
           _f13SummaryCache = {
             quarter: quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q,
             topBuys: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(shares_delta) AS total_shares_added, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC, total_value DESC LIMIT 20`).all(...quarters),
-            topSells: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(ABS(shares_delta)) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != '' GROUP BY ticker HAVING institution_count >= 1 ORDER BY institution_count DESC, total_shares_removed DESC LIMIT 20`).all(...quarters),
+            topSells: (() => {
+            const explicit = db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(ABS(shares_delta)) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != '' GROUP BY ticker HAVING institution_count >= 1 ORDER BY institution_count DESC, total_shares_removed DESC LIMIT 20`).all(...quarters);
+            if (explicit.length) return explicit;
+            const latestQ = quarters[0];
+            const priorQ = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 1 OFFSET 1').get();
+            if (!priorQ) return [];
+            return db.prepare(`SELECT p.ticker, COUNT(DISTINCT p.filer_cik) - COUNT(DISTINCT c.filer_cik) AS institution_count, SUM(p.value_usd) AS total_shares_removed, SUM(p.value_usd) AS total_value FROM f13_changes p LEFT JOIN f13_changes c ON c.ticker = p.ticker AND c.filer_cik = p.filer_cik AND c.quarter = ? WHERE p.quarter = ? AND p.ticker != '' AND c.filer_cik IS NULL GROUP BY p.ticker HAVING institution_count >= 2 ORDER BY institution_count DESC LIMIT 20`).all(latestQ, priorQ.quarter);
+          })(),
             newPositions: db.prepare(`SELECT ticker, COUNT(*) AS new_filer_count, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND is_new = 1 AND ticker != '' GROUP BY ticker ORDER BY new_filer_count DESC, total_value DESC LIMIT 20`).all(...quarters),
           };
           _f13SummaryCacheTime = Date.now();
