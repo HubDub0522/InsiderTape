@@ -5842,6 +5842,24 @@ function scoreOpportunityRanker(rows) {
   // First Buy in Years: tickers where a first-buy was flagged
   const firstBuyTickers = new Set((_firstBuyCache || []).map(f => f.ticker));
 
+  // 13F Institutional Signal: build net flow map per ticker
+  // Positive net = institutions adding more than removing (bullish confirmation)
+  // Negative net = institutions net reducing (bearish warning)
+  const instNetMap = {}; // ticker → { netValue, addValue, reduceValue, instCount }
+  if (_f13SummaryCache) {
+    (_f13SummaryCache.topBuys || []).forEach(r => {
+      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0, count: 0 };
+      instNetMap[r.ticker].adds  += r.total_value || r.added_value || 0;
+      instNetMap[r.ticker].net   += r.net_value || r.total_value || 0;
+      instNetMap[r.ticker].count += r.institution_count || 0;
+    });
+    (_f13SummaryCache.topSells || []).forEach(r => {
+      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0, count: 0 };
+      instNetMap[r.ticker].reduces += r.removed_value || 0;
+      instNetMap[r.ticker].net    -= r.removed_value || 0;
+    });
+  }
+
   // Exit Warnings: penalize tickers with active exit signals
   const exitWarningTickers = new Set();
   try {
@@ -5928,6 +5946,20 @@ function scoreOpportunityRanker(rows) {
     // ── 14. Exit Warning: active red flag (−12 pts) ───────────────
     if (exitWarningTickers.has(r.ticker)) {
       score -= 12; factors.push(`⚠ Active exit warning signal`);
+    }
+
+    // ── 15. 13F Institutional confirmation (+4–12 pts / −6 pts) ──
+    const inst = instNetMap[r.ticker];
+    if (inst) {
+      if (inst.net > 0) {
+        // Institutions net adding — bullish confirmation
+        if (inst.net > 1e10)      { score += 12; factors.push(`Strong institutional accumulation (${fmt(inst.net)} net)`); }
+        else if (inst.net > 1e9)  { score += 8;  factors.push(`Institutional accumulation (${fmt(inst.net)} net)`); }
+        else if (inst.net > 1e8)  { score += 4;  factors.push(`Institutional adding positions`); }
+      } else if (inst.net < 0) {
+        // Institutions net reducing — bearish divergence from insider buying
+        score -= 6; factors.push(`⚠ Institutional distribution (${fmt(Math.abs(inst.net))} net outflow)`);
+      }
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
