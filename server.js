@@ -1105,7 +1105,7 @@ app.get('/api/f13-recent', (req, res) => {
 });
 
 // GET /api/f13-summary — aggregated stats for analysis tiles
-let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v2 — direct quarter comparison
+let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v3 — dollar-ranked
 app.get('/api/f13-summary', (req, res) => {
   try {
     if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
@@ -1119,73 +1119,85 @@ app.get('/api/f13-summary', (req, res) => {
       db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
     const qPlaceholders = quarters.map(() => '?').join(',');
 
-    // Tickers with most institutions adding
+    // ── Accumulation: ranked by total $ added (not institution count) ──────
+    // Excludes large-cap index staples that every fund holds
     const topBuys = db.prepare(`
       SELECT ticker,
-             COUNT(*) AS institution_count,
-             SUM(shares_delta) AS total_shares_added,
-             SUM(value_usd) AS total_value
-      FROM f13_changes
-      WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != ''
-      GROUP BY ticker
-      ORDER BY institution_count DESC, total_value DESC
-      LIMIT 20
-    `).all(...quarters);
-
-    // Tickers with most institutions reducing/exiting
-    // Distribution: prefer explicit reductions, fall back to implicit exits
-    // (tickers held in prior quarter but absent or reduced in current)
-    let topSells = db.prepare(`
-      SELECT ticker,
-             COUNT(*) AS institution_count,
-             SUM(ABS(shares_delta)) AS total_shares_removed,
-             SUM(value_usd) AS total_value
+             COUNT(DISTINCT filer_cik) AS institution_count,
+             SUM(value_usd)            AS total_value
       FROM f13_changes
       WHERE quarter IN (${qPlaceholders})
-        AND (shares_delta < 0 OR is_exit = 1)
+        AND shares_delta > 0
         AND ticker != ''
+        AND ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG')
       GROUP BY ticker
-      HAVING institution_count >= 1
-      ORDER BY institution_count DESC, total_shares_removed DESC
+      ORDER BY total_value DESC
       LIMIT 20
     `).all(...quarters);
 
-    // If no explicit reductions, compare Q4 vs Q3 directly:
-    // find tickers where institutions held in Q3 but NOT in Q4 (they exited)
+    // ── Distribution: net dollar REDUCTION ranked by absolute $ removed ─────
+    // NET = ($ added) - ($ removed) per ticker; surface biggest net sellers
+    // Looks across both Q3 and Q4 for any net-negative ticker
+    const allQ = db.prepare(
+      "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
+    ).all().map(r => r.quarter);
+
+    let topSells = [];
+    if (allQ.length >= 2) {
+      const [curQ, prvQ] = allQ;
+      // For each ticker: sum adds and reduces in curQ, compare to prvQ holdings
+      // Net reduction = (prvQ total value) - (curQ total value) where curQ < prvQ
+      topSells = db.prepare(`
+        SELECT
+          c.ticker,
+          COUNT(DISTINCT c.filer_cik)                         AS institution_count,
+          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd ELSE 0 END) AS added_value,
+          SUM(CASE WHEN c.shares_delta < 0 OR c.is_exit = 1
+                   THEN ABS(c.value_usd) ELSE 0 END)          AS removed_value,
+          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd
+                   WHEN c.shares_delta < 0 OR c.is_exit = 1
+                   THEN -ABS(c.value_usd) ELSE 0 END)         AS net_value
+        FROM f13_changes c
+        WHERE c.quarter IN (?, ?)
+          AND c.ticker != ''
+          AND c.ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG')
+        GROUP BY c.ticker
+        HAVING net_value < 0 AND removed_value > 0
+        ORDER BY net_value ASC
+        LIMIT 20
+      `).all(curQ, prvQ);
+    }
+
+    // Fallback: explicit negative deltas only
     if (!topSells.length) {
-      const allQuarters = db.prepare("SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2").all().map(r => r.quarter);
-      if (allQuarters.length >= 2) {
-        const latestQ = allQuarters[0]; // e.g. 2025Q4
-        const priorQ  = allQuarters[1]; // e.g. 2025Q3
-        topSells = db.prepare(`
-          SELECT p.ticker,
-                 COUNT(DISTINCT p.filer_cik) AS institution_count,
-                 SUM(p.value_usd) AS total_shares_removed,
-                 SUM(p.value_usd) AS total_value
-          FROM f13_changes p
-          LEFT JOIN f13_changes c ON c.ticker = p.ticker
-            AND c.filer_cik = p.filer_cik
-            AND c.quarter = ?
-          WHERE p.quarter = ?
-            AND p.ticker != ''
-            AND c.filer_cik IS NULL
-          GROUP BY p.ticker
-          HAVING institution_count >= 2
-          ORDER BY institution_count DESC, total_value DESC
-          LIMIT 20
-        `).all(latestQ, priorQ);
-      }
+      topSells = db.prepare(`
+        SELECT ticker,
+               COUNT(DISTINCT filer_cik) AS institution_count,
+               SUM(ABS(value_usd))       AS removed_value,
+               -SUM(ABS(value_usd))      AS net_value,
+               SUM(ABS(value_usd))       AS total_value
+        FROM f13_changes
+        WHERE quarter IN (${qPlaceholders})
+          AND (shares_delta < 0 OR is_exit = 1)
+          AND ticker != ''
+        GROUP BY ticker
+        ORDER BY removed_value DESC
+        LIMIT 20
+      `).all(...quarters);
     }
 
     // Tickers with most new positions opened
     const newPositions = db.prepare(`
       SELECT ticker,
-             COUNT(*) AS new_filer_count,
-             SUM(value_usd) AS total_value
+             COUNT(DISTINCT filer_cik) AS new_filer_count,
+             SUM(value_usd)            AS total_value
       FROM f13_changes
-      WHERE quarter IN (${qPlaceholders}) AND is_new = 1 AND ticker != ''
+      WHERE quarter IN (${qPlaceholders})
+        AND is_new = 1
+        AND ticker != ''
+        AND ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG')
       GROUP BY ticker
-      ORDER BY new_filer_count DESC, total_value DESC
+      ORDER BY total_value DESC
       LIMIT 20
     `).all(...quarters);
 
