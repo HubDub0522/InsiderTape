@@ -2987,44 +2987,76 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
   }));
 
   // ── 13F institutional net line ─────────────────────────────────────────
-  // Aggregate institutional net value by week — adds/reduces mapped to their
-  // estimated trade date. Line color shifts cyan→magenta based on net direction.
+  // Use same price-matching logic as chart diamonds: find the trading day
+  // within the reporting quarter where price closest matched implied avg price.
+  // This places the line at estimated TRADE date, not filing date.
   if (f13Data && f13Data.length) {
-    const f13ByWeek = {};
+    // Build price lookup by quarter (same approach as diamond estimation)
+    const pressurePriceByQ = {};
+    priceData.forEach(bar => {
+      const mo = parseInt(bar.time.slice(5,7));
+      const q  = mo <= 3 ? 1 : mo <= 6 ? 2 : mo <= 9 ? 3 : 4;
+      const qk = `${bar.time.slice(0,4)}Q${q}`;
+      if (!pressurePriceByQ[qk]) pressurePriceByQ[qk] = [];
+      pressurePriceByQ[qk].push(bar);
+    });
+
+    function f13EstDate(f) {
+      const shares = Math.abs(f.shares || f.shares_delta || 0);
+      const value  = Math.abs(f.value_usd || 0);
+      if (!shares || !value || !f.quarter) return null;
+      const implied = value / shares;
+      if (implied <= 0) return null;
+      const days = pressurePriceByQ[f.quarter];
+      if (!days || !days.length) return null;
+      let best = null, bestDiff = Infinity;
+      for (const bar of days) {
+        const diff = Math.abs(bar.close - implied);
+        if (diff < bestDiff) { bestDiff = diff; best = bar.time; }
+      }
+      return (best && bestDiff / implied < 0.25) ? best : null;
+    }
+
+    // Aggregate by estimated week
+    const f13ByDate = {};
     f13Data.forEach(f => {
-      const d = (f.filed_date || '').slice(0,10); if (!d) return;
+      const d = f13EstDate(f);
+      if (!d) return;
+      // Snap to Monday of that week
       const dt = new Date(d + 'T12:00:00Z');
       const dow = dt.getUTCDay();
       const mon = new Date(dt); mon.setUTCDate(dt.getUTCDate() - (dow===0?6:dow-1));
       const wk = mon.toISOString().slice(0,10);
-      if (!f13ByWeek[wk]) f13ByWeek[wk] = { net: 0, total: 0 };
+      if (!f13ByDate[wk]) f13ByDate[wk] = { net: 0, total: 0 };
       const v = Math.abs(f.value_usd || 0);
-      if (f.shares_delta > 0 && !f.is_exit) { f13ByWeek[wk].net += v; f13ByWeek[wk].total += v; }
-      else { f13ByWeek[wk].net -= v; f13ByWeek[wk].total += v; }
+      if (f.shares_delta > 0 && !f.is_exit) { f13ByDate[wk].net += v; f13ByDate[wk].total += v; }
+      else { f13ByDate[wk].net -= v; f13ByDate[wk].total += v; }
     });
-    const maxF13 = Math.max(...Object.values(f13ByWeek).map(d => d.total), 1);
-    const f13LineData = [];
+
+    const maxF13 = Math.max(...Object.values(f13ByDate).map(d => d.total), 1);
+    const f13Pos = [], f13Neg = [];
     allDates.forEach(date => {
       const dt = new Date(date + 'T12:00:00Z');
       const dow = dt.getUTCDay();
       const mon = new Date(dt); mon.setUTCDate(dt.getUTCDate() - (dow===0?6:dow-1));
       const wk = mon.toISOString().slice(0,10);
-      const v = f13ByWeek[wk] ? +(f13ByWeek[wk].net / maxF13 * 80).toFixed(2) : null;
-      if (v !== null) f13LineData.push({ time: date, value: v });
+      if (!f13ByDate[wk]) return;
+      const v = +(f13ByDate[wk].net / maxF13 * 75).toFixed(2);
+      if (v >= 0) f13Pos.push({ time: date, value: v });
+      else        f13Neg.push({ time: date, value: v });
     });
-    if (f13LineData.length) {
-      // Split into cyan (net add) and magenta (net reduce) segments
-      // Build colored line using area series trick — positive=cyan, negative=magenta
-      const f13Pos = pChart.addLineSeries({
-        color: 'rgba(0,212,255,0.7)', lineWidth: 1.5, lineStyle: 0,
-        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-      });
-      const f13Neg = pChart.addLineSeries({
-        color: 'rgba(255,0,255,0.7)', lineWidth: 1.5, lineStyle: 0,
-        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-      });
-      f13Pos.setData(f13LineData.map(d => ({ time: d.time, value: d.value >= 0 ? d.value : null })).filter(d => d.value !== null));
-      f13Neg.setData(f13LineData.map(d => ({ time: d.time, value: d.value < 0 ? d.value : null })).filter(d => d.value !== null));
+
+    if (f13Pos.length || f13Neg.length) {
+      if (f13Pos.length) {
+        const s = pChart.addLineSeries({ color:'rgba(0,212,255,0.8)', lineWidth:2,
+          priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
+        s.setData(f13Pos);
+      }
+      if (f13Neg.length) {
+        const s = pChart.addLineSeries({ color:'rgba(255,0,255,0.8)', lineWidth:2,
+          priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
+        s.setData(f13Neg);
+      }
     }
   }
 
