@@ -1132,14 +1132,28 @@ app.get('/api/f13-summary', (req, res) => {
     const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
                   'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
-    // Build a price map from price_cache: symbol → latest close
-    // Parse JSON bars_json and extract last element's close
-    const priceRows = db.prepare(`SELECT symbol, bars_json FROM price_cache`).all();
+    // Build price map: extract only last close per ticker using SQLite JSON
+    // Avoid loading full bars arrays into memory (would OOM with 250 tickers × 2yr daily bars)
     const priceMap = {};
-    for (const row of priceRows) {
+    try {
+      // Extract last bar's close price using JSON path — much lighter than loading full arrays
+      const priceRows = db.prepare(`
+        SELECT symbol,
+               JSON_EXTRACT(bars_json, '$[#-1].close') AS last_close
+        FROM price_cache
+        WHERE bars_json IS NOT NULL AND bars_json != '[]'
+      `).all();
+      for (const row of priceRows) {
+        if (row.last_close && row.last_close > 0) priceMap[row.symbol] = row.last_close;
+      }
+    } catch(e) {
+      // JSON_EXTRACT with [#-1] may not work in older SQLite — fallback: load one at a time
       try {
-        const bars = JSON.parse(row.bars_json);
-        if (bars && bars.length) priceMap[row.symbol] = bars[bars.length - 1].close;
+        const syms = db.prepare(`SELECT symbol FROM price_cache`).all();
+        for (const { symbol } of syms) {
+          const bars = getPC(symbol);
+          if (bars && bars.length) priceMap[symbol] = bars[bars.length - 1].close;
+        }
       } catch(_) {}
     }
 
