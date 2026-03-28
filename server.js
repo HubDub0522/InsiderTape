@@ -1136,12 +1136,14 @@ app.get('/api/f13-summary', (req, res) => {
     const topSells = db.prepare(`
       SELECT ticker,
              COUNT(*) AS institution_count,
-             SUM(shares_delta) AS total_shares_removed,
+             SUM(ABS(shares_delta)) AS total_shares_removed,
              SUM(value_usd) AS total_value
       FROM f13_changes
-      WHERE quarter IN (${qPlaceholders}) AND shares_delta < 0 AND ticker != ''
+      WHERE quarter IN (${qPlaceholders})
+        AND (shares_delta < 0 OR is_exit = 1)
+        AND ticker != ''
       GROUP BY ticker
-      ORDER BY institution_count DESC
+      ORDER BY institution_count DESC, total_shares_removed DESC
       LIMIT 20
     `).all(...quarters);
 
@@ -1162,7 +1164,11 @@ app.get('/api/f13-summary', (req, res) => {
     _f13SummaryCache = result;
     _f13SummaryCacheTime = Date.now();
     res.json(result);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) {
+    // On error, clear cache so next request retries
+    _f13SummaryCache = null;
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /api/f13-dual — tickers with BOTH insider buying AND institutional accumulation
@@ -2839,7 +2845,7 @@ setTimeout(() => {
           _f13SummaryCache = {
             quarter: quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q,
             topBuys: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(shares_delta) AS total_shares_added, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC, total_value DESC LIMIT 20`).all(...quarters),
-            topSells: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(shares_delta) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta < 0 AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC LIMIT 20`).all(...quarters),
+            topSells: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(ABS(shares_delta)) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC, total_shares_removed DESC LIMIT 20`).all(...quarters),
             newPositions: db.prepare(`SELECT ticker, COUNT(*) AS new_filer_count, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND is_new = 1 AND ticker != '' GROUP BY ticker ORDER BY new_filer_count DESC, total_value DESC LIMIT 20`).all(...quarters),
           };
           _f13SummaryCacheTime = Date.now();
@@ -2971,12 +2977,21 @@ app.get('/api/admin/f13-status', (req, res) => {
 app.get('/api/admin/f13-run', (req, res) => {
   const secret = process.env.ADMIN_SECRET;
   if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
-  const mode = req.query.mode || 'default';
+  const mode    = req.query.mode    || 'default';
+  const quarter = req.query.quarter || null; // e.g. ?quarter=2025Q4 to force reprocess
   if (f13Running) return res.json({ ok: false, message: 'already running' });
-  // Clear stale 0-filer quarter log entries so they get reprocessed
-  try { db.prepare("DELETE FROM f13_quarter_log WHERE filers = 0").run(); } catch(_) {}
+  // If a specific quarter is requested, delete its data so it reprocesses
+  if (quarter) {
+    try {
+      db.prepare('DELETE FROM f13_quarter_log WHERE quarter=?').run(quarter);
+      db.prepare('DELETE FROM f13_changes WHERE quarter=?').run(quarter);
+      slog(`f13-run: cleared ${quarter} for reprocessing`);
+    } catch(e) { return res.status(500).json({ error: e.message }); }
+  }
+  // Also clear summary cache so fresh data shows immediately
+  _f13SummaryCache = null; _f13SummaryCacheTime = 0;
   runF13(mode);
-  res.json({ ok: true, message: `f13-worker spawned (mode=${mode})` });
+  res.json({ ok: true, message: `f13-worker spawned (mode=${mode})${quarter ? ` reprocessing ${quarter}` : ''}` });
 });
 
 app.get('/api/admin/grant-premium', (req, res) => {
