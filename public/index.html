@@ -5842,21 +5842,20 @@ function scoreOpportunityRanker(rows) {
   // First Buy in Years: tickers where a first-buy was flagged
   const firstBuyTickers = new Set((_firstBuyCache || []).map(f => f.ticker));
 
-  // 13F Institutional Signal: build net flow map per ticker
-  // Positive net = institutions adding more than removing (bullish confirmation)
-  // Negative net = institutions net reducing (bearish warning)
-  const instNetMap = {}; // ticker → { netValue, addValue, reduceValue, instCount }
+  // 13F Institutional Signal: build net flow map from summary cache
+  const instNetMap = {};
   if (_f13SummaryCache) {
     (_f13SummaryCache.topBuys || []).forEach(r => {
-      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0, count: 0 };
-      instNetMap[r.ticker].adds  += r.total_value || r.added_value || 0;
-      instNetMap[r.ticker].net   += r.net_value || r.total_value || 0;
-      instNetMap[r.ticker].count += r.institution_count || 0;
+      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0 };
+      const v = r.net_value || r.added_value || r.total_value || 0;
+      instNetMap[r.ticker].adds += v;
+      instNetMap[r.ticker].net  += v;
     });
     (_f13SummaryCache.topSells || []).forEach(r => {
-      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0, count: 0 };
-      instNetMap[r.ticker].reduces += r.removed_value || 0;
-      instNetMap[r.ticker].net    -= r.removed_value || 0;
+      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0 };
+      const v = Math.abs(r.net_value || r.removed_value || 0);
+      instNetMap[r.ticker].reduces += v;
+      instNetMap[r.ticker].net    -= v;
     });
   }
 
