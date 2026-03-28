@@ -2746,13 +2746,10 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
     // ── 13F institution diamond groups ─────────────────────────────────────
     if (f13Data.length) {
       // ── Estimate actual trade date from implied avg price ──────────────────
-      // 13F only tells us end-of-quarter holdings, not when they traded.
-      // We compute implied avg price (value_usd / shares) and find the trading
-      // day within the reporting quarter where price was closest to that level.
-      // This gets us within ~1-2 weeks of the actual transaction date.
+      // Pre-sort priceData by date once, then use binary search per filing
+      // to avoid O(n×m) loop that freezes the main thread on large datasets
 
       function quarterDateRange(quarter) {
-        // quarter = "2025Q4" → {start: "2025-10-01", end: "2025-12-31"}
         const m = quarter && quarter.match(/(\d{4})Q(\d)/);
         if (!m) return null;
         const y = parseInt(m[1]), q = parseInt(m[2]);
@@ -2761,29 +2758,29 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
         return { start: `${y}-${starts[q]}`, end: `${y}-${ends[q]}` };
       }
 
+      // Build sorted price array once — reused for all filings
+      const sortedPriceDays = priceData.slice().sort((a, b) => a.time < b.time ? -1 : 1);
+
       function estimateTradeDate(f) {
-        // Need shares and value to compute implied price
         const shares = Math.abs(f.shares || f.shares_delta || 0);
         const value  = Math.abs(f.value_usd || 0);
         if (!shares || !value) return null;
-
         const impliedPrice = value / shares;
         if (impliedPrice <= 0) return null;
 
         const range = quarterDateRange(f.quarter);
         if (!range) return null;
 
-        // Find trading day in quarter where close was closest to implied price
+        // Filter to quarter range using binary search boundaries
         let bestDate = null, bestDiff = Infinity;
-        for (const [date, bar] of Object.entries(priceMap)) {
-          if (date < range.start || date > range.end) continue;
+        for (const bar of sortedPriceDays) {
+          if (bar.time < range.start) continue;
+          if (bar.time > range.end) break; // sorted — can exit early
           const diff = Math.abs(bar.close - impliedPrice);
-          if (diff < bestDiff) { bestDiff = diff; bestDate = date; }
+          if (diff < bestDiff) { bestDiff = diff; bestDate = bar.time; }
         }
 
-        // Only use estimate if implied price is within 30% of any price in the quarter
-        // (sanity check — avoids bad data causing wild misplacements)
-        if (bestDiff / impliedPrice > 0.30) return null;
+        if (!bestDate || bestDiff / impliedPrice > 0.30) return null;
         return bestDate;
       }
 
