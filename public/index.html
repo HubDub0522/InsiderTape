@@ -4967,8 +4967,8 @@ function buildF13SellTile() {
     loading: isLoading,
     top3: items.slice(0,3).map(r => ({
       ticker: r.ticker,
-      label: `${r.institution_count} institutions`,
-      sub: fmtShares(Math.abs(r.total_shares_removed||0)) + ' shares removed',
+      label: fmt(Math.abs(r.removed_value || r.total_shares_removed || 0)) + ' removed',
+      sub: r.institution_count + ' inst reducing',
       color: '#ff00ff',
     })),
     accentColor: '#ff00ff',
@@ -4992,8 +4992,8 @@ function buildF13NewTile() {
     loading: isLoading,
     top3: items.slice(0,3).map(r => ({
       ticker: r.ticker,
-      label: `${r.new_filer_count} new holders`,
-      sub: fmt(r.total_value) + ' committed',
+      label: fmt(r.total_value) + ' committed',
+      sub: r.new_filer_count + ' new holders',
       color: '#ffd700',
     })),
     accentColor: '#ffd700',
@@ -5062,8 +5062,8 @@ function renderF13Subpage(type) {
   }
 
   const configs = {
-    f13buy:  { title: '🏛 INSTITUTIONAL ACCUMULATION', subtitle: 'Most institutions adding positions', color: '#00d4ff', items: d.topBuys||[], labelFn: r=>`${r.institution_count} institutions · ${fmt(r.total_value)} added` },
-    f13sell: { title: '🏛 INSTITUTIONAL DISTRIBUTION', subtitle: 'Most institutions reducing positions', color: '#ff00ff', items: d.topSells||[], labelFn: r=>`${r.institution_count} institutions · ${fmtShares(Math.abs(r.total_shares_removed||0))} shares removed` },
+    f13buy:  { title: '🏛 INSTITUTIONAL ACCUMULATION', subtitle: 'Ranked by total $ added this quarter', color: '#00d4ff', items: d.topBuys||[], labelFn: r=>`${fmt(r.total_value)} added · ${r.institution_count} inst` },
+    f13sell: { title: '🏛 INSTITUTIONAL DISTRIBUTION', subtitle: 'Ranked by net $ removed this quarter', color: '#ff00ff', items: d.topSells||[], labelFn: r=>`${fmt(Math.abs(r.removed_value||r.net_value||0))} removed · ${r.institution_count} inst` },
     f13new:  { title: '🆕 NEW INSTITUTIONAL POSITIONS', subtitle: 'Fresh institutional interest this quarter', color: '#ffd700', items: d.newPositions||[], labelFn: r=>`${r.new_filer_count} new holders · ${fmt(r.total_value)} committed` },
   };
   const cfg = configs[type];
