@@ -1119,9 +1119,12 @@ app.get('/api/f13-summary', (req, res) => {
       db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
     const qPlaceholders = quarters.map(() => '?').join(',');
 
-    // ── Simple, accurate queries using institution count + share count ────────
-    // value_usd is unreliable for aggregation (stores total holdings, not changes)
-    // We rank by institution count (most reliable signal) and show share deltas
+    // ── Compute implied price per-row to get accurate delta dollars ─────────
+    // value_usd is inconsistently stored (some rows ×1000 too large)
+    // Fix: if implied_price = value_usd/shares > $10,000, divide by 1000
+    // Then delta_dollars = shares_delta × implied_price = actual $ change
+    const IP = "CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END";
+
     const allQ = db.prepare(
       "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
     ).all().map(r => r.quarter);
@@ -1130,75 +1133,91 @@ app.get('/api/f13-summary', (req, res) => {
     const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
                   'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
-    // ── Accumulation: tickers with the most institutions ADDING ──────────────
-    // Ranked by number of adding institutions, deduplicated per filer per ticker
-    const topBuys = db.prepare(`
-      SELECT ticker,
-             COUNT(DISTINCT filer_cik) AS institution_count,
-             SUM(shares_delta)         AS total_shares_added
-      FROM f13_changes
-      WHERE quarter IN (${qPlaceholders})
-        AND shares_delta > 0
-        AND ticker != ''
-        AND ticker NOT IN (${EXCL})
-      GROUP BY ticker
-      ORDER BY institution_count DESC, total_shares_added DESC
-      LIMIT 20
-    `).all(...quarters);
-
-    // ── Distribution: tickers held in prior quarter but EXITED in current ────
-    // These are genuine exits — institution had a position and no longer does
-    let topSells = [];
+    // ── Accumulation: net $ added across institutions ─────────────────────────
+    let topBuys = [];
     if (prvQ) {
-      topSells = db.prepare(`
-        SELECT p.ticker,
-               COUNT(DISTINCT p.filer_cik)  AS institution_count,
-               SUM(ABS(p.shares))           AS total_shares_exited
-        FROM f13_changes p
-        LEFT JOIN f13_changes c
-          ON c.ticker     = p.ticker
-          AND c.filer_cik = p.filer_cik
-          AND c.quarter   = ?
-        WHERE p.quarter = ?
-          AND p.ticker  != ''
-          AND p.ticker NOT IN (${EXCL})
-          AND p.shares   > 0
-          AND c.filer_cik IS NULL
-        GROUP BY p.ticker
-        HAVING institution_count >= 2
-        ORDER BY institution_count DESC
+      topBuys = db.prepare(`
+        SELECT
+          c.ticker,
+          COUNT(DISTINCT CASE WHEN c.shares_delta>0 THEN c.filer_cik END) AS institution_count,
+          SUM(CASE WHEN c.shares_delta>0
+              THEN ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS added_value,
+          SUM(CASE WHEN c.shares_delta<0 OR c.is_exit=1
+              THEN ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS removed_value,
+          SUM(CASE WHEN c.shares_delta>0
+              THEN  ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END)
+              WHEN c.shares_delta<0 OR c.is_exit=1
+              THEN -ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS net_value
+        FROM f13_changes c
+        WHERE c.quarter IN (?, ?)
+          AND c.ticker != ''
+          AND c.ticker NOT IN (${EXCL})
+        GROUP BY c.ticker
+        HAVING net_value > 0
+        ORDER BY net_value DESC
         LIMIT 20
       `).all(curQ, prvQ);
     }
-    // Fallback: explicit exits/reductions
-    if (!topSells.length) {
-      topSells = db.prepare(`
+    if (!topBuys.length) {
+      topBuys = db.prepare(`
         SELECT ticker,
-               COUNT(DISTINCT filer_cik)  AS institution_count,
-               SUM(ABS(shares_delta))     AS total_shares_exited
+               COUNT(DISTINCT filer_cik) AS institution_count,
+               SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS added_value,
+               SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS net_value
         FROM f13_changes
-        WHERE quarter IN (${qPlaceholders})
-          AND (shares_delta < 0 OR is_exit = 1)
-          AND ticker != ''
-        GROUP BY ticker
-        ORDER BY institution_count DESC
-        LIMIT 20
+        WHERE quarter IN (${qPlaceholders}) AND shares_delta>0 AND ticker!=''
+          AND ticker NOT IN (${EXCL})
+        GROUP BY ticker ORDER BY net_value DESC LIMIT 20
       `).all(...quarters);
     }
 
-    // ── New positions: first-time institutional buyers ────────────────────────
+    // ── Distribution: net $ removed ───────────────────────────────────────────
+    let topSells = [];
+    if (prvQ) {
+      topSells = db.prepare(`
+        SELECT
+          c.ticker,
+          COUNT(DISTINCT CASE WHEN c.shares_delta<0 OR c.is_exit=1 THEN c.filer_cik END) AS institution_count,
+          SUM(CASE WHEN c.shares_delta<0 OR c.is_exit=1
+              THEN ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS removed_value,
+          SUM(CASE WHEN c.shares_delta>0
+              THEN  ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END)
+              WHEN c.shares_delta<0 OR c.is_exit=1
+              THEN -ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS net_value
+        FROM f13_changes c
+        WHERE c.quarter IN (?, ?)
+          AND c.ticker != ''
+          AND c.ticker NOT IN (${EXCL})
+        GROUP BY c.ticker
+        HAVING net_value < 0 AND removed_value > 0
+        ORDER BY net_value ASC
+        LIMIT 20
+      `).all(curQ, prvQ);
+    }
+    if (!topSells.length) {
+      topSells = db.prepare(`
+        SELECT ticker,
+               COUNT(DISTINCT filer_cik) AS institution_count,
+               SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS removed_value,
+               -SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS net_value
+        FROM f13_changes
+        WHERE quarter IN (${qPlaceholders}) AND (shares_delta<0 OR is_exit=1) AND ticker!=''
+        GROUP BY ticker ORDER BY removed_value DESC LIMIT 20
+      `).all(...quarters);
+    }
+
+    // ── New positions: first-time buyers, ranked by $ committed ──────────────
     const newPositions = db.prepare(`
       SELECT ticker,
              COUNT(DISTINCT filer_cik) AS new_filer_count,
-             SUM(shares)               AS total_shares
+             SUM(ABS(shares)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS total_value
       FROM f13_changes
       WHERE quarter = ?
-        AND is_new   = 1
-        AND ticker  != ''
+        AND is_new = 1 AND ticker != ''
         AND ticker NOT IN (${EXCL})
       GROUP BY ticker
       HAVING new_filer_count >= 2
-      ORDER BY new_filer_count DESC
+      ORDER BY total_value DESC
       LIMIT 20
     `).all(curQ || quarters[0]);
 
