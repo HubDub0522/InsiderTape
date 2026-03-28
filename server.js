@@ -1119,11 +1119,10 @@ app.get('/api/f13-summary', (req, res) => {
       db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
     const qPlaceholders = quarters.map(() => '?').join(',');
 
-    // ── Compute implied price per-row to get accurate delta dollars ─────────
-    // value_usd is inconsistently stored (some rows ×1000 too large)
-    // Fix: if implied_price = value_usd/shares > $10,000, divide by 1000
-    // Then delta_dollars = shares_delta × implied_price = actual $ change
-    const IP = "CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END";
+    // ── Share price × share count from price_cache ──────────────────────────
+    // JOIN f13_changes to price_cache for price data.
+    // price_cache stores bars_json — extract last close price in SQL via JSON.
+    // For tickers not in price_cache, fall back to value_usd/shares with ×1000 correction.
 
     const allQ = db.prepare(
       "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
@@ -1133,93 +1132,109 @@ app.get('/api/f13-summary', (req, res) => {
     const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
                   'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
-    // ── Accumulation: net $ added across institutions ─────────────────────────
-    let topBuys = [];
-    if (prvQ) {
-      topBuys = db.prepare(`
-        SELECT
-          c.ticker,
-          COUNT(DISTINCT CASE WHEN c.shares_delta>0 THEN c.filer_cik END) AS institution_count,
-          SUM(CASE WHEN c.shares_delta>0
-              THEN ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS added_value,
-          SUM(CASE WHEN c.shares_delta<0 OR c.is_exit=1
-              THEN ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS removed_value,
-          SUM(CASE WHEN c.shares_delta>0
-              THEN  ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END)
-              WHEN c.shares_delta<0 OR c.is_exit=1
-              THEN -ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS net_value
-        FROM f13_changes c
-        WHERE c.quarter IN (?, ?)
-          AND c.ticker != ''
-          AND c.ticker NOT IN (${EXCL})
-        GROUP BY c.ticker
-        HAVING net_value > 0
-        ORDER BY net_value DESC
-        LIMIT 20
-      `).all(curQ, prvQ);
-    }
-    if (!topBuys.length) {
-      topBuys = db.prepare(`
-        SELECT ticker,
-               COUNT(DISTINCT filer_cik) AS institution_count,
-               SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS added_value,
-               SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS net_value
-        FROM f13_changes
-        WHERE quarter IN (${qPlaceholders}) AND shares_delta>0 AND ticker!=''
-          AND ticker NOT IN (${EXCL})
-        GROUP BY ticker ORDER BY net_value DESC LIMIT 20
-      `).all(...quarters);
+    // Build a price map from price_cache: symbol → latest close
+    // Parse JSON bars_json and extract last element's close
+    const priceRows = db.prepare(`SELECT symbol, bars_json FROM price_cache`).all();
+    const priceMap = {};
+    for (const row of priceRows) {
+      try {
+        const bars = JSON.parse(row.bars_json);
+        if (bars && bars.length) priceMap[row.symbol] = bars[bars.length - 1].close;
+      } catch(_) {}
     }
 
-    // ── Distribution: net $ removed ───────────────────────────────────────────
-    let topSells = [];
-    if (prvQ) {
-      topSells = db.prepare(`
+    let topBuys = [], topSells = [], newPositions = [];
+
+    if (curQ && prvQ) {
+      // JOIN Q4 to Q3: real share change = Q4.shares - Q3.shares
+      const rawChanges = db.prepare(`
         SELECT
-          c.ticker,
-          COUNT(DISTINCT CASE WHEN c.shares_delta<0 OR c.is_exit=1 THEN c.filer_cik END) AS institution_count,
-          SUM(CASE WHEN c.shares_delta<0 OR c.is_exit=1
-              THEN ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS removed_value,
-          SUM(CASE WHEN c.shares_delta>0
-              THEN  ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END)
-              WHEN c.shares_delta<0 OR c.is_exit=1
-              THEN -ABS(c.shares_delta)*(CASE WHEN ABS(c.shares)>0 AND CAST(c.value_usd AS REAL)/ABS(c.shares)>10000 THEN CAST(c.value_usd AS REAL)/ABS(c.shares)/1000.0 WHEN ABS(c.shares)>0 THEN CAST(c.value_usd AS REAL)/ABS(c.shares) ELSE 0 END) ELSE 0 END) AS net_value
-        FROM f13_changes c
-        WHERE c.quarter IN (?, ?)
-          AND c.ticker != ''
-          AND c.ticker NOT IN (${EXCL})
-        GROUP BY c.ticker
-        HAVING net_value < 0 AND removed_value > 0
-        ORDER BY net_value ASC
-        LIMIT 20
+          q4.ticker,
+          COUNT(DISTINCT q4.filer_cik)                             AS filer_count,
+          SUM(q4.shares - COALESCE(q3.shares, 0))                 AS net_share_change,
+          SUM(CASE WHEN q4.shares > COALESCE(q3.shares, 0)
+              THEN q4.shares - COALESCE(q3.shares, 0) ELSE 0 END) AS shares_added,
+          SUM(CASE WHEN q4.shares < COALESCE(q3.shares, 0)
+              THEN COALESCE(q3.shares, 0) - q4.shares ELSE 0 END) AS shares_removed,
+          COUNT(DISTINCT CASE WHEN q3.filer_cik IS NULL
+              THEN q4.filer_cik END)                               AS new_filer_count
+        FROM f13_changes q4
+        LEFT JOIN f13_changes q3
+          ON q3.ticker = q4.ticker AND q3.filer_cik = q4.filer_cik AND q3.quarter = ?
+        WHERE q4.quarter = ? AND q4.ticker != ''
+          AND q4.ticker NOT IN (${EXCL})
+        GROUP BY q4.ticker
+      `).all(prvQ, curQ);
+
+      // Exits: in Q3 but not Q4
+      const exits = db.prepare(`
+        SELECT q3.ticker,
+               COUNT(DISTINCT q3.filer_cik) AS exited_count,
+               SUM(q3.shares)               AS shares_exited
+        FROM f13_changes q3
+        LEFT JOIN f13_changes q4
+          ON q4.ticker = q3.ticker AND q4.filer_cik = q3.filer_cik AND q4.quarter = ?
+        WHERE q3.quarter = ? AND q3.ticker != '' AND q4.filer_cik IS NULL AND q3.shares > 0
+        GROUP BY q3.ticker
       `).all(curQ, prvQ);
+
+      const exitMap = {};
+      exits.forEach(r => { exitMap[r.ticker] = r; });
+
+      const withDollars = rawChanges.map(r => {
+        const price = priceMap[r.ticker];
+        if (!price) return null; // skip tickers with no price data
+        const exitData       = exitMap[r.ticker] || {};
+        const sharesExited   = exitData.shares_exited || 0;
+        const exitCount      = exitData.exited_count  || 0;
+        const addedDollars   = (r.shares_added   || 0) * price;
+        const removedDollars = ((r.shares_removed || 0) + sharesExited) * price;
+        const netDollars     = addedDollars - removedDollars;
+        return {
+          ticker:            r.ticker,
+          institution_count: (r.filer_count || 0) + exitCount,
+          added_value:       addedDollars,
+          removed_value:     removedDollars,
+          net_value:         netDollars,
+          new_filer_count:   r.new_filer_count || 0,
+          total_value:       (r.new_filer_count || 0) * price * (r.shares_added || 0) / Math.max(r.filer_count, 1),
+        };
+      }).filter(Boolean);
+
+      topBuys      = withDollars.filter(r => r.net_value > 0)
+                                .sort((a,b) => b.net_value - a.net_value).slice(0, 20);
+      topSells     = withDollars.filter(r => r.net_value < 0)
+                                .sort((a,b) => a.net_value - b.net_value).slice(0, 20);
+      newPositions = withDollars.filter(r => r.new_filer_count >= 2)
+                                .sort((a,b) => b.total_value - a.total_value).slice(0, 20);
+    }
+
+    // Fallback: institution count only (no price available)
+    if (!topBuys.length) {
+      topBuys = db.prepare(`
+        SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,
+               0 AS net_value, 0 AS added_value
+        FROM f13_changes WHERE quarter=? AND shares_delta>0 AND ticker!=''
+        GROUP BY ticker ORDER BY institution_count DESC LIMIT 20
+      `).all(curQ || quarters[0]);
     }
     if (!topSells.length) {
       topSells = db.prepare(`
-        SELECT ticker,
-               COUNT(DISTINCT filer_cik) AS institution_count,
-               SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS removed_value,
-               -SUM(ABS(shares_delta)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS net_value
-        FROM f13_changes
-        WHERE quarter IN (${qPlaceholders}) AND (shares_delta<0 OR is_exit=1) AND ticker!=''
-        GROUP BY ticker ORDER BY removed_value DESC LIMIT 20
-      `).all(...quarters);
+        SELECT q3.ticker, COUNT(DISTINCT q3.filer_cik) AS institution_count,
+               0 AS removed_value, 0 AS net_value
+        FROM f13_changes q3
+        LEFT JOIN f13_changes q4 ON q4.ticker=q3.ticker AND q4.filer_cik=q3.filer_cik AND q4.quarter=?
+        WHERE q3.quarter=? AND q3.ticker!='' AND q4.filer_cik IS NULL AND q3.shares>0
+        GROUP BY q3.ticker HAVING institution_count>=2 ORDER BY institution_count DESC LIMIT 20
+      `).all(curQ || quarters[0], prvQ || quarters[0]);
     }
-
-    // ── New positions: first-time buyers, ranked by $ committed ──────────────
-    const newPositions = db.prepare(`
-      SELECT ticker,
-             COUNT(DISTINCT filer_cik) AS new_filer_count,
-             SUM(ABS(shares)*(CASE WHEN ABS(shares)>0 AND CAST(value_usd AS REAL)/ABS(shares)>10000 THEN CAST(value_usd AS REAL)/ABS(shares)/1000.0 WHEN ABS(shares)>0 THEN CAST(value_usd AS REAL)/ABS(shares) ELSE 0 END)) AS total_value
-      FROM f13_changes
-      WHERE quarter = ?
-        AND is_new = 1 AND ticker != ''
-        AND ticker NOT IN (${EXCL})
-      GROUP BY ticker
-      HAVING new_filer_count >= 2
-      ORDER BY total_value DESC
-      LIMIT 20
-    `).all(curQ || quarters[0]);
+    if (!newPositions.length) {
+      newPositions = db.prepare(`
+        SELECT ticker, COUNT(DISTINCT filer_cik) AS new_filer_count, 0 AS total_value
+        FROM f13_changes WHERE quarter=? AND is_new=1 AND ticker!=''
+        GROUP BY ticker HAVING new_filer_count>=2 ORDER BY new_filer_count DESC LIMIT 20
+      `).all(curQ || quarters[0]);
+    }
 
         const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
     const result = { quarter: quarterLabel, topBuys, topSells, newPositions };
@@ -2176,12 +2191,23 @@ async function warmPriceCache() {
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 75
     `).all();
-    const allTickers = [...new Set(form4Rows.map(r => r.ticker))].slice(0, 100);
+
+    // Top 13F tickers by institution count (most widely held)
+    const f13Rows = db.prepare(`
+      SELECT ticker FROM f13_changes
+      WHERE ticker != '' AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      GROUP BY ticker ORDER BY COUNT(DISTINCT filer_cik) DESC LIMIT 150
+    `).all();
+
+    const allTickers = [...new Set([
+      ...form4Rows.map(r => r.ticker),
+      ...f13Rows.map(r => r.ticker),
+    ])].slice(0, 250);
     slog(`Warming price cache for ${allTickers.length} tickers...`);
     for (let i = 0; i < allTickers.length; i += 10) {
       const batch = allTickers.slice(i, i + 10);
       await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 10 < allTickers.length) await new Promise(r => setTimeout(r, 400));
+      if (i + 10 < allTickers.length) await new Promise(r => setTimeout(r, 500));
     }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
