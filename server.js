@@ -1119,138 +1119,95 @@ app.get('/api/f13-summary', (req, res) => {
       db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
     const qPlaceholders = quarters.map(() => '?').join(',');
 
-    // ── Share price × share count from price_cache ──────────────────────────
-    // JOIN f13_changes to price_cache for price data.
-    // price_cache stores bars_json — extract last close price in SQL via JSON.
-    // For tickers not in price_cache, fall back to value_usd/shares with ×1000 correction.
+    // ── Use shares_delta × price for accurate dollar change ────────────────
+    // shares_delta in Q4 = actual position change (computed vs Q3 baseline)
+    // Avoid cross-quarter JOINs which inflate numbers when filer sets don't overlap
 
     const allQ = db.prepare(
       "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
     ).all().map(r => r.quarter);
-    const [curQ, prvQ] = allQ.length >= 2 ? allQ : [quarters[0], null];
+    const curQ = allQ[0];
 
     const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
                   'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
-    // Build price map from in-memory price cache (already loaded, no extra DB reads)
-    // _priceCache is populated by warmPriceCache() at startup
+    // Build price map from in-memory cache
     const priceMap = {};
     for (const [sym, entry] of Object.entries(_priceCache)) {
       if (entry && entry.bars && entry.bars.length > 0) {
         priceMap[sym] = entry.bars[entry.bars.length - 1].close;
       }
     }
-    // Also check DB cache for any tickers not in memory
-    if (Object.keys(priceMap).length < 10) {
-      try {
-        const syms = db.prepare('SELECT symbol FROM price_cache').all();
-        for (const { symbol } of syms) {
-          if (priceMap[symbol]) continue;
-          try {
-            const row = db.prepare('SELECT bars_json FROM price_cache WHERE symbol=?').get(symbol);
-            if (row) {
-              const bars = JSON.parse(row.bars_json);
-              if (bars && bars.length) priceMap[symbol] = bars[bars.length - 1].close;
-            }
-          } catch(_) {}
-        }
-      } catch(_) {}
-    }
-
     const priceCount = Object.keys(priceMap).length;
-    slog(`f13-summary: priceMap has ${priceCount} tickers, curQ=${curQ}, prvQ=${prvQ}`);
+    slog(`f13-summary: priceMap has ${priceCount} tickers, curQ=${curQ}`);
 
-    let topBuys = [], topSells = [], newPositions = [];
+    // Aggregate shares_delta × price per ticker for curQ only
+    // shares_delta = actual change in position (positive=added, negative=reduced)
+    const rawAgg = db.prepare(`
+      SELECT
+        ticker,
+        COUNT(DISTINCT CASE WHEN shares_delta > 0 THEN filer_cik END) AS add_count,
+        COUNT(DISTINCT CASE WHEN shares_delta < 0 OR is_exit=1 THEN filer_cik END) AS reduce_count,
+        SUM(CASE WHEN shares_delta > 0 THEN shares_delta ELSE 0 END) AS shares_added,
+        SUM(CASE WHEN shares_delta < 0 OR is_exit=1 THEN ABS(shares_delta) ELSE 0 END) AS shares_removed,
+        COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_filer_count
+      FROM f13_changes
+      WHERE quarter = ?
+        AND ticker != ''
+        AND ticker NOT IN (\${EXCL})
+      GROUP BY ticker
+    `).all(curQ);
 
-    if (curQ && prvQ) {
-      // JOIN Q4 to Q3: real share change = Q4.shares - Q3.shares
-      const rawChanges = db.prepare(`
-        SELECT
-          q4.ticker,
-          COUNT(DISTINCT q4.filer_cik)                             AS filer_count,
-          SUM(q4.shares - COALESCE(q3.shares, 0))                 AS net_share_change,
-          SUM(CASE WHEN q4.shares > COALESCE(q3.shares, 0)
-              THEN q4.shares - COALESCE(q3.shares, 0) ELSE 0 END) AS shares_added,
-          SUM(CASE WHEN q4.shares < COALESCE(q3.shares, 0)
-              THEN COALESCE(q3.shares, 0) - q4.shares ELSE 0 END) AS shares_removed,
-          COUNT(DISTINCT CASE WHEN q3.filer_cik IS NULL
-              THEN q4.filer_cik END)                               AS new_filer_count
-        FROM f13_changes q4
-        LEFT JOIN f13_changes q3
-          ON q3.ticker = q4.ticker AND q3.filer_cik = q4.filer_cik AND q3.quarter = ?
-        WHERE q4.quarter = ? AND q4.ticker != ''
-          AND q4.ticker NOT IN (${EXCL})
-        GROUP BY q4.ticker
-      `).all(prvQ, curQ);
+    // Apply price to get dollar values
+    const withDollars = rawAgg.map(r => {
+      const price = priceMap[r.ticker];
+      if (!price) return null;
+      const addedDollars   = (r.shares_added   || 0) * price;
+      const removedDollars = (r.shares_removed || 0) * price;
+      const netDollars     = addedDollars - removedDollars;
+      return {
+        ticker:            r.ticker,
+        institution_count: r.add_count || 0,
+        added_value:       addedDollars,
+        removed_value:     removedDollars,
+        net_value:         netDollars,
+        new_filer_count:   r.new_filer_count || 0,
+        total_value:       (r.new_filer_count || 0) * price * (r.shares_added || 0) / Math.max(r.add_count || 1, 1),
+      };
+    }).filter(Boolean);
 
-      // Exits: in Q3 but not Q4
-      const exits = db.prepare(`
-        SELECT q3.ticker,
-               COUNT(DISTINCT q3.filer_cik) AS exited_count,
-               SUM(q3.shares)               AS shares_exited
-        FROM f13_changes q3
-        LEFT JOIN f13_changes q4
-          ON q4.ticker = q3.ticker AND q4.filer_cik = q3.filer_cik AND q4.quarter = ?
-        WHERE q3.quarter = ? AND q3.ticker != '' AND q4.filer_cik IS NULL AND q3.shares > 0
-        GROUP BY q3.ticker
-      `).all(curQ, prvQ);
+    let topBuys = withDollars.filter(r => r.net_value > 0)
+                             .sort((a,b) => b.net_value - a.net_value).slice(0, 20);
+    let topSells = withDollars.filter(r => r.net_value < 0)
+                              .sort((a,b) => a.net_value - b.net_value).slice(0, 20);
+    let newPositions = withDollars.filter(r => r.new_filer_count >= 2)
+                                  .sort((a,b) => b.added_value - a.added_value).slice(0, 20);
 
-      const exitMap = {};
-      exits.forEach(r => { exitMap[r.ticker] = r; });
-
-      const withDollars = rawChanges.map(r => {
-        const price = priceMap[r.ticker];
-        if (!price) return null; // skip tickers with no price data
-        const exitData       = exitMap[r.ticker] || {};
-        const sharesExited   = exitData.shares_exited || 0;
-        const exitCount      = exitData.exited_count  || 0;
-        const addedDollars   = (r.shares_added   || 0) * price;
-        const removedDollars = ((r.shares_removed || 0) + sharesExited) * price;
-        const netDollars     = addedDollars - removedDollars;
-        return {
-          ticker:            r.ticker,
-          institution_count: (r.filer_count || 0) + exitCount,
-          added_value:       addedDollars,
-          removed_value:     removedDollars,
-          net_value:         netDollars,
-          new_filer_count:   r.new_filer_count || 0,
-          total_value:       (r.new_filer_count >= 2) ? (r.shares_added || 0) * price : 0,
-        };
-      }).filter(Boolean);
-
-      topBuys      = withDollars.filter(r => r.net_value > 0)
-                                .sort((a,b) => b.net_value - a.net_value).slice(0, 20);
-      topSells     = withDollars.filter(r => r.net_value < 0)
-                                .sort((a,b) => a.net_value - b.net_value).slice(0, 20);
-      newPositions = withDollars.filter(r => r.new_filer_count >= 2)
-                                .sort((a,b) => b.total_value - a.total_value).slice(0, 20);
-    }
-
-    // Fallback: institution count only (no price available)
+    // Fallback: institution count if no price data
     if (!topBuys.length) {
       topBuys = db.prepare(`
         SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,
-               0 AS net_value, 0 AS added_value
+               SUM(shares_delta) AS shares_added, 0 AS net_value, 0 AS added_value
         FROM f13_changes WHERE quarter=? AND shares_delta>0 AND ticker!=''
+          AND ticker NOT IN (\${EXCL})
         GROUP BY ticker ORDER BY institution_count DESC LIMIT 20
-      `).all(curQ || quarters[0]);
+      `).all(curQ);
     }
     if (!topSells.length) {
       topSells = db.prepare(`
-        SELECT q3.ticker, COUNT(DISTINCT q3.filer_cik) AS institution_count,
+        SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,
                0 AS removed_value, 0 AS net_value
-        FROM f13_changes q3
-        LEFT JOIN f13_changes q4 ON q4.ticker=q3.ticker AND q4.filer_cik=q3.filer_cik AND q4.quarter=?
-        WHERE q3.quarter=? AND q3.ticker!='' AND q4.filer_cik IS NULL AND q3.shares>0
-        GROUP BY q3.ticker HAVING institution_count>=2 ORDER BY institution_count DESC LIMIT 20
-      `).all(curQ || quarters[0], prvQ || quarters[0]);
+        FROM f13_changes WHERE quarter=? AND (shares_delta<0 OR is_exit=1) AND ticker!=''
+        GROUP BY ticker ORDER BY institution_count DESC LIMIT 20
+      `).all(curQ);
     }
     if (!newPositions.length) {
       newPositions = db.prepare(`
         SELECT ticker, COUNT(DISTINCT filer_cik) AS new_filer_count, 0 AS total_value
         FROM f13_changes WHERE quarter=? AND is_new=1 AND ticker!=''
+          AND ticker NOT IN (\${EXCL})
         GROUP BY ticker HAVING new_filer_count>=2 ORDER BY new_filer_count DESC LIMIT 20
-      `).all(curQ || quarters[0]);
+      `).all(curQ);
     }
 
         const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
