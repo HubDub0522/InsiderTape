@@ -1119,32 +1119,39 @@ app.get('/api/f13-summary', (req, res) => {
       db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
     const qPlaceholders = quarters.map(() => '?').join(',');
 
-    // All queries use net dollar flow across Q3→Q4 comparison
-    // This surfaces genuine conviction, not just absolute AUM size
+    // ── Key formula: delta_value = shares_delta × implied_price ────────────
+    // value_usd stores TOTAL position value (what they hold), not change value
+    // delta_value = ABS(shares_delta) / ABS(shares) × value_usd
+    // = fraction of position that changed × total value = $ value of the change
+    const DELTA_VAL_ADD = `CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd`;
+    const DELTA_VAL_REM = `CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd`;
+
     const allQ = db.prepare(
       "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
     ).all().map(r => r.quarter);
     const [curQ, prvQ] = allQ.length >= 2 ? allQ : [quarters[0], null];
 
-    // Excluded tickers — broad market ETFs and bond funds that every institution holds
     const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
                   'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
-    // ── Accumulation: NET positive flow (adds minus reduces) ranked by net $ ──
-    // Only tickers where net institutional flow was POSITIVE this quarter vs prior
+    // ── Accumulation: net $ added (delta value of increases) ────────────────
     let topBuys = [];
     if (prvQ) {
       topBuys = db.prepare(`
         SELECT
           c.ticker,
           COUNT(DISTINCT c.filer_cik) AS institution_count,
-          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd ELSE 0 END) AS added_value,
+          SUM(CASE WHEN c.shares_delta > 0
+              THEN CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              ELSE 0 END)             AS added_value,
           SUM(CASE WHEN c.shares_delta < 0 OR c.is_exit = 1
-                   THEN ABS(c.value_usd) ELSE 0 END)                    AS removed_value,
-          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd
-                   WHEN c.shares_delta < 0 OR c.is_exit = 1
-                   THEN -ABS(c.value_usd) ELSE 0 END)                   AS net_value,
-          SUM(c.value_usd) AS total_value
+              THEN CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              ELSE 0 END)             AS removed_value,
+          SUM(CASE WHEN c.shares_delta > 0
+              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              WHEN c.shares_delta < 0 OR c.is_exit = 1
+              THEN -CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              ELSE 0 END)             AS net_value
         FROM f13_changes c
         WHERE c.quarter IN (?, ?)
           AND c.ticker != ''
@@ -1155,35 +1162,37 @@ app.get('/api/f13-summary', (req, res) => {
         LIMIT 20
       `).all(curQ, prvQ);
     }
-    // Fallback: just use adds ranked by value
     if (!topBuys.length) {
       topBuys = db.prepare(`
         SELECT ticker,
                COUNT(DISTINCT filer_cik) AS institution_count,
-               SUM(value_usd)            AS added_value,
-               SUM(value_usd)            AS net_value,
-               SUM(value_usd)            AS total_value
+               SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS added_value,
+               SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS net_value
         FROM f13_changes
-        WHERE quarter IN (${qPlaceholders})
-          AND shares_delta > 0 AND ticker != ''
+        WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != ''
           AND ticker NOT IN (${EXCL})
         GROUP BY ticker ORDER BY net_value DESC LIMIT 20
       `).all(...quarters);
     }
 
-    // ── Distribution: net negative flow ranked by absolute $ net reduction ──
+    // ── Distribution: net $ removed (delta value of reductions) ─────────────
     let topSells = [];
     if (prvQ) {
       topSells = db.prepare(`
         SELECT
           c.ticker,
-          COUNT(DISTINCT c.filer_cik)                                    AS institution_count,
-          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd ELSE 0 END) AS added_value,
+          COUNT(DISTINCT c.filer_cik) AS institution_count,
+          SUM(CASE WHEN c.shares_delta > 0
+              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              ELSE 0 END)             AS added_value,
           SUM(CASE WHEN c.shares_delta < 0 OR c.is_exit = 1
-                   THEN ABS(c.value_usd) ELSE 0 END)                    AS removed_value,
-          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd
-                   WHEN c.shares_delta < 0 OR c.is_exit = 1
-                   THEN -ABS(c.value_usd) ELSE 0 END)                   AS net_value
+              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              ELSE 0 END)             AS removed_value,
+          SUM(CASE WHEN c.shares_delta > 0
+              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              WHEN c.shares_delta < 0 OR c.is_exit = 1
+              THEN -CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
+              ELSE 0 END)             AS net_value
         FROM f13_changes c
         WHERE c.quarter IN (?, ?)
           AND c.ticker != ''
@@ -1198,18 +1207,15 @@ app.get('/api/f13-summary', (req, res) => {
       topSells = db.prepare(`
         SELECT ticker,
                COUNT(DISTINCT filer_cik) AS institution_count,
-               SUM(ABS(value_usd))       AS removed_value,
-               -SUM(ABS(value_usd))      AS net_value
+               SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS removed_value,
+               -SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS net_value
         FROM f13_changes
-        WHERE quarter IN (${qPlaceholders})
-          AND (shares_delta < 0 OR is_exit = 1) AND ticker != ''
+        WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != ''
         GROUP BY ticker ORDER BY removed_value DESC LIMIT 20
       `).all(...quarters);
     }
 
-    // ── New positions: tickers with brand-new institutional holders ──────────
-    // Only counts is_new=1 rows where the institution had NO prior holding
-    // Ranked by total $ committed by new entrants
+    // ── New positions: first-time institutional buyers, ranked by $ committed ─
     const newPositions = db.prepare(`
       SELECT ticker,
              COUNT(DISTINCT filer_cik) AS new_filer_count,
@@ -1253,10 +1259,10 @@ app.get('/api/f13-dual', (req, res) => {
       SELECT
         f.ticker,
         COUNT(DISTINCT f.filer_cik)                          AS institution_count,
-        SUM(f.value_usd)                                     AS inst_value,
+        SUM(CAST(ABS(f.shares_delta) AS REAL) / NULLIF(ABS(f.shares), 0) * f.value_usd) AS inst_value,
         COUNT(DISTINCT t.insider)                            AS insider_count,
         SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END)   AS insider_value,
-        SUM(f.value_usd) + SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS combined_value,
+        SUM(CAST(ABS(f.shares_delta) AS REAL) / NULLIF(ABS(f.shares), 0) * f.value_usd) + SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS combined_value,
         MAX(t.trade_date)                                    AS latest_insider_buy,
         MAX(f.filed_date)                                    AS latest_inst_filing
       FROM f13_changes f
@@ -2912,7 +2918,7 @@ setTimeout(() => {
           // Warm summary cache
           _f13SummaryCache = {
             quarter: quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q,
-            topBuys: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(shares_delta) AS total_shares_added, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC, total_value DESC LIMIT 20`).all(...quarters),
+            topBuys: db.prepare(`SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count, SUM(CAST(ABS(shares_delta) AS REAL)/NULLIF(ABS(shares),0)*value_usd) AS net_value, SUM(CAST(ABS(shares_delta) AS REAL)/NULLIF(ABS(shares),0)*value_usd) AS added_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != '' GROUP BY ticker ORDER BY net_value DESC LIMIT 20`).all(...quarters),
             topSells: (() => {
             const explicit = db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(ABS(shares_delta)) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != '' GROUP BY ticker HAVING institution_count >= 1 ORDER BY institution_count DESC, total_shares_removed DESC LIMIT 20`).all(...quarters);
             if (explicit.length) return explicit;
