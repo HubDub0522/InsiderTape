@@ -2790,7 +2790,13 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
 
       state._f13Groups = Object.values(f13Groups);
 
-            state._f13Groups.forEach(g => {
+            // Size diamonds relative to each other — largest value = largest diamond
+      // Pair buy vs sell within each quarter so sizes are directly comparable
+      const maxBuyVal  = Math.max(...state._f13Groups.filter(g=>!g.isSell).map(g=>g.totalValue), 1);
+      const maxSellVal = Math.max(...state._f13Groups.filter(g=> g.isSell).map(g=>g.totalValue), 1);
+      const maxVal = Math.max(maxBuyVal, maxSellVal, 1); // shared scale so they're comparable
+
+      state._f13Groups.forEach(g => {
         const ts = chart.timeScale().timeToCoordinate(g.date);
         if (ts === null || ts === undefined) return;
         const pd = priceMap[g.date]; if (!pd) return;
@@ -2798,13 +2804,11 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
           g.isSell ? (pd.high || pd.close) * 1.015 : (pd.low || pd.close) * 0.985
         );
         if (yCoord === null || yCoord === undefined) return;
-        // Size by total value of group — log scale
-        const val = g.totalValue || 0;
-        const logSize = val > 0 ? Math.log10(val / 1e6) : 0;
-        const size = Math.max(5, Math.min(14, 5 + logSize * 1.8));
+        // Size relative to max value across all groups — shared scale
+        const ratio = g.totalValue / maxVal; // 0–1
+        const size = Math.max(5, Math.min(16, 5 + ratio * 11));
         const color = g.isSell ? '#ff00ff' : '#00d4ff';
-        const instCount = g.filings.length;
-        const fillAlpha = instCount >= 10 ? '0.30' : instCount >= 3 ? '0.20' : '0.10';
+        const fillAlpha = ratio > 0.5 ? '0.28' : ratio > 0.2 ? '0.18' : '0.10';
         drawDiamond(ctx, ts, yCoord, size,
           g.isSell ? `rgba(255,0,255,${fillAlpha})` : `rgba(0,212,255,${fillAlpha})`,
           color
@@ -2946,40 +2950,33 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
   }));
 
   // ── 13F institutional pressure bars (overlaid on insider bars) ───────────
-  // Aggregate by quarter — one bar per quarter covering all days in that quarter.
-  // Cyan = net institutional adding, Magenta = net institutional reducing.
-  // Scaled so they're visible alongside insider bars but don't overwhelm them.
+  const f13ByQ = {};
   if (f13Data && f13Data.length) {
-    const f13ByQ = {};
     f13Data.forEach(f => {
       if (!f.quarter) return;
-      if (!f13ByQ[f.quarter]) f13ByQ[f.quarter] = { net: 0, total: 0 };
+      if (!f13ByQ[f.quarter]) f13ByQ[f.quarter] = { net: 0, adds: 0, reduces: 0, addCount: 0, reduceCount: 0 };
       const v = Math.abs(f.value_usd || 0);
-      if (f.shares_delta > 0 && !f.is_exit) { f13ByQ[f.quarter].net += v; f13ByQ[f.quarter].total += v; }
-      else { f13ByQ[f.quarter].net -= v; f13ByQ[f.quarter].total += v; }
+      if (f.shares_delta > 0 && !f.is_exit) {
+        f13ByQ[f.quarter].net += v; f13ByQ[f.quarter].adds += v; f13ByQ[f.quarter].addCount++;
+      } else {
+        f13ByQ[f.quarter].net -= v; f13ByQ[f.quarter].reduces += v; f13ByQ[f.quarter].reduceCount++;
+      }
     });
 
-    const maxF13 = Math.max(...Object.values(f13ByQ).map(d => d.total), 1);
-
-    // Map each trading day to its quarter's net value
+    const maxF13 = Math.max(...Object.values(f13ByQ).map(d => d.adds + d.reduces), 1);
     const f13BarData = allDates.map(date => {
       const mo = parseInt(date.slice(5,7));
       const q  = mo <= 3 ? 1 : mo <= 6 ? 2 : mo <= 9 ? 3 : 4;
       const qk = `${date.slice(0,4)}Q${q}`;
       const qd = f13ByQ[qk];
       if (!qd) return null;
-      const v = +(qd.net / maxF13 * 65).toFixed(2); // scale to 65% of max
-      return {
-        time: date,
-        value: v,
-        color: v >= 0 ? 'rgba(0,212,255,0.45)' : 'rgba(255,0,255,0.45)'
-      };
+      const v = +(qd.net / maxF13 * 65).toFixed(2);
+      return { time: date, value: v,
+        color: v >= 0 ? 'rgba(0,212,255,0.45)' : 'rgba(255,0,255,0.45)' };
     }).filter(Boolean);
 
     if (f13BarData.length) {
-      const f13Hist = pChart.addHistogramSeries({
-        base: 0, priceLineVisible: false, lastValueVisible: false,
-      });
+      const f13Hist = pChart.addHistogramSeries({ base:0, priceLineVisible:false, lastValueVisible:false });
       f13Hist.setData(f13BarData);
     }
   }
@@ -2991,12 +2988,32 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
     const rect=pc.getBoundingClientRect(); const x=e.clientX-rect.left;
     const ts=pChart.timeScale().coordinateToTime(x); if(!ts){pTooltip.style.display='none';return;}
     const dateStr=typeof ts==='string'?ts:new Date(ts*1000).toISOString().slice(0,10);
-    const dayTrades=byDayTrades[dateStr]; if(!dayTrades||!dayTrades.length){pTooltip.style.display='none';return;}
-    const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
-    const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
-    const netColor=net>=0?'var(--buy)':'var(--sell)';
-    const ins=[...new Set(dayTrades.map(t=>t.insider).filter(Boolean))];
-    pTooltip.innerHTML=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>${bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:''}${sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d"><span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span></div><div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
+    // Get institutional quarter for this date
+    const mo=parseInt(dateStr.slice(5,7));
+    const q=mo<=3?1:mo<=6?2:mo<=9?3:4;
+    const qk=`${dateStr.slice(0,4)}Q${q}`;
+    const qInst=f13ByQ[qk];
+    const dayTrades=byDayTrades[dateStr];
+    if((!dayTrades||!dayTrades.length) && !qInst){pTooltip.style.display='none';return;}
+    let html=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>`;
+    if(dayTrades&&dayTrades.length){
+      const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
+      const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
+      const netColor=net>=0?'var(--buy)':'var(--sell)';
+      const ins=[...new Set(dayTrades.map(t=>t.insider).filter(Boolean))];
+      html+=`<div style="font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:4px">INSIDERS</div>`;
+      html+=bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:'';
+      html+=sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:'';
+      html+=`<div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
+    }
+    if(qInst){
+      const net=qInst.net;
+      html+=`<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1e2d3d;font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:4px">INSTITUTIONS · ${qk}</div>`;
+      html+=qInst.adds?`<div style="color:#00d4ff">◆ ADDING ${qInst.addCount} inst · ${fmt(qInst.adds)}</div>`:'';
+      html+=qInst.reduces?`<div style="color:#ff00ff">◆ REDUCING ${qInst.reduceCount} inst · ${fmt(qInst.reduces)}</div>`:'';
+      html+=`<div style="margin-top:4px;font-size:10px"><span style="color:var(--muted)">NET </span><span style="color:${net>=0?'#00d4ff':'#ff00ff'}">${net>=0?'+':''}${fmt(net)}</span></div>`;
+    }
+    pTooltip.innerHTML=html;
     pTooltip.style.display='block';
     const tx=e.clientX+16,ty=e.clientY-10;
     pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; pTooltip.style.top=ty+'px';
@@ -3006,11 +3023,28 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
   state.drawPressure=null;
   try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir)pChart.timeScale().setVisibleLogicalRange(ir);}catch(e){}
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
-  const label=document.createElement('div');
-  label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent='INSIDER PRESSURE  ◆ INSTITUTIONAL';
+  const legend=document.createElement('div');
+  legend.style.cssText='position:absolute;top:5px;left:10px;display:flex;align-items:center;gap:12px;pointer-events:none;z-index:2';
+  legend.innerHTML=`
+    <span style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.5px;color:#4a6580">PRESSURE</span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(0,255,136,0.7);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INSIDER BUY</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(255,68,102,0.7);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INSIDER SELL</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(0,212,255,0.45);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INST ADD</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(255,0,255,0.45);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INST REDUCE</span>
+    </span>`;
   pw.style.position='relative';
-  pw.appendChild(label);
+  pw.appendChild(legend);
 }
 
 
