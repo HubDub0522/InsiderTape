@@ -1120,16 +1120,12 @@ app.get('/api/f13-summary', (req, res) => {
     const qPlaceholders = quarters.map(() => '?').join(',');
 
     // ── Use shares_delta × price for accurate dollar change ────────────────
-    // shares_delta in Q4 = actual position change (computed vs Q3 baseline)
-    // Avoid cross-quarter JOINs which inflate numbers when filer sets don't overlap
+    // shares_delta in Q4 = actual position change vs Q3 baseline
 
     const allQ = db.prepare(
       "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
     ).all().map(r => r.quarter);
     const curQ = allQ[0];
-
-    const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
-                  'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
     // Build price map from in-memory cache
     const priceMap = {};
@@ -1138,25 +1134,21 @@ app.get('/api/f13-summary', (req, res) => {
         priceMap[sym] = entry.bars[entry.bars.length - 1].close;
       }
     }
-    const priceCount = Object.keys(priceMap).length;
-    slog(`f13-summary: priceMap has ${priceCount} tickers, curQ=${curQ}`);
+    slog('f13-summary: priceMap=' + Object.keys(priceMap).length + ' tickers, curQ=' + curQ);
 
-    // Aggregate shares_delta × price per ticker for curQ only
-    // shares_delta = actual change in position (positive=added, negative=reduced)
-    const rawAgg = db.prepare(`
-      SELECT
-        ticker,
-        COUNT(DISTINCT CASE WHEN shares_delta > 0 THEN filer_cik END) AS add_count,
-        COUNT(DISTINCT CASE WHEN shares_delta < 0 OR is_exit=1 THEN filer_cik END) AS reduce_count,
-        SUM(CASE WHEN shares_delta > 0 THEN shares_delta ELSE 0 END) AS shares_added,
-        SUM(CASE WHEN shares_delta < 0 OR is_exit=1 THEN ABS(shares_delta) ELSE 0 END) AS shares_removed,
-        COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_filer_count
-      FROM f13_changes
-      WHERE quarter = ?
-        AND ticker != ''
-        AND ticker NOT IN (\${EXCL})
-      GROUP BY ticker
-    `).all(curQ);
+    const EXCL_LIST = "'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG','IVV','VEA','VWO','EFA','EEM'";
+
+    // Aggregate shares_delta × price per ticker for curQ
+    const rawAgg = curQ ? db.prepare(
+      'SELECT ticker,' +
+      ' COUNT(DISTINCT CASE WHEN shares_delta>0 THEN filer_cik END) AS add_count,' +
+      ' COUNT(DISTINCT CASE WHEN shares_delta<0 OR is_exit=1 THEN filer_cik END) AS reduce_count,' +
+      ' SUM(CASE WHEN shares_delta>0 THEN shares_delta ELSE 0 END) AS shares_added,' +
+      ' SUM(CASE WHEN shares_delta<0 OR is_exit=1 THEN ABS(shares_delta) ELSE 0 END) AS shares_removed,' +
+      ' COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_filer_count' +
+      ' FROM f13_changes WHERE quarter=? AND ticker<>""' +
+      ' GROUP BY ticker'
+    ).all(curQ) : [];
 
     // Apply price to get dollar values
     const withDollars = rawAgg.map(r => {
@@ -1172,9 +1164,9 @@ app.get('/api/f13-summary', (req, res) => {
         removed_value:     removedDollars,
         net_value:         netDollars,
         new_filer_count:   r.new_filer_count || 0,
-        total_value:       (r.new_filer_count || 0) * price * (r.shares_added || 0) / Math.max(r.add_count || 1, 1),
+        total_value:       addedDollars,
       };
-    }).filter(Boolean);
+    }).filter(r => r !== null);
 
     let topBuys = withDollars.filter(r => r.net_value > 0)
                              .sort((a,b) => b.net_value - a.net_value).slice(0, 20);
@@ -1183,34 +1175,32 @@ app.get('/api/f13-summary', (req, res) => {
     let newPositions = withDollars.filter(r => r.new_filer_count >= 2)
                                   .sort((a,b) => b.added_value - a.added_value).slice(0, 20);
 
-    // Fallback: institution count if no price data
-    if (!topBuys.length) {
-      topBuys = db.prepare(`
-        SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,
-               SUM(shares_delta) AS shares_added, 0 AS net_value, 0 AS added_value
-        FROM f13_changes WHERE quarter=? AND shares_delta>0 AND ticker!=''
-          AND ticker NOT IN (\${EXCL})
-        GROUP BY ticker ORDER BY institution_count DESC LIMIT 20
-      `).all(curQ);
+    // Fallback: institution count if no price data available yet
+    if (!topBuys.length && curQ) {
+      topBuys = db.prepare(
+        'SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,' +
+        ' SUM(shares_delta) AS shares_added, 0 AS net_value, 0 AS added_value' +
+        ' FROM f13_changes WHERE quarter=? AND shares_delta>0 AND ticker<>""' +
+        ' GROUP BY ticker ORDER BY institution_count DESC LIMIT 20'
+      ).all(curQ);
     }
-    if (!topSells.length) {
-      topSells = db.prepare(`
-        SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,
-               0 AS removed_value, 0 AS net_value
-        FROM f13_changes WHERE quarter=? AND (shares_delta<0 OR is_exit=1) AND ticker!=''
-        GROUP BY ticker ORDER BY institution_count DESC LIMIT 20
-      `).all(curQ);
+    if (!topSells.length && curQ) {
+      topSells = db.prepare(
+        'SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,' +
+        ' 0 AS removed_value, 0 AS net_value' +
+        ' FROM f13_changes WHERE quarter=? AND (shares_delta<0 OR is_exit=1) AND ticker<>""' +
+        ' GROUP BY ticker ORDER BY institution_count DESC LIMIT 20'
+      ).all(curQ);
     }
-    if (!newPositions.length) {
-      newPositions = db.prepare(`
-        SELECT ticker, COUNT(DISTINCT filer_cik) AS new_filer_count, 0 AS total_value
-        FROM f13_changes WHERE quarter=? AND is_new=1 AND ticker!=''
-          AND ticker NOT IN (\${EXCL})
-        GROUP BY ticker HAVING new_filer_count>=2 ORDER BY new_filer_count DESC LIMIT 20
-      `).all(curQ);
+    if (!newPositions.length && curQ) {
+      newPositions = db.prepare(
+        'SELECT ticker, COUNT(DISTINCT filer_cik) AS new_filer_count, 0 AS total_value' +
+        ' FROM f13_changes WHERE quarter=? AND is_new=1 AND ticker<>""' +
+        ' GROUP BY ticker HAVING new_filer_count>=2 ORDER BY new_filer_count DESC LIMIT 20'
+      ).all(curQ);
     }
 
-        const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
+    const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
     const result = { quarter: quarterLabel, topBuys, topSells, newPositions };
     _f13SummaryCache = result;
     _f13SummaryCacheTime = Date.now();
