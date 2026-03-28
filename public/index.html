@@ -2634,7 +2634,7 @@ async function buildChart(priceData, trades, f13Data) {
       try { chart.timeScale().fitContent(); } catch(e) {}
     }
     // Pressure chart after another rAF
-    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData));
+    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData,state.f13Data||[]));
   });
 
   // Initialise stat bar to match the active 1Y range button
@@ -2758,139 +2758,80 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
         return { start: `${y}-${starts[q]}`, end: `${y}-${ends[q]}` };
       }
 
-      // Build sorted price array once — reused for all filings
-      const sortedPriceDays = priceData.slice().sort((a, b) => a.time < b.time ? -1 : 1);
+      // ── Group 13F filings by quarter+direction, find best price-match day ──
+      // Simple approach: for each filer, find the single trading day in their
+      // reporting quarter where the stock's close was nearest to their implied
+      // avg price. Then group all filers by that date. Cap display at 8 diamonds
+      // per direction, sized by total value of institutions in that date group.
 
-      function estimateTradeDate(f) {
+      function quarterDateRange(quarter) {
+        const m = quarter && quarter.match(/(\d{4})Q(\d)/);
+        if (!m) return null;
+        const y = parseInt(m[1]), q = parseInt(m[2]);
+        const starts = ['', '01-01', '04-01', '07-01', '10-01'];
+        const ends   = ['', '03-31', '06-30', '09-30', '12-31'];
+        return { start: `${y}-${starts[q]}`, end: `${y}-${ends[q]}` };
+      }
+
+      const sortedPriceDays = priceData.slice().sort((a,b) => a.time < b.time ? -1 : 1);
+
+      // Pre-index price days by quarter for O(1) range lookup
+      const priceByQuarter = {};
+      for (const bar of sortedPriceDays) {
+        const y = bar.time.slice(0,4);
+        const mo = parseInt(bar.time.slice(5,7));
+        const q = mo <= 3 ? 1 : mo <= 6 ? 2 : mo <= 9 ? 3 : 4;
+        const qk = `${y}Q${q}`;
+        if (!priceByQuarter[qk]) priceByQuarter[qk] = [];
+        priceByQuarter[qk].push(bar);
+      }
+
+      function bestDayForFiling(f) {
         const shares = Math.abs(f.shares || f.shares_delta || 0);
         const value  = Math.abs(f.value_usd || 0);
-        if (!shares || !value) return null;
-        const impliedPrice = value / shares;
-        if (impliedPrice <= 0) return null;
-
-        const range = quarterDateRange(f.quarter);
-        if (!range) return null;
-
-        // Filter to quarter range using binary search boundaries
-        let bestDate = null, bestDiff = Infinity;
-        for (const bar of sortedPriceDays) {
-          if (bar.time < range.start) continue;
-          if (bar.time > range.end) break; // sorted — can exit early
-          const diff = Math.abs(bar.close - impliedPrice);
-          if (diff < bestDiff) { bestDiff = diff; bestDate = bar.time; }
+        if (!shares || !value || !f.quarter) return null;
+        const implied = value / shares;
+        if (implied <= 0) return null;
+        const days = priceByQuarter[f.quarter];
+        if (!days || !days.length) return null;
+        let best = null, bestDiff = Infinity;
+        for (const bar of days) {
+          const diff = Math.abs(bar.close - implied);
+          if (diff < bestDiff) { bestDiff = diff; best = bar.time; }
         }
-
-        if (!bestDate || bestDiff / impliedPrice > 0.30) return null;
-        return bestDate;
+        // Reject if implied price is more than 25% from any price in quarter
+        if (best && bestDiff / implied > 0.25) return null;
+        return best;
       }
-
-      // ── Group filings into 2-week buckets per quarter ────────────────────
-      // Rather than plotting every institution individually (creates wall of diamonds),
-      // bucket by 2-week period within the reporting quarter.
-      // The bucket with the most total value gets the diamond.
-      // This gives a clean signal: "in this 2-week window, institutions were net buyers/sellers"
-
-      function getQuarterBuckets(quarter) {
-        const range = quarterDateRange(quarter);
-        if (!range) return [];
-        // Build 2-week bucket boundaries within the quarter
-        const buckets = [];
-        let d = new Date(range.start + 'T12:00:00Z');
-        const end = new Date(range.end + 'T12:00:00Z');
-        while (d <= end) {
-          const bucketEnd = new Date(d);
-          bucketEnd.setUTCDate(bucketEnd.getUTCDate() + 13);
-          buckets.push({
-            start: d.toISOString().slice(0,10),
-            end:   Math.min(bucketEnd, end).toISOString().slice(0,10),
-          });
-          d.setUTCDate(d.getUTCDate() + 14);
-        }
-        return buckets;
-      }
-
-      // For each filing, find which 2-week bucket best matches its implied price
-      // then assign to nearest trading day with highest volume in that bucket
-      function getBestDayInBucket(bucket, impliedPrice) {
-        let bestDate = null, bestScore = Infinity;
-        for (const bar of sortedPriceDays) {
-          if (bar.time < bucket.start) continue;
-          if (bar.time > bucket.end) break;
-          const priceDiff = Math.abs(bar.close - impliedPrice) / impliedPrice;
-          // Prefer days where price matched AND volume was high
-          const score = priceDiff;
-          if (score < bestScore) { bestScore = score; bestDate = bar.time; }
-        }
-        return bestDate;
-      }
-
-      // Pre-compute bucket sets per quarter
-      const quarterBucketCache = {};
 
       const f13Groups = {};
       f13Data.forEach(f => {
-        const shares = Math.abs(f.shares || f.shares_delta || 0);
-        const value  = Math.abs(f.value_usd || 0);
         const isSell = f.shares_delta < 0 || f.is_exit;
         const raw    = (f.filed_date || '').slice(0,10);
-
-        let d = null;
-        if (shares > 0 && value > 0) {
-          const impliedPrice = value / shares;
-          const range = quarterDateRange(f.quarter);
-          if (range && impliedPrice > 0) {
-            // Cache buckets per quarter
-            if (!quarterBucketCache[f.quarter]) {
-              quarterBucketCache[f.quarter] = getQuarterBuckets(f.quarter);
-            }
-            const buckets = quarterBucketCache[f.quarter];
-
-            // Find the bucket whose midpoint price best matches implied price
-            let bestBucket = null, bestDiff = Infinity;
-            for (const bucket of buckets) {
-              // Get mid-bucket price
-              const midDays = sortedPriceDays.filter(b => b.time >= bucket.start && b.time <= bucket.end);
-              if (!midDays.length) continue;
-              const midClose = midDays[Math.floor(midDays.length/2)].close;
-              const diff = Math.abs(midClose - impliedPrice) / impliedPrice;
-              if (diff < bestDiff) { bestDiff = diff; bestBucket = bucket; }
-            }
-
-            // Only use estimate if within 25% (tighter sanity check)
-            if (bestBucket && bestDiff < 0.25) {
-              d = getBestDayInBucket(bestBucket, impliedPrice);
-            }
-          }
-        }
-
-        // Fall back to quarter midpoint (not filing date — filing date is misleading)
+        let d = bestDayForFiling(f);
+        // Fallback: quarter midpoint
         if (!d) {
           const range = quarterDateRange(f.quarter);
           if (range) {
-            // Use quarter midpoint as fallback
-            const midDate = new Date(range.start + 'T12:00:00Z');
-            midDate.setUTCDate(midDate.getUTCDate() + 45);
-            d = nearestTradingDay(midDate.toISOString().slice(0,10));
+            const mid = new Date(range.start + 'T12:00:00Z');
+            mid.setUTCDate(mid.getUTCDate() + 45);
+            d = nearestTradingDay(mid.toISOString().slice(0,10));
           }
         }
         if (!d) return;
-
-        const k = d + '|' + (isSell ? 'f13sell' : 'f13buy');
-        if (!f13Groups[k]) f13Groups[k] = { date: d, filedDate: raw, estimatedDate: true, isSell, filings: [], totalValue: 0 };
+        const k = d + '|' + (isSell ? 'sell' : 'buy');
+        if (!f13Groups[k]) f13Groups[k] = { date: d, filedDate: raw, isSell, filings: [], totalValue: 0 };
         f13Groups[k].filings.push(f);
-        f13Groups[k].totalValue += value;
+        f13Groups[k].totalValue += Math.abs(f.value_usd || 0);
       });
 
-      // Merge groups that are within 5 trading days of each other (same direction)
-      // to avoid wall-of-diamonds effect — keep top groups by value
-      const rawGroups = Object.values(f13Groups).sort((a,b) => b.totalValue - a.totalValue);
-
-      // Keep only top 12 groups per direction to stay readable
-      const buyGroups  = rawGroups.filter(g => !g.isSell).slice(0, 12);
-      const sellGroups = rawGroups.filter(g =>  g.isSell).slice(0, 12);
+      // Keep top 8 groups per direction by total value
+      const allGroups = Object.values(f13Groups);
+      const buyGroups  = allGroups.filter(g => !g.isSell).sort((a,b) => b.totalValue - a.totalValue).slice(0,8);
+      const sellGroups = allGroups.filter(g =>  g.isSell).sort((a,b) => b.totalValue - a.totalValue).slice(0,8);
       state._f13Groups = [...buyGroups, ...sellGroups];
 
-      state._f13Groups.forEach(g => {
+            state._f13Groups.forEach(g => {
         const ts = chart.timeScale().timeToCoordinate(g.date);
         if (ts === null || ts === undefined) return;
         const pd = priceMap[g.date]; if (!pd) return;
@@ -2974,7 +2915,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
   canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 }
 
-function buildPressureChart(mainChart,trades,priceData) {
+function buildPressureChart(mainChart,trades,priceData,f13Data) {
   // Wipe the wrapper completely on every build — prevents stale canvases and
   // duplicate labels from accumulating across ticker navigations.
   const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
@@ -3012,7 +2953,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   // Green bar = net buying that week, red bar = net selling.
   // No baseline line, no price line, no last-value line — just bars.
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
-  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
+  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData, state.f13Data||[])); return; }
   const pcH = window.innerWidth <= 640 ? 80 : 120;
   pc.style.height = pcH + 'px';
   pc.style.minHeight = pcH + 'px';
@@ -3045,6 +2986,48 @@ function buildPressureChart(mainChart,trades,priceData) {
     return {time:t, value:v, color:v>=0?'rgba(0,255,136,0.85)':'rgba(255,68,102,0.85)'};
   }));
 
+  // ── 13F institutional net line ─────────────────────────────────────────
+  // Aggregate institutional net value by week — adds/reduces mapped to their
+  // estimated trade date. Line color shifts cyan→magenta based on net direction.
+  if (f13Data && f13Data.length) {
+    const f13ByWeek = {};
+    f13Data.forEach(f => {
+      const d = (f.filed_date || '').slice(0,10); if (!d) return;
+      const dt = new Date(d + 'T12:00:00Z');
+      const dow = dt.getUTCDay();
+      const mon = new Date(dt); mon.setUTCDate(dt.getUTCDate() - (dow===0?6:dow-1));
+      const wk = mon.toISOString().slice(0,10);
+      if (!f13ByWeek[wk]) f13ByWeek[wk] = { net: 0, total: 0 };
+      const v = Math.abs(f.value_usd || 0);
+      if (f.shares_delta > 0 && !f.is_exit) { f13ByWeek[wk].net += v; f13ByWeek[wk].total += v; }
+      else { f13ByWeek[wk].net -= v; f13ByWeek[wk].total += v; }
+    });
+    const maxF13 = Math.max(...Object.values(f13ByWeek).map(d => d.total), 1);
+    const f13LineData = [];
+    allDates.forEach(date => {
+      const dt = new Date(date + 'T12:00:00Z');
+      const dow = dt.getUTCDay();
+      const mon = new Date(dt); mon.setUTCDate(dt.getUTCDate() - (dow===0?6:dow-1));
+      const wk = mon.toISOString().slice(0,10);
+      const v = f13ByWeek[wk] ? +(f13ByWeek[wk].net / maxF13 * 80).toFixed(2) : null;
+      if (v !== null) f13LineData.push({ time: date, value: v });
+    });
+    if (f13LineData.length) {
+      // Split into cyan (net add) and magenta (net reduce) segments
+      // Build colored line using area series trick — positive=cyan, negative=magenta
+      const f13Pos = pChart.addLineSeries({
+        color: 'rgba(0,212,255,0.7)', lineWidth: 1.5, lineStyle: 0,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      const f13Neg = pChart.addLineSeries({
+        color: 'rgba(255,0,255,0.7)', lineWidth: 1.5, lineStyle: 0,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      f13Pos.setData(f13LineData.map(d => ({ time: d.time, value: d.value >= 0 ? d.value : null })).filter(d => d.value !== null));
+      f13Neg.setData(f13LineData.map(d => ({ time: d.time, value: d.value < 0 ? d.value : null })).filter(d => d.value !== null));
+    }
+  }
+
   const byDayTrades={};
   trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
   const pTooltip=document.getElementById('chartTooltip')||document.createElement('div');
@@ -3069,7 +3052,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
   const label=document.createElement('div');
   label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent='INSIDER PRESSURE';
+  label.textContent='INSIDER + INSTITUTIONAL PRESSURE';
   pw.style.position='relative';
   pw.appendChild(label);
 }
@@ -3231,7 +3214,7 @@ function applyChartFilters() {
   }
   if(state.drawCircles)state.drawCircles();
   renderSidebarTrades(filtered); renderStockTradesTable(filtered); renderTradeMarkerList(filtered);
-  buildPressureChartGated(state.chart,filtered,state.currentPriceData);
+  buildPressureChartGated(state.chart,filtered,state.currentPriceData,state.f13Data||[]);
 }
 
 
@@ -9499,9 +9482,9 @@ function renderSidebarGated(trades) {
 }
 
 // ── Pressure chart guard ──────────────────────────────────────
-function buildPressureChartGated(mainChart, trades, priceData) {
+function buildPressureChartGated(mainChart, trades, priceData, f13Data) {
   if (auth.isPremium) {
-    buildPressureChart(mainChart, trades, priceData);
+    buildPressureChart(mainChart, trades, priceData, f13Data);
     return;
   }
   const pw = document.getElementById('pressureWrapper');
