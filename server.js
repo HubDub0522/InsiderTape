@@ -1119,13 +1119,9 @@ app.get('/api/f13-summary', (req, res) => {
       db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
     const qPlaceholders = quarters.map(() => '?').join(',');
 
-    // ── Key formula: delta_value = shares_delta × implied_price ────────────
-    // value_usd stores TOTAL position value (what they hold), not change value
-    // delta_value = ABS(shares_delta) / ABS(shares) × value_usd
-    // = fraction of position that changed × total value = $ value of the change
-    const DELTA_VAL_ADD = `CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd`;
-    const DELTA_VAL_REM = `CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd`;
-
+    // ── Simple, accurate queries using institution count + share count ────────
+    // value_usd is unreliable for aggregation (stores total holdings, not changes)
+    // We rank by institution count (most reliable signal) and show share deltas
     const allQ = db.prepare(
       "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
     ).all().map(r => r.quarter);
@@ -1134,104 +1130,79 @@ app.get('/api/f13-summary', (req, res) => {
     const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
                   'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
-    // ── Accumulation: net $ added (delta value of increases) ────────────────
-    let topBuys = [];
-    if (prvQ) {
-      topBuys = db.prepare(`
-        SELECT
-          c.ticker,
-          COUNT(DISTINCT c.filer_cik) AS institution_count,
-          SUM(CASE WHEN c.shares_delta > 0
-              THEN CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              ELSE 0 END)             AS added_value,
-          SUM(CASE WHEN c.shares_delta < 0 OR c.is_exit = 1
-              THEN CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              ELSE 0 END)             AS removed_value,
-          SUM(CASE WHEN c.shares_delta > 0
-              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              WHEN c.shares_delta < 0 OR c.is_exit = 1
-              THEN -CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              ELSE 0 END)             AS net_value
-        FROM f13_changes c
-        WHERE c.quarter IN (?, ?)
-          AND c.ticker != ''
-          AND c.ticker NOT IN (${EXCL})
-        GROUP BY c.ticker
-        HAVING net_value > 0 AND added_value > 0
-        ORDER BY net_value DESC
-        LIMIT 20
-      `).all(curQ, prvQ);
-    }
-    if (!topBuys.length) {
-      topBuys = db.prepare(`
-        SELECT ticker,
-               COUNT(DISTINCT filer_cik) AS institution_count,
-               SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS added_value,
-               SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS net_value
-        FROM f13_changes
-        WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != ''
-          AND ticker NOT IN (${EXCL})
-        GROUP BY ticker ORDER BY net_value DESC LIMIT 20
-      `).all(...quarters);
-    }
-
-    // ── Distribution: net $ removed (delta value of reductions) ─────────────
-    let topSells = [];
-    if (prvQ) {
-      topSells = db.prepare(`
-        SELECT
-          c.ticker,
-          COUNT(DISTINCT c.filer_cik) AS institution_count,
-          SUM(CASE WHEN c.shares_delta > 0
-              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              ELSE 0 END)             AS added_value,
-          SUM(CASE WHEN c.shares_delta < 0 OR c.is_exit = 1
-              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              ELSE 0 END)             AS removed_value,
-          SUM(CASE WHEN c.shares_delta > 0
-              THEN  CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              WHEN c.shares_delta < 0 OR c.is_exit = 1
-              THEN -CAST(ABS(c.shares_delta) AS REAL) / NULLIF(ABS(c.shares), 0) * c.value_usd
-              ELSE 0 END)             AS net_value
-        FROM f13_changes c
-        WHERE c.quarter IN (?, ?)
-          AND c.ticker != ''
-          AND c.ticker NOT IN (${EXCL})
-        GROUP BY c.ticker
-        HAVING net_value < 0 AND removed_value > 0
-        ORDER BY net_value ASC
-        LIMIT 20
-      `).all(curQ, prvQ);
-    }
-    if (!topSells.length) {
-      topSells = db.prepare(`
-        SELECT ticker,
-               COUNT(DISTINCT filer_cik) AS institution_count,
-               SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS removed_value,
-               -SUM(CAST(ABS(shares_delta) AS REAL) / NULLIF(ABS(shares), 0) * value_usd) AS net_value
-        FROM f13_changes
-        WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != ''
-        GROUP BY ticker ORDER BY removed_value DESC LIMIT 20
-      `).all(...quarters);
-    }
-
-    // ── New positions: first-time institutional buyers, ranked by $ committed ─
-    const newPositions = db.prepare(`
+    // ── Accumulation: tickers with the most institutions ADDING ──────────────
+    // Ranked by number of adding institutions, deduplicated per filer per ticker
+    const topBuys = db.prepare(`
       SELECT ticker,
-             COUNT(DISTINCT filer_cik) AS new_filer_count,
-             SUM(value_usd)            AS total_value
+             COUNT(DISTINCT filer_cik) AS institution_count,
+             SUM(shares_delta)         AS total_shares_added
       FROM f13_changes
-      WHERE quarter = ?
-        AND is_new = 1
+      WHERE quarter IN (${qPlaceholders})
+        AND shares_delta > 0
         AND ticker != ''
         AND ticker NOT IN (${EXCL})
       GROUP BY ticker
-      HAVING new_filer_count >= 2
-      ORDER BY total_value DESC
+      ORDER BY institution_count DESC, total_shares_added DESC
       LIMIT 20
-    `).all(curQ);
+    `).all(...quarters);
 
-    const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
+    // ── Distribution: tickers held in prior quarter but EXITED in current ────
+    // These are genuine exits — institution had a position and no longer does
+    let topSells = [];
+    if (prvQ) {
+      topSells = db.prepare(`
+        SELECT p.ticker,
+               COUNT(DISTINCT p.filer_cik)  AS institution_count,
+               SUM(ABS(p.shares))           AS total_shares_exited
+        FROM f13_changes p
+        LEFT JOIN f13_changes c
+          ON c.ticker     = p.ticker
+          AND c.filer_cik = p.filer_cik
+          AND c.quarter   = ?
+        WHERE p.quarter = ?
+          AND p.ticker  != ''
+          AND p.ticker NOT IN (${EXCL})
+          AND p.shares   > 0
+          AND c.filer_cik IS NULL
+        GROUP BY p.ticker
+        HAVING institution_count >= 2
+        ORDER BY institution_count DESC
+        LIMIT 20
+      `).all(curQ, prvQ);
+    }
+    // Fallback: explicit exits/reductions
+    if (!topSells.length) {
+      topSells = db.prepare(`
+        SELECT ticker,
+               COUNT(DISTINCT filer_cik)  AS institution_count,
+               SUM(ABS(shares_delta))     AS total_shares_exited
+        FROM f13_changes
+        WHERE quarter IN (${qPlaceholders})
+          AND (shares_delta < 0 OR is_exit = 1)
+          AND ticker != ''
+        GROUP BY ticker
+        ORDER BY institution_count DESC
+        LIMIT 20
+      `).all(...quarters);
+    }
+
+    // ── New positions: first-time institutional buyers ────────────────────────
+    const newPositions = db.prepare(`
+      SELECT ticker,
+             COUNT(DISTINCT filer_cik) AS new_filer_count,
+             SUM(shares)               AS total_shares
+      FROM f13_changes
+      WHERE quarter = ?
+        AND is_new   = 1
+        AND ticker  != ''
+        AND ticker NOT IN (${EXCL})
+      GROUP BY ticker
+      HAVING new_filer_count >= 2
+      ORDER BY new_filer_count DESC
+      LIMIT 20
+    `).all(curQ || quarters[0]);
+
+        const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
     const result = { quarter: quarterLabel, topBuys, topSells, newPositions };
     _f13SummaryCache = result;
     _f13SummaryCacheTime = Date.now();
@@ -1254,17 +1225,15 @@ app.get('/api/f13-dual', (req, res) => {
     if (!quarterRow) return res.json({ quarter: null, results: [] });
     const q = quarterRow.quarter;
 
-    // Dual conviction: ranked by combined insider + institutional dollar flow
+    // Dual conviction: insider buying + institutional adding — ranked by insider $ then institution count
     const results = db.prepare(`
       SELECT
         f.ticker,
-        COUNT(DISTINCT f.filer_cik)                          AS institution_count,
-        SUM(CAST(ABS(f.shares_delta) AS REAL) / NULLIF(ABS(f.shares), 0) * f.value_usd) AS inst_value,
-        COUNT(DISTINCT t.insider)                            AS insider_count,
-        SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END)   AS insider_value,
-        SUM(CAST(ABS(f.shares_delta) AS REAL) / NULLIF(ABS(f.shares), 0) * f.value_usd) + SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS combined_value,
-        MAX(t.trade_date)                                    AS latest_insider_buy,
-        MAX(f.filed_date)                                    AS latest_inst_filing
+        COUNT(DISTINCT f.filer_cik)                        AS institution_count,
+        COUNT(DISTINCT t.insider)                          AS insider_count,
+        SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS insider_value,
+        MAX(t.trade_date)                                  AS latest_insider_buy,
+        MAX(f.filed_date)                                  AS latest_inst_filing
       FROM f13_changes f
       INNER JOIN trades t ON t.ticker = f.ticker
         AND t.type = 'P'
@@ -1274,10 +1243,10 @@ app.get('/api/f13-dual', (req, res) => {
         AND f.shares_delta > 0
         AND f.ticker != ''
         AND f.ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','GLD','SLV','TLT','HYG','LQD',
-                             'VTI','VEA','VWO','EFA','EEM','IVV','BND','AGG')
+                             'VEA','VWO','EFA','EEM','IVV','BND','AGG')
       GROUP BY f.ticker
       HAVING institution_count >= 1 AND insider_count >= 1
-      ORDER BY combined_value DESC
+      ORDER BY insider_value DESC, institution_count DESC
       LIMIT 30
     `).all(q);
 
