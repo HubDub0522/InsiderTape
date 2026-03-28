@@ -2765,11 +2765,11 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
           g.isSell ? (pd.high || pd.close) * 1.02 : (pd.low || pd.close) * 0.98
         );
         if (yCoord === null || yCoord === undefined) return;
-        // Size by total USD value — log scale so large trades don't dwarf small ones
-        // Base: 5px. Range: 5–16px. $1M→6px, $10M→8px, $100M→11px, $1B→14px
-        const val = g.totalValue || 0;
-        const logSize = val > 0 ? Math.log10(val / 1e6) : 0; // log10(value in $M)
-        const size = Math.max(5, Math.min(16, 5 + logSize * 2.5));
+        // Size by average value per filing — log scale
+        // Avg $1M=5px, $10M=7px, $50M=9px, $200M=11px, $1B+=13px
+        const avgVal = g.totalValue > 0 ? g.totalValue / g.filings.length : 0;
+        const logSize = avgVal > 0 ? Math.log10(avgVal / 1e6) : 0; // log10(avg $M)
+        const size = Math.max(5, Math.min(14, 5 + logSize * 2.2));
         const color = g.isSell ? '#ff00ff' : '#00d4ff';
         const fillAlpha = g.filings.length >= 3 ? '0.28' : '0.14';
         drawDiamond(ctx, ts, yCoord, size,
