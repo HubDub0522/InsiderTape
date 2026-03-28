@@ -3021,8 +3021,12 @@ app.get('/api/admin/f13-status', (req, res) => {
     const quarterLog = db.prepare('SELECT * FROM f13_quarter_log ORDER BY quarter DESC').all();
     const totalChanges = db.prepare('SELECT COUNT(*) AS n FROM f13_changes').get();
     const tickersWithData = db.prepare("SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE ticker != ''").get();
-    const recentRows = db.prepare("SELECT ticker, filer_name, quarter, filed_date, shares_delta, value_usd FROM f13_changes WHERE ticker != '' ORDER BY filed_date DESC LIMIT 10").all();
-    res.json({ quarterLog, totalChanges: totalChanges.n, tickersWithData: tickersWithData.n, recentRows, f13Running });
+    const recentRows = db.prepare("SELECT ticker, filer_name, quarter, filed_date, shares, shares_delta, value_usd, is_new, is_exit FROM f13_changes WHERE ticker != '' ORDER BY filed_date DESC LIMIT 5").all();
+    // Sample: what does MSFT look like?
+    const msftSample = db.prepare("SELECT ticker, filer_name, shares, shares_delta, value_usd, is_new, pct_change FROM f13_changes WHERE ticker='MSFT' ORDER BY ABS(shares_delta) DESC LIMIT 3").all();
+    // Aggregate test
+    const msftAgg = db.prepare("SELECT COUNT(*) as n, SUM(shares_delta) as delta_shares, SUM(value_usd) as sum_value, AVG(value_usd) as avg_value FROM f13_changes WHERE ticker='MSFT' AND shares_delta > 0 AND quarter='2025Q4'").get();
+    res.json({ quarterLog, totalChanges: totalChanges.n, tickersWithData: tickersWithData.n, recentRows, msftSample, msftAgg, f13Running });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
