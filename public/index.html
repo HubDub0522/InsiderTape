@@ -4967,8 +4967,8 @@ function buildF13SellTile() {
     loading: isLoading,
     top3: items.slice(0,3).map(r => ({
       ticker: r.ticker,
-      label: fmt(Math.abs(r.removed_value || r.total_shares_removed || 0)) + ' removed',
-      sub: r.institution_count + ' inst reducing',
+      label: r.institution_count + ' institutions exited',
+      sub: fmtShares(r.total_shares_exited||0) + ' shares exited',
       color: '#ff00ff',
     })),
     accentColor: '#ff00ff',
@@ -4992,8 +4992,8 @@ function buildF13NewTile() {
     loading: isLoading,
     top3: items.slice(0,3).map(r => ({
       ticker: r.ticker,
-      label: fmt(r.total_value) + ' committed',
-      sub: r.new_filer_count + ' new holders',
+      label: r.new_filer_count + ' new institutions',
+      sub: fmtShares(r.total_shares||0) + ' shares initiated',
       color: '#ffd700',
     })),
     accentColor: '#ffd700',
