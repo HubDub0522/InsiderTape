@@ -1109,23 +1109,15 @@ let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v4 — price×shares
 app.get('/api/f13-summary', (req, res) => {
   try {
     if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
-    const quarter = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY processed_at DESC LIMIT 1').get();
-    if (!quarter) return res.json({ quarter: null, topBuys: [], topSells: [], newPositions: [], dualConviction: [] });
 
-    const q = quarter.quarter;
-    // Use last 2 quarters combined if current quarter is sparse (< 100 tickers with data)
-    const currentCount = db.prepare('SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE quarter=? AND ticker!=?').get(q, '');
-    const quarters = currentCount.n >= 100 ? [q] :
-      db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
-    const qPlaceholders = quarters.map(() => '?').join(',');
-
-    // ── Use shares_delta × price for accurate dollar change ────────────────
-    // shares_delta in Q4 = actual position change vs Q3 baseline
-
-    const allQ = db.prepare(
-      "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
-    ).all().map(r => r.quarter);
-    const curQ = allQ[0];
+    // Get most recent quarter that has data
+    const curQRow = db.prepare(
+      "SELECT quarter FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC LIMIT 1"
+    ).get();
+    if (!curQRow) return res.json({ quarter: null, topBuys: [], topSells: [], newPositions: [] });
+    const curQ = curQRow.quarter;
+    const quarters = [curQ];
+    const qPlaceholders = '?';
 
     // Build price map from in-memory cache
     const priceMap = {};
@@ -1210,6 +1202,21 @@ app.get('/api/f13-summary', (req, res) => {
     _f13SummaryCache = null;
     res.status(500).json({ error: e.message });
   }
+});
+
+// GET /api/admin/f13-debug — raw diagnostic for f13 summary
+app.get('/api/admin/f13-debug', (req, res) => {
+  const secret = process.env.ADMIN_SECRET;
+  if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
+  try {
+    const curQRow = db.prepare("SELECT quarter FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC LIMIT 1").get();
+    const curQ = curQRow ? curQRow.quarter : null;
+    const sampleRows = curQ ? db.prepare("SELECT ticker, shares_delta, shares FROM f13_changes WHERE quarter=? AND ticker='NFLX' LIMIT 3").all(curQ) : [];
+    const nflxAgg = curQ ? db.prepare("SELECT SUM(CASE WHEN shares_delta>0 THEN shares_delta ELSE 0 END) AS added, COUNT(DISTINCT CASE WHEN shares_delta>0 THEN filer_cik END) AS adders FROM f13_changes WHERE quarter=? AND ticker='NFLX'").get(curQ) : null;
+    const priceMapSize = Object.keys(_priceCache).length;
+    const nflxPrice = _priceCache['NFLX'] ? _priceCache['NFLX'].bars[_priceCache['NFLX'].bars.length-1].close : null;
+    res.json({ curQ, sampleRows, nflxAgg, priceMapSize, nflxPrice, cachedSummary: !!_f13SummaryCache });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/f13-dual — tickers with BOTH insider buying AND institutional accumulation
