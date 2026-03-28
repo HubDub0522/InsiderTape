@@ -1143,6 +1143,7 @@ app.get('/api/f13-summary', (req, res) => {
         AND (shares_delta < 0 OR is_exit = 1)
         AND ticker != ''
       GROUP BY ticker
+      HAVING institution_count >= 1
       ORDER BY institution_count DESC, total_shares_removed DESC
       LIMIT 20
     `).all(...quarters);
@@ -2845,10 +2846,11 @@ setTimeout(() => {
           _f13SummaryCache = {
             quarter: quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q,
             topBuys: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(shares_delta) AS total_shares_added, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC, total_value DESC LIMIT 20`).all(...quarters),
-            topSells: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(ABS(shares_delta)) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != '' GROUP BY ticker ORDER BY institution_count DESC, total_shares_removed DESC LIMIT 20`).all(...quarters),
+            topSells: db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(ABS(shares_delta)) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != '' GROUP BY ticker HAVING institution_count >= 1 ORDER BY institution_count DESC, total_shares_removed DESC LIMIT 20`).all(...quarters),
             newPositions: db.prepare(`SELECT ticker, COUNT(*) AS new_filer_count, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND is_new = 1 AND ticker != '' GROUP BY ticker ORDER BY new_filer_count DESC, total_value DESC LIMIT 20`).all(...quarters),
           };
           _f13SummaryCacheTime = Date.now();
+          slog('13F summary cache pre-warmed: topBuys=' + _f13SummaryCache.topBuys.length + ' topSells=' + _f13SummaryCache.topSells.length + ' newPos=' + _f13SummaryCache.newPositions.length);
           slog(`13F summary cache pre-warmed (${_f13SummaryCache.topBuys.length} top buys)`);
         }
       } catch(e) { slog(`13F cache pre-warm error: ${e.message}`); }
