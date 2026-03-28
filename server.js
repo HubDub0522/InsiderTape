@@ -1119,87 +1119,111 @@ app.get('/api/f13-summary', (req, res) => {
       db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
     const qPlaceholders = quarters.map(() => '?').join(',');
 
-    // ── Accumulation: ranked by total $ added (not institution count) ──────
-    // Excludes large-cap index staples that every fund holds
-    const topBuys = db.prepare(`
-      SELECT ticker,
-             COUNT(DISTINCT filer_cik) AS institution_count,
-             SUM(value_usd)            AS total_value
-      FROM f13_changes
-      WHERE quarter IN (${qPlaceholders})
-        AND shares_delta > 0
-        AND ticker != ''
-        AND ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG')
-      GROUP BY ticker
-      ORDER BY total_value DESC
-      LIMIT 20
-    `).all(...quarters);
-
-    // ── Distribution: net dollar REDUCTION ranked by absolute $ removed ─────
-    // NET = ($ added) - ($ removed) per ticker; surface biggest net sellers
-    // Looks across both Q3 and Q4 for any net-negative ticker
+    // All queries use net dollar flow across Q3→Q4 comparison
+    // This surfaces genuine conviction, not just absolute AUM size
     const allQ = db.prepare(
       "SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2"
     ).all().map(r => r.quarter);
+    const [curQ, prvQ] = allQ.length >= 2 ? allQ : [quarters[0], null];
 
-    let topSells = [];
-    if (allQ.length >= 2) {
-      const [curQ, prvQ] = allQ;
-      // For each ticker: sum adds and reduces in curQ, compare to prvQ holdings
-      // Net reduction = (prvQ total value) - (curQ total value) where curQ < prvQ
-      topSells = db.prepare(`
+    // Excluded tickers — broad market ETFs and bond funds that every institution holds
+    const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
+                  'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
+
+    // ── Accumulation: NET positive flow (adds minus reduces) ranked by net $ ──
+    // Only tickers where net institutional flow was POSITIVE this quarter vs prior
+    let topBuys = [];
+    if (prvQ) {
+      topBuys = db.prepare(`
         SELECT
           c.ticker,
-          COUNT(DISTINCT c.filer_cik)                         AS institution_count,
+          COUNT(DISTINCT c.filer_cik) AS institution_count,
           SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd ELSE 0 END) AS added_value,
           SUM(CASE WHEN c.shares_delta < 0 OR c.is_exit = 1
-                   THEN ABS(c.value_usd) ELSE 0 END)          AS removed_value,
+                   THEN ABS(c.value_usd) ELSE 0 END)                    AS removed_value,
           SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd
                    WHEN c.shares_delta < 0 OR c.is_exit = 1
-                   THEN -ABS(c.value_usd) ELSE 0 END)         AS net_value
+                   THEN -ABS(c.value_usd) ELSE 0 END)                   AS net_value,
+          SUM(c.value_usd) AS total_value
         FROM f13_changes c
         WHERE c.quarter IN (?, ?)
           AND c.ticker != ''
-          AND c.ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG')
+          AND c.ticker NOT IN (${EXCL})
+        GROUP BY c.ticker
+        HAVING net_value > 0 AND added_value > 0
+        ORDER BY net_value DESC
+        LIMIT 20
+      `).all(curQ, prvQ);
+    }
+    // Fallback: just use adds ranked by value
+    if (!topBuys.length) {
+      topBuys = db.prepare(`
+        SELECT ticker,
+               COUNT(DISTINCT filer_cik) AS institution_count,
+               SUM(value_usd)            AS added_value,
+               SUM(value_usd)            AS net_value,
+               SUM(value_usd)            AS total_value
+        FROM f13_changes
+        WHERE quarter IN (${qPlaceholders})
+          AND shares_delta > 0 AND ticker != ''
+          AND ticker NOT IN (${EXCL})
+        GROUP BY ticker ORDER BY net_value DESC LIMIT 20
+      `).all(...quarters);
+    }
+
+    // ── Distribution: net negative flow ranked by absolute $ net reduction ──
+    let topSells = [];
+    if (prvQ) {
+      topSells = db.prepare(`
+        SELECT
+          c.ticker,
+          COUNT(DISTINCT c.filer_cik)                                    AS institution_count,
+          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd ELSE 0 END) AS added_value,
+          SUM(CASE WHEN c.shares_delta < 0 OR c.is_exit = 1
+                   THEN ABS(c.value_usd) ELSE 0 END)                    AS removed_value,
+          SUM(CASE WHEN c.shares_delta > 0 THEN c.value_usd
+                   WHEN c.shares_delta < 0 OR c.is_exit = 1
+                   THEN -ABS(c.value_usd) ELSE 0 END)                   AS net_value
+        FROM f13_changes c
+        WHERE c.quarter IN (?, ?)
+          AND c.ticker != ''
+          AND c.ticker NOT IN (${EXCL})
         GROUP BY c.ticker
         HAVING net_value < 0 AND removed_value > 0
         ORDER BY net_value ASC
         LIMIT 20
       `).all(curQ, prvQ);
     }
-
-    // Fallback: explicit negative deltas only
     if (!topSells.length) {
       topSells = db.prepare(`
         SELECT ticker,
                COUNT(DISTINCT filer_cik) AS institution_count,
                SUM(ABS(value_usd))       AS removed_value,
-               -SUM(ABS(value_usd))      AS net_value,
-               SUM(ABS(value_usd))       AS total_value
+               -SUM(ABS(value_usd))      AS net_value
         FROM f13_changes
         WHERE quarter IN (${qPlaceholders})
-          AND (shares_delta < 0 OR is_exit = 1)
-          AND ticker != ''
-        GROUP BY ticker
-        ORDER BY removed_value DESC
-        LIMIT 20
+          AND (shares_delta < 0 OR is_exit = 1) AND ticker != ''
+        GROUP BY ticker ORDER BY removed_value DESC LIMIT 20
       `).all(...quarters);
     }
 
-    // Tickers with most new positions opened
+    // ── New positions: tickers with brand-new institutional holders ──────────
+    // Only counts is_new=1 rows where the institution had NO prior holding
+    // Ranked by total $ committed by new entrants
     const newPositions = db.prepare(`
       SELECT ticker,
              COUNT(DISTINCT filer_cik) AS new_filer_count,
              SUM(value_usd)            AS total_value
       FROM f13_changes
-      WHERE quarter IN (${qPlaceholders})
+      WHERE quarter = ?
         AND is_new = 1
         AND ticker != ''
-        AND ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG')
+        AND ticker NOT IN (${EXCL})
       GROUP BY ticker
+      HAVING new_filer_count >= 2
       ORDER BY total_value DESC
       LIMIT 20
-    `).all(...quarters);
+    `).all(curQ);
 
     const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
     const result = { quarter: quarterLabel, topBuys, topSells, newPositions };
@@ -1224,16 +1248,17 @@ app.get('/api/f13-dual', (req, res) => {
     if (!quarterRow) return res.json({ quarter: null, results: [] });
     const q = quarterRow.quarter;
 
-    // Tickers with 2+ institutions ADDING this quarter AND 1+ insider BUYING in last 90 days
+    // Dual conviction: ranked by combined insider + institutional dollar flow
     const results = db.prepare(`
       SELECT
         f.ticker,
-        COUNT(DISTINCT f.filer_cik)    AS institution_count,
-        SUM(f.value_usd)               AS inst_value,
-        COUNT(DISTINCT t.insider)      AS insider_count,
-        SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS insider_value,
-        MAX(t.trade_date)              AS latest_insider_buy,
-        MAX(f.filed_date)              AS latest_inst_filing
+        COUNT(DISTINCT f.filer_cik)                          AS institution_count,
+        SUM(f.value_usd)                                     AS inst_value,
+        COUNT(DISTINCT t.insider)                            AS insider_count,
+        SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END)   AS insider_value,
+        SUM(f.value_usd) + SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS combined_value,
+        MAX(t.trade_date)                                    AS latest_insider_buy,
+        MAX(f.filed_date)                                    AS latest_inst_filing
       FROM f13_changes f
       INNER JOIN trades t ON t.ticker = f.ticker
         AND t.type = 'P'
@@ -1242,10 +1267,11 @@ app.get('/api/f13-dual', (req, res) => {
       WHERE f.quarter = ?
         AND f.shares_delta > 0
         AND f.ticker != ''
-        AND f.ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','GLD','SLV','TLT','HYG','LQD')
+        AND f.ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','GLD','SLV','TLT','HYG','LQD',
+                             'VTI','VEA','VWO','EFA','EEM','IVV','BND','AGG')
       GROUP BY f.ticker
-      HAVING institution_count >= 2 AND insider_count >= 1
-      ORDER BY institution_count DESC, insider_count DESC, inst_value DESC
+      HAVING institution_count >= 1 AND insider_count >= 1
+      ORDER BY combined_value DESC
       LIMIT 30
     `).all(q);
 
