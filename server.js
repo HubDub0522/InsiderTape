@@ -1105,7 +1105,7 @@ app.get('/api/f13-recent', (req, res) => {
 });
 
 // GET /api/f13-summary — aggregated stats for analysis tiles
-let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v3 — dollar-ranked
+let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v4 — price×shares
 app.get('/api/f13-summary', (req, res) => {
   try {
     if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
@@ -1132,30 +1132,33 @@ app.get('/api/f13-summary', (req, res) => {
     const EXCL = `'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG',
                   'IVV','VEA','VWO','EFA','EEM','VIG','IGSB','VCSH','VCIT','IUSB','IUSG'`;
 
-    // Build price map: extract only last close per ticker using SQLite JSON
-    // Avoid loading full bars arrays into memory (would OOM with 250 tickers × 2yr daily bars)
+    // Build price map from in-memory price cache (already loaded, no extra DB reads)
+    // _priceCache is populated by warmPriceCache() at startup
     const priceMap = {};
-    try {
-      // Extract last bar's close price using JSON path — much lighter than loading full arrays
-      const priceRows = db.prepare(`
-        SELECT symbol,
-               JSON_EXTRACT(bars_json, '$[#-1].close') AS last_close
-        FROM price_cache
-        WHERE bars_json IS NOT NULL AND bars_json != '[]'
-      `).all();
-      for (const row of priceRows) {
-        if (row.last_close && row.last_close > 0) priceMap[row.symbol] = row.last_close;
+    for (const [sym, entry] of Object.entries(_priceCache)) {
+      if (entry && entry.bars && entry.bars.length > 0) {
+        priceMap[sym] = entry.bars[entry.bars.length - 1].close;
       }
-    } catch(e) {
-      // JSON_EXTRACT with [#-1] may not work in older SQLite — fallback: load one at a time
+    }
+    // Also check DB cache for any tickers not in memory
+    if (Object.keys(priceMap).length < 10) {
       try {
-        const syms = db.prepare(`SELECT symbol FROM price_cache`).all();
+        const syms = db.prepare('SELECT symbol FROM price_cache').all();
         for (const { symbol } of syms) {
-          const bars = getPC(symbol);
-          if (bars && bars.length) priceMap[symbol] = bars[bars.length - 1].close;
+          if (priceMap[symbol]) continue;
+          try {
+            const row = db.prepare('SELECT bars_json FROM price_cache WHERE symbol=?').get(symbol);
+            if (row) {
+              const bars = JSON.parse(row.bars_json);
+              if (bars && bars.length) priceMap[symbol] = bars[bars.length - 1].close;
+            }
+          } catch(_) {}
         }
       } catch(_) {}
     }
+
+    const priceCount = Object.keys(priceMap).length;
+    slog(`f13-summary: priceMap has ${priceCount} tickers, curQ=${curQ}, prvQ=${prvQ}`);
 
     let topBuys = [], topSells = [], newPositions = [];
 
@@ -1211,7 +1214,7 @@ app.get('/api/f13-summary', (req, res) => {
           removed_value:     removedDollars,
           net_value:         netDollars,
           new_filer_count:   r.new_filer_count || 0,
-          total_value:       (r.new_filer_count || 0) * price * (r.shares_added || 0) / Math.max(r.filer_count, 1),
+          total_value:       (r.new_filer_count >= 2) ? (r.shares_added || 0) * price : 0,
         };
       }).filter(Boolean);
 
@@ -2206,22 +2209,12 @@ async function warmPriceCache() {
       GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 75
     `).all();
 
-    // Top 13F tickers by institution count (most widely held)
-    const f13Rows = db.prepare(`
-      SELECT ticker FROM f13_changes
-      WHERE ticker != '' AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-      GROUP BY ticker ORDER BY COUNT(DISTINCT filer_cik) DESC LIMIT 150
-    `).all();
-
-    const allTickers = [...new Set([
-      ...form4Rows.map(r => r.ticker),
-      ...f13Rows.map(r => r.ticker),
-    ])].slice(0, 250);
+    const allTickers = [...new Set(form4Rows.map(r => r.ticker))].slice(0, 75);
     slog(`Warming price cache for ${allTickers.length} tickers...`);
     for (let i = 0; i < allTickers.length; i += 10) {
       const batch = allTickers.slice(i, i + 10);
       await Promise.allSettled(batch.map(sym => fetchPriceBars(sym)));
-      if (i + 10 < allTickers.length) await new Promise(r => setTimeout(r, 500));
+      if (i + 10 < allTickers.length) await new Promise(r => setTimeout(r, 400));
     }
     slog('Price cache warm-up complete');
   } catch(e) { slog('warmPriceCache error: ' + e.message); }
@@ -2933,37 +2926,6 @@ setTimeout(() => {
     }
   } else {
     slog(`13F data current (${hasF13.n} recent changes)`);
-    // Pre-warm f13 summary and dual caches in background
-    setTimeout(() => {
-      try {
-        const quarterRow = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY processed_at DESC LIMIT 1').get();
-        if (quarterRow) {
-          const q = quarterRow.quarter;
-          const currentCount = db.prepare('SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE quarter=? AND ticker!=?').get(q, '');
-          const quarters = currentCount.n >= 100 ? [q] :
-            db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 2').all().map(r => r.quarter);
-          const qPlaceholders = quarters.map(() => '?').join(',');
-          // Warm summary cache
-          _f13SummaryCache = {
-            quarter: quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q,
-            topBuys: db.prepare(`SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count, SUM(CAST(ABS(shares_delta) AS REAL)/NULLIF(ABS(shares),0)*value_usd) AS net_value, SUM(CAST(ABS(shares_delta) AS REAL)/NULLIF(ABS(shares),0)*value_usd) AS added_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND shares_delta > 0 AND ticker != '' GROUP BY ticker ORDER BY net_value DESC LIMIT 20`).all(...quarters),
-            topSells: (() => {
-            const explicit = db.prepare(`SELECT ticker, COUNT(*) AS institution_count, SUM(ABS(shares_delta)) AS total_shares_removed, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND (shares_delta < 0 OR is_exit = 1) AND ticker != '' GROUP BY ticker HAVING institution_count >= 1 ORDER BY institution_count DESC, total_shares_removed DESC LIMIT 20`).all(...quarters);
-            if (explicit.length) return explicit;
-            const latestQ = quarters[0];
-            const priorQ = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY quarter DESC LIMIT 1 OFFSET 1').get();
-            const aq = db.prepare("SELECT DISTINCT quarter FROM f13_changes WHERE ticker != '' ORDER BY quarter DESC LIMIT 2").all().map(r => r.quarter);
-            if (aq.length < 2) return [];
-            return db.prepare(`SELECT p.ticker, COUNT(DISTINCT p.filer_cik) AS institution_count, SUM(p.value_usd) AS total_shares_removed, SUM(p.value_usd) AS total_value FROM f13_changes p LEFT JOIN f13_changes c ON c.ticker = p.ticker AND c.filer_cik = p.filer_cik AND c.quarter = ? WHERE p.quarter = ? AND p.ticker != '' AND c.filer_cik IS NULL GROUP BY p.ticker HAVING institution_count >= 2 ORDER BY institution_count DESC, total_value DESC LIMIT 20`).all(aq[0], aq[1]);
-          })(),
-            newPositions: db.prepare(`SELECT ticker, COUNT(*) AS new_filer_count, SUM(value_usd) AS total_value FROM f13_changes WHERE quarter IN (${qPlaceholders}) AND is_new = 1 AND ticker != '' GROUP BY ticker ORDER BY new_filer_count DESC, total_value DESC LIMIT 20`).all(...quarters),
-          };
-          _f13SummaryCacheTime = Date.now();
-          slog('13F summary cache pre-warmed: topBuys=' + _f13SummaryCache.topBuys.length + ' topSells=' + _f13SummaryCache.topSells.length + ' newPos=' + _f13SummaryCache.newPositions.length);
-          slog(`13F summary cache pre-warmed (${_f13SummaryCache.topBuys.length} top buys)`);
-        }
-      } catch(e) { slog(`13F cache pre-warm error: ${e.message}`); }
-    }, 5000);
   }
   scheduleF13();
 }, 60000);
