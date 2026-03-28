@@ -5125,7 +5125,7 @@ function renderAnalysisDashboard() {
       id: 'exitwarning',
       icon: '🔴',
       name: 'Insider Exit Warning',
-      desc: 'Detects when multiple insiders, especially executives, are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. Also flags SC 13D/G filings showing major holders reducing their stake.',
+      desc: 'Detects when multiple insiders, especially executives, are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. Also factors in 13F institutional distribution — funds reducing or exiting positions.',
       count: (() => { try { const _ew = detectExitWarnings(trades, window._exitWarningPriceHighs||{}); window._exitWarningTileCache = _ew; return _ew.length; } catch(e) { return 0; } })(),
       countLabel: 'warnings active',
       top3: (() => { try { return (window._exitWarningTileCache || detectExitWarnings(trades, window._exitWarningPriceHighs||{})).slice(0,3).map(w => ({
@@ -9511,7 +9511,7 @@ function loadPremiumPage() {
     <rect x="4" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="12" y="25" fill="#f59e0b" font-family="monospace" font-size="6" letter-spacing="0.5">⚡ OPPORTUNITY RANKER</text>
     <text x="12" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">NVDA · Score 94</text>
-    <text x="12" y="44" fill="#4a6580" font-family="monospace" font-size="6">Cluster + Regime↑ + SC 13D</text>
+    <text x="12" y="44" fill="#4a6580" font-family="monospace" font-size="6">Cluster + Regime↑ + 13F Add</text>
     <rect x="177" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="185" y="25" fill="#ff4466" font-family="monospace" font-size="6" letter-spacing="0.5">⚠ EXIT WARNING</text>
     <text x="185" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">TDW · Score 78 — HIGH</text>
@@ -9523,7 +9523,7 @@ function loadPremiumPage() {
     <rect x="177" y="58" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="185" y="69" fill="#22c55e" font-family="monospace" font-size="6" letter-spacing="0.5">📡 REGIME SHIFT</text>
     <text x="185" y="79" fill="#c0ccd8" font-family="monospace" font-size="6">AAPL · Seller flipped buyer</text>
-    <text x="185" y="88" fill="#4a6580" font-family="monospace" font-size="6">CFO · 2yr gap · +SC 13G confirm</text>
+    <text x="185" y="88" fill="#4a6580" font-family="monospace" font-size="6">CFO · 2yr gap · +13F confirm</text>
     <rect x="4" y="102" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="12" y="113" fill="#8b5cf6" font-family="monospace" font-size="6" letter-spacing="0.5">🆕 FIRST BUY SIGNALS</text>
     <text x="12" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">MSFT · CEO · 3yr gap</text>
@@ -9709,7 +9709,7 @@ function loadPremiumPage() {
   const featureCards = [
     {
       icon: '📬', title: 'EMAIL ALERTS',
-      desc: 'Get notified within minutes of a qualifying insider filing — including SC 13D activist stakes and SC 13G institutional accumulation. Filter by sector, role, minimum trade size, and signal type. Set it once — never miss a high-conviction buy again.',
+      desc: 'Get notified within minutes of a qualifying insider filing — including 13F institutional position changes and insider open-market buys. Filter by sector, role, minimum trade size, and signal type. Set it once — never miss a high-conviction move again.',
       mock: alertsMockup
     },
     {
@@ -9729,7 +9729,7 @@ function loadPremiumPage() {
     },
     {
       icon: '🚨', title: 'MONITOR',
-      desc: 'Every signal ranked by strength across all detection engines — cluster buys, SC 13D/G ownership changes, first-time purchases after years of inactivity, C-suite conviction outliers, and exit warnings. Updated continuously throughout the trading day.',
+      desc: 'Every signal ranked by strength across all detection engines — cluster buys, 13F institutional position changes, first-time purchases after years of inactivity, C-suite conviction outliers, and exit warnings. Updated continuously throughout the trading day.',
       mock: monitorMockup
     },
     {
