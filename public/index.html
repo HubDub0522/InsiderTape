@@ -2758,78 +2758,37 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
         return { start: `${y}-${starts[q]}`, end: `${y}-${ends[q]}` };
       }
 
-      // ── Group 13F filings by quarter+direction, find best price-match day ──
-      // Simple approach: for each filer, find the single trading day in their
-      // reporting quarter where the stock's close was nearest to their implied
-      // avg price. Then group all filers by that date. Cap display at 8 diamonds
-      // per direction, sized by total value of institutions in that date group.
+      // ── Group 13F filings by quarter+direction ──────────────────────────
+      // Plot at quarter midpoint — honest representation of "held this quarter"
+      // No false precision from price-matching. One diamond per quarter per direction,
+      // sized by total institutional value. Clean and interpretable.
 
-      function quarterDateRange(quarter) {
+      function quarterMidpoint(quarter) {
         const m = quarter && quarter.match(/(\d{4})Q(\d)/);
         if (!m) return null;
         const y = parseInt(m[1]), q = parseInt(m[2]);
-        const starts = ['', '01-01', '04-01', '07-01', '10-01'];
-        const ends   = ['', '03-31', '06-30', '09-30', '12-31'];
-        return { start: `${y}-${starts[q]}`, end: `${y}-${ends[q]}` };
+        const mids = ['', `${y}-02-15`, `${y}-05-15`, `${y}-08-15`, `${y}-11-15`];
+        return nearestTradingDay(mids[q]);
       }
 
-      const sortedPriceDays = priceData.slice().sort((a,b) => a.time < b.time ? -1 : 1);
-
-      // Pre-index price days by quarter for O(1) range lookup
-      const priceByQuarter = {};
-      for (const bar of sortedPriceDays) {
-        const y = bar.time.slice(0,4);
-        const mo = parseInt(bar.time.slice(5,7));
-        const q = mo <= 3 ? 1 : mo <= 6 ? 2 : mo <= 9 ? 3 : 4;
-        const qk = `${y}Q${q}`;
-        if (!priceByQuarter[qk]) priceByQuarter[qk] = [];
-        priceByQuarter[qk].push(bar);
-      }
-
-      function bestDayForFiling(f) {
-        const shares = Math.abs(f.shares || f.shares_delta || 0);
-        const value  = Math.abs(f.value_usd || 0);
-        if (!shares || !value || !f.quarter) return null;
-        const implied = value / shares;
-        if (implied <= 0) return null;
-        const days = priceByQuarter[f.quarter];
-        if (!days || !days.length) return null;
-        let best = null, bestDiff = Infinity;
-        for (const bar of days) {
-          const diff = Math.abs(bar.close - implied);
-          if (diff < bestDiff) { bestDiff = diff; best = bar.time; }
-        }
-        // Reject if implied price is more than 25% from any price in quarter
-        if (best && bestDiff / implied > 0.25) return null;
-        return best;
-      }
-
+      // Group by quarter+direction — one diamond per quarter per side
       const f13Groups = {};
       f13Data.forEach(f => {
+        if (!f.quarter) return;
         const isSell = f.shares_delta < 0 || f.is_exit;
-        const raw    = (f.filed_date || '').slice(0,10);
-        let d = bestDayForFiling(f);
-        // Fallback: quarter midpoint
-        if (!d) {
-          const range = quarterDateRange(f.quarter);
-          if (range) {
-            const mid = new Date(range.start + 'T12:00:00Z');
-            mid.setUTCDate(mid.getUTCDate() + 45);
-            d = nearestTradingDay(mid.toISOString().slice(0,10));
-          }
-        }
+        const d = quarterMidpoint(f.quarter);
         if (!d) return;
-        const k = d + '|' + (isSell ? 'sell' : 'buy');
-        if (!f13Groups[k]) f13Groups[k] = { date: d, filedDate: raw, isSell, filings: [], totalValue: 0 };
+        const k = f.quarter + '|' + (isSell ? 'sell' : 'buy');
+        if (!f13Groups[k]) f13Groups[k] = {
+          date: d, quarter: f.quarter,
+          isSell, filings: [], totalValue: 0,
+          filedDate: (f.filed_date||'').slice(0,10)
+        };
         f13Groups[k].filings.push(f);
         f13Groups[k].totalValue += Math.abs(f.value_usd || 0);
       });
 
-      // Keep top 8 groups per direction by total value
-      const allGroups = Object.values(f13Groups);
-      const buyGroups  = allGroups.filter(g => !g.isSell).sort((a,b) => b.totalValue - a.totalValue).slice(0,8);
-      const sellGroups = allGroups.filter(g =>  g.isSell).sort((a,b) => b.totalValue - a.totalValue).slice(0,8);
-      state._f13Groups = [...buyGroups, ...sellGroups];
+      state._f13Groups = Object.values(f13Groups);
 
             state._f13Groups.forEach(g => {
         const ts = chart.timeScale().timeToCoordinate(g.date);
@@ -2986,77 +2945,42 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
     return {time:t, value:v, color:v>=0?'rgba(0,255,136,0.85)':'rgba(255,68,102,0.85)'};
   }));
 
-  // ── 13F institutional net line ─────────────────────────────────────────
-  // Use same price-matching logic as chart diamonds: find the trading day
-  // within the reporting quarter where price closest matched implied avg price.
-  // This places the line at estimated TRADE date, not filing date.
+  // ── 13F institutional pressure bars (overlaid on insider bars) ───────────
+  // Aggregate by quarter — one bar per quarter covering all days in that quarter.
+  // Cyan = net institutional adding, Magenta = net institutional reducing.
+  // Scaled so they're visible alongside insider bars but don't overwhelm them.
   if (f13Data && f13Data.length) {
-    // Build price lookup by quarter (same approach as diamond estimation)
-    const pressurePriceByQ = {};
-    priceData.forEach(bar => {
-      const mo = parseInt(bar.time.slice(5,7));
-      const q  = mo <= 3 ? 1 : mo <= 6 ? 2 : mo <= 9 ? 3 : 4;
-      const qk = `${bar.time.slice(0,4)}Q${q}`;
-      if (!pressurePriceByQ[qk]) pressurePriceByQ[qk] = [];
-      pressurePriceByQ[qk].push(bar);
-    });
-
-    function f13EstDate(f) {
-      const shares = Math.abs(f.shares || f.shares_delta || 0);
-      const value  = Math.abs(f.value_usd || 0);
-      if (!shares || !value || !f.quarter) return null;
-      const implied = value / shares;
-      if (implied <= 0) return null;
-      const days = pressurePriceByQ[f.quarter];
-      if (!days || !days.length) return null;
-      let best = null, bestDiff = Infinity;
-      for (const bar of days) {
-        const diff = Math.abs(bar.close - implied);
-        if (diff < bestDiff) { bestDiff = diff; best = bar.time; }
-      }
-      return (best && bestDiff / implied < 0.25) ? best : null;
-    }
-
-    // Aggregate by estimated week
-    const f13ByDate = {};
+    const f13ByQ = {};
     f13Data.forEach(f => {
-      const d = f13EstDate(f);
-      if (!d) return;
-      // Snap to Monday of that week
-      const dt = new Date(d + 'T12:00:00Z');
-      const dow = dt.getUTCDay();
-      const mon = new Date(dt); mon.setUTCDate(dt.getUTCDate() - (dow===0?6:dow-1));
-      const wk = mon.toISOString().slice(0,10);
-      if (!f13ByDate[wk]) f13ByDate[wk] = { net: 0, total: 0 };
+      if (!f.quarter) return;
+      if (!f13ByQ[f.quarter]) f13ByQ[f.quarter] = { net: 0, total: 0 };
       const v = Math.abs(f.value_usd || 0);
-      if (f.shares_delta > 0 && !f.is_exit) { f13ByDate[wk].net += v; f13ByDate[wk].total += v; }
-      else { f13ByDate[wk].net -= v; f13ByDate[wk].total += v; }
+      if (f.shares_delta > 0 && !f.is_exit) { f13ByQ[f.quarter].net += v; f13ByQ[f.quarter].total += v; }
+      else { f13ByQ[f.quarter].net -= v; f13ByQ[f.quarter].total += v; }
     });
 
-    const maxF13 = Math.max(...Object.values(f13ByDate).map(d => d.total), 1);
-    const f13Pos = [], f13Neg = [];
-    allDates.forEach(date => {
-      const dt = new Date(date + 'T12:00:00Z');
-      const dow = dt.getUTCDay();
-      const mon = new Date(dt); mon.setUTCDate(dt.getUTCDate() - (dow===0?6:dow-1));
-      const wk = mon.toISOString().slice(0,10);
-      if (!f13ByDate[wk]) return;
-      const v = +(f13ByDate[wk].net / maxF13 * 75).toFixed(2);
-      if (v >= 0) f13Pos.push({ time: date, value: v });
-      else        f13Neg.push({ time: date, value: v });
-    });
+    const maxF13 = Math.max(...Object.values(f13ByQ).map(d => d.total), 1);
 
-    if (f13Pos.length || f13Neg.length) {
-      if (f13Pos.length) {
-        const s = pChart.addLineSeries({ color:'rgba(0,212,255,0.8)', lineWidth:2,
-          priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
-        s.setData(f13Pos);
-      }
-      if (f13Neg.length) {
-        const s = pChart.addLineSeries({ color:'rgba(255,0,255,0.8)', lineWidth:2,
-          priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
-        s.setData(f13Neg);
-      }
+    // Map each trading day to its quarter's net value
+    const f13BarData = allDates.map(date => {
+      const mo = parseInt(date.slice(5,7));
+      const q  = mo <= 3 ? 1 : mo <= 6 ? 2 : mo <= 9 ? 3 : 4;
+      const qk = `${date.slice(0,4)}Q${q}`;
+      const qd = f13ByQ[qk];
+      if (!qd) return null;
+      const v = +(qd.net / maxF13 * 65).toFixed(2); // scale to 65% of max
+      return {
+        time: date,
+        value: v,
+        color: v >= 0 ? 'rgba(0,212,255,0.45)' : 'rgba(255,0,255,0.45)'
+      };
+    }).filter(Boolean);
+
+    if (f13BarData.length) {
+      const f13Hist = pChart.addHistogramSeries({
+        base: 0, priceLineVisible: false, lastValueVisible: false,
+      });
+      f13Hist.setData(f13BarData);
     }
   }
 
@@ -3084,7 +3008,7 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
   const label=document.createElement('div');
   label.style.cssText='position:absolute;top:6px;left:10px;font-family:Space Mono,monospace;font-size:9px;letter-spacing:1.5px;color:#4a6580;pointer-events:none;z-index:2';
-  label.textContent='INSIDER + INSTITUTIONAL PRESSURE';
+  label.textContent='INSIDER PRESSURE  ◆ INSTITUTIONAL';
   pw.style.position='relative';
   pw.appendChild(label);
 }
