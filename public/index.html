@@ -4228,48 +4228,36 @@ function renderSentimentChart(el, insider, spx, thresholds) {
       ' L ' + spxPts[spxPts.length-1][0].toFixed(1) + ',' + bY + ' Z';
   }
 
-  // MACD-style histogram — bars grow from median baseline
-  // Above median = more buying than usual → red (market elevated, near top)
-  // Below median = less buying than usual → green (market depressed, near bottom)
-  // Bar height proportional to deviation from median
-  const yMedian = yInd(median); // center line
-
-  function barColor(v) {
-    const dev = v - median;
-    if (dev > 0) {
-      // Above median (more buying) — red spectrum, market near top
-      if (v >= p90) return '#ff4466';
-      if (v >= p75) return '#ff6644';
-      return '#ff884466';
-    } else {
-      // Below median (less buying) — green spectrum, market near bottom
-      if (v <= p10) return '#00ff88';
-      if (v <= p25) return '#22c55e';
-      return '#22c55e66';
-    }
+  // Inverted colored line — high buy% = low on chart (market near top = red)
+  function indColor(v) {
+    if (v >= p90) return '#ff4466';
+    if (v >= p75) return '#ff8844';
+    if (v <= p10) return '#00ff88';
+    if (v <= p25) return '#22c55e';
+    return '#00d4ff';
   }
 
-  const barW = Math.max(1, (cW / dates.length) - 0.5);
-  const bars = insider.map((d, i) => {
-    const x    = xCoord(i) - barW / 2;
-    const yVal = yInd(d.smoothedBuyPct);
-    // Bar goes from median line to value (inverted axis)
-    const yTop = Math.min(yVal, yMedian);
-    const h    = Math.max(1, Math.abs(yVal - yMedian));
-    const c    = barColor(d.smoothedBuyPct);
-    return `<rect x="${x.toFixed(1)}" y="${yTop.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"
-      fill="${c}" opacity="0.85"
-      class="sentiment-dot"
-      data-date="${dates[i]}"
-      data-val="${(d.smoothedBuyPct*100).toFixed(1)}"
-      data-buys="${d.buyCount}"
-      data-sells="${d.sellCount}"
-      data-buyval="${d.buyVal}"
-      data-sellval="${d.sellVal}"/>`;
-  }).join('');
+  // Build colored line segments
+  const indPts = insider.map((d, i) => [xCoord(i), yInd(d.smoothedBuyPct), d.smoothedBuyPct]);
+  let bars = '';
+  for (let i = 1; i < indPts.length; i++) {
+    const [x1,y1,v1] = indPts[i-1];
+    const [x2,y2,v2] = indPts[i];
+    const c = indColor((v1+v2)/2);
+    bars += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/>`;
+  }
 
-  // Median zero line
-  const medianLine = `<line x1="${PAD.left}" y1="${yMedian.toFixed(1)}" x2="${PAD.left+cW}" y2="${yMedian.toFixed(1)}" stroke="rgba(80,100,120,0.6)" stroke-width="1.5"/>`;
+  // Invisible hit-target dots for tooltip
+  bars += insider.map((d, i) => `<circle cx="${indPts[i][0].toFixed(1)}" cy="${indPts[i][1].toFixed(1)}" r="5" fill="transparent" stroke="transparent"
+    class="sentiment-dot"
+    data-date="${dates[i]}"
+    data-val="${(d.smoothedBuyPct*100).toFixed(1)}"
+    data-buys="${d.buyCount}"
+    data-sells="${d.sellCount}"
+    data-buyval="${d.buyVal}"
+    data-sellval="${d.sellVal}"/>`).join('');
+
+  const medianLine = `<line x1="${PAD.left}" y1="${yInd(median).toFixed(1)}" x2="${PAD.left+cW}" y2="${yInd(median).toFixed(1)}" stroke="rgba(80,100,120,0.5)" stroke-width="1" stroke-dasharray="4,3"/>`;
 
   // Threshold lines (inverted positions)
   const threshLines = [
