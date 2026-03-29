@@ -1135,15 +1135,15 @@ app.get('/api/f13-summary', (req, res) => {
 
     const EXCL_LIST = "'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG','IVV','VEA','VWO','EFA','EEM'";
 
-    // Aggregate shares_delta × price per ticker for curQ
-    // Only use rows with pct_change (real delta vs prior quarter) for accumulation/distribution
-    // is_new=1 rows are included separately for the new positions tile
+    // Aggregate per ticker for curQ
+    // Accumulation/distribution: exclude is_new=1 (new positions skew the delta)
+    // Cap shares_added at shares held (delta can't exceed position size)
     const rawAgg = curQ ? db.prepare(
       'SELECT ticker,' +
-      ' COUNT(DISTINCT CASE WHEN shares_delta>0 AND pct_change IS NOT NULL THEN filer_cik END) AS add_count,' +
-      ' COUNT(DISTINCT CASE WHEN (shares_delta<0 OR is_exit=1) THEN filer_cik END) AS reduce_count,' +
-      ' SUM(CASE WHEN shares_delta>0 AND pct_change IS NOT NULL THEN shares_delta ELSE 0 END) AS shares_added,' +
-      ' SUM(CASE WHEN shares_delta<0 OR is_exit=1 THEN ABS(shares_delta) ELSE 0 END) AS shares_removed,' +
+      ' COUNT(DISTINCT CASE WHEN shares_delta>0 AND is_new=0 THEN filer_cik END) AS add_count,' +
+      ' COUNT(DISTINCT CASE WHEN shares_delta<0 OR is_exit=1 THEN filer_cik END) AS reduce_count,' +
+      ' SUM(CASE WHEN shares_delta>0 AND is_new=0 THEN MIN(shares_delta, shares) ELSE 0 END) AS shares_added,' +
+      ' SUM(CASE WHEN shares_delta<0 OR is_exit=1 THEN MIN(ABS(shares_delta), shares) ELSE 0 END) AS shares_removed,' +
       ' COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_filer_count' +
       ' FROM f13_changes WHERE quarter=? AND ticker<>""' +
       ' GROUP BY ticker'
@@ -1219,7 +1219,13 @@ app.get('/api/admin/f13-debug', (req, res) => {
     const curQRow = db.prepare("SELECT quarter FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC LIMIT 1").get();
     const curQ = curQRow ? curQRow.quarter : null;
     const sampleRows = curQ ? db.prepare("SELECT ticker, shares_delta, shares FROM f13_changes WHERE quarter=? AND ticker='NFLX' LIMIT 3").all(curQ) : [];
-    const nflxAgg = curQ ? db.prepare("SELECT SUM(CASE WHEN shares_delta>0 THEN shares_delta ELSE 0 END) AS added_all, SUM(CASE WHEN shares_delta>0 AND pct_change IS NOT NULL THEN shares_delta ELSE 0 END) AS added_delta_only, COUNT(DISTINCT CASE WHEN shares_delta>0 THEN filer_cik END) AS adders_all, COUNT(DISTINCT CASE WHEN shares_delta>0 AND pct_change IS NOT NULL THEN filer_cik END) AS adders_delta_only, COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_positions FROM f13_changes WHERE quarter=? AND ticker='NFLX'").get(curQ) : null;
+    const nflxAgg = curQ ? db.prepare("SELECT " +
+      "SUM(CASE WHEN shares_delta>0 AND is_new=0 THEN MIN(shares_delta,shares) ELSE 0 END) AS added_nonew, " +
+      "SUM(CASE WHEN shares_delta>0 THEN shares_delta ELSE 0 END) AS added_all, " +
+      "COUNT(DISTINCT CASE WHEN shares_delta>0 AND is_new=0 THEN filer_cik END) AS adders_nonew, " +
+      "COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_positions, " +
+      "COUNT(DISTINCT CASE WHEN pct_change IS NOT NULL AND shares_delta>0 THEN filer_cik END) AS has_pct_change " +
+      "FROM f13_changes WHERE quarter=? AND ticker='NFLX'").get(curQ) : null;
     const priceMapSize = Object.keys(_priceCache).length;
     const nflxPrice = _priceCache['NFLX'] ? _priceCache['NFLX'].bars[_priceCache['NFLX'].bars.length-1].close : null;
     res.json({ curQ, sampleRows, nflxAgg, priceMapSize, nflxPrice, cachedSummary: !!_f13SummaryCache });
