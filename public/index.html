@@ -2829,25 +2829,13 @@ function buildPressureChart(mainChart,trades,priceData) {
     const rect=pc.getBoundingClientRect(); const x=e.clientX-rect.left;
     const ts=pChart.timeScale().coordinateToTime(x); if(!ts){pTooltip.style.display='none';return;}
     const dateStr=typeof ts==='string'?ts:new Date(ts*1000).toISOString().slice(0,10);
-    // Get institutional quarter for this date
     const dayTrades=byDayTrades[dateStr];
     if(!dayTrades||!dayTrades.length){pTooltip.style.display='none';return;}
-    let html=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>`;
-    if(dayTrades&&dayTrades.length){
-      const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
-      const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
-      const netColor=net>=0?'var(--buy)':'var(--sell)';
-      const ins=[...new Set(dayTrades.map(t=>t.insider).filter(Boolean))];
-      html+=`<div style="font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:4px">INSIDERS</div>`;
-      html+=bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:'';
-      html+=sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:'';
-      html+=`<div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
-    }
-    if(qInst){
-      const net=qInst.net;
-                        html+=`<div style="margin-top:4px;font-size:10px"><span style="color:var(--muted)">NET </span><span style="color:${net>=0?'#00d4ff':'#ff00ff'}">${net>=0?'+':''}${fmt(net)}</span></div>`;
-    }
-    pTooltip.innerHTML=html;
+    const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
+    const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
+    const netColor=net>=0?'var(--buy)':'var(--sell)';
+    const ins=[...new Set(dayTrades.map(t=>t.insider).filter(Boolean))];
+    pTooltip.innerHTML=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>${bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:''}${sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d"><span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span></div><div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
     pTooltip.style.display='block';
     const tx=e.clientX+16,ty=e.clientY-10;
     pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; pTooltip.style.top=ty+'px';
