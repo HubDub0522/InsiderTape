@@ -302,66 +302,13 @@ try {
   try { db.exec('DROP TABLE IF EXISTS sc13_transactions'); } catch(_) {}
   try { db.exec('DROP TABLE IF EXISTS sc13_quarter_log'); } catch(_) {}
 
-  // 13F quarter log backfill — if data exists but log is empty, write it
-  try {
-    const quarters = db.prepare("SELECT quarter, COUNT(*) AS n FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC").all();
-    for (const { quarter, n } of quarters) {
-      const existing = db.prepare('SELECT quarter FROM f13_quarter_log WHERE quarter=?').get(quarter);
-      if (!existing && n > 100) {
-        db.prepare('INSERT INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,?)').run(
-          quarter, n, n, new Date().toISOString().slice(0,19));
-        console.log(`[startup] f13 quarter log backfilled: ${quarter} (${n} changes)`);
-      }
-    }
-  } catch(_) {}
-
-  // 13F retention: keep only last 8 quarters (2 years) — delete older data
-  try {
-    // Find the 8th most recent quarter we have data for
-    const oldest = db.prepare(`
-      SELECT quarter FROM f13_quarter_log
-      ORDER BY quarter DESC LIMIT 1 OFFSET 7
-    `).get();
-    if (oldest) {
-      const del = db.prepare(`DELETE FROM f13_changes WHERE quarter < ?`).run(oldest.quarter);
-      const delQ = db.prepare(`DELETE FROM f13_quarter_log WHERE quarter < ?`).run(oldest.quarter);
-      if (del.changes > 0) console.log(`[startup] 13F retention: removed ${del.changes} rows older than 8 quarters`);
-    }
-  } catch(_) {}
+  // Drop f13 tables (removed from product)
+  try { db.exec('DROP TABLE IF EXISTS f13_changes'); } catch(_) {}
+  try { db.exec('DROP TABLE IF EXISTS f13_cusip_cache'); } catch(_) {}
+  try { db.exec('DROP TABLE IF EXISTS f13_quarter_log'); } catch(_) {}
 
   // Create 13F tables if not yet created by f13-worker
   db.exec(`
-    CREATE TABLE IF NOT EXISTS f13_changes (
-      id            INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticker        TEXT    NOT NULL DEFAULT '',
-      cusip         TEXT    NOT NULL DEFAULT '',
-      filer_cik     TEXT    NOT NULL DEFAULT '',
-      filer_name    TEXT    NOT NULL DEFAULT '',
-      quarter       TEXT    NOT NULL DEFAULT '',
-      filed_date    TEXT    NOT NULL DEFAULT '',
-      shares        INTEGER,
-      shares_delta  INTEGER,
-      value_usd     INTEGER,
-      pct_change    REAL,
-      is_new        INTEGER DEFAULT 0,
-      is_exit       INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS f13_quarter_log (
-      quarter      TEXT PRIMARY KEY,
-      filers       INTEGER DEFAULT 0,
-      changes      INTEGER DEFAULT 0,
-      processed_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS f13_cusip_cache (
-      cusip     TEXT PRIMARY KEY,
-      ticker    TEXT NOT NULL DEFAULT '',
-      cached_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_f13_ticker  ON f13_changes(ticker);
-    CREATE INDEX IF NOT EXISTS idx_f13_quarter ON f13_changes(quarter);
-    CREATE INDEX IF NOT EXISTS idx_f13_date    ON f13_changes(filed_date);
-    CREATE INDEX IF NOT EXISTS idx_f13_dual    ON f13_changes(quarter, ticker, shares_delta);
-    CREATE INDEX IF NOT EXISTS idx_f13_summary ON f13_changes(quarter, is_new, shares_delta, ticker, filer_cik, shares);
   `);
 } catch (e) {
   console.error(`Cannot open DB at ${DB_PATH}: ${e.message}`);
@@ -1060,256 +1007,15 @@ app.get('/api/ticker', (req, res) => {
 // Recent SC 13D/G filings across all tickers — used by screener 5% Owner filter
 // ── 13F Holdings API ─────────────────────────────────────────────────────────
 
-// GET /api/f13?symbol=AAPL — 13F position changes for a ticker (chart + sidebar)
-// Per-ticker 13F cache — tracks which tickers have had historical fetch attempted
-const _f13TickerFetchedAt = {};
 
-app.get('/api/f13', async (req, res) => {
-  const sym = (req.query.symbol || '').toUpperCase().trim();
-  if (!sym) return res.status(400).json({ error: 'symbol required' });
-  try {
-    // Return what we have immediately — non-blocking
-    const rows = db.prepare(`
-      SELECT ticker, cusip, filer_cik, filer_name, quarter, filed_date,
-             shares, shares_delta, value_usd, pct_change, is_new, is_exit
-      FROM f13_changes
-      WHERE ticker = ?
-      ORDER BY filed_date DESC
-      LIMIT 200
-    `).all(sym);
 
-    res.json(rows);
 
-    // On-demand ticker history fetch — disabled until quarterly base data is loaded
-    // Will be re-enabled once f13_changes has sufficient coverage
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
 
-// GET /api/f13-recent?days=90 — recent 13F changes across all tickers (screener)
-let _f13RecentCache = null, _f13RecentCacheTime = 0;
-app.get('/api/f13-recent', (req, res) => {
-  try {
-    if (_f13RecentCache && Date.now() - _f13RecentCacheTime < 3600000) return res.json(_f13RecentCache);
-    const rows = db.prepare(`
-      SELECT ticker, filer_name, quarter, filed_date,
-             shares_delta, value_usd, pct_change, is_new, is_exit
-      FROM f13_changes
-      WHERE ticker != '' AND ticker IS NOT NULL
-        AND filed_date >= date('now', '-180 days')
-      ORDER BY filed_date DESC, ABS(value_usd) DESC
-      LIMIT 2000
-    `).all();
-    _f13RecentCache = rows;
-    _f13RecentCacheTime = Date.now();
-    res.json(rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
 
-// GET /api/f13-summary — aggregated stats for analysis tiles
-let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v5 — bust
-app.get('/api/f13-summary', (req, res) => {
-  try {
-    if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
 
-    // Get most recent quarter that has data
-    const curQRow = db.prepare(
-      "SELECT quarter FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC LIMIT 1"
-    ).get();
-    if (!curQRow) return res.json({ quarter: null, topBuys: [], topSells: [], newPositions: [] });
-    const curQ = curQRow.quarter;
-    const quarters = [curQ];
-    const qPlaceholders = '?';
 
-    // Build price map from in-memory cache
-    // Only use prices fetched in last 48 hours to avoid stale data
-    const priceMap = {};
-    const maxAge = 48 * 60 * 60 * 1000;
-    for (const [sym, entry] of Object.entries(_priceCache)) {
-      if (entry && entry.bars && entry.bars.length > 0) {
-        const age = Date.now() - (entry.fetchedAt || 0);
-        if (age > maxAge) continue; // skip stale prices
-        const price = entry.bars[entry.bars.length - 1].close;
-        if (price > 0.5 && price < 100000) priceMap[sym] = price; // sanity check
-      }
-    }
-    slog('f13-summary: priceMap=' + Object.keys(priceMap).length + ' curQ=' + curQ);
 
-    // Quick sanity: how many Q4 rows have is_new=0 AND shares_delta>0?
-    const deltaCheck = curQ ? db.prepare(
-      'SELECT COUNT(*) AS n, COUNT(DISTINCT ticker) AS tickers FROM f13_changes WHERE quarter=? AND is_new=0 AND shares_delta>0'
-    ).get(curQ) : {n:0,tickers:0};
-    slog('f13-summary: is_new=0 add rows=' + deltaCheck.n + ' tickers=' + deltaCheck.tickers);
 
-    const EXCL_LIST = "'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG','IVV','VEA','VWO','EFA','EEM'";
-
-    // Three lightweight queries instead of one heavy CASE WHEN aggregation
-    // Each uses the composite index on (quarter, is_new, shares_delta, ticker)
-    const addsRows = curQ ? db.prepare(
-      'SELECT ticker, COUNT(DISTINCT filer_cik) AS cnt, SUM(MIN(shares_delta,shares)) AS shares' +
-      ' FROM f13_changes WHERE quarter=? AND is_new=0 AND shares_delta>0 AND ticker<>""' +
-      ' GROUP BY ticker'
-    ).all(curQ) : [];
-
-    const reducesRows = curQ ? db.prepare(
-      'SELECT ticker, COUNT(DISTINCT filer_cik) AS cnt, SUM(MIN(ABS(shares_delta),shares)) AS shares' +
-      ' FROM f13_changes WHERE quarter=? AND (shares_delta<0 OR is_exit=1) AND ticker<>""' +
-      ' GROUP BY ticker'
-    ).all(curQ) : [];
-
-    const newRows = curQ ? db.prepare(
-      'SELECT ticker, COUNT(DISTINCT filer_cik) AS cnt' +
-      ' FROM f13_changes WHERE quarter=? AND is_new=1 AND ticker<>""' +
-      ' GROUP BY ticker'
-    ).all(curQ) : [];
-
-    // Merge into single rawAgg map
-    const rawMap = {};
-    addsRows.forEach(r => {
-      rawMap[r.ticker] = rawMap[r.ticker] || { ticker:r.ticker, add_count:0, reduce_count:0, shares_added:0, shares_removed:0, new_filer_count:0 };
-      rawMap[r.ticker].add_count   = r.cnt;
-      rawMap[r.ticker].shares_added = r.shares || 0;
-    });
-    reducesRows.forEach(r => {
-      rawMap[r.ticker] = rawMap[r.ticker] || { ticker:r.ticker, add_count:0, reduce_count:0, shares_added:0, shares_removed:0, new_filer_count:0 };
-      rawMap[r.ticker].reduce_count   = r.cnt;
-      rawMap[r.ticker].shares_removed = r.shares || 0;
-    });
-    newRows.forEach(r => {
-      rawMap[r.ticker] = rawMap[r.ticker] || { ticker:r.ticker, add_count:0, reduce_count:0, shares_added:0, shares_removed:0, new_filer_count:0 };
-      rawMap[r.ticker].new_filer_count = r.cnt;
-    });
-    const rawAgg = Object.values(rawMap);
-
-    // Apply price to get dollar values
-    slog('f13-summary: rawAgg rows=' + rawAgg.length + ' sample=' + (rawAgg[0]?rawAgg[0].ticker:'none'));
-    const withDollars = rawAgg.map(r => {
-      const price = priceMap[r.ticker];
-      if (!price) return null;
-      const addedDollars   = (r.shares_added   || 0) * price;
-      const removedDollars = (r.shares_removed || 0) * price;
-      const netDollars     = addedDollars - removedDollars;
-      return {
-        ticker:            r.ticker,
-        institution_count: r.add_count || 0,
-        added_value:       addedDollars,
-        removed_value:     removedDollars,
-        net_value:         netDollars,
-        new_filer_count:   r.new_filer_count || 0,
-        total_value:       addedDollars,
-      };
-    }).filter(r => r !== null);
-
-    slog('f13-summary: withDollars=' + withDollars.length + ' of ' + rawAgg.length + ' tickers priced');
-    let topBuys = withDollars.filter(r => r.added_value > 0)
-                             .sort((a,b) => b.added_value - a.added_value).slice(0, 20);
-    let topSells = withDollars.filter(r => r.removed_value > 0)
-                              .sort((a,b) => b.removed_value - a.removed_value).slice(0, 20);
-    let newPositions = withDollars.filter(r => r.new_filer_count >= 2)
-                                  .sort((a,b) => b.total_value - a.total_value).slice(0, 20);
-
-    // Fallback: institution count if no price data available yet
-    if (!topBuys.length && curQ) {
-      topBuys = db.prepare(
-        'SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,' +
-        ' SUM(shares_delta) AS shares_added, 0 AS net_value, 0 AS added_value' +
-        ' FROM f13_changes WHERE quarter=? AND shares_delta>0 AND ticker<>""' +
-        ' GROUP BY ticker ORDER BY institution_count DESC LIMIT 20'
-      ).all(curQ);
-    }
-    if (!topSells.length && curQ) {
-      topSells = db.prepare(
-        'SELECT ticker, COUNT(DISTINCT filer_cik) AS institution_count,' +
-        ' 0 AS removed_value, 0 AS net_value' +
-        ' FROM f13_changes WHERE quarter=? AND (shares_delta<0 OR is_exit=1) AND ticker<>""' +
-        ' GROUP BY ticker ORDER BY institution_count DESC LIMIT 20'
-      ).all(curQ);
-    }
-    if (!newPositions.length && curQ) {
-      newPositions = db.prepare(
-        'SELECT ticker, COUNT(DISTINCT filer_cik) AS new_filer_count, 0 AS total_value' +
-        ' FROM f13_changes WHERE quarter=? AND is_new=1 AND ticker<>""' +
-        ' GROUP BY ticker HAVING new_filer_count>=2 ORDER BY new_filer_count DESC LIMIT 20'
-      ).all(curQ);
-    }
-
-    const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
-    const result = { quarter: quarterLabel, topBuys, topSells, newPositions };
-    // Only cache if we have actual results - otherwise retry next request
-    if (topBuys.length > 0 || topSells.length > 0 || newPositions.length > 0) {
-      _f13SummaryCache = result;
-      _f13SummaryCacheTime = Date.now();
-    }
-    res.json(result);
-  } catch(e) {
-    // On error, clear cache so next request retries
-    _f13SummaryCache = null;
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/admin/f13-debug — raw diagnostic for f13 summary
-app.get('/api/admin/f13-debug', (req, res) => {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
-  try {
-    const curQRow = db.prepare("SELECT quarter FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC LIMIT 1").get();
-    const curQ = curQRow ? curQRow.quarter : null;
-    const sampleRows = curQ ? db.prepare("SELECT ticker, shares_delta, shares FROM f13_changes WHERE quarter=? AND ticker='NFLX' LIMIT 3").all(curQ) : [];
-    const nflxAgg = curQ ? db.prepare("SELECT " +
-      "SUM(CASE WHEN shares_delta>0 AND is_new=0 THEN MIN(shares_delta,shares) ELSE 0 END) AS added_nonew, " +
-      "SUM(CASE WHEN shares_delta>0 THEN shares_delta ELSE 0 END) AS added_all, " +
-      "COUNT(DISTINCT CASE WHEN shares_delta>0 AND is_new=0 THEN filer_cik END) AS adders_nonew, " +
-      "COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_positions, " +
-      "COUNT(DISTINCT CASE WHEN pct_change IS NOT NULL AND shares_delta>0 THEN filer_cik END) AS has_pct_change " +
-      "FROM f13_changes WHERE quarter=? AND ticker='NFLX'").get(curQ) : null;
-    const priceMapSize = Object.keys(_priceCache).length;
-    const nflxPrice = _priceCache['NFLX'] ? _priceCache['NFLX'].bars[_priceCache['NFLX'].bars.length-1].close : null;
-    res.json({ curQ, sampleRows, nflxAgg, priceMapSize, nflxPrice, cachedSummary: !!_f13SummaryCache });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-// GET /api/f13-dual — tickers with BOTH insider buying AND institutional accumulation
-let _f13DualCache = null, _f13DualCacheTime = 0;
-app.get('/api/f13-dual', (req, res) => {
-  try {
-    if (_f13DualCache && Date.now() - _f13DualCacheTime < 3600000) return res.json(_f13DualCache);
-
-    // Get the most recent quarter we have 13F data for
-    const quarterRow = db.prepare('SELECT quarter FROM f13_quarter_log ORDER BY processed_at DESC LIMIT 1').get();
-    if (!quarterRow) return res.json({ quarter: null, results: [] });
-    const q = quarterRow.quarter;
-
-    // Dual conviction: insider buying + institutional adding — ranked by insider $ then institution count
-    const results = db.prepare(`
-      SELECT
-        f.ticker,
-        COUNT(DISTINCT f.filer_cik)                        AS institution_count,
-        COUNT(DISTINCT t.insider)                          AS insider_count,
-        SUM(CASE WHEN t.type='P' THEN t.value ELSE 0 END) AS insider_value,
-        MAX(t.trade_date)                                  AS latest_insider_buy,
-        MAX(f.filed_date)                                  AS latest_inst_filing
-      FROM f13_changes f
-      INNER JOIN trades t ON t.ticker = f.ticker
-        AND t.type = 'P'
-        AND t.trade_date >= date('now', '-90 days')
-        AND t.value >= 10000
-      WHERE f.quarter = ?
-        AND f.shares_delta > 0
-        AND f.ticker != ''
-        AND f.ticker NOT IN ('SPY','QQQ','IWM','DIA','VTI','VOO','GLD','SLV','TLT','HYG','LQD',
-                             'VEA','VWO','EFA','EEM','IVV','BND','AGG')
-      GROUP BY f.ticker
-      HAVING institution_count >= 1 AND insider_count >= 1
-      ORDER BY insider_value DESC, institution_count DESC
-      LIMIT 30
-    `).all(q);
-
-    const result = { quarter: q, results };
-    _f13DualCache = result;
-    _f13DualCacheTime = Date.now();
-    res.json(result);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
 
 app.get('/api/insider', (req, res) => {
   const name  = (req.query.name  || '').trim();
@@ -2855,83 +2561,16 @@ app.get('/api/scoreboard', (req, res) => {
 });
 
 // ── 13F WORKER ───────────────────────────────────────────────────────────────
-let f13Running = false;
 
-function runF13(mode = 'default') {
-  if (f13Running) { slog('f13-worker already running, skipping'); return; }
-  f13Running = true;
-  slog(`=== spawning f13-worker (mode=${mode}) ===`);
-  const worker = spawn(
-    process.execPath,
-    ['--max-old-space-size=256', path.join(__dirname, 'f13-worker.js'), ...(mode !== 'default' ? [mode] : [])],
-    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DB_PATH } }
-  );
-  worker.stdout.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13] ' + l)));
-  worker.stderr.on('data', d => d.toString().trim().split('\n').forEach(l => slog('[f13] ERR: ' + l)));
-  worker.on('exit', code => {
-    f13Running = false;
-    slog(`=== f13-worker exited (code ${code}) ===`);
-  });
-}
 
 // Schedule quarterly — run on the 20th of Feb, May, Aug, Nov (45+ days after quarter end)
 // Also run once at startup if not yet processed current quarter
-function scheduleF13() {
-  const now = new Date();
-  const month  = now.getUTCMonth() + 1;
-  const day    = now.getUTCDate();
-  const hour   = now.getUTCHours();
-  const etOffset = -5;
-
-  // During 13F filing windows (45 days after each quarter-end), run daily poll at 5pm ET
-  // Filing windows: Jan 1–Feb 14, Apr 1–May 15, Jul 1–Aug 14, Oct 1–Nov 14
-  const filingWindows = [
-    { startM: 1, startD: 1,  endM: 2,  endD: 14 }, // Q4 filings
-    { startM: 4, startD: 1,  endM: 5,  endD: 15 }, // Q1 filings
-    { startM: 7, startD: 1,  endM: 8,  endD: 14 }, // Q2 filings
-    { startM: 10, startD: 1, endM: 11, endD: 14 }, // Q3 filings
-  ];
-
-  const inFilingWindow = filingWindows.some(w => {
-    const afterStart = month > w.startM || (month === w.startM && day >= w.startD);
-    const beforeEnd  = month < w.endM   || (month === w.endM   && day <= w.endD);
-    return afterStart && beforeEnd;
-  });
-
-  // 5pm ET = 22:00 UTC (approximate, ignores DST)
-  if (inFilingWindow && hour === 22 && !f13Running) {
-    slog('13F filing window — running incremental poll...');
-    runF13('poll');
-  }
-
-  // Full quarterly refresh on the 20th of trigger months at 10am ET
-  const triggerMonths = new Set([2, 5, 8, 11]);
-  if (triggerMonths.has(month) && day === 20 && hour === (10 - etOffset) && !f13Running) {
-    slog('13F quarterly refresh — running full quarter...');
-    runF13('default');
-  }
-
-  // Check again in 1 hour
-  setTimeout(scheduleF13, 60 * 60 * 1000);
-}
 
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
 
-// Spawn f13-worker 60s after startup if DB has no recent 13F data
-setTimeout(() => {
-  const hasF13 = db.prepare("SELECT COUNT(*) AS n FROM f13_changes WHERE filed_date >= date('now', '-180 days')").get();
-  if (!hasF13 || hasF13.n === 0) {
-    if (!f13Running) {
-      slog('No recent 13F data — running f13-worker...');
-      runF13('default');
-    }
-  } else {
-    slog(`13F data current (${hasF13.n} recent changes)`);
-  }
-  scheduleF13();
-}, 60000);
+
 
 // Pre-prepared statements for hot paths
 let _stmtTradeCount;
@@ -3028,51 +2667,7 @@ function requireAdminSecret(req, res) {
 }
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 // ── F13 admin endpoints ───────────────────────────────────────────────────────
-app.get('/api/admin/f13-status', (req, res) => {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
-  try {
-    // Auto-backfill quarter log if data exists but log is empty
-    const quarters = db.prepare("SELECT quarter, COUNT(*) AS n FROM f13_changes WHERE ticker != '' GROUP BY quarter ORDER BY quarter DESC").all();
-    for (const { quarter, n } of quarters) {
-      const existing = db.prepare('SELECT quarter FROM f13_quarter_log WHERE quarter=?').get(quarter);
-      if (!existing && n > 100) {
-        db.prepare('INSERT INTO f13_quarter_log (quarter,filers,changes,processed_at) VALUES (?,?,?,?)').run(
-          quarter, n, n, new Date().toISOString().slice(0,19));
-        slog(`f13-status: backfilled quarter log for ${quarter} (${n} changes)`);
-      }
-    }
-    const quarterLog = db.prepare('SELECT * FROM f13_quarter_log ORDER BY quarter DESC').all();
-    const totalChanges = db.prepare('SELECT COUNT(*) AS n FROM f13_changes').get();
-    const tickersWithData = db.prepare("SELECT COUNT(DISTINCT ticker) AS n FROM f13_changes WHERE ticker != ''").get();
-    const recentRows = db.prepare("SELECT ticker, filer_name, quarter, filed_date, shares, shares_delta, value_usd, is_new, is_exit FROM f13_changes WHERE ticker != '' ORDER BY filed_date DESC LIMIT 5").all();
-    // Sample: what does MSFT look like?
-    const msftSample = db.prepare("SELECT ticker, filer_name, shares, shares_delta, value_usd, is_new, pct_change FROM f13_changes WHERE ticker='MSFT' ORDER BY ABS(shares_delta) DESC LIMIT 3").all();
-    // Aggregate test
-    const msftAgg = db.prepare("SELECT COUNT(*) as n, SUM(shares_delta) as delta_shares, SUM(value_usd) as sum_value, AVG(value_usd) as avg_value FROM f13_changes WHERE ticker='MSFT' AND shares_delta > 0 AND quarter='2025Q4'").get();
-    res.json({ quarterLog, totalChanges: totalChanges.n, tickersWithData: tickersWithData.n, recentRows, msftSample, msftAgg, f13Running });
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
 
-app.get('/api/admin/f13-run', (req, res) => {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret || req.query.secret !== secret) return res.status(403).json({ error: 'forbidden' });
-  const mode    = req.query.mode    || 'default';
-  const quarter = req.query.quarter || null; // e.g. ?quarter=2025Q4 to force reprocess
-  if (f13Running) return res.json({ ok: false, message: 'already running' });
-  // If a specific quarter is requested, delete its data so it reprocesses
-  if (quarter) {
-    try {
-      db.prepare('DELETE FROM f13_quarter_log WHERE quarter=?').run(quarter);
-      db.prepare('DELETE FROM f13_changes WHERE quarter=?').run(quarter);
-      slog(`f13-run: cleared ${quarter} for reprocessing`);
-    } catch(e) { return res.status(500).json({ error: e.message }); }
-  }
-  // Also clear summary cache so fresh data shows immediately
-  _f13SummaryCache = null; _f13SummaryCacheTime = 0;
-  runF13(mode);
-  res.json({ ok: true, message: `f13-worker spawned (mode=${mode})${quarter ? ` reprocessing ${quarter}` : ''}` });
-});
 
 app.get('/api/admin/grant-premium', (req, res) => {
   if (requireAdminSecret(req, res)) return;
