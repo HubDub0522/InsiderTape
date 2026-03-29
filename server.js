@@ -1167,12 +1167,12 @@ app.get('/api/f13-summary', (req, res) => {
       };
     }).filter(r => r !== null);
 
-    let topBuys = withDollars.filter(r => r.net_value > 0)
-                             .sort((a,b) => b.net_value - a.net_value).slice(0, 20);
-    let topSells = withDollars.filter(r => r.net_value < 0)
-                              .sort((a,b) => a.net_value - b.net_value).slice(0, 20);
+    let topBuys = withDollars.filter(r => r.added_value > 0)
+                             .sort((a,b) => b.added_value - a.added_value).slice(0, 20);
+    let topSells = withDollars.filter(r => r.removed_value > 0)
+                              .sort((a,b) => b.removed_value - a.removed_value).slice(0, 20);
     let newPositions = withDollars.filter(r => r.new_filer_count >= 2)
-                                  .sort((a,b) => b.added_value - a.added_value).slice(0, 20);
+                                  .sort((a,b) => b.total_value - a.total_value).slice(0, 20);
 
     // Fallback: institution count if no price data available yet
     if (!topBuys.length && curQ) {
