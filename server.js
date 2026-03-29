@@ -3058,7 +3058,11 @@ app.get('/api/stock-lists', (req, res) => {
     return res.json(_stockListsCache);
   }
   try {
-    // Most-active tickers: unique insiders, buy + sell counts, last 7 days
+    // Quick diagnostic: what's the most recent trade_date in the DB?
+    const latestTrade = db.prepare("SELECT MAX(trade_date) AS d, COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-30 days')").get();
+    slog('stock-lists: latest_trade=' + latestTrade.d + ' trades_30d=' + latestTrade.n);
+
+    // Most-active tickers: unique insiders, buy + sell counts, last 14 days
     const mostActive = db.prepare(`
       SELECT
         ticker, MAX(company) AS company,
