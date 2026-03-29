@@ -2369,9 +2369,7 @@ async function loadStockView(ticker, opts={}) {
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item"><span style="color:#00d4ff;font-size:13px;line-height:1">◆</span>13F Add</div>
-            <div class="legend-item"><span style="color:#ff00ff;font-size:13px;line-height:1">◆</span>13F Reduce</div>
-          </div>
+                      </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
             <button class="tf-btn cf-btn active" id="chartFilter-P" data-color="var(--buy)" onclick="toggleChartFilter('P',this)">BUYS</button>
@@ -2451,7 +2449,6 @@ async function loadStockView(ticker, opts={}) {
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    // Build chart immediately with whatever 13F data we have (may be empty on first load)
     await buildChart(priceData, insiderData);
 
     // Update stat bar and price header with real price data
@@ -2726,8 +2723,6 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       state._circles.push({x:ts,y:yCoord,r,group:g});
     });
 
-    // ── 13F institution diamond groups ─────────────────────────────────────
-
   }  // end drawCircles
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
@@ -2850,10 +2845,7 @@ function buildPressureChart(mainChart,trades,priceData) {
     }
     if(qInst){
       const net=qInst.net;
-      html+=`<div style="margin-top:8px;padding-top:6px;border-top:1px solid #1e2d3d;font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:4px">INSTITUTIONS · ${qk}</div>`;
-      html+=qInst.adds?`<div style="color:#00d4ff">◆ ADDING ${qInst.addCount} inst · ${fmt(qInst.adds)}</div>`:'';
-      html+=qInst.reduces?`<div style="color:#ff00ff">◆ REDUCING ${qInst.reduceCount} inst · ${fmt(qInst.reduces)}</div>`:'';
-      html+=`<div style="margin-top:4px;font-size:10px"><span style="color:var(--muted)">NET </span><span style="color:${net>=0?'#00d4ff':'#ff00ff'}">${net>=0?'+':''}${fmt(net)}</span></div>`;
+                        html+=`<div style="margin-top:4px;font-size:10px"><span style="color:var(--muted)">NET </span><span style="color:${net>=0?'#00d4ff':'#ff00ff'}">${net>=0?'+':''}${fmt(net)}</span></div>`;
     }
     pTooltip.innerHTML=html;
     pTooltip.style.display='block';
@@ -2876,14 +2868,6 @@ function buildPressureChart(mainChart,trades,priceData) {
     <span style="display:flex;align-items:center;gap:4px">
       <span style="width:10px;height:10px;background:rgba(255,68,102,0.7);display:inline-block;border-radius:1px"></span>
       <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INSIDER SELL</span>
-    </span>
-    <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:10px;height:10px;background:rgba(0,212,255,0.45);display:inline-block;border-radius:1px"></span>
-      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INST ADD</span>
-    </span>
-    <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:10px;height:10px;background:rgba(255,0,255,0.45);display:inline-block;border-radius:1px"></span>
-      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INST REDUCE</span>
     </span>`;
   pw.style.position='relative';
   pw.appendChild(legend);
@@ -4724,7 +4708,7 @@ function renderAnalysisDashboard() {
       id: 'ranker',
       icon: '🏆',
       name: 'Insider Opportunity Ranker',
-      desc: 'The master score. Combines signals from every tool on this page — clusters, regime shifts, event proximity, first-buy signals, exit warnings, 52-week low proximity, and 13F institutional positioning — into one ranked list.',
+      desc: 'The master score. Combines signals from every tool on this page — clusters, regime shifts, event proximity, first-buy signals, exit warnings, and 52-week low proximity — into one ranked list.',
       count: _rankerCache ? _rankerCache.length : '…',
       countLabel: 'tickers ranked',
       loading: rankerLoading,
@@ -4759,7 +4743,7 @@ function renderAnalysisDashboard() {
       id: 'exitwarning',
       icon: '🔴',
       name: 'Insider Exit Warning',
-      desc: 'Detects when multiple insiders, especially executives, are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. Also factors in 13F institutional distribution — funds reducing or exiting positions.',
+      desc: 'Detects when multiple insiders, especially executives, are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. ',
       count: (() => { try { const _ew = detectExitWarnings(trades, window._exitWarningPriceHighs||{}); window._exitWarningTileCache = _ew; return _ew.length; } catch(e) { return 0; } })(),
       countLabel: 'warnings active',
       top3: (() => { try { return (window._exitWarningTileCache || detectExitWarnings(trades, window._exitWarningPriceHighs||{})).slice(0,3).map(w => ({
@@ -4807,6 +4791,24 @@ function renderAnalysisDashboard() {
       accentColor: 'var(--accent)',
       accentBg: 'rgba(0,212,255,0.05)',
       accentBorder: 'rgba(0,212,255,0.2)',
+    },
+    {
+      id: 'conviction',
+      icon: '⚡',
+      name: 'High Conviction Trades',
+      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size. Surfaces insiders making their biggest, most deliberate bets.',
+      count: _convData.length,
+      countLabel: 'signals detected',
+      loading: false,
+      top3: convTop3.map(c => ({
+        ticker: c.ticker,
+        label: `Score ${c.score}`,
+        sub: c.reasons[0] || '',
+        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
+      })),
+      accentColor: 'var(--buy)',
+      accentBg: 'rgba(0,255,136,0.06)',
+      accentBorder: 'rgba(0,255,136,0.2)',
     },
   ];
 
@@ -4956,6 +4958,10 @@ function renderAnalysisSubpage(id) {
       </div>
       <div class="conviction-grid">${convHtml}</div>
     </div>`;
+  }
+
+  else if (id === 'conviction') {
+    renderConvictionSubpage();
   }
 
   else if (id === 'clusters') {
@@ -9151,7 +9157,7 @@ function loadPremiumPage() {
     <rect x="177" y="58" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="185" y="69" fill="#22c55e" font-family="monospace" font-size="6" letter-spacing="0.5">📡 REGIME SHIFT</text>
     <text x="185" y="79" fill="#c0ccd8" font-family="monospace" font-size="6">AAPL · Seller flipped buyer</text>
-    <text x="185" y="88" fill="#4a6580" font-family="monospace" font-size="6">CFO · 2yr gap · +13F confirm</text>
+    <text x="185" y="88" fill="#4a6580" font-family="monospace" font-size="6">CFO · 2yr gap · repeat buyer</text>
     <rect x="4" y="102" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="12" y="113" fill="#8b5cf6" font-family="monospace" font-size="6" letter-spacing="0.5">🆕 FIRST BUY SIGNALS</text>
     <text x="12" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">MSFT · CEO · 3yr gap</text>
@@ -9382,7 +9388,7 @@ function loadPremiumPage() {
 
       <div style="text-align:center;margin-bottom:56px">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
-        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders and institutional investors file legally required disclosures when they buy, sell, or cross the 5% ownership threshold. InsiderTape Premium gives you every tool to act on those signals before the crowd does.</div>
+        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required Form 4 disclosures when they buy or sell company stock. InsiderTape Premium gives you every tool to act on those signals before the crowd does.</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:56px;margin-bottom:72px">
