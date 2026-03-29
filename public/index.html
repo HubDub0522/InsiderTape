@@ -1494,7 +1494,15 @@ function buildConvictionData(trades) {
   Object.entries(buysByTicker).forEach(([ticker, tickerBuys]) => {
     const allTrades = allByTicker[ticker] || [];
     let score = 0; const reasons = [];
+
+    // ── ESPP / Stock Plan filter ──────────────────────────────────────────
+    // If 4+ insiders buy on the same date at the same price, it's a company
+    // stock plan, not independent conviction. Skip entirely.
+    const uniquePrices = new Set(tickerBuys.map(t => t.price > 0 ? t.price.toFixed(2) : null).filter(Boolean));
+    const uniqueDates  = new Set(tickerBuys.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean));
     const uniqueInsiders = new Set(tickerBuys.map(t => t.insider)).size;
+    if (uniqueInsiders >= 4 && uniquePrices.size === 1 && uniqueDates.size <= 2) return; // ESPP — skip
+
     if (uniqueInsiders >= 3) { score += 25; reasons.push(`${uniqueInsiders} insiders buying simultaneously`); }
     else if (uniqueInsiders === 2) { score += 15; reasons.push(`2 insiders buying in the same window`); }
     let bestStakeIncrease = 0, bestStakeInsider = '';
@@ -5380,10 +5388,13 @@ function scoreOpportunityRanker(rows) {
     const factors = [];
 
     // ── 1. Cluster / buyer count (0–20 pts) ──────────────────────
-    if (r.buyer_count >= 5)      { score += 20; factors.push(`${r.buyer_count} insiders buying`); }
-    else if (r.buyer_count >= 3) { score += 14; factors.push(`${r.buyer_count} insiders buying`); }
-    else if (r.buyer_count >= 2) { score += 8;  factors.push(`2 insiders buying`); }
-    else                         { score += 2; }
+    // If 10+ buyers, likely ESPP/stock plan — cap score contribution and flag
+    if (r.buyer_count >= 10) {
+      score += 5; factors.push(`${r.buyer_count} buyers (may include stock plan)`);
+    } else if (r.buyer_count >= 5) { score += 20; factors.push(`${r.buyer_count} insiders buying`); }
+    else if (r.buyer_count >= 3)   { score += 14; factors.push(`${r.buyer_count} insiders buying`); }
+    else if (r.buyer_count >= 2)   { score += 8;  factors.push(`2 insiders buying`); }
+    else                           { score += 2; }
 
     // ── 2. Executive involvement (0–12 pts) ──────────────────────
     if (r.has_exec_buyer) { score += 12; factors.push(`C-suite / executive buyer`); }
