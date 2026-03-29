@@ -896,8 +896,8 @@
       <div class="filter-data-source" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
         <p style="font-size:11px;color:var(--muted);line-height:1.6">
-          Insider trades sourced from SEC EDGAR Form 4 filings. Institutional holdings sourced from 13F-HR quarterly disclosures filed by funds managing $100M+.<br><br>
-          <span style="color:var(--accent)">Note:</span> SEC rules allow insiders up to 2 business days to file Form 4s after a transaction. 13F filings are due within 45 days of quarter-end. InsiderTape ingests Form 4s throughout the trading day and updates 13F data quarterly.
+          Insider filings sourced directly from SEC EDGAR Form 4 filings.<br><br>
+          <span style="color:var(--accent)">Note:</span> SEC rules allow insiders up to 2 business days to file after a transaction. InsiderTape ingests new filings throughout the trading day.
         </p>
       </div>
     </aside>
@@ -1253,8 +1253,6 @@ async function apiFetch(path, opts={}) {
            : path.startsWith('/api/proximity')    ? 120000
            : path.startsWith('/api/firstbuys')    ? 120000
            : path.startsWith('/api/screener')     ? 120000
-           : path.startsWith('/api/f13-dual')     ? 90000
-           : path.startsWith('/api/f13-summary')  ? 90000
            : path.startsWith('/api/price')        ? 35000
            : 60000;
   // Retry up to 4 times on 503 (Render cold start can take 10-30s)
@@ -2315,7 +2313,6 @@ async function loadStockView(ticker, opts={}) {
   state.tickerTrades = insiderData; state.currentPriceData = [];
 
   const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
-  const f13Promise  = apiFetch('/api/f13?symbol='+encodeURIComponent(ticker)).catch(()=>[]);
 
   // Use empty price data for initial render — chart area shows spinner
   let priceData = [];
@@ -2455,21 +2452,8 @@ async function loadStockView(ticker, opts={}) {
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
     // Build chart immediately with whatever 13F data we have (may be empty on first load)
-    state.f13Data = state.f13Data || [];
-    await buildChart(priceData, insiderData, state.f13Data);
+    await buildChart(priceData, insiderData);
 
-    // ── PHASE 2b: Layer 13F diamonds on top once data arrives ─────────────────
-    f13Promise.then(d => {
-      if (mySeq !== _loadStockViewSeq) return; // superseded
-      state.f13Data = Array.isArray(d) ? d : [];
-      // Redraw overlay with 13F data if chart is still showing
-      if (state.drawCircles && state.f13Data.length > 0) {
-        // Re-build circle overlay with f13 data layered in
-        buildChart(priceData, insiderData, state.f13Data).catch(() => {});
-        // Also update sidebar to show 13F institutional section
-        renderSidebarGated(state.tickerTrades || []);
-      }
-    }).catch(() => { state.f13Data = []; });
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
     const prev    = priceData[priceData.length-2];
@@ -2513,10 +2497,10 @@ async function loadStockView(ticker, opts={}) {
 function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
 const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
-async function buildChart(priceData, trades, f13Data) {
+async function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
-    const cb = () => buildChart(priceData, trades, state.f13Data || []);
+    const cb = () => buildChart(priceData, trades);
     cb._isBuildChart = true;
     window._onLCReady(cb);
     return;
@@ -2616,7 +2600,7 @@ async function buildChart(priceData, trades, f13Data) {
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
 
-  buildCircleOverlay(container,chart,mainSeries,trades,cleanData,f13Data||[]);
+  buildCircleOverlay(container,chart,mainSeries,trades,cleanData);
 
   // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
@@ -2634,7 +2618,7 @@ async function buildChart(priceData, trades, f13Data) {
       try { chart.timeScale().fitContent(); } catch(e) {}
     }
     // Pressure chart after another rAF
-    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData,state.f13Data||[]));
+    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData));
   });
 
   // Initialise stat bar to match the active 1Y range button
@@ -2666,8 +2650,7 @@ function setChartType(type) {
   }
 }
 
-function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
-  f13Data = f13Data || [];
+function buildCircleOverlay(container,chart,series,trades,priceData) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
   canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
@@ -2722,7 +2705,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
 
   function drawCircles() {
     const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height);
-    state._circles=[]; state._diamonds=[];
+    state._circles=[];
 
     // ── Form 4 circles ──────────────────────────────────────────────────────
     const maxVal=Math.max(...state.markerGroups.map(g=>g.value),1);
@@ -2744,78 +2727,6 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
     });
 
     // ── 13F institution diamond groups ─────────────────────────────────────
-    if (f13Data.length) {
-      // ── Estimate actual trade date from implied avg price ──────────────────
-      // Pre-sort priceData by date once, then use binary search per filing
-      // to avoid O(n×m) loop that freezes the main thread on large datasets
-
-      function quarterDateRange(quarter) {
-        const m = quarter && quarter.match(/(\d{4})Q(\d)/);
-        if (!m) return null;
-        const y = parseInt(m[1]), q = parseInt(m[2]);
-        const starts = ['', '01-01', '04-01', '07-01', '10-01'];
-        const ends   = ['', '03-31', '06-30', '09-30', '12-31'];
-        return { start: `${y}-${starts[q]}`, end: `${y}-${ends[q]}` };
-      }
-
-      // ── Group 13F filings by quarter+direction ──────────────────────────
-      // Plot at quarter midpoint — honest representation of "held this quarter"
-      // No false precision from price-matching. One diamond per quarter per direction,
-      // sized by total institutional value. Clean and interpretable.
-
-      function quarterMidpoint(quarter) {
-        const m = quarter && quarter.match(/(\d{4})Q(\d)/);
-        if (!m) return null;
-        const y = parseInt(m[1]), q = parseInt(m[2]);
-        const mids = ['', `${y}-02-15`, `${y}-05-15`, `${y}-08-15`, `${y}-11-15`];
-        return nearestTradingDay(mids[q]);
-      }
-
-      // Group by quarter+direction — one diamond per quarter per side
-      const f13Groups = {};
-      f13Data.forEach(f => {
-        if (!f.quarter) return;
-        const isSell = f.shares_delta < 0 || f.is_exit;
-        const d = quarterMidpoint(f.quarter);
-        if (!d) return;
-        const k = f.quarter + '|' + (isSell ? 'sell' : 'buy');
-        if (!f13Groups[k]) f13Groups[k] = {
-          date: d, quarter: f.quarter,
-          isSell, filings: [], totalValue: 0,
-          filedDate: (f.filed_date||'').slice(0,10)
-        };
-        f13Groups[k].filings.push(f);
-        f13Groups[k].totalValue += Math.abs(f.value_usd || 0);
-      });
-
-      state._f13Groups = Object.values(f13Groups);
-
-            // Size diamonds relative to each other — largest value = largest diamond
-      // Pair buy vs sell within each quarter so sizes are directly comparable
-      const maxBuyVal  = Math.max(...state._f13Groups.filter(g=>!g.isSell).map(g=>g.totalValue), 1);
-      const maxSellVal = Math.max(...state._f13Groups.filter(g=> g.isSell).map(g=>g.totalValue), 1);
-      const maxVal = Math.max(maxBuyVal, maxSellVal, 1); // shared scale so they're comparable
-
-      state._f13Groups.forEach(g => {
-        const ts = chart.timeScale().timeToCoordinate(g.date);
-        if (ts === null || ts === undefined) return;
-        const pd = priceMap[g.date]; if (!pd) return;
-        const yCoord = series.priceToCoordinate(
-          g.isSell ? (pd.high || pd.close) * 1.015 : (pd.low || pd.close) * 0.985
-        );
-        if (yCoord === null || yCoord === undefined) return;
-        // Size relative to max value across all groups — shared scale
-        const ratio = g.totalValue / maxVal; // 0–1
-        const size = Math.max(5, Math.min(16, 5 + ratio * 11));
-        const color = g.isSell ? '#ff00ff' : '#00d4ff';
-        const fillAlpha = ratio > 0.5 ? '0.28' : ratio > 0.2 ? '0.18' : '0.10';
-        drawDiamond(ctx, ts, yCoord, size,
-          g.isSell ? `rgba(255,0,255,${fillAlpha})` : `rgba(0,212,255,${fillAlpha})`,
-          color
-        );
-        state._diamonds.push({ x: ts, y: yCoord, r: size + 2, group: g, _isF13: true });
-      });
-    }
 
   }  // end drawCircles
 
@@ -2826,41 +2737,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
   canvas.addEventListener('mousemove',e=>{
     const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left,my=e.clientY-rect.top;
 
-    // Check diamonds first (they render on top visually)
-    let diamondHit=null;
-    for(const d of(state._diamonds||[])){if(Math.hypot(mx-d.x,my-d.y)<=d.r+4){diamondHit=d;break;}}
-    if(diamondHit){
-      canvas.style.cursor='crosshair';
-      const g=diamondHit.group;
-      const isF13=diamondHit._isF13;
-      const color=g.isSell?'#ff00ff':'#00d4ff';
-      if(isF13){
-        // 13F tooltip — show institution names + share changes
-        const dateNote = g.estimatedDate ? `est. trade date` : `filed ${g.filedDate}`;
-        const label=g.isSell?`◆ 13F — INSTITUTIONS REDUCING · ${dateNote}`:`◆ 13F — INSTITUTIONS ADDING · ${dateNote}`;
-        const rows=g.filings.slice(0,5).map(f=>{
-          const delta=f.shares_delta!=null?`<span style="color:${color};float:right;margin-left:12px">${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)}</span>`:'';
-          const pct=f.pct_change!=null?`<span style="color:var(--muted);font-size:10px"> ${f.pct_change>0?'+':''}${f.pct_change.toFixed(0)}%</span>`:'';
-          const badge=f.is_new?`<span style="color:#ffd700;font-size:9px"> NEW</span>`:f.is_exit?`<span style="color:var(--sell);font-size:9px"> EXIT</span>`:'';
-          return `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${f.filer_name||'Unknown'}</span>${badge}${pct}${delta}</div>`;
-        }).join('');
-        tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label}</div><div style="color:var(--muted);font-size:10px;margin-bottom:6px">${g.filings[0]?.quarter||''} · filed ${g.filedDate} · ${g.filings.length} institution${g.filings.length!==1?'s':''}</div>${rows}${g.filings.length>5?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.filings.length-5} more</div>`:''}`;
-      } else {
-        // Legacy form4 diamond tooltip (5%+ owners)
-        const label=g.isSell?'◆ 5%+ OWNER — SELLING':'◆ 5%+ OWNER — BUYING';
-        const rows=g.filings.slice(0,4).map(f=>{
-          const pct=f.pct_owned!=null?`<span style="color:${color};float:right;margin-left:12px">${f.pct_owned.toFixed(1)}% owned</span>`:'';
-          const delta=f.shares_delta!=null?`<span style="color:var(--muted);font-size:10px"> (${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)})</span>`:'';
-          return `<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${f.filer||'Unknown filer'}</span>${delta}${pct}</div>`;
-        }).join('');
-        tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label}</div><div style="color:var(--muted);font-size:10px;margin-bottom:6px">${g.filedDate}</div>${rows}`;
-      }
-      tooltip.style.display='block';
-      const tx=e.clientX+16,ty=e.clientY-10;
-      tooltip.style.left=(tx+290>window.innerWidth?e.clientX-306:tx)+'px'; tooltip.style.top=ty+'px';
-      return;
-    }
-
+    
     // Then check circles
     let hit=null;
     for(const c of(state._circles||[])){if(Math.hypot(mx-c.x,my-c.y)<=c.r+4){hit=c;break;}}
@@ -2878,7 +2755,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,f13Data) {
   canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 }
 
-function buildPressureChart(mainChart,trades,priceData,f13Data) {
+function buildPressureChart(mainChart,trades,priceData) {
   // Wipe the wrapper completely on every build — prevents stale canvases and
   // duplicate labels from accumulating across ticker navigations.
   const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
@@ -2916,7 +2793,7 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
   // Green bar = net buying that week, red bar = net selling.
   // No baseline line, no price line, no last-value line — just bars.
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
-  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData, state.f13Data||[])); return; }
+  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
   const pcH = window.innerWidth <= 640 ? 80 : 120;
   pc.style.height = pcH + 'px';
   pc.style.minHeight = pcH + 'px';
@@ -2949,37 +2826,6 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
     return {time:t, value:v, color:v>=0?'rgba(0,255,136,0.85)':'rgba(255,68,102,0.85)'};
   }));
 
-  // ── 13F institutional pressure bars (overlaid on insider bars) ───────────
-  const f13ByQ = {};
-  if (f13Data && f13Data.length) {
-    f13Data.forEach(f => {
-      if (!f.quarter) return;
-      if (!f13ByQ[f.quarter]) f13ByQ[f.quarter] = { net: 0, adds: 0, reduces: 0, addCount: 0, reduceCount: 0 };
-      const v = Math.abs(f.value_usd || 0);
-      if (f.shares_delta > 0 && !f.is_exit) {
-        f13ByQ[f.quarter].net += v; f13ByQ[f.quarter].adds += v; f13ByQ[f.quarter].addCount++;
-      } else {
-        f13ByQ[f.quarter].net -= v; f13ByQ[f.quarter].reduces += v; f13ByQ[f.quarter].reduceCount++;
-      }
-    });
-
-    const maxF13 = Math.max(...Object.values(f13ByQ).map(d => d.adds + d.reduces), 1);
-    const f13BarData = allDates.map(date => {
-      const mo = parseInt(date.slice(5,7));
-      const q  = mo <= 3 ? 1 : mo <= 6 ? 2 : mo <= 9 ? 3 : 4;
-      const qk = `${date.slice(0,4)}Q${q}`;
-      const qd = f13ByQ[qk];
-      if (!qd) return null;
-      const v = +(qd.net / maxF13 * 65).toFixed(2);
-      return { time: date, value: v,
-        color: v >= 0 ? 'rgba(0,212,255,0.45)' : 'rgba(255,0,255,0.45)' };
-    }).filter(Boolean);
-
-    if (f13BarData.length) {
-      const f13Hist = pChart.addHistogramSeries({ base:0, priceLineVisible:false, lastValueVisible:false });
-      f13Hist.setData(f13BarData);
-    }
-  }
 
   const byDayTrades={};
   trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
@@ -2989,12 +2835,8 @@ function buildPressureChart(mainChart,trades,priceData,f13Data) {
     const ts=pChart.timeScale().coordinateToTime(x); if(!ts){pTooltip.style.display='none';return;}
     const dateStr=typeof ts==='string'?ts:new Date(ts*1000).toISOString().slice(0,10);
     // Get institutional quarter for this date
-    const mo=parseInt(dateStr.slice(5,7));
-    const q=mo<=3?1:mo<=6?2:mo<=9?3:4;
-    const qk=`${dateStr.slice(0,4)}Q${q}`;
-    const qInst=f13ByQ[qk];
     const dayTrades=byDayTrades[dateStr];
-    if((!dayTrades||!dayTrades.length) && !qInst){pTooltip.style.display='none';return;}
+    if(!dayTrades||!dayTrades.length){pTooltip.style.display='none';return;}
     let html=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>`;
     if(dayTrades&&dayTrades.length){
       const bys=dayTrades.filter(t=>tradeClass(t.type)==='buy'),sls=dayTrades.filter(t=>tradeClass(t.type)==='sell');
@@ -3204,7 +3046,7 @@ function applyChartFilters() {
   }
   if(state.drawCircles)state.drawCircles();
   renderSidebarTrades(filtered); renderStockTradesTable(filtered); renderTradeMarkerList(filtered);
-  buildPressureChartGated(state.chart,filtered,state.currentPriceData,state.f13Data||[]);
+  buildPressureChartGated(state.chart,filtered,state.currentPriceData);
 }
 
 
@@ -3323,23 +3165,12 @@ function renderTradeMarkerList(trades) {
   }).join('');
   if(trades.length>15)el.innerHTML+=`<div style="font-size:11px;color:var(--muted);padding:4px 8px">+${trades.length-15} more — see table below</div>`;
 
-  // Append 13F legend if data exists for this ticker
-  const f13 = state.f13Data || [];
-  if (f13.length > 0) {
-    const hasBuy  = f13.some(f => !f.is_exit && (f.shares_delta === null || f.shares_delta >= 0));
-    const hasSell = f13.some(f => f.is_exit || f.shares_delta < 0);
-    let legend = '';
-    if (hasBuy)  legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.3);border-radius:4px"><span style="color:#00d4ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#00d4ff">13F ADD</span></div>`;
-    if (hasSell) legend += `<div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,0,255,0.06);border:1px solid rgba(255,0,255,0.3);border-radius:4px"><span style="color:#ff00ff;font-size:12px">◆</span><span style="font-family:'Space Mono',monospace;font-size:10px;color:#ff00ff">13F REDUCE</span></div>`;
-    if (legend) el.innerHTML += legend;
-  }
 }
 
 function renderSidebarTrades(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
-  const f13 = state.f13Data || [];
 
-  if(!trades.length && !f13.length){
+  if(!trades.length){
     el.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>`;
     return;
   }
@@ -3360,50 +3191,7 @@ function renderSidebarTrades(trades) {
     </div>`;
   }).join('') : '';
 
-  // 13F section — group by quarter, show institution changes
-  let f13Html = '';
-  if (f13.length) {
-    const byQuarter = {};
-    f13.forEach(f => {
-      const q = f.quarter || 'Unknown';
-      if (!byQuarter[q]) byQuarter[q] = { buys: [], sells: [] };
-      if (f.shares_delta < 0 || f.is_exit) byQuarter[q].sells.push(f);
-      else byQuarter[q].buys.push(f);
-    });
-    const quarters = Object.keys(byQuarter).sort().reverse();
-    f13Html = `<div style="margin-top:${trades.length?'16px':'0'};margin-bottom:8px">
-      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        ◆ 13F INSTITUTIONAL HOLDINGS
-      </div>
-      ${quarters.map(q => {
-        const qd = byQuarter[q];
-        const buyCount = qd.buys.length, sellCount = qd.sells.length;
-        return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:6px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--accent)">${q}</span>
-            <span style="font-size:10px;color:var(--muted)">${buyCount+sellCount} change${buyCount+sellCount!==1?'s':''}</span>
-          </div>
-          ${buyCount ? `<div style="margin-bottom:6px">${qd.buys.slice(0,3).map(f=>{
-            const badge = f.is_new ? '<span style="color:#ffd700;font-size:9px;margin-left:4px">NEW</span>' : '';
-            const pct = f.pct_change != null ? `<span style="color:var(--buy);font-size:10px"> +${f.pct_change.toFixed(0)}%</span>` : '';
-            return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(30,45,61,0.5);font-size:11px">
-              <span style="color:var(--text)">${f.filer_name||'Unknown'}${badge}</span>
-              <span style="color:var(--buy);font-family:'Space Mono',monospace">${f.shares_delta>0?'+':''}${fmtShares(f.shares_delta)}${pct}</span>
-            </div>`;
-          }).join('')}${buyCount>3?`<div style="font-size:10px;color:var(--muted);margin-top:4px">+${buyCount-3} more adding</div>`:''}</div>` : ''}
-          ${sellCount ? `<div>${qd.sells.slice(0,3).map(f=>{
-            const badge = f.is_exit ? '<span style="color:var(--sell);font-size:9px;margin-left:4px">EXIT</span>' : '';
-            return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(30,45,61,0.5);font-size:11px">
-              <span style="color:var(--text)">${f.filer_name||'Unknown'}${badge}</span>
-              <span style="color:var(--sell);font-family:'Space Mono',monospace">${fmtShares(f.shares_delta)}</span>
-            </div>`;
-          }).join('')}${sellCount>3?`<div style="font-size:10px;color:var(--muted);margin-top:4px">+${sellCount-3} more reducing</div>`:''}</div>` : ''}
-        </div>`;
-      }).join('')}
-    </div>`;
-  }
-
-  el.innerHTML = form4Html + f13Html;
+  el.innerHTML = form4Html;
 }
 function renderSidebarSummary(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
@@ -4742,11 +4530,7 @@ function ensureAnalysisDataLong(cb) {
   });
 }
 
-let _f13SummaryData  = null;     // 13F summary cache for analysis tiles
-let _f13SummaryLoading = false;
 let _firstBuyCache = null;      // firstbuys API results cache
-let _f13SummaryCache = null;    // 13F summary cache for analysis tiles
-let _f13DualCache = null;       // dual conviction cache
 let _rankerCache = null;        // opportunity ranker scored results cache
 let _rankerRawRows = null;      // raw rows from /api/ranker before price enrichment
 let _insiderScoreCache = null;  // top insider accuracy scores cache
@@ -4770,12 +4554,10 @@ async function loadAnalysisPage(subpage) {
   if (!_analysisData) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
     try {
-      const [raw, f13Raw] = await Promise.all([
+      const [raw] = await Promise.all([
         apiFetch('/api/screener?days=30'),
-        apiFetch('/api/f13-summary').catch(() => null),
       ]);
       _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
-      if (f13Raw) { _f13SummaryCache = f13Raw; _f13SummaryData = f13Raw; }
     } catch(e) { _analysisData = []; }
   }
 
@@ -4899,230 +4681,11 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 
 
 
-function buildF13BuyTile() {
-  const d = _f13SummaryCache;
-  const items = d ? (d.topBuys || []) : [];
-  const quarter = d?.quarter || '…';
-  const isLoading = !d;
-  const isEmpty = d && items.length === 0;
-  return {
-    id: 'f13buy',
-    icon: '🏛',
-    name: 'Institutional Accumulation',
-    desc: isEmpty
-      ? 'Quarterly 13F data is still processing. Check back after the worker completes — this tile will populate automatically.'
-      : `Tickers with the most institutions adding to positions in ${quarter}. Based on 13F filings — quarterly disclosures from funds managing $100M+.`,
-    count: isLoading ? '…' : items.length,
-    countLabel: 'tickers with multiple adders',
-    loading: isLoading,
-    top3: items.slice(0,3).map(r => ({
-      ticker: r.ticker,
-      label: `${r.institution_count} institutions`,
-      sub: fmt(r.total_value) + ' added',
-      color: '#00d4ff',
-    })),
-    accentColor: '#00d4ff',
-    accentBg: 'rgba(0,212,255,0.05)',
-    accentBorder: 'rgba(0,212,255,0.25)',
-  };
-}
 
-function buildF13DualTile() {
-  const d = _f13DualCache;
-  const items = d ? (d.results || []) : [];
-  const quarter = d?.quarter || '…';
-  const loading = !d;
-  return {
-    id: 'f13dual',
-    icon: '⚡',
-    name: 'Dual Conviction',
-    desc: `Tickers where insiders bought on the open market AND institutions added positions in ${quarter}. Two independent signals pointing the same direction — the strongest setup in the dataset.`,
-    count: items.length || (d ? 0 : '…'),
-    countLabel: 'dual-confirmed tickers',
-    loading,
-    top3: items.slice(0,3).map(r => ({
-      ticker: r.ticker,
-      label: `${r.institution_count} inst · ${r.insider_count} insider${r.insider_count!==1?'s':''}`,
-      sub: fmt(r.insider_value) + ' insider · ' + fmt(r.inst_value) + ' inst',
-      color: 'var(--buy)',
-    })),
-    accentColor: 'var(--buy)',
-    accentBg: 'rgba(0,255,136,0.05)',
-    accentBorder: 'rgba(0,255,136,0.25)',
-  };
-}
 
-function buildF13SellTile() {
-  const d = _f13SummaryCache;
-  const items = d ? (d.topSells || []) : [];
-  const quarter = d?.quarter || '…';
-  const isLoading = !d;
-  return {
-    id: 'f13sell',
-    icon: '🏛',
-    name: 'Institutional Distribution',
-    desc: `Tickers with the most institutions reducing or exiting positions in ${quarter}. Multiple institutions selling is a meaningful caution signal.`,
-    count: isLoading ? '…' : items.length,
-    countLabel: 'tickers with multiple sellers',
-    loading: isLoading,
-    top3: items.slice(0,3).map(r => ({
-      ticker: r.ticker,
-      label: fmt(Math.abs(r.net_value||r.removed_value||0)) + ' net removed',
-      sub: (r.institution_count||0) + ' institutions',
-      color: '#ff00ff',
-    })),
-    accentColor: '#ff00ff',
-    accentBg: 'rgba(255,0,255,0.05)',
-    accentBorder: 'rgba(255,0,255,0.25)',
-  };
-}
 
-function buildF13NewTile() {
-  const d = _f13SummaryCache;
-  const items = d ? (d.newPositions || []) : [];
-  const quarter = d?.quarter || '…';
-  const isLoading = !d;
-  return {
-    id: 'f13new',
-    icon: '🆕',
-    name: 'New Institutional Positions',
-    desc: `Tickers where multiple institutions opened a brand-new position in ${quarter} — no prior holding. High-conviction fresh interest from the smart money.`,
-    count: isLoading ? '…' : items.length,
-    countLabel: 'tickers with new institutional interest',
-    loading: isLoading,
-    top3: items.slice(0,3).map(r => ({
-      ticker: r.ticker,
-      label: fmt(r.total_value||0) + ' committed',
-      sub: (r.new_filer_count||0) + ' new institutions',
-      color: '#ffd700',
-    })),
-    accentColor: '#ffd700',
-    accentBg: 'rgba(255,215,0,0.05)',
-    accentBorder: 'rgba(255,215,0,0.25)',
-  };
-}
 
-function renderF13DualSubpage() {
-  window.scrollTo(0, 0);
-  const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
 
-  if (!_f13DualCache) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Scanning for dual signals...</span></div></div>`;
-    return;
-  }
-
-  const d = _f13DualCache;
-  const items = d.results || [];
-
-  const rows = items.map(r => `
-    <div onclick="loadStockView('${r.ticker}')" style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s;position:relative;overflow:hidden"
-      onmouseover="this.style.borderColor='var(--buy)'" onmouseout="this.style.borderColor='var(--border)'">
-      <div style="position:absolute;top:0;left:0;bottom:0;width:3px;background:var(--buy)"></div>
-      <div style="display:flex;align-items:center;gap:14px;padding-left:8px">
-        <span style="font-family:'Space Mono',monospace;font-size:15px;font-weight:700;color:var(--buy);min-width:56px">${r.ticker}</span>
-        <div>
-          <div style="display:flex;gap:10px;margin-bottom:4px">
-            <span style="font-size:11px;background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;color:var(--buy)">▲ ${r.insider_count} insider${r.insider_count!==1?'s':''} buying</span>
-            <span style="font-size:11px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.25);border-radius:4px;padding:2px 8px;color:var(--accent)">◆ ${r.institution_count} institutions adding</span>
-          </div>
-          <div style="font-size:11px;color:var(--muted)">Insider: ${fmt(r.insider_value)} · Institutional: ${fmt(r.inst_value)} · Last buy: ${fmtDate(r.latest_insider_buy)}</div>
-        </div>
-      </div>
-      <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);flex-shrink:0">VIEW →</div>
-    </div>`).join('');
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:20px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ DUAL CONVICTION</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying + institutions accumulating simultaneously · ${d.quarter} · Strongest convergence signal in the dataset</div>
-    </div>
-    <div style="background:var(--bg2);border:1px solid rgba(0,255,136,0.2);border-radius:8px;padding:14px 16px;margin-bottom:20px;font-size:12px;color:var(--muted);line-height:1.7">
-      Requires <span style="color:var(--text)">1+ open-market insider purchase</span> in the last 90 days AND <span style="color:var(--text)">2+ institutions independently adding</span> in <span style="color:var(--text)">${d.quarter}</span>. Neither signal alone is enough — convergence between people who know the company from the inside and professionals who analyzed it from the outside is what makes this rare.
-    </div>
-    ${items.length
-      ? `<div style="display:grid;gap:10px">${rows}</div>`
-      : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
-          No dual conviction signals found for ${d.quarter}.<br>
-          <span style="font-size:11px">This is rare by design — requires both signals simultaneously. Check back as more 13F data loads.</span>
-        </div>`}
-  </div>`;
-}
-
-function renderF13Subpage(type) {
-  window.scrollTo(0, 0);
-  const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
-
-  const d = _f13SummaryData;
-  if (!d) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading 13F data...</span></div></div>`;
-    return;
-  }
-
-  const configs = {
-    f13buy:  { title: '🏛 INSTITUTIONAL ACCUMULATION', subtitle: 'Ranked by total $ added this quarter', color: '#00d4ff', items: d.topBuys||[], labelFn: r=>`${fmt(r.total_value)} added · ${r.institution_count} inst` },
-    f13sell: { title: '🏛 INSTITUTIONAL DISTRIBUTION', subtitle: 'Ranked by net $ removed this quarter', color: '#ff00ff', items: d.topSells||[], labelFn: r=>`${fmt(Math.abs(r.removed_value||r.net_value||0))} removed · ${r.institution_count} inst` },
-    f13new:  { title: '🆕 NEW INSTITUTIONAL POSITIONS', subtitle: 'Fresh institutional interest this quarter', color: '#ffd700', items: d.newPositions||[], labelFn: r=>`${r.new_filer_count} new holders · ${fmt(r.total_value)} committed` },
-  };
-  const cfg = configs[type];
-  if (!cfg) return;
-
-  const rows = cfg.items.map(r => `
-    <div onclick="loadStockView('${r.ticker}')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s"
-      onmouseover="this.style.borderColor='${cfg.color}'" onmouseout="this.style.borderColor='var(--border)'">
-      <div style="display:flex;align-items:center;gap:14px">
-        <span style="font-family:'Space Mono',monospace;font-size:14px;font-weight:700;color:${cfg.color};min-width:52px">${r.ticker}</span>
-        <div style="font-size:11px;color:var(--muted)">${cfg.labelFn(r)}</div>
-      </div>
-      <div style="font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);flex-shrink:0">VIEW →</div>
-    </div>`).join('');
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
-    ${backBtn}
-    <div style="margin-bottom:20px">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${cfg.title}</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">${cfg.subtitle} · ${d.quarter} · Based on 13F-HR filings</div>
-    </div>
-    ${cfg.items.length
-      ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:10px">${rows}</div>`
-      : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No data yet — 13F processing runs quarterly.<br><span style="font-size:11px">Check back after the next filing deadline.</span></div>`}
-  </div>`;
-}
-
-function buildF13Tile(direction) {
-  const summary = _f13SummaryData;
-  const isBuy = direction === 'buy';
-  const list = summary ? (isBuy ? summary.topBuys : summary.topSells) : [];
-  const quarter = summary ? summary.quarter : null;
-  const top3 = list.slice(0, 3).map(r => ({
-    ticker: r.ticker,
-    label: isBuy
-      ? `${r.institution_count} institution${r.institution_count !== 1 ? 's' : ''}`
-      : `${r.institution_count} reducing`,
-    sub: '$' + (Math.abs(r.total_value || 0) >= 1e9
-      ? (r.total_value / 1e9).toFixed(1) + 'B'
-      : (r.total_value / 1e6).toFixed(0) + 'M') + ' total',
-    color: isBuy ? '#00d4ff' : '#ff00ff',
-  }));
-
-  return {
-    id: isBuy ? 'f13buy' : 'f13sell',
-    icon: isBuy ? '◆' : '◇',
-    name: isBuy ? '13F Institutional Accumulation' : '13F Institutional Distribution',
-    desc: isBuy
-      ? 'Tickers with the most institutions adding or opening positions this quarter — sustained smart-money accumulation from 13F filers.'
-      : 'Tickers with the most institutions reducing or exiting positions this quarter — watch for continued distribution.',
-    count: list.length || (summary ? 0 : '…'),
-    countLabel: quarter ? `tickers · ${quarter}` : 'loading…',
-    loading: !summary,
-    top3,
-    accentColor: isBuy ? '#00d4ff' : '#ff00ff',
-    accentBg:    isBuy ? 'rgba(0,212,255,0.05)' : 'rgba(255,0,255,0.05)',
-    accentBorder: isBuy ? 'rgba(0,212,255,0.25)' : 'rgba(255,0,255,0.25)',
-  };
-}
 
 
 function renderAnalysisDashboard() {
@@ -5152,24 +4715,6 @@ function renderAnalysisDashboard() {
     }).catch((e) => { console.warn('firstbuys fetch failed:', e); _firstBuyCache = []; });
   }
 
-  // Kick off 13F summary fetch if not already loaded by loadAnalysisPage
-  if (!_f13SummaryCache) {
-    apiFetch('/api/f13-summary').then(data => {
-      _f13SummaryCache = data;
-      _f13SummaryData  = data;
-      const body = document.getElementById('analysisViewBody');
-      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _f13SummaryCache = { quarter: null, topBuys: [], topSells: [], newPositions: [] }; });
-  }
-
-  // Kick off dual conviction fetch if not cached
-  if (!_f13DualCache) {
-    apiFetch('/api/f13-dual').then(data => {
-      _f13DualCache = data;
-      const body = document.getElementById('analysisViewBody');
-      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch((e) => { console.warn('f13-dual fetch failed:', e); _f13DualCache = { quarter: null, results: [] }; });
-  }
 
   const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
   const rankerLoading = !_rankerCache;
@@ -5192,24 +4737,6 @@ function renderAnalysisDashboard() {
       accentColor: '#ffd700',
       accentBg: 'rgba(255,215,0,0.06)',
       accentBorder: 'rgba(255,215,0,0.25)',
-    },
-    {
-      id: 'f13dual',
-      icon: '⚡',
-      name: 'Dual Conviction',
-      desc: 'Tickers where insiders bought on the open market AND institutions added positions in the same period. Two independent signals pointing the same direction — the strongest setup in the dataset.',
-      count: _f13DualCache ? (_f13DualCache.results||[]).length : '…',
-      countLabel: 'dual-confirmed tickers',
-      loading: !_f13DualCache,
-      top3: (_f13DualCache?.results||[]).slice(0,3).map(r => ({
-        ticker: r.ticker,
-        label: `${r.institution_count} inst · ${r.insider_count} insider${r.insider_count!==1?'s':''}`,
-        sub: fmt(r.insider_value) + ' insider · ' + fmt(r.inst_value) + ' inst',
-        color: 'var(--buy)',
-      })),
-      accentColor: 'var(--buy)',
-      accentBg: 'rgba(0,255,136,0.05)',
-      accentBorder: 'rgba(0,255,136,0.25)',
     },
     {
       id: 'clusters',
@@ -5309,7 +4836,7 @@ function renderAnalysisDashboard() {
     id: 'regimeshift',
     icon: '📡',
     name: 'Regime Shift Detector',
-    desc: 'Detects when insider behavior changes materially vs their own 6-month baseline: chronic sellers suddenly buying, dormant insiders activating, selling intensity spiking. 13F institutional positioning is factored in — a bullish regime confirmed by institutional accumulation scores significantly higher.',
+    desc: 'Detects when insider behavior changes materially vs their own 6-month baseline: chronic sellers suddenly buying, dormant insiders activating, selling intensity spiking. ',
     count: _regimeData.length,
     countLabel: 'regime shifts detected',
     top3: regimeTop3.map(r => ({
@@ -5351,7 +4878,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool, buildF13BuyTile(), buildF13SellTile(), buildF13NewTile()].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5471,13 +4998,7 @@ function renderAnalysisSubpage(id) {
     renderFirstBuySubpage();
   }
 
-  else if (id === 'f13dual') {
-    renderF13DualSubpage();
-  }
 
-  else if (id === 'f13buy' || id === 'f13sell' || id === 'f13new') {
-    renderF13Subpage(id);
-  }
 }
 
 function renderRegimeShiftSubpage() {
@@ -5842,23 +5363,6 @@ function scoreOpportunityRanker(rows) {
   // First Buy in Years: tickers where a first-buy was flagged
   const firstBuyTickers = new Set((_firstBuyCache || []).map(f => f.ticker));
 
-  // 13F Institutional Signal: build net flow map from summary cache
-  const instNetMap = {};
-  if (_f13SummaryCache) {
-    (_f13SummaryCache.topBuys || []).forEach(r => {
-      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0 };
-      const v = r.net_value || r.added_value || r.total_value || 0;
-      instNetMap[r.ticker].adds += v;
-      instNetMap[r.ticker].net  += v;
-    });
-    (_f13SummaryCache.topSells || []).forEach(r => {
-      if (!instNetMap[r.ticker]) instNetMap[r.ticker] = { net: 0, adds: 0, reduces: 0 };
-      const v = Math.abs(r.net_value || r.removed_value || 0);
-      instNetMap[r.ticker].reduces += v;
-      instNetMap[r.ticker].net    -= v;
-    });
-  }
-
   // Exit Warnings: penalize tickers with active exit signals
   const exitWarningTickers = new Set();
   try {
@@ -5945,20 +5449,6 @@ function scoreOpportunityRanker(rows) {
     // ── 14. Exit Warning: active red flag (−12 pts) ───────────────
     if (exitWarningTickers.has(r.ticker)) {
       score -= 12; factors.push(`⚠ Active exit warning signal`);
-    }
-
-    // ── 15. 13F Institutional confirmation (+4–12 pts / −6 pts) ──
-    const inst = instNetMap[r.ticker];
-    if (inst) {
-      if (inst.net > 0) {
-        // Institutions net adding — bullish confirmation
-        if (inst.net > 1e10)      { score += 12; factors.push(`Strong institutional accumulation (${fmt(inst.net)} net)`); }
-        else if (inst.net > 1e9)  { score += 8;  factors.push(`Institutional accumulation (${fmt(inst.net)} net)`); }
-        else if (inst.net > 1e8)  { score += 4;  factors.push(`Institutional adding positions`); }
-      } else if (inst.net < 0) {
-        // Institutions net reducing — bearish divergence from insider buying
-        score -= 6; factors.push(`⚠ Institutional distribution (${fmt(Math.abs(inst.net))} net outflow)`);
-      }
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
@@ -8339,7 +7829,7 @@ function renderMonitorShell(body) {
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 filings and 13F institutional disclosures. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.65">All data sourced from SEC Form 4 filings. Signal narratives are factual observations only — not investment advice or buy/sell recommendations.</div>
     </div>
     <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
       <div style="font-family:'Space Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--muted)">TOTAL INSIDER ACTIVITY GAUGES</div>
@@ -9102,7 +8592,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
   <div style="max-width:1200px;margin:0 auto">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
     <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
-      InsiderTape tracks SEC Form 4 insider trades and 13F institutional holdings in real time — cluster buys, institutional accumulation, and conviction signals.
+      InsiderTape tracks SEC Form 4 insider trades in real time — cluster buys, conviction signals, and first-time purchases.
       Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
@@ -9503,9 +8993,9 @@ function renderSidebarGated(trades) {
 }
 
 // ── Pressure chart guard ──────────────────────────────────────
-function buildPressureChartGated(mainChart, trades, priceData, f13Data) {
+function buildPressureChartGated(mainChart, trades, priceData) {
   if (auth.isPremium) {
-    buildPressureChart(mainChart, trades, priceData, f13Data);
+    buildPressureChart(mainChart, trades, priceData);
     return;
   }
   const pw = document.getElementById('pressureWrapper');
@@ -9649,7 +9139,7 @@ function loadPremiumPage() {
     <rect x="4" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="12" y="25" fill="#f59e0b" font-family="monospace" font-size="6" letter-spacing="0.5">⚡ OPPORTUNITY RANKER</text>
     <text x="12" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">NVDA · Score 94</text>
-    <text x="12" y="44" fill="#4a6580" font-family="monospace" font-size="6">Cluster + Regime↑ + 13F Add</text>
+    <text x="12" y="44" fill="#4a6580" font-family="monospace" font-size="6">Cluster + Regime↑</text>
     <rect x="177" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="185" y="25" fill="#ff4466" font-family="monospace" font-size="6" letter-spacing="0.5">⚠ EXIT WARNING</text>
     <text x="185" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">TDW · Score 78 — HIGH</text>
@@ -9847,7 +9337,7 @@ function loadPremiumPage() {
   const featureCards = [
     {
       icon: '📬', title: 'EMAIL ALERTS',
-      desc: 'Get notified within minutes of a qualifying insider filing — including 13F institutional position changes and insider open-market buys. Filter by sector, role, minimum trade size, and signal type. Set it once — never miss a high-conviction move again.',
+      desc: 'Get notified within minutes of a qualifying insider filing. Filter by sector, role, minimum trade size, and signal type. Set it once — never miss a high-conviction move again.',
       mock: alertsMockup
     },
     {
@@ -9867,7 +9357,7 @@ function loadPremiumPage() {
     },
     {
       icon: '🚨', title: 'MONITOR',
-      desc: 'Every signal ranked by strength across all detection engines — cluster buys, 13F institutional position changes, first-time purchases after years of inactivity, C-suite conviction outliers, and exit warnings. Updated continuously throughout the trading day.',
+      desc: 'Every signal ranked by strength across all detection engines — cluster buys, first-time purchases after years of inactivity, C-suite conviction outliers, and exit warnings. Updated continuously throughout the trading day.',
       mock: monitorMockup
     },
     {
