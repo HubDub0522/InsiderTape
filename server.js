@@ -361,6 +361,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_f13_quarter ON f13_changes(quarter);
     CREATE INDEX IF NOT EXISTS idx_f13_date    ON f13_changes(filed_date);
     CREATE INDEX IF NOT EXISTS idx_f13_dual    ON f13_changes(quarter, ticker, shares_delta);
+    CREATE INDEX IF NOT EXISTS idx_f13_summary ON f13_changes(quarter, is_new, shares_delta, ticker, filer_cik, shares);
   `);
 } catch (e) {
   console.error(`Cannot open DB at ${DB_PATH}: ${e.message}`);
@@ -1141,19 +1142,43 @@ app.get('/api/f13-summary', (req, res) => {
 
     const EXCL_LIST = "'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG','IVV','VEA','VWO','EFA','EEM'";
 
-    // Aggregate per ticker for curQ
-    // Accumulation/distribution: exclude is_new=1 (new positions skew the delta)
-    // Cap shares_added at shares held (delta can't exceed position size)
-    const rawAgg = curQ ? db.prepare(
-      'SELECT ticker,' +
-      ' COUNT(DISTINCT CASE WHEN shares_delta>0 AND is_new=0 THEN filer_cik END) AS add_count,' +
-      ' COUNT(DISTINCT CASE WHEN shares_delta<0 OR is_exit=1 THEN filer_cik END) AS reduce_count,' +
-      ' SUM(CASE WHEN shares_delta>0 AND is_new=0 THEN MIN(shares_delta, shares) ELSE 0 END) AS shares_added,' +
-      ' SUM(CASE WHEN shares_delta<0 OR is_exit=1 THEN MIN(ABS(shares_delta), shares) ELSE 0 END) AS shares_removed,' +
-      ' COUNT(DISTINCT CASE WHEN is_new=1 THEN filer_cik END) AS new_filer_count' +
-      ' FROM f13_changes WHERE quarter=? AND ticker<>""' +
+    // Three lightweight queries instead of one heavy CASE WHEN aggregation
+    // Each uses the composite index on (quarter, is_new, shares_delta, ticker)
+    const addsRows = curQ ? db.prepare(
+      'SELECT ticker, COUNT(DISTINCT filer_cik) AS cnt, SUM(MIN(shares_delta,shares)) AS shares' +
+      ' FROM f13_changes WHERE quarter=? AND is_new=0 AND shares_delta>0 AND ticker<>""' +
       ' GROUP BY ticker'
     ).all(curQ) : [];
+
+    const reducesRows = curQ ? db.prepare(
+      'SELECT ticker, COUNT(DISTINCT filer_cik) AS cnt, SUM(MIN(ABS(shares_delta),shares)) AS shares' +
+      ' FROM f13_changes WHERE quarter=? AND (shares_delta<0 OR is_exit=1) AND ticker<>""' +
+      ' GROUP BY ticker'
+    ).all(curQ) : [];
+
+    const newRows = curQ ? db.prepare(
+      'SELECT ticker, COUNT(DISTINCT filer_cik) AS cnt' +
+      ' FROM f13_changes WHERE quarter=? AND is_new=1 AND ticker<>""' +
+      ' GROUP BY ticker'
+    ).all(curQ) : [];
+
+    // Merge into single rawAgg map
+    const rawMap = {};
+    addsRows.forEach(r => {
+      rawMap[r.ticker] = rawMap[r.ticker] || { ticker:r.ticker, add_count:0, reduce_count:0, shares_added:0, shares_removed:0, new_filer_count:0 };
+      rawMap[r.ticker].add_count   = r.cnt;
+      rawMap[r.ticker].shares_added = r.shares || 0;
+    });
+    reducesRows.forEach(r => {
+      rawMap[r.ticker] = rawMap[r.ticker] || { ticker:r.ticker, add_count:0, reduce_count:0, shares_added:0, shares_removed:0, new_filer_count:0 };
+      rawMap[r.ticker].reduce_count   = r.cnt;
+      rawMap[r.ticker].shares_removed = r.shares || 0;
+    });
+    newRows.forEach(r => {
+      rawMap[r.ticker] = rawMap[r.ticker] || { ticker:r.ticker, add_count:0, reduce_count:0, shares_added:0, shares_removed:0, new_filer_count:0 };
+      rawMap[r.ticker].new_filer_count = r.cnt;
+    });
+    const rawAgg = Object.values(rawMap);
 
     // Apply price to get dollar values
     slog('f13-summary: rawAgg rows=' + rawAgg.length + ' sample=' + (rawAgg[0]?rawAgg[0].ticker:'none'));
