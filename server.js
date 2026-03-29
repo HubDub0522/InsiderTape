@@ -1202,7 +1202,10 @@ app.get('/api/ranker', (req, res) => {
       ORDER BY total_buy_val DESC
       LIMIT 200
     `).all(days);
-    res.json(rows);
+    // Filter out likely ESPP: tickers with 8+ buyers are almost always stock plans
+    // Real insider clusters rarely exceed 6-7 independent buyers in 30 days
+    const filtered = rows.filter(r => r.buyer_count <= 8);
+    res.json(filtered);
   } catch(e) {
     slog('ranker error: ' + e.message);
     res.status(500).json({ error: e.message });
