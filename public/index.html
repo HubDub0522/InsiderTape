@@ -1110,9 +1110,14 @@ function switchView(view, btn, opts={}) {
     if (!opts.fromPopstate) {
       loadStockLanding();
     } else {
-      const content = document.getElementById('stockContent');
-      if (content && (!content.hasChildNodes() || content.querySelector('.empty-state'))) {
+      // Always load fresh if cache is empty
+      if (!_stockListsCache) {
         loadStockLanding();
+      } else {
+        const content = document.getElementById('stockContent');
+        if (content && (!content.hasChildNodes() || content.querySelector('.empty-state'))) {
+          loadStockLanding();
+        }
       }
     }
   }
@@ -8445,7 +8450,7 @@ window.addEventListener('popstate', e => {
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-stock').classList.add('active');
     document.getElementById('tickerInput').value = '';
-    renderStockLanding(_stockListsCache || {});
+    if (_stockListsCache) { renderStockLanding(_stockListsCache); } else { loadStockLanding(); }
   } else if (s.view === 'insider' && s.name) {
     document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
     document.getElementById('insiderTab').classList.add('active');
