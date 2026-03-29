@@ -2605,7 +2605,11 @@ setTimeout(() => {
       let d = '';
       r.on('data', c => d += c);
       r.on('end', () => {
-        try { _stockListsCache = JSON.parse(d); _stockListsCacheTime = Date.now(); slog('Stock-lists pre-warmed'); } catch(_) {}
+        try {
+          _stockListsCache = JSON.parse(d);
+          _stockListsCacheTime = Date.now();
+          slog('Stock-lists pre-warmed: mostActive=' + (_stockListsCache.mostActive||[]).length + ' hotBuys=' + (_stockListsCache.hotBuys||[]).length);
+        } catch(_) {}
       });
     }).on('error', () => {});
   } catch(e) {}
@@ -3055,6 +3059,7 @@ const STOCK_LISTS_TTL    = 15 * 60 * 1000;
 
 app.get('/api/stock-lists', (req, res) => {
   if (_stockListsCache && Date.now() - _stockListsCacheTime < STOCK_LISTS_TTL) {
+    slog('stock-lists served from cache: mostActive=' + (_stockListsCache.mostActive||[]).length);
     return res.json(_stockListsCache);
   }
   try {
