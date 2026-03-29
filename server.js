@@ -1105,7 +1105,7 @@ app.get('/api/f13-recent', (req, res) => {
 });
 
 // GET /api/f13-summary — aggregated stats for analysis tiles
-let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v4 — price×shares
+let _f13SummaryCache = null, _f13SummaryCacheTime = 0; // v5 — bust
 app.get('/api/f13-summary', (req, res) => {
   try {
     if (_f13SummaryCache && Date.now() - _f13SummaryCacheTime < 3600000) return res.json(_f13SummaryCache);
@@ -1131,7 +1131,13 @@ app.get('/api/f13-summary', (req, res) => {
         if (price > 0.5 && price < 100000) priceMap[sym] = price; // sanity check
       }
     }
-    slog('f13-summary: priceMap=' + Object.keys(priceMap).length + ' tickers, curQ=' + curQ);
+    slog('f13-summary: priceMap=' + Object.keys(priceMap).length + ' curQ=' + curQ);
+
+    // Quick sanity: how many Q4 rows have is_new=0 AND shares_delta>0?
+    const deltaCheck = curQ ? db.prepare(
+      'SELECT COUNT(*) AS n, COUNT(DISTINCT ticker) AS tickers FROM f13_changes WHERE quarter=? AND is_new=0 AND shares_delta>0'
+    ).get(curQ) : {n:0,tickers:0};
+    slog('f13-summary: is_new=0 add rows=' + deltaCheck.n + ' tickers=' + deltaCheck.tickers);
 
     const EXCL_LIST = "'SPY','QQQ','IWM','DIA','VTI','VOO','BND','AGG','GLD','SLV','TLT','HYG','IVV','VEA','VWO','EFA','EEM'";
 
@@ -1150,6 +1156,7 @@ app.get('/api/f13-summary', (req, res) => {
     ).all(curQ) : [];
 
     // Apply price to get dollar values
+    slog('f13-summary: rawAgg rows=' + rawAgg.length + ' sample=' + (rawAgg[0]?rawAgg[0].ticker:'none'));
     const withDollars = rawAgg.map(r => {
       const price = priceMap[r.ticker];
       if (!price) return null;
@@ -1167,6 +1174,7 @@ app.get('/api/f13-summary', (req, res) => {
       };
     }).filter(r => r !== null);
 
+    slog('f13-summary: withDollars=' + withDollars.length + ' of ' + rawAgg.length + ' tickers priced');
     let topBuys = withDollars.filter(r => r.added_value > 0)
                              .sort((a,b) => b.added_value - a.added_value).slice(0, 20);
     let topSells = withDollars.filter(r => r.removed_value > 0)
@@ -1201,8 +1209,11 @@ app.get('/api/f13-summary', (req, res) => {
 
     const quarterLabel = quarters.length > 1 ? `${quarters[quarters.length-1]}–${quarters[0]}` : q;
     const result = { quarter: quarterLabel, topBuys, topSells, newPositions };
-    _f13SummaryCache = result;
-    _f13SummaryCacheTime = Date.now();
+    // Only cache if we have actual results - otherwise retry next request
+    if (topBuys.length > 0 || topSells.length > 0 || newPositions.length > 0) {
+      _f13SummaryCache = result;
+      _f13SummaryCacheTime = Date.now();
+    }
     res.json(result);
   } catch(e) {
     // On error, clear cache so next request retries
