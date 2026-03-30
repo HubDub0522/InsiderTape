@@ -2255,11 +2255,7 @@ function renderStockLanding(lists) {
       <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
     </div>
-    ${!hasAny ? `<div style="text-align:center;padding:60px 20px;color:var(--muted)">
-      <div style="font-size:32px;margin-bottom:12px">📋</div>
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;margin-bottom:8px">NO RECENT ACTIVITY</div>
-      <div style="font-size:12px">Search any ticker above to view insider activity</div>
-    </div>` : ''}
+    ${!hasAny ? '<div style="text-align:center;padding:60px 20px;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">📋</div><div style="font-size:12px">Search any ticker above to view insider activity</div></div>' : ''}
     ${section('Recent Activity', 'Insider moves · Last 14 days', '⚡', activeCards)}
     ${auth.isPremium
       ? section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)
