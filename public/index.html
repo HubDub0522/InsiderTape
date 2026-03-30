@@ -1456,7 +1456,7 @@ async function loadScreener() {
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
 
     // Merge gov trades: free users get 7 days, premium get full window
-    const govDays = auth.isPremium ? days : Math.min(days, 7);
+    const govDays = 90; // gov trades always use 90d window (transaction_date)
     try {
       const govResp = await apiFetch('/api/gov-recent?days=' + govDays);
       if (Array.isArray(govResp) && govResp.length) {
@@ -4928,7 +4928,7 @@ async function loadAnalysisPage(subpage) {
     try {
       const [raw, govRaw] = await Promise.all([
         apiFetch('/api/screener?days=30'),
-        apiFetch('/api/gov-recent?days=30').catch(()=>[]),
+        apiFetch('/api/gov-recent?days=90').catch(()=>[]),
       ]);
       const form4 = Array.isArray(raw) ? raw : (raw.trades || []);
       const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
@@ -4949,7 +4949,7 @@ async function loadAnalysisPage(subpage) {
   if (_analysisGovData === null) {
     _analysisGovData = []; // mark as loading to prevent double-fetch
     try {
-      const govRaw = await apiFetch('/api/gov-recent?days=30').catch(()=>[]);
+      const govRaw = await apiFetch('/api/gov-recent?days=90').catch(()=>[]);
       const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
         _isGov: true,
         ticker: g.ticker, company: g.company || g.ticker,
