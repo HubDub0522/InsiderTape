@@ -101,49 +101,79 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ── PDF text extractor ────────────────────────────────────────────────────────
 function extractPdfText(buf) {
   const text = [];
-  let pos = 0;
-  while (pos < buf.length - 10) {
-    const streamIdx = buf.indexOf('stream', pos);
-    if (streamIdx < 0) break;
-    const dictStart = Math.max(0, streamIdx - 500);
-    const dict = buf.slice(dictStart, streamIdx).toString('latin1');
-    const isFlateDecode = dict.includes('FlateDecode') || dict.includes('/Fl\n') || dict.includes('/Fl ') || dict.includes('/Fl>');
-    let dataStart = streamIdx + 6;
-    if (buf[dataStart] === 13) dataStart++;
-    if (buf[dataStart] === 10) dataStart++;
-    const endIdx = buf.indexOf('endstream', dataStart);
-    if (endIdx < 0 || endIdx <= dataStart) { pos = streamIdx + 7; continue; }
+  const latin = buf.toString('latin1');
 
-    if (isFlateDecode) {
-      const compressed = buf.slice(dataStart, endIdx);
-      let decompressed = null;
-      // Try all inflate variants
-      const errors = [];
-      for (const fn of [zlib.inflateSync, zlib.inflateRawSync, zlib.unzipSync]) {
-        try { decompressed = fn(compressed).toString('latin1'); break; }
-        catch(e) { errors.push(fn.name+':'+e.message.slice(0,30)); }
+  // Find all stream objects — only process page content streams
+  // Skip: /Type /XRef, /Type /ObjStm, /Type /Metadata, encrypted streams
+  let pos = 0;
+  while (pos < latin.length) {
+    const si = latin.indexOf('stream', pos);
+    if (si < 0) break;
+
+    // Check character after 'stream' — must be CR, LF, or CRLF (PDF spec)
+    const afterStream = latin[si + 6];
+    if (afterStream !== '\r' && afterStream !== '\n') { pos = si + 7; continue; }
+
+    // Look back for the stream dictionary
+    const dictEnd = si;
+    const dictStart = Math.max(0, dictEnd - 600);
+    const dict = latin.slice(dictStart, dictEnd);
+
+    // Must have FlateDecode
+    if (!dict.includes('FlateDecode') && !dict.includes('/Fl ') && !dict.includes('/Fl\n') && !dict.includes('/Fl>')) {
+      pos = si + 7; continue;
+    }
+
+    // Skip non-content streams
+    if (dict.includes('/Type /XRef') || dict.includes('/Type/XRef') ||
+        dict.includes('/Type /ObjStm') || dict.includes('/Type/ObjStm') ||
+        dict.includes('/Type /Metadata') || dict.includes('/Encrypt')) {
+      pos = si + 7; continue;
+    }
+
+    // Get /Length value from dict to know exact compressed size
+    const lenMatch = dict.match(/\/Length\s+(\d+)/);
+    const claimedLen = lenMatch ? parseInt(lenMatch[1]) : 0;
+
+    // Find data start (after stream + CR/LF)
+    let dataStart = si + 6;
+    if (latin[dataStart] === '\r') dataStart++;
+    if (latin[dataStart] === '\n') dataStart++;
+
+    // Find endstream
+    const endIdx = latin.indexOf('endstream', dataStart);
+    if (endIdx < 0 || endIdx <= dataStart) { pos = si + 7; continue; }
+
+    // Use /Length if available and reasonable, otherwise use endstream position
+    let dataEnd = endIdx;
+    if (claimedLen > 0 && dataStart + claimedLen < endIdx + 10) {
+      dataEnd = dataStart + claimedLen;
+    }
+    // Walk back past any trailing whitespace before endstream
+    while (dataEnd > dataStart && (latin[dataEnd-1] === '\n' || latin[dataEnd-1] === '\r')) dataEnd--;
+
+    const compressed = buf.slice(dataStart, dataEnd);
+    if (compressed.length < 4) { pos = endIdx + 9; continue; }
+
+    let decompressed = null;
+    for (const fn of [zlib.inflateSync, zlib.inflateRawSync]) {
+      try { decompressed = fn(compressed).toString('latin1'); break; } catch(_) {}
+    }
+
+    if (decompressed) {
+      // Extract PDF text operators
+      const tjRe = /\(([^)]*)\)\s*Tj/g;
+      let m;
+      while ((m = tjRe.exec(decompressed)) !== null) {
+        const s = m[1].replace(/\\n/g,' ').replace(/\\r/g,' ').replace(/\\t/g,' ');
+        if (s.trim()) text.push(s);
       }
-      // Retry trimming trailing bytes
-      if (!decompressed) {
-        for (let trim = 1; trim <= 8 && !decompressed; trim++) {
-          for (const fn of [zlib.inflateSync, zlib.inflateRawSync]) {
-            try { decompressed = fn(compressed.slice(0, compressed.length - trim)).toString('latin1'); break; } catch(_) {}
-          }
-        }
-      }
-      if (!decompressed && errors.length && text.length === 0) {
-        // Log first stream failure only
-        const firstBytes = compressed.slice(0,8).toString('hex');
-        process.stderr.write('[pdf-dbg] compress firstBytes:'+firstBytes+' size:'+compressed.length+' errors:'+errors.join('|')+'\n');
-      }
-      if (decompressed) {
-        const tjRe = /\(([^)]*)\)\s*Tj/g;
-        let m;
-        while ((m = tjRe.exec(decompressed)) !== null) text.push(m[1].replace(/\\[nrt]/g,' '));
-        const TJRe = /\[([^\]]*)\]\s*TJ/g;
-        while ((m = TJRe.exec(decompressed)) !== null) {
-          const strRe = /\(([^)]*)\)/g; let sm;
-          while ((sm = strRe.exec(m[1])) !== null) text.push(sm[1].replace(/\\[nrt]/g,' '));
+      const TJRe = /\[([^\]]*)\]\s*TJ/g;
+      while ((m = TJRe.exec(decompressed)) !== null) {
+        const strRe = /\(([^)]*)\)/g; let sm;
+        while ((sm = strRe.exec(m[1])) !== null) {
+          const s = sm[1].replace(/\\n/g,' ').replace(/\\r/g,' ');
+          if (s.trim()) text.push(s);
         }
       }
     }
