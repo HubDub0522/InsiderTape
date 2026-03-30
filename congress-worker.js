@@ -1,11 +1,11 @@
 'use strict';
 // congress-worker.js
-// Polls the free S3-backed community STOCK Act feeds and inserts
-// Senate/House congressional trades into the gov_trades table.
+// Pulls congressional trades directly from government sources:
+//   House: disclosures-clerk.house.gov XML index → individual PTR HTML/PDFs
+//   Senate: efts.senate.gov full-text search JSON → individual PTR HTML/PDFs
 //
-// Sources (no auth, updated daily by community scrapers):
-//   Senate: senate-stock-watcher-data.s3-us-west-2.amazonaws.com
-//   House:  house-stock-watcher-data.s3-us-west-2.amazonaws.com
+// Lightweight: 1 index fetch + N per-filing fetches (usually 5-20/day)
+// No third-party APIs, no cost, no auth required.
 
 const https    = require('https');
 const http     = require('http');
@@ -13,200 +13,360 @@ const path     = require('path');
 const fs       = require('fs');
 const Database = require('better-sqlite3');
 
-// ── DB path (server passes DB_PATH via env) ─────────────────────
 const DATA_DIR = (() => {
   const envPath = process.env.DB_PATH;
   if (envPath) return path.dirname(envPath);
   for (const d of ['/var/data', path.join(__dirname, 'data')]) {
     try { fs.mkdirSync(d, { recursive: true }); const p = path.join(d, '.probe'); fs.writeFileSync(p, '1'); fs.unlinkSync(p); return d; }
-    catch { /* try next */ }
+    catch(_) {}
   }
   return path.join(__dirname, 'data');
 })();
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'trades.db');
 
-console.log(`[congress] DB path: ${DB_PATH}`);
+console.log(`[congress] DB: ${DB_PATH}`);
 let db;
-try {
-  db = new Database(DB_PATH);
-} catch(e) {
-  console.error(`[congress] Cannot open DB: ${e.message}`);
-  process.exit(1);
-}
+try { db = new Database(DB_PATH); }
+catch(e) { console.error(`[congress] Cannot open DB: ${e.message}`); process.exit(1); }
 db.pragma('journal_mode = WAL');
 
-// ── Schema ───────────────────────────────────────────────────────
+// ── Schema ────────────────────────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS gov_trades (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    chamber           TEXT NOT NULL,        -- 'S' senate | 'H' house
+    chamber           TEXT NOT NULL,
     member            TEXT NOT NULL,
-    ticker            TEXT,                 -- may be '--' if unknown
+    ticker            TEXT,
     asset_description TEXT,
-    transaction_type  TEXT,                 -- 'P' purchase | 'S' sale | 'E' exchange
+    transaction_type  TEXT,
     transaction_date  TEXT,
     disclosure_date   TEXT,
-    amount_range      TEXT,                 -- e.g. "$1,001 - $15,000"
-    owner             TEXT,                 -- Self | Spouse | Joint | Dependent
+    amount_range      TEXT,
+    owner             TEXT,
     filing_url        TEXT,
-    UNIQUE(chamber, member, ticker, transaction_date, transaction_type, amount_range)
+    doc_id            TEXT,
+    UNIQUE(chamber, doc_id, ticker, transaction_date, transaction_type)
   )
 `);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_ticker   ON gov_trades(ticker)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_member   ON gov_trades(member)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_td       ON gov_trades(transaction_date DESC)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_chamber  ON gov_trades(chamber)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_dd       ON gov_trades(disclosure_date DESC)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_ticker  ON gov_trades(ticker)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_member  ON gov_trades(member)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_td      ON gov_trades(transaction_date DESC)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_chamber ON gov_trades(chamber)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_docid   ON gov_trades(doc_id)`);
 
-// ── HTTP helper ─────────────────────────────────────────────────
-function get(url, ms = 60000, _hops = 0) {
-  if (_hops > 5) return Promise.reject(new Error('Too many redirects'));
+// Track which doc IDs we've already processed
+const seenDocs = new Set(
+  db.prepare("SELECT DISTINCT doc_id FROM gov_trades WHERE doc_id IS NOT NULL").all().map(r => r.doc_id)
+);
+console.log(`[congress] Already processed ${seenDocs.size} filing IDs`);
+
+// ── HTTP helper ───────────────────────────────────────────────────────────────
+function get(url, ms = 30000, hops = 0) {
+  if (hops > 5) return Promise.reject(new Error('Too many redirects'));
   return new Promise((resolve, reject) => {
-    const mod = url.startsWith('http://') ? http : https;
+    const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InsiderTape/1.0)' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; InsiderTape/1.0; +https://insidertape.com)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml,*/*',
+      },
       timeout: ms,
     }, res => {
       if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
         res.resume();
         const loc = res.headers.location;
         const next = loc.startsWith('http') ? loc : new URL(loc, url).href;
-        return get(next, ms, _hops + 1).then(resolve).catch(reject);
+        return get(next, ms, hops + 1).then(resolve).catch(reject);
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
       res.on('error', reject);
     });
     req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error(`Timeout fetching ${url}`)); });
+    req.on('timeout', () => { req.destroy(); reject(new Error(`Timeout: ${url}`)); });
   });
 }
 
-// ── Normalise transaction type ───────────────────────────────────
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Normalise helpers ─────────────────────────────────────────────────────────
+function normDate(raw = '') {
+  if (!raw || raw === '--') return null;
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0,10);
+  return null;
+}
+
 function normType(raw = '') {
   const t = raw.trim().toLowerCase();
   if (t.includes('purchase') || t === 'buy' || t === 'p') return 'P';
   if (t.includes('sale') || t.includes('sell') || t === 's') return 'S';
   if (t.includes('exchange') || t === 'e') return 'E';
-  return raw.slice(0, 20);
+  return raw.slice(0,10);
 }
 
-// ── Normalise date strings ────────────────────────────────────────
-function normDate(raw = '') {
-  if (!raw || raw === '--') return null;
-  // Handles MM/DD/YYYY → YYYY-MM-DD, already YYYY-MM-DD passthrough
-  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  return null;
+// ── Parse a House PTR HTML/PDF ────────────────────────────────────────────────
+// The "PDF" is actually rendered HTML with consistent structure.
+// Tickers appear as: "Company Name (TICK) [ST]" or "Company Name (TICK)"
+// Transaction type: "P" or "S" or "E" in a table cell
+// Dates: MM/DD/YYYY format
+// Amount: "$1,001 - $15,000" ranges
+function parseHousePTR(html, member, docId, filingUrl) {
+  const rows = [];
+
+  // Extract all ticker mentions: text like "(AAPL)" or "(AAPL) [ST]"
+  // Each ticker block in the PDF has: asset name, transaction type, date, amount
+  // The HTML uses table rows — extract each transaction row
+
+  // Strategy: find all table rows that contain a ticker symbol
+  // Tickers are in parens: /\(([A-Z]{1,5})\)(?:\s*\[ST\])?/
+  // Each row also has: type (P/S/E/sale/purchase), date MM/DD/YYYY, amount range
+
+  // Split into lines for easier parsing
+  const lines = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').split(/(?=\$[\d,]+)/);
+  const fullText = html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&#\d+;/g, ' ').replace(/\s+/g, ' ');
+
+  // Extract disclosure date from "Digitally Signed: ... , MM/DD/YYYY"
+  const signedMatch = fullText.match(/Digitally Signed:[^,]+,\s*(\d{1,2}\/\d{1,2}\/\d{4})/);
+  const disclosureDate = signedMatch ? normDate(signedMatch[1]) : null;
+
+  // Find all transaction blocks
+  // Pattern: asset name with ticker → transaction type → dates → amount range
+  // Regex to find ticker symbol
+  const tickerRe = /([^(]{3,80})\(([A-Z]{1,5})\)(?:\s*\[(?:ST|OP|DC|CS|MF|ET|PS|AS)\])?\s*/g;
+
+  let match;
+  while ((match = tickerRe.exec(fullText)) !== null) {
+    const assetDesc = match[1].trim().replace(/\s+/g, ' ').slice(0, 150);
+    const ticker    = match[2];
+
+    // Skip obvious non-tickers
+    if (['EST', 'LLC', 'INC', 'ETF', 'THE', 'FOR', 'AND', 'ARE', 'NOT'].includes(ticker)) continue;
+    if (ticker.length < 1 || ticker.length > 5) continue;
+
+    // Look ahead in the text after this ticker for type + date + amount
+    const after = fullText.slice(match.index + match[0].length, match.index + match[0].length + 400);
+
+    // Transaction type: look for P, S, Purchase, Sale, Exchange
+    let txType = null;
+    const typeMatch = after.match(/\b(Purchase|Sale|Exchange|P|S|E)\b/i);
+    if (typeMatch) txType = normType(typeMatch[1]);
+    if (!txType) continue; // can't determine type, skip
+
+    // Transaction date: MM/DD/YYYY
+    const dateMatch = after.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+    const txDate = dateMatch ? normDate(dateMatch[1]) : null;
+
+    // Amount range: $X - $Y or $X,XXX - $X,XXX
+    const amtMatch = after.match(/(\$[\d,]+\s*-\s*\$[\d,]+|\$[\d,]+\+?)/);
+    const amtRange = amtMatch ? amtMatch[1].replace(/\s+/g, ' ') : null;
+
+    // Owner (Self/Spouse/Joint/Dependent)
+    const ownerMatch = after.match(/\b(Self|Spouse|Joint|Dependent|SP|JT|DC)\b/i);
+    const owner = ownerMatch ? ownerMatch[1] : 'Self';
+
+    rows.push({
+      chamber:          'H',
+      member,
+      ticker,
+      asset_description: assetDesc.slice(0, 200),
+      transaction_type:  txType,
+      transaction_date:  txDate,
+      disclosure_date:   disclosureDate,
+      amount_range:      amtRange ? amtRange.slice(0, 50) : null,
+      owner:             owner.slice(0, 20),
+      filing_url:        filingUrl,
+      doc_id:            docId,
+    });
+  }
+
+  return rows;
 }
 
-// ── Normalise ticker ─────────────────────────────────────────────
-function normTicker(raw = '') {
-  const t = (raw || '').trim().toUpperCase();
-  if (!t || t === '--' || t === 'N/A' || t === 'NA') return '--';
-  // Remove exchange prefixes like NYSE: or NASDAQ:
-  return t.replace(/^[A-Z]+:\s*/,'').slice(0, 10);
+// ── Parse a Senate PTR ────────────────────────────────────────────────────────
+function parseSenatePTR(html, member, docId, filingUrl) {
+  const rows = [];
+  const fullText = html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+
+  const signedMatch = fullText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+  const disclosureDate = signedMatch ? normDate(signedMatch[1]) : null;
+
+  const tickerRe = /([^(]{3,80})\(([A-Z]{1,5})\)(?:\s*\[(?:ST|OP|DC|CS|MF|ET|PS|AS)\])?\s*/g;
+  let match;
+  while ((match = tickerRe.exec(fullText)) !== null) {
+    const assetDesc = match[1].trim().slice(0, 150);
+    const ticker    = match[2];
+    if (['EST','LLC','INC','ETF','THE','FOR','AND','ARE','NOT','USA','SEC'].includes(ticker)) continue;
+    if (ticker.length < 1 || ticker.length > 5) continue;
+
+    const after = fullText.slice(match.index + match[0].length, match.index + match[0].length + 400);
+    const typeMatch = after.match(/\b(Purchase|Sale|Exchange|P|S|E)\b/i);
+    const txType = typeMatch ? normType(typeMatch[1]) : null;
+    if (!txType) continue;
+
+    const dateMatch = after.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+    const txDate = dateMatch ? normDate(dateMatch[1]) : null;
+    const amtMatch = after.match(/(\$[\d,]+\s*-\s*\$[\d,]+|\$[\d,]+\+?)/);
+    const amtRange = amtMatch ? amtMatch[1].replace(/\s+/g, ' ') : null;
+    const ownerMatch = after.match(/\b(Self|Spouse|Joint|Dependent|SP|JT|DC)\b/i);
+
+    rows.push({
+      chamber: 'S', member, ticker,
+      asset_description: assetDesc.slice(0, 200),
+      transaction_type: txType,
+      transaction_date: txDate,
+      disclosure_date:  disclosureDate,
+      amount_range:     amtRange ? amtRange.slice(0, 50) : null,
+      owner:            ownerMatch ? ownerMatch[1].slice(0,20) : 'Self',
+      filing_url:       filingUrl,
+      doc_id:           docId,
+    });
+  }
+  return rows;
 }
 
+// ── Insert helper ─────────────────────────────────────────────────────────────
 const insertStmt = db.prepare(`
   INSERT OR IGNORE INTO gov_trades
     (chamber, member, ticker, asset_description, transaction_type,
-     transaction_date, disclosure_date, amount_range, owner, filing_url)
+     transaction_date, disclosure_date, amount_range, owner, filing_url, doc_id)
   VALUES
     (@chamber, @member, @ticker, @asset_description, @transaction_type,
-     @transaction_date, @disclosure_date, @amount_range, @owner, @filing_url)
+     @transaction_date, @disclosure_date, @amount_range, @owner, @filing_url, @doc_id)
 `);
-
 const insertMany = db.transaction(rows => {
-  let inserted = 0;
-  for (const r of rows) {
-    const info = insertStmt.run(r);
-    inserted += info.changes;
-  }
-  return inserted;
+  let n = 0;
+  for (const r of rows) { const info = insertStmt.run(r); n += info.changes; }
+  return n;
 });
 
-// ── Senate ───────────────────────────────────────────────────────
-async function fetchSenate() {
-  const url = 'https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/aggregate/all_transactions.json';
-  console.log('[congress] Fetching Senate data…');
-  const { status, body } = await get(url, 90000);
-  if (status !== 200) throw new Error(`Senate S3 returned HTTP ${status}`);
+// ── HOUSE: fetch XML index, find new PTR filings ──────────────────────────────
+async function fetchHouse() {
+  const year = new Date().getFullYear();
+  const xmlUrl = `https://disclosures-clerk.house.gov/public_disc/financial-disclosure-pdfs/${year}FD.xml`;
+  console.log(`[congress] House: fetching XML index for ${year}...`);
 
-  let raw;
-  try { raw = JSON.parse(body.toString('utf8')); }
-  catch(e) { throw new Error('Senate JSON parse failed: ' + e.message); }
+  let xmlBody;
+  try {
+    const { status, body } = await get(xmlUrl, 30000);
+    if (status !== 200) throw new Error(`XML index returned HTTP ${status}`);
+    xmlBody = body;
+  } catch(e) {
+    console.warn(`[congress] House XML fetch failed: ${e.message}`);
+    return 0;
+  }
 
-  // Format: array of { first_name, last_name, office, ptr_link, date_recieved, transactions[] }
-  const rows = [];
-  for (const filing of raw) {
-    const member = `${filing.first_name || ''} ${filing.last_name || ''}`.trim();
-    const disclosureDate = normDate(filing.date_recieved || filing.date_received || '');
-    const filingUrl = filing.ptr_link || '';
+  // Parse XML: <Member><Prefix>Hon.</Prefix><Last>Pelosi</Last><First>Nancy</First>...
+  // <FilingDate>01/17/2025</FilingDate><DocID>20026590</DocID><FilingType>PTR</FilingType>
+  const filingRe = /<Row>([\s\S]*?)<\/Row>/g;
+  const newFilings = [];
+  let xmlMatch;
 
-    for (const tx of (filing.transactions || [])) {
-      if (!tx || tx.asset_type?.toLowerCase().includes('non-public')) continue;
-      rows.push({
-        chamber:          'S',
-        member,
-        ticker:           normTicker(tx.ticker),
-        asset_description:(tx.asset_description || '').slice(0, 200),
-        transaction_type: normType(tx.type || ''),
-        transaction_date: normDate(tx.transaction_date || ''),
-        disclosure_date:  disclosureDate,
-        amount_range:     (tx.amount || '').slice(0, 50),
-        owner:            (tx.owner || '').slice(0, 30),
-        filing_url:       filingUrl,
-      });
+  while ((xmlMatch = filingRe.exec(xmlBody)) !== null) {
+    const row = xmlMatch[1];
+    const get = tag => { const m = row.match(new RegExp(`<${tag}>([^<]*)</${tag}>`)); return m ? m[1].trim() : ''; };
+    const filingType = get('FilingType');
+    if (filingType !== 'PTR') continue; // only Periodic Transaction Reports
+
+    const docId = get('DocID');
+    if (!docId || seenDocs.has(docId)) continue;
+
+    const last  = get('Last');
+    const first = get('First');
+    const member = `${first} ${last}`.trim() || get('OfficerName') || 'Unknown';
+    const filingDate = get('FilingDate');
+
+    newFilings.push({ docId, member, filingDate });
+  }
+
+  console.log(`[congress] House: ${newFilings.length} new PTR filings to process`);
+
+  let totalInserted = 0;
+  for (const filing of newFilings) {
+    const pdfUrl = `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/${year}/${filing.docId}.pdf`;
+    try {
+      await sleep(500); // polite delay
+      const { status, body } = await get(pdfUrl, 20000);
+      if (status !== 200) { console.warn(`[congress] House PDF ${filing.docId}: HTTP ${status}`); continue; }
+
+      const rows = parseHousePTR(body, filing.member, filing.docId, pdfUrl);
+      if (rows.length) {
+        const inserted = insertMany(rows);
+        totalInserted += inserted;
+        if (inserted > 0) console.log(`[congress] House ${filing.member} (${filing.docId}): ${inserted} trades inserted`);
+      }
+      seenDocs.add(filing.docId);
+    } catch(e) {
+      console.warn(`[congress] House ${filing.docId} error: ${e.message}`);
     }
   }
-  console.log(`[congress] Senate: parsed ${rows.length} transactions`);
-  return rows;
+
+  return totalInserted;
 }
 
-// ── House ────────────────────────────────────────────────────────
-async function fetchHouse() {
-  const url = 'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json';
-  console.log('[congress] Fetching House data…');
-  const { status, body } = await get(url, 90000);
-  if (status !== 200) throw new Error(`House S3 returned HTTP ${status}`);
+// ── SENATE: use efts.senate.gov search for recent PTRs ───────────────────────
+async function fetchSenate() {
+  // The Senate eFD search returns JSON of recent PTR filings
+  const today = new Date().toISOString().slice(0,10);
+  const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0,10); // last 60 days
+  const searchUrl = `https://efts.senate.gov/LATEST/search-index?q=%22Periodic+Transaction%22&dateRange=custom&fromDate=${cutoff}&toDate=${today}&resultsPerPage=100&type=documents`;
 
-  let raw;
-  try { raw = JSON.parse(body.toString('utf8')); }
-  catch(e) { throw new Error('House JSON parse failed: ' + e.message); }
-
-  // Format: flat array of { representative, ticker, asset_description, transaction_date,
-  //   disclosure_date, type, amount, owner, district, link, ... }
-  const rows = [];
-  for (const tx of raw) {
-    if (!tx) continue;
-    rows.push({
-      chamber:          'H',
-      member:           (tx.representative || '').slice(0, 100),
-      ticker:           normTicker(tx.ticker),
-      asset_description:(tx.asset_description || '').slice(0, 200),
-      transaction_type: normType(tx.type || ''),
-      transaction_date: normDate(tx.transaction_date || ''),
-      disclosure_date:  normDate(tx.disclosure_date || ''),
-      amount_range:     (tx.amount || '').slice(0, 50),
-      owner:            (tx.owner || '').slice(0, 30),
-      filing_url:       (tx.link || '').slice(0, 300),
-    });
+  console.log(`[congress] Senate: fetching recent PTRs...`);
+  let data;
+  try {
+    const { status, body } = await get(searchUrl, 30000);
+    if (status !== 200) throw new Error(`Senate search returned HTTP ${status}`);
+    data = JSON.parse(body);
+  } catch(e) {
+    console.warn(`[congress] Senate search failed: ${e.message}`);
+    return 0;
   }
-  console.log(`[congress] House: parsed ${rows.length} transactions`);
-  return rows;
+
+  const hits = data.hits?.hits || [];
+  console.log(`[congress] Senate: ${hits.length} recent PTR docs found`);
+
+  let totalInserted = 0;
+  for (const hit of hits) {
+    const src = hit._source || {};
+    const docId = hit._id || src.docId || '';
+    if (!docId || seenDocs.has(docId)) continue;
+
+    const member = `${src.first_name||''} ${src.last_name||''}`.trim() || 'Unknown';
+    const pdfUrl = src.url || `https://efts.senate.gov/LATEST/search-index?id=${docId}`;
+
+    try {
+      await sleep(500);
+      const { status, body } = await get(pdfUrl, 20000);
+      if (status !== 200) { console.warn(`[congress] Senate doc ${docId}: HTTP ${status}`); continue; }
+
+      const rows = parseSenatePTR(body, member, docId, pdfUrl);
+      if (rows.length) {
+        const inserted = insertMany(rows);
+        totalInserted += inserted;
+        if (inserted > 0) console.log(`[congress] Senate ${member} (${docId}): ${inserted} trades inserted`);
+      }
+      seenDocs.add(docId);
+    } catch(e) {
+      console.warn(`[congress] Senate ${docId} error: ${e.message}`);
+    }
+  }
+
+  return totalInserted;
 }
 
-// ── Main ─────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
   try {
-    const [senateRows, houseRows] = await Promise.all([fetchSenate(), fetchHouse()]);
-    const allRows = [...senateRows, ...houseRows];
-    console.log(`[congress] Total rows to insert: ${allRows.length}`);
-    const inserted = insertMany(allRows);
-    console.log(`[congress] Inserted ${inserted} new rows (${allRows.length - inserted} already existed)`);
+    const [houseN, senateN] = await Promise.allSettled([
+      fetchHouse(),
+      fetchSenate(),
+    ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : 0));
+
+    const total = (houseN || 0) + (senateN || 0);
+    console.log(`[congress] Done. House: ${houseN} | Senate: ${senateN} | Total new: ${total}`);
+    db.close();
     process.exit(0);
   } catch(e) {
     console.error('[congress] FATAL:', e.message);
