@@ -4874,7 +4874,7 @@ document.addEventListener('click', e => {
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
 let _analysisData = null;     // 30-day trades cache (Form 4 + gov)
-let _analysisGovData = [];    // gov-only ref for gov tiles
+let _analysisGovData = null;  // gov-only ref for gov tiles (null = not yet fetched)
 let _analysisDataLong = null; // 3-year trades cache — loaded lazily by subpages that need it
 let _analysisDataLongLoading = false;
 let _analysisDataLongCallbacks = [];
@@ -4917,6 +4917,11 @@ async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
 
+  // Reset gov data on each analysis page load to ensure fresh data
+  if (_analysisGovData !== null && _analysisGovData.length === 0 && _analysisData) {
+    _analysisGovData = null; // was set to empty array as loading sentinel but never populated
+  }
+
   // Fetch 30-day data once
   if (!_analysisData) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
@@ -4939,8 +4944,10 @@ async function loadAnalysisPage(subpage) {
       _analysisData = [...form4, ...govNorm];
       _analysisGovData = govNorm;
     } catch(e) { _analysisData = []; }
-  } else if (!_analysisGovData.length) {
-    // _analysisData already cached but gov data wasn't fetched yet — fetch separately
+  }
+  // Always fetch gov data if not yet loaded (null = not yet fetched)
+  if (_analysisGovData === null) {
+    _analysisGovData = []; // mark as loading to prevent double-fetch
     try {
       const govRaw = await apiFetch('/api/gov-recent?days=30').catch(()=>[]);
       const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
@@ -4954,9 +4961,10 @@ async function loadAnalysisPage(subpage) {
         amount_range: g.amount_range, chamber: g.chamber,
       })) : [];
       _analysisGovData = govNorm;
-      // Merge into _analysisData (remove any stale gov entries first)
-      _analysisData = [..._analysisData.filter(t => !t._isGov), ..._analysisGovData];
-    } catch(e) {}
+      // Merge into _analysisData — remove any stale gov entries then add fresh ones
+      if (_analysisData) _analysisData = [..._analysisData.filter(t => !t._isGov), ..._analysisGovData];
+      console.log('[analysis] gov trades loaded:', _analysisGovData.length);
+    } catch(e) { console.warn('[analysis] gov fetch failed:', e); }
   }
 
   // Pre-fetch drift and proximity in background so tiles are instant when clicked
