@@ -13,6 +13,8 @@ if (!FMP_KEY) { console.error('[congress] FMP_API_KEY not set — skipping'); pr
 
 const Database = require('better-sqlite3');
 const db = new Database(DB_PATH);
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 10000');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -118,7 +120,7 @@ function processTrades(trades, chamber) {
   console.log('[congress] FMP sync starting — days back:', DAYS_BACK);
 
   // Wait up to 2 minutes for trades table to exist (DB initializes after server starts)
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 60; i++) {
     const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'").get();
     if (exists) break;
     console.log('[congress] Waiting for trades table... (' + (i * 5) + 's)');
@@ -126,7 +128,7 @@ function processTrades(trades, chamber) {
   }
   const tradesExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'").get();
   if (!tradesExists) {
-    console.error('[congress] trades table never appeared — aborting');
+    console.error('[congress] trades table never appeared after 5min — aborting');
     db.close();
     process.exit(0);
   }
