@@ -2329,9 +2329,12 @@ async function loadStockView(ticker, opts={}) {
   // Render the full layout immediately with insider data.
   // Price chart streams in separately so the user isn't waiting for
   // an external API call before seeing anything.
-  const insiderData = await fetchInsiderForTicker(ticker).catch(()=>[]);
+  const [insiderData, govData] = await Promise.all([
+    fetchInsiderForTicker(ticker).catch(()=>[]),
+    apiFetch('/api/gov?symbol='+encodeURIComponent(ticker)).catch(()=>[])
+  ]);
   if (mySeq !== _loadStockViewSeq) return; // superseded
-  state.tickerTrades = insiderData; state.currentPriceData = [];
+  state.tickerTrades = insiderData; state.govData = govData; state.currentPriceData = [];
 
   const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
 
@@ -2390,6 +2393,8 @@ async function loadStockView(ticker, opts={}) {
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
+            <div class="legend-item"><span style="color:#00d4ff;font-size:11px;line-height:1">◆</span>Gov Buy</div>
+            <div class="legend-item"><span style="color:#ff00ff;font-size:11px;line-height:1">◆</span>Gov Sell</div>
                       </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
@@ -2470,7 +2475,7 @@ async function loadStockView(ticker, opts={}) {
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    await buildChart(priceData, insiderData);
+    await buildChart(priceData, insiderData, state.govData || []);
 
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
@@ -2515,7 +2520,7 @@ async function loadStockView(ticker, opts={}) {
 function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
 const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
-async function buildChart(priceData, trades) {
+async function buildChart(priceData, trades, govData=[]) {
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
     const cb = () => buildChart(priceData, trades);
@@ -2618,7 +2623,7 @@ async function buildChart(priceData, trades) {
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
 
-  buildCircleOverlay(container,chart,mainSeries,trades,cleanData);
+  buildCircleOverlay(container,chart,mainSeries,trades,cleanData,govData);
 
   // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
@@ -2636,7 +2641,7 @@ async function buildChart(priceData, trades) {
       try { chart.timeScale().fitContent(); } catch(e) {}
     }
     // Pressure chart after another rAF
-    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData));
+    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData,govData));
   });
 
   // Initialise stat bar to match the active 1Y range button
@@ -2668,7 +2673,7 @@ function setChartType(type) {
   }
 }
 
-function buildCircleOverlay(container,chart,series,trades,priceData) {
+function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
   canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
@@ -2744,7 +2749,47 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       state._circles.push({x:ts,y:yCoord,r,group:g});
     });
 
+    // ── Congressional trade diamonds ──────────────────────────────────────────
     state._govDiamonds = [];
+    if (govData && govData.length) {
+      const AMOUNT_MID = {
+        '$1,001 - $15,000':8000,'$15,001 - $50,000':32500,
+        '$50,001 - $100,000':75000,'$100,001 - $250,000':175000,
+        '$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,
+        '$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000,
+      };
+      const maxGovVal = Math.max(...govData.map(g => AMOUNT_MID[g.amount_range]||8000), 1);
+      const grouped = {};
+      govData.forEach(g => {
+        const k = (g.transaction_date||'') + '|' + g.transaction_type;
+        if (!grouped[k]) grouped[k] = { date:g.transaction_date, type:g.transaction_type, trades:[], val:0 };
+        grouped[k].trades.push(g.member);
+        grouped[k].val += AMOUNT_MID[g.amount_range] || 8000;
+      });
+      Object.values(grouped).forEach(g => {
+        const xCoord = chart.timeScale().timeToCoordinate(g.date);
+        if (xCoord === null) return;
+        const pricePoint = priceData.find(p => p.date === g.date) || priceData.reduce((a,b) => Math.abs(new Date(b.date)-new Date(g.date)) < Math.abs(new Date(a.date)-new Date(g.date)) ? b : a, priceData[0]);
+        if (!pricePoint) return;
+        const yCoord = series.priceToCoordinate(pricePoint.close);
+        if (yCoord === null) return;
+        const r = 5 + Math.round((g.val / maxGovVal) * 8);
+        const color = g.type === 'P' ? 'rgba(0,212,255,0.85)' : 'rgba(255,0,255,0.85)';
+        const oy = g.type === 'P' ? -(r + 12) : (r + 12);
+        const cx = xCoord, cy = yCoord + oy;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.restore();
+        state._govDiamonds.push({ x:cx, y:cy, r, trades:g.trades, type:g.type, val:g.val, date:g.date });
+      });
+    }
 
   }  // end drawCircles
 
@@ -2754,6 +2799,19 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
 
   canvas.addEventListener('mousemove',e=>{
     const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+
+    // Check gov diamonds first
+    let govHit=null;
+    for(const d of(state._govDiamonds||[])){if(Math.hypot(mx-d.x,my-d.y)<=d.r+4){govHit=d;break;}}
+    if(govHit){
+      canvas.style.cursor='crosshair';
+      const gcolor=govHit.type==='P'?'#00d4ff':'#ff00ff';
+      const glabel=govHit.type==='P'?'◆ GOV BUY':'◆ GOV SELL';
+      tooltip.innerHTML='<div style="color:'+gcolor+';font-weight:700;margin-bottom:6px">'+glabel+' · '+govHit.date+'</div><div style="color:#b0c4d8">'+govHit.trades.slice(0,4).join(', ')+(govHit.trades.length>4?' +'+(govHit.trades.length-4)+' more':'')+'</div><div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Est. Value: <span style="color:'+gcolor+'">~'+fmt(govHit.val)+'</span></div>';
+      tooltip.style.display='block';
+      const gtx=e.clientX+16,gty=e.clientY-10;
+      tooltip.style.left=(gtx+280>window.innerWidth?e.clientX-296:gtx)+'px'; tooltip.style.top=gty+'px';
+    } else {
 
     // Then check circles
     let hit=null;
@@ -2769,11 +2827,12 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       const tx=e.clientX+16,ty=e.clientY-10;
       tooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; tooltip.style.top=ty+'px';
     } else { canvas.style.cursor=''; tooltip.style.display='none'; }
+    } // end govHit else
   });
   canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 }
 
-function buildPressureChart(mainChart,trades,priceData) {
+function buildPressureChart(mainChart,trades,priceData,govData=[]) {
   // Wipe the wrapper completely on every build — prevents stale canvases and
   // duplicate labels from accumulating across ticker navigations.
   const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
@@ -2845,6 +2904,28 @@ function buildPressureChart(mainChart,trades,priceData) {
   }));
 
 
+  // ── Gov overlay bars ─────────────────────────────────────────────────────────
+  if (govData && govData.length) {
+    const govSeries=pChart.addHistogramSeries({
+      base:0,priceLineVisible:false,lastValueVisible:false,
+      priceFormat:{type:'price',precision:1,minMove:0.1},
+    });
+    const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+    const govByDate={};
+    govData.forEach(g=>{
+      const d=g.transaction_date||''; if(!d) return;
+      if(!govByDate[d]) govByDate[d]=0;
+      govByDate[d]+=(g.transaction_type==='P'?1:-1)*(AMOUNT_MID[g.amount_range]||8000);
+    });
+    const govMax=Math.max(...Object.values(govByDate).map(Math.abs),1);
+    const insMax=Math.max(...Object.values(valueByDate).map(Math.abs),1);
+    const scale=insMax/govMax*0.6;
+    govSeries.setData(Object.entries(govByDate).map(([t,v])=>({
+      time:t, value:v*scale,
+      color:v>=0?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)'
+    })));
+  }
+
   const byDayTrades={};
   trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
   const pTooltip=document.getElementById('chartTooltip')||document.createElement('div');
@@ -2880,6 +2961,14 @@ function buildPressureChart(mainChart,trades,priceData) {
     <span style="display:flex;align-items:center;gap:4px">
       <span style="width:10px;height:10px;background:rgba(255,68,102,0.7);display:inline-block;border-radius:1px"></span>
       <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INSIDER SELL</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(0,212,255,0.5);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">GOV BUY</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(255,0,255,0.5);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">GOV SELL</span>
     </span>
 `;
   pw.style.position='relative';
