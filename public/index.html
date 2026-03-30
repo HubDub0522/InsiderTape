@@ -1007,6 +1007,26 @@ function fmtShares(n) {
   if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1)+'K';
   return n.toLocaleString();
 }
+
+// Parse any FMP amount range string → lower bound (used for sizing/calculations)
+function parseAmountRange(s) {
+  if (!s) return 8000;
+  const nums = s.replace(/[$,]/g, '').match(/\d+/g);
+  if (!nums || !nums.length) return 8000;
+  return parseInt(nums[0]) || 8000;
+}
+// Format an amount range for display: show lower bound + "+" sign
+function fmtAmountRange(s) {
+  if (!s) return '—';
+  const nums = s.replace(/[$,]/g, '').match(/\d+/g);
+  if (!nums || !nums.length) return s;
+  const lo = parseInt(nums[0]);
+  if (!lo) return s;
+  // If there's a second number (it's a range), show lo+ 
+  if (nums.length > 1) return '$' + fmt(lo) + '+';
+  return '$' + fmt(lo);
+}
+
 function fmtDate(d) {
   if (!d) return '—';
   // Append noon UTC to avoid midnight-UTC → prev-day-local parse bug for YYYY-MM-DD strings
@@ -1440,13 +1460,12 @@ async function loadScreener() {
     try {
       const govResp = await apiFetch('/api/gov-recent?days=' + govDays);
       if (Array.isArray(govResp) && govResp.length) {
-        const AMOUNT_MID = {'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-        const govTrades = govResp.map(g => ({
+                const govTrades = govResp.map(g => ({
           _isGov: true,
           insider: g.member, title: (g.chamber==='H'?'U.S. House':'U.S. Senate') + (g.owner&&g.owner!=='Self'?' · '+g.owner:''),
           trade: g.transaction_date, filing: g.disclosure_date||g.transaction_date,
           type: g.transaction_type,
-          value: AMOUNT_MID[g.amount_range] || 8000,
+          value: parseAmountRange(g.amount_range),
           qty: 0, price: 0, owned: 0,
           ticker: g.ticker, company: g.company||g.ticker,
           accession: '', amount_range: g.amount_range, filing_url: g.filing_url||'',
@@ -1658,7 +1677,7 @@ function renderScreener() {
         <td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;font-family:Space Mono,monospace;background:${govBg};color:${govColor};border:1px solid ${govBorder}">${govLabel}</span></td>
         <td class="hide-mobile" style="color:var(--muted)">—</td>
         <td class="hide-mobile" style="color:var(--muted)">—</td>
-        <td class="${valClass}" style="font-family:Space Mono,monospace">${t.amount_range||'—'}</td>
+        <td class="${valClass}" style="font-family:Space Mono,monospace">${fmtAmountRange(t.amount_range)}</td>
         <td class="hide-mobile" style="color:var(--muted)">—</td>
       </tr>`;
       if (needsBlur) {
@@ -2789,12 +2808,11 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     state._circles=[];
 
     // ── Form 4 circles ──────────────────────────────────────────────────────
-    const AMOUNT_MID_G={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-    const govGroupedVals = govData ? Object.values(
+        const govGroupedVals = govData ? Object.values(
       govData.reduce((acc,g)=>{
         const k=(g.transaction_date||'')+'|'+g.transaction_type;
         if(!acc[k]) acc[k]=0;
-        acc[k]+=AMOUNT_MID_G[g.amount_range]||8000;
+        acc[k]+=parseAmountRange(g.amount_range);
         return acc;
       },{})
     ) : [];
@@ -2819,19 +2837,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     // ── Congressional trade diamonds (premium only) ─────────────────────────
     state._govDiamonds = [];
     if (auth.isPremium && govData && govData.length) {
-      const AMOUNT_MID = {
-        '$1,001 - $15,000':8000,'$15,001 - $50,000':32500,
-        '$50,001 - $100,000':75000,'$100,001 - $250,000':175000,
-        '$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,
-        '$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000,
-      };
-      // maxVal already computed above using unified scale across Form 4 + gov
+            // maxVal already computed above using unified scale across Form 4 + gov
       const grouped = {};
       govData.forEach(g => {
         const k = (g.transaction_date||'') + '|' + g.transaction_type;
-        if (!grouped[k]) grouped[k] = { date:g.transaction_date, type:g.transaction_type, trades:[], val:0 };
+        if (!grouped[k]) grouped[k] = { date:g.transaction_date, type:g.transaction_type, trades:[], val:0, ranges:[] };
         grouped[k].trades.push(g.member);
-        grouped[k].val += AMOUNT_MID[g.amount_range] || 8000;
+        grouped[k].val += parseAmountRange(g.amount_range);
+        grouped[k].ranges.push(g.amount_range);
       });
       Object.values(grouped).forEach(g => {
         // Use nearestTradingDay + priceMap (.time) same as insider circles
@@ -2851,7 +2864,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         ctx.beginPath(); ctx.arc(xCoord,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=baseColor+'0.08)'; ctx.fill();
         const cx = xCoord, cy = yCoord;
         drawDiamond(ctx, cx, cy, r, baseColor+'0.20)', baseColor+'0.85)');
-        state._govDiamonds.push({ x:cx, y:cy, r, trades:g.trades, type:g.type, val:g.val, date:g.date });
+        state._govDiamonds.push({ x:cx, y:cy, r, trades:g.trades, type:g.type, val:g.val, date:g.date, ranges:g.ranges||[] });
       });
     }
 
@@ -2871,8 +2884,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       canvas.style.cursor='crosshair';
       const gcolor=govHit.type==='P'?'#00d4ff':'#ff00ff';
       const glabel=govHit.type==='P'?'◆ GOV BUY':'◆ GOV SELL';
-      tooltip.innerHTML='<div style="color:'+gcolor+';font-weight:700;margin-bottom:6px">'+glabel+' · '+govHit.date+'</div><div style="color:#b0c4d8">'+govHit.trades.slice(0,4).join(', ')+(govHit.trades.length>4?' +'+(govHit.trades.length-4)+' more':'')+'</div><div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Est. Value: <span style="color:'+gcolor+'">~'+fmt(govHit.val)+'</span></div>';
-      tooltip.style.display='block';
+      tooltip.innerHTML='<div style="color:'+gcolor+';font-weight:700;margin-bottom:6px">'+glabel+' · '+govHit.date+'</div><div style="color:#b0c4d8">'+govHit.trades.slice(0,4).join(', ')+(govHit.trades.length>4?' +'+(govHit.trades.length-4)+' more':'')+'</div><div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Est. Amount: <span style="color:'+gcolor+'">'+(govHit.ranges&&govHit.ranges.length?govHit.ranges.map(function(r){return fmtAmountRange(r);}).join(' + '):'~'+fmt(govHit.val))+'</span></div>';
       const gtx=e.clientX+16,gty=e.clientY-10;
       tooltip.style.left=(gtx+280>window.innerWidth?e.clientX-296:gtx)+'px'; tooltip.style.top=gty+'px';
     } else {
@@ -2975,8 +2987,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
         base:0,priceLineVisible:false,lastValueVisible:false,
         priceFormat:{type:'price',precision:1,minMove:0.1},
       });
-      const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-      // Aggregate gov trades by week (same logic as insider pressure bars)
+            // Aggregate gov trades by week (same logic as insider pressure bars)
       const govByWeek={};
       govData.forEach(g=>{
         const d=g.transaction_date||''; if(!d) return;
@@ -2985,7 +2996,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
         const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
         const wk=mon.toISOString().slice(0,10);
         if(!govByWeek[wk]) govByWeek[wk]=0;
-        govByWeek[wk]+=(g.transaction_type==='P'?1:-1)*(AMOUNT_MID[g.amount_range]||8000);
+        govByWeek[wk]+=(g.transaction_type==='P'?1:-1)*(parseAmountRange(g.amount_range));
       });
       if (Object.keys(govByWeek).length) {
         // Normalize gov bars same as insider bars: net/maxTotal*100, capped at ±50 so gov never dwarfs insider
@@ -3368,7 +3379,7 @@ function renderSidebarTrades(trades, govData=[]) {
       + '</div>'
       + '<div class="trade-role">' + (g.chamber==='H'?'U.S. House':'U.S. Senate') + (g.owner&&g.owner!=='Self'?' · '+g.owner:'') + '</div>'
       + '<div class="trade-numbers">'
-      + '<div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Est. Amount</div><div class="trade-num-val" style="color:' + color + '">' + (g.amount_range||'—') + '</div></div>'
+      + '<div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Est. Amount</div><div class="trade-num-val" style="color:' + color + '">' + fmtAmountRange(g.amount_range) + '</div></div>'
       + '</div>'
       + '</div>';
     // Non-premium: show gov trades from last 7 days free, older ones blurred
@@ -3450,7 +3461,7 @@ function renderStockTradesTable(trades, govData=[]) {
       + '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;font-family:Space Mono,monospace;letter-spacing:0.5px;background:' + (tc==='buy'?'rgba(0,212,255,0.15)':'rgba(255,0,255,0.15)') + ';color:' + (tc==='buy'?'#00d4ff':'#ff00ff') + ';border:1px solid ' + (tc==='buy'?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)') + '">' + (tc==='buy'?'Gov Buy':'Gov Sale') + '</span></td>'
       + '<td style="font-family:Space Mono,monospace;color:var(--muted)">—</td>'
       + '<td style="font-family:Space Mono,monospace;color:var(--muted)">—</td>'
-      + '<td class="' + valClass + '" style="font-family:Space Mono,monospace">' + (g.amount_range||'—') + '</td>'
+      + '<td class="' + valClass + '" style="font-family:Space Mono,monospace">' + fmtAmountRange(g.amount_range) + '</td>'
       + '<td style="color:var(--muted)">—</td>'
       + '<td style="font-size:10px;color:var(--muted)">'
       + (g.filing_url ? '<a href="' + g.filing_url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--muted);font-family:Space Mono,monospace;font-size:9px;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">FILING ↗</a>' : '')
@@ -4760,15 +4771,14 @@ async function openGovProfile(name) {
       return;
     }
     const buys=trades.filter(t=>t.transaction_type==='P'), sells=trades.filter(t=>t.transaction_type==='S');
-    const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-    const buyVal=buys.reduce((s,t)=>s+(AMOUNT_MID[t.amount_range]||8000),0);
-    const sellVal=sells.reduce((s,t)=>s+(AMOUNT_MID[t.amount_range]||8000),0);
+        const buyVal=buys.reduce((s,t)=>s+(parseAmountRange(t.amount_range)),0);
+    const sellVal=sells.reduce((s,t)=>s+(parseAmountRange(t.amount_range)),0);
     const netVal=buyVal-sellVal;
     const tickerMap={};
     trades.forEach(t=>{
       if(!tickerMap[t.ticker])tickerMap[t.ticker]={ticker:t.ticker,buyVal:0,sellVal:0,count:0};
-      if(t.transaction_type==='P')tickerMap[t.ticker].buyVal+=AMOUNT_MID[t.amount_range]||8000;
-      else tickerMap[t.ticker].sellVal+=AMOUNT_MID[t.amount_range]||8000;
+      if(t.transaction_type==='P')tickerMap[t.ticker].buyVal+=parseAmountRange(t.amount_range);
+      else tickerMap[t.ticker].sellVal+=parseAmountRange(t.amount_range);
       tickerMap[t.ticker].count++;
     });
     const tickerList=Object.values(tickerMap).sort((a,b)=>(b.buyVal+b.sellVal)-(a.buyVal+a.sellVal));
@@ -4814,7 +4824,7 @@ async function openGovProfile(name) {
             + '<div><div data-ticker="' + t.ticker + '" class="gov-ticker-link" style="font-size:12px;color:var(--accent);font-weight:600;cursor:pointer">' + t.ticker + '</div>'
             + '<div style="font-size:10px;color:var(--muted)">' + fmtDate(t.transaction_date) + '</div></div>'
             + '<div style="text-align:right"><div style="font-size:11px;color:' + (isBuy?'var(--buy)':'var(--sell)') + '">' + (isBuy?'▲ BUY':'▼ SELL') + '</div>'
-            + '<div style="font-size:10px;color:var(--muted)">' + (t.amount_range||'—') + '</div></div>'
+            + '<div style="font-size:10px;color:var(--muted)">' + fmtAmountRange(t.amount_range) + '</div></div>'
             + '</div>';
         }).join('')
       + '</div></div>'
