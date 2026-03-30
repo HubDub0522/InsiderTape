@@ -2766,6 +2766,12 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         grouped[k].trades.push(g.member);
         grouped[k].val += AMOUNT_MID[g.amount_range] || 8000;
       });
+      // Canvas rect relative to chart container — needed to offset y correctly
+      const canvasRect = ctx.canvas.getBoundingClientRect();
+      const chartPane = container.querySelector('td:first-child div') || container;
+      const chartRect = chartPane.getBoundingClientRect();
+      const canvasOffsetY = canvasRect.top - chartRect.top;
+
       Object.values(grouped).forEach(g => {
         const xCoord = chart.timeScale().timeToCoordinate(g.date);
         if (xCoord === null) return;
@@ -2776,7 +2782,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         const r = 5 + Math.round((g.val / maxGovVal) * 8);
         const color = g.type === 'P' ? 'rgba(0,212,255,0.85)' : 'rgba(255,0,255,0.85)';
         const oy = g.type === 'P' ? -(r + 12) : (r + 12);
-        const cx = xCoord, cy = yCoord + oy;
+        const cx = xCoord, cy = (yCoord - canvasOffsetY) + oy;
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(cx, cy - r);
@@ -2870,7 +2876,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
   // Green bar = net buying that week, red bar = net selling.
   // No baseline line, no price line, no last-value line — just bars.
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
-  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
+  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData, govData)); return; }
   const pcH = window.innerWidth <= 640 ? 80 : 120;
   pc.style.height = pcH + 'px';
   pc.style.minHeight = pcH + 'px';
@@ -3132,7 +3138,7 @@ function applyChartFilters() {
   }
   if(state.drawCircles)state.drawCircles();
   renderSidebarTrades(filtered); renderStockTradesTable(filtered); renderTradeMarkerList(filtered);
-  buildPressureChartGated(state.chart,filtered,state.currentPriceData);
+  buildPressureChartGated(state.chart,filtered,state.currentPriceData,state.govData||[]);
 }
 
 
@@ -9102,9 +9108,9 @@ function renderSidebarGated(trades) {
 }
 
 // ── Pressure chart guard ──────────────────────────────────────
-function buildPressureChartGated(mainChart, trades, priceData) {
+function buildPressureChartGated(mainChart, trades, priceData, govData=[]) {
   if (auth.isPremium) {
-    buildPressureChart(mainChart, trades, priceData);
+    buildPressureChart(mainChart, trades, priceData, govData);
     return;
   }
   const pw = document.getElementById('pressureWrapper');
