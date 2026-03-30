@@ -312,7 +312,21 @@ async function fetchYearZip(year) {
           // Diagnostic on failure
           const streamCount = (body.toString('latin1').match(/\bstream\b/g)||[]).length;
           const hasFD = body.indexOf('FlateDecode') >= 0;
-          console.warn(`[congress] ${f.docId}: PDF extraction failed (streams:${streamCount} FlateDecode:${hasFD} size:${body.length})`);
+          const isEncrypted = body.indexOf('/Encrypt') >= 0 || body.indexOf('/encrypt') >= 0;
+        // Sample first stream's Length and actual bytes
+        const latin = body.toString('latin1');
+        const firstFD = latin.indexOf('FlateDecode');
+        let streamSample = '';
+        if (firstFD > 0) {
+          const si = latin.indexOf('stream', firstFD);
+          if (si > 0) {
+            const lenM = latin.slice(Math.max(0,si-300),si).match(/\/Length\s+(\d+)/);
+            const dataStart = si + 7;
+            const actualBytes = body.slice(dataStart, dataStart+8).toString('hex');
+            streamSample = ` len:${lenM?.[1]||'?'} actualBytes:${actualBytes}`;
+          }
+        }
+        console.warn(`[congress] ${f.docId}: PDF extraction failed (streams:${streamCount} FlateDecode:${hasFD} encrypted:${isEncrypted} size:${body.length}${streamSample})`);
           seenDocs.add(f.docId);
           continue;
         }
