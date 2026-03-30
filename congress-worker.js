@@ -5,7 +5,8 @@
 const https = require('https');
 const path  = require('path');
 
-const DB_PATH   = process.env.DB_PATH || path.join(__dirname, 'trades.db');
+const DB_PATH   = process.env.DB_PATH;
+if (!DB_PATH) { console.error('[congress] DB_PATH env var not set — aborting'); process.exit(0); }
 const FMP_KEY   = process.env.FMP_API_KEY;
 const DAYS_BACK = parseInt(process.env.CONGRESS_DAYS_BACK || '90');
 
