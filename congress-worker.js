@@ -254,16 +254,45 @@ const insertMany = db.transaction(rows => {
 // ── HOUSE: fetch XML index, find new PTR filings ──────────────────────────────
 async function fetchHouse() {
   const year = new Date().getFullYear();
-  const xmlUrl = `https://disclosures-clerk.house.gov/public_disc/financial-disclosure-pdfs/${year}FD.xml`;
-  console.log(`[congress] House: fetching XML index for ${year}...`);
+  // House publishes a ZIP file containing an XML index of all filings
+  const zipUrl = `https://disclosures-clerk.house.gov/public_disc/financial-disclosure-pdfs/${year}FD.zip`;
+  console.log(`[congress] House: fetching ZIP index for ${year}...`);
 
   let xmlBody;
   try {
-    const { status, body } = await get(xmlUrl, 30000);
-    if (status !== 200) throw new Error(`XML index returned HTTP ${status}`);
-    xmlBody = body;
+    const { status, body } = await get(zipUrl, 60000);
+    if (status !== 200) throw new Error(`ZIP index returned HTTP ${status}`);
+    // Parse ZIP using Node built-ins — no external library needed
+    // ZIP local file header: signature 0x04034b50, then fixed fields, then filename, then data
+    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body, 'binary');
+    const zlib = require('zlib');
+    let extracted = false;
+    let offset = 0;
+    while (offset < buf.length - 4) {
+      if (buf.readUInt32LE(offset) !== 0x04034b50) { offset++; continue; }
+      const compression = buf.readUInt16LE(offset + 8);
+      const compSize    = buf.readUInt32LE(offset + 18);
+      const uncompSize  = buf.readUInt32LE(offset + 22);
+      const fnameLen    = buf.readUInt16LE(offset + 26);
+      const extraLen    = buf.readUInt16LE(offset + 28);
+      const fname       = buf.slice(offset + 30, offset + 30 + fnameLen).toString('utf8');
+      const dataStart   = offset + 30 + fnameLen + extraLen;
+      const dataEnd     = dataStart + compSize;
+      if (fname.endsWith('.xml') || fname.endsWith('.XML')) {
+        const compressed = buf.slice(dataStart, dataEnd);
+        if (compression === 0) {
+          xmlBody = compressed.toString('utf8'); // stored uncompressed
+        } else if (compression === 8) {
+          xmlBody = zlib.inflateRawSync(compressed).toString('utf8');
+        }
+        extracted = true;
+        break;
+      }
+      offset = dataEnd;
+    }
+    if (!extracted) throw new Error('No XML found in ZIP');
   } catch(e) {
-    console.warn(`[congress] House XML fetch failed: ${e.message}`);
+    console.warn(`[congress] House fetch failed: ${e.message}`);
     return 0;
   }
 
@@ -320,7 +349,8 @@ async function fetchSenate() {
   // The Senate eFD search returns JSON of recent PTR filings
   const today = new Date().toISOString().slice(0,10);
   const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0,10); // last 60 days
-  const searchUrl = `https://efts.senate.gov/LATEST/search-index?q=%22Periodic+Transaction%22&dateRange=custom&fromDate=${cutoff}&toDate=${today}&resultsPerPage=100&type=documents`;
+  // Senate eFD search endpoint — returns JSON list of PTR filings
+  const searchUrl = `https://efts.senate.gov/LATEST/search-index?q=%22Periodic+Transaction+Report%22&dateRange=custom&fromDate=${cutoff}&toDate=${today}&resultsPerPage=100`;
 
   console.log(`[congress] Senate: fetching recent PTRs...`);
   let data;
@@ -343,7 +373,8 @@ async function fetchSenate() {
     if (!docId || seenDocs.has(docId)) continue;
 
     const member = `${src.first_name||''} ${src.last_name||''}`.trim() || 'Unknown';
-    const pdfUrl = src.url || `https://efts.senate.gov/LATEST/search-index?id=${docId}`;
+    // Senate PTR PDFs are at efts.senate.gov
+    const pdfUrl = src.url || src.link || `https://efts.senate.gov/LATEST/search-index?id=${docId}`;
 
     try {
       await sleep(500);
