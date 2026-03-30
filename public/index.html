@@ -1471,7 +1471,12 @@ async function loadScreener() {
           accession: '', amount_range: g.amount_range, filing_url: g.filing_url||'',
           _govDate: g.transaction_date,
         }));
-        trades = [...govTrades, ...trades];
+        // Merge and sort by trade date descending so gov and Form 4 intermix properly
+        trades = [...govTrades, ...trades].sort((a,b) => {
+          const da = a.trade||a.filing||'';
+          const db_ = b.trade||b.filing||'';
+          return db_.localeCompare(da);
+        });
       }
     } catch(e) { /* gov fetch failed silently */ }
 
@@ -4917,10 +4922,8 @@ async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
 
-  // Reset gov data on each analysis page load to ensure fresh data
-  if (_analysisGovData !== null && _analysisGovData.length === 0 && _analysisData) {
-    _analysisGovData = null; // was set to empty array as loading sentinel but never populated
-  }
+  // Always refetch gov data on analysis page load (reset to null so fetch runs)
+  _analysisGovData = null;
 
   // Fetch 30-day data once
   if (!_analysisData) {
@@ -5274,9 +5277,9 @@ function renderAnalysisDashboard() {
     id: 'govbuys',
     icon: '🏛',
     name: 'Top Gov Official Buys',
-    desc: 'Largest congressional purchases in the last 30 days — House and Senate members buying across any ticker.',
+    desc: 'Largest congressional purchases in the last 90 days — House and Senate members buying across any ticker.',
     count: (_analysisGovData||[]).filter(g=>g.transaction_type==='P').length,
-    countLabel: 'purchases tracked',
+    countLabel: 'purchases (90d)',
     top3: _govTiles.buys,
     accentColor: '#00d4ff',
     accentBg: 'rgba(0,212,255,0.06)',
@@ -5286,9 +5289,9 @@ function renderAnalysisDashboard() {
     id: 'govsells',
     icon: '🏛',
     name: 'Top Gov Official Sells',
-    desc: 'Largest congressional sales in the last 30 days — when elected officials exit positions it can precede broader moves.',
+    desc: 'Largest congressional sales in the last 90 days — when elected officials exit positions it can precede broader moves.',
     count: (_analysisGovData||[]).filter(g=>g.transaction_type==='S').length,
-    countLabel: 'sales tracked',
+    countLabel: 'sales (90d)',
     top3: _govTiles.sells,
     accentColor: '#ff00ff',
     accentBg: 'rgba(255,0,255,0.06)',
@@ -5300,7 +5303,7 @@ function renderAnalysisDashboard() {
     name: 'Top Gov New Positions',
     desc: 'Congressional members opening brand-new positions — first recorded purchase of a ticker in our DB. High conviction signal.',
     count: Object.values((_analysisGovData||[]).reduce((acc,g)=>{const k=g.insider+'|'+g.ticker;if(!acc[k])acc[k]=[];acc[k].push(g);return acc;},{}) ).filter(arr=>arr.length===1&&arr[0].transaction_type==='P').length,
-    countLabel: 'new positions',
+    countLabel: 'new positions (90d)',
     top3: _govTiles.newPos,
     accentColor: '#00d4ff',
     accentBg: 'rgba(0,212,255,0.06)',
