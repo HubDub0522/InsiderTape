@@ -118,6 +118,11 @@ function processTrades(trades, chamber) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
   console.log('[congress] FMP sync starting — days back:', DAYS_BACK);
+  console.log('[congress] DB_PATH:', DB_PATH);
+  console.log('[congress] DB file exists:', require('fs').existsSync(DB_PATH));
+  // List all tables in the DB
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+  console.log('[congress] Tables in DB:', tables.map(t => t.name).join(', ') || '(none)');
 
   // Wait up to 2 minutes for trades table to exist (DB initializes after server starts)
   for (let i = 0; i < 60; i++) {
