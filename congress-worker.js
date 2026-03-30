@@ -154,8 +154,7 @@ function parseHousePTR(html, member, docId, filingUrl) {
 }
 
 // ── Fetch House ZIP index + individual PTRs ───────────────────────────────────
-async function fetchHouse() {
-  const year   = new Date().getFullYear();
+async function fetchYearZip(year) {
   const zipUrl = `https://disclosures-clerk.house.gov/public_disc/financial-pdfs/${year}FD.ZIP`;
   console.log(`[congress] Fetching House ZIP for ${year}...`);
 
@@ -213,13 +212,13 @@ async function fetchHouse() {
     newFilings.push({ docId, member, year });
   }
 
-  console.log(`[congress] House: ${newFilings.length} new PTR filings`);
+  console.log(`[congress] House ${year}: ${newFilings.length} new PTR filings`);
 
   let totalInserted = 0;
   for (const f of newFilings) {
     const pdfUrl = `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/${f.year}/${f.docId}.pdf`;
     try {
-      await sleep(400);
+      await sleep(300);
       const { status, body } = await get(pdfUrl, 20000);
       if (status !== 200) continue;
       const rows = parseHousePTR(body.toString('utf8'), f.member, f.docId, pdfUrl);
@@ -234,6 +233,20 @@ async function fetchHouse() {
     }
   }
   return totalInserted;
+}
+
+async function fetchHouse() {
+  const currentYear = new Date().getFullYear();
+  const startYear   = parseInt(process.env.CONGRESS_START_YEAR || currentYear);
+  let total = 0;
+  for (let y = startYear; y <= currentYear; y++) {
+    try {
+      total += await fetchYearZip(y);
+    } catch(e) {
+      console.warn(`[congress] Year ${y} failed: ${e.message}`);
+    }
+  }
+  return total;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
