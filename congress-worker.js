@@ -116,282 +116,131 @@ function normType(raw = '') {
   return raw.slice(0,10);
 }
 
-// ── Parse a House PTR HTML/PDF ────────────────────────────────────────────────
-// The "PDF" is actually rendered HTML with consistent structure.
-// Tickers appear as: "Company Name (TICK) [ST]" or "Company Name (TICK)"
-// Transaction type: "P" or "S" or "E" in a table cell
-// Dates: MM/DD/YYYY format
-// Amount: "$1,001 - $15,000" ranges
-function parseHousePTR(html, member, docId, filingUrl) {
+async function fetchCapitolTrades() {
+  // Capitol Trades: free, covers both House and Senate, tickers already parsed
+  // Scrape the HTML table which renders server-side (no JS required for first page)
+  // Fetch last 2 pages of recent trades to catch anything new
+  let totalInserted = 0;
+
+  for (let page = 1; page <= 3; page++) {
+    const url = `https://www.capitoltrades.com/trades?page=${page}&pageSize=96&sortOrder=desc&sortBy=txDate`;
+    try {
+      await sleep(1000); // polite delay
+      const { status, body } = await get(url, 30000);
+      if (status !== 200) { console.warn(`[congress] Capitol Trades page ${page}: HTTP ${status}`); break; }
+
+      // Parse trades from the HTML table
+      // Each row has: politician | issuer+ticker | published | traded | filed | owner | type | size | price
+      const rows = parseCapitolTradesHTML(body);
+      if (!rows.length) { console.log(`[congress] Capitol Trades page ${page}: no rows parsed`); break; }
+
+      const newRows = rows.filter(r => {
+        if (!r.doc_id || seenDocs.has(r.doc_id)) return false;
+        return true;
+      });
+
+      if (newRows.length === 0) {
+        console.log(`[congress] Capitol Trades page ${page}: all ${rows.length} trades already seen`);
+        if (page > 1) break; // stop paging if nothing new
+        continue;
+      }
+
+      const inserted = insertMany(newRows);
+      totalInserted += inserted;
+      newRows.forEach(r => seenDocs.add(r.doc_id));
+      console.log(`[congress] Capitol Trades page ${page}: ${inserted} new trades (${rows.length} total on page)`);
+
+    } catch(e) {
+      console.warn(`[congress] Capitol Trades page ${page} error: ${e.message}`);
+      break;
+    }
+  }
+
+  return totalInserted;
+}
+
+function parseCapitolTradesHTML(html) {
   const rows = [];
+  const text = html.replace(/\r/g, '');
 
-  // Extract all ticker mentions: text like "(AAPL)" or "(AAPL) [ST]"
-  // Each ticker block in the PDF has: asset name, transaction type, date, amount
-  // The HTML uses table rows — extract each transaction row
+  // Extract each trade row — Capitol Trades renders a table with consistent structure
+  // Trade detail links look like: /trades/20003795785 (House) or /trades/10000064795 (Senate)
+  const rowRe = /<tr[^>]*class="[^"]*q-tr[^"]*"[^>]*>([\/s\/S]*?)<\/tr>/g;
+  let m;
 
-  // Strategy: find all table rows that contain a ticker symbol
-  // Tickers are in parens: /\(([A-Z]{1,5})\)(?:\s*\[ST\])?/
-  // Each row also has: type (P/S/E/sale/purchase), date MM/DD/YYYY, amount range
+  while ((m = rowRe.exec(text)) !== null) {
+    const row = m[1];
 
-  // Split into lines for easier parsing
-  const lines = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').split(/(?=\$[\d,]+)/);
-  const fullText = html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&#\d+;/g, ' ').replace(/\s+/g, ' ');
+    // Trade ID from the detail link
+    const idMatch = row.match(/\/trades\/(\d+)/);
+    if (!idMatch) continue;
+    const doc_id = idMatch[1];
 
-  // Extract disclosure date from "Digitally Signed: ... , MM/DD/YYYY"
-  const signedMatch = fullText.match(/Digitally Signed:[^,]+,\s*(\d{1,2}\/\d{1,2}\/\d{4})/);
-  const disclosureDate = signedMatch ? normDate(signedMatch[1]) : null;
+    // Chamber from politician badge: "Senate" or "House"
+    const chamberMatch = row.match(/\b(Senate|House)\b/);
+    const chamber = chamberMatch ? (chamberMatch[1] === 'Senate' ? 'S' : 'H') : 'H';
 
-  // Find all transaction blocks
-  // Pattern: asset name with ticker → transaction type → dates → amount range
-  // Regex to find ticker symbol
-  const tickerRe = /([^(]{3,80})\(([A-Z]{1,5})\)(?:\s*\[(?:ST|OP|DC|CS|MF|ET|PS|AS)\])?\s*/g;
+    // Member name — first link text in politician cell
+    const memberMatch = row.match(/politicians\/[A-Z0-9]+[^>]*>([^<]+)</);
+    const member = memberMatch ? memberMatch[1].trim() : 'Unknown';
 
-  let match;
-  while ((match = tickerRe.exec(fullText)) !== null) {
-    const assetDesc = match[1].trim().replace(/\s+/g, ' ').slice(0, 150);
-    const ticker    = match[2];
+    // Ticker — appears as "TICK:US" or "N/A"
+    const tickerMatch = row.match(/([A-Z]{1,5}):US/);
+    const ticker = tickerMatch ? tickerMatch[1] : '--';
+    if (ticker === '--') continue; // skip non-stock trades (bonds, etc.)
 
-    // Skip obvious non-tickers
-    if (['EST', 'LLC', 'INC', 'ETF', 'THE', 'FOR', 'AND', 'ARE', 'NOT'].includes(ticker)) continue;
-    if (ticker.length < 1 || ticker.length > 5) continue;
+    // Transaction type: "buy" or "sell"
+    const typeMatch = row.match(/class="[^"]*q-badge[^"]*[^"]*"[^>]*>\s*(buy|sell)\s*</i);
+    const txType = typeMatch ? (typeMatch[1].toLowerCase() === 'buy' ? 'P' : 'S') : null;
+    if (!txType) continue;
 
-    // Look ahead in the text after this ticker for type + date + amount
-    const after = fullText.slice(match.index + match[0].length, match.index + match[0].length + 400);
+    // Trade date: "23 Mar\n  2026" → "2026-03-23"
+    const dateMatch = row.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/g);
+    const MONTHS = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+    let txDate = null, discDate = null;
+    if (dateMatch && dateMatch.length >= 2) {
+      // First date = published/disclosure, second = traded
+      const parseDMY = s => { const p = s.match(/(\d{1,2})\s+(\w{3})\s+(\d{4})/); return p ? `${p[3]}-${MONTHS[p[2]]}-${p[1].padStart(2,'0')}` : null; };
+      discDate = parseDMY(dateMatch[0]);
+      txDate   = parseDMY(dateMatch[1]);
+    }
 
-    // Transaction type: look for P, S, Purchase, Sale, Exchange
-    let txType = null;
-    const typeMatch = after.match(/\b(Purchase|Sale|Exchange|P|S|E)\b/i);
-    if (typeMatch) txType = normType(typeMatch[1]);
-    if (!txType) continue; // can't determine type, skip
+    // Size range: "1K–15K" → "$1,001 - $15,000"
+    const sizeMap = {'1K–15K':'$1,001 - $15,000','15K–50K':'$15,001 - $50,000','50K–100K':'$50,001 - $100,000',
+      '100K–250K':'$100,001 - $250,000','250K–500K':'$250,001 - $500,000','500K–1M':'$500,001 - $1,000,000',
+      '1M–5M':'$1,000,001 - $5,000,000','5M–25M':'$5,000,001 - $25,000,000'};
+    const sizeMatch = row.match(/(\d+K[–-]\d+[KM]|\d+M[–-]\d+M)/);
+    const amtRange = sizeMatch ? (sizeMap[sizeMatch[1]] || sizeMatch[1]) : null;
 
-    // Transaction date: MM/DD/YYYY
-    const dateMatch = after.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-    const txDate = dateMatch ? normDate(dateMatch[1]) : null;
-
-    // Amount range: $X - $Y or $X,XXX - $X,XXX
-    const amtMatch = after.match(/(\$[\d,]+\s*-\s*\$[\d,]+|\$[\d,]+\+?)/);
-    const amtRange = amtMatch ? amtMatch[1].replace(/\s+/g, ' ') : null;
-
-    // Owner (Self/Spouse/Joint/Dependent)
-    const ownerMatch = after.match(/\b(Self|Spouse|Joint|Dependent|SP|JT|DC)\b/i);
+    // Owner
+    const ownerMatch = row.match(/\b(Self|Spouse|Joint|Dependent|Undisclosed)\b/i);
     const owner = ownerMatch ? ownerMatch[1] : 'Self';
 
     rows.push({
-      chamber:          'H',
-      member,
-      ticker,
-      asset_description: assetDesc.slice(0, 200),
-      transaction_type:  txType,
-      transaction_date:  txDate,
-      disclosure_date:   disclosureDate,
-      amount_range:      amtRange ? amtRange.slice(0, 50) : null,
-      owner:             owner.slice(0, 20),
-      filing_url:        filingUrl,
-      doc_id:            docId,
-    });
-  }
-
-  return rows;
-}
-
-// ── Parse a Senate PTR ────────────────────────────────────────────────────────
-function parseSenatePTR(html, member, docId, filingUrl) {
-  const rows = [];
-  const fullText = html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
-
-  const signedMatch = fullText.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-  const disclosureDate = signedMatch ? normDate(signedMatch[1]) : null;
-
-  const tickerRe = /([^(]{3,80})\(([A-Z]{1,5})\)(?:\s*\[(?:ST|OP|DC|CS|MF|ET|PS|AS)\])?\s*/g;
-  let match;
-  while ((match = tickerRe.exec(fullText)) !== null) {
-    const assetDesc = match[1].trim().slice(0, 150);
-    const ticker    = match[2];
-    if (['EST','LLC','INC','ETF','THE','FOR','AND','ARE','NOT','USA','SEC'].includes(ticker)) continue;
-    if (ticker.length < 1 || ticker.length > 5) continue;
-
-    const after = fullText.slice(match.index + match[0].length, match.index + match[0].length + 400);
-    const typeMatch = after.match(/\b(Purchase|Sale|Exchange|P|S|E)\b/i);
-    const txType = typeMatch ? normType(typeMatch[1]) : null;
-    if (!txType) continue;
-
-    const dateMatch = after.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-    const txDate = dateMatch ? normDate(dateMatch[1]) : null;
-    const amtMatch = after.match(/(\$[\d,]+\s*-\s*\$[\d,]+|\$[\d,]+\+?)/);
-    const amtRange = amtMatch ? amtMatch[1].replace(/\s+/g, ' ') : null;
-    const ownerMatch = after.match(/\b(Self|Spouse|Joint|Dependent|SP|JT|DC)\b/i);
-
-    rows.push({
-      chamber: 'S', member, ticker,
-      asset_description: assetDesc.slice(0, 200),
+      chamber, member, ticker,
+      asset_description: ticker,
       transaction_type: txType,
       transaction_date: txDate,
-      disclosure_date:  disclosureDate,
-      amount_range:     amtRange ? amtRange.slice(0, 50) : null,
-      owner:            ownerMatch ? ownerMatch[1].slice(0,20) : 'Self',
-      filing_url:       filingUrl,
-      doc_id:           docId,
+      disclosure_date: discDate,
+      amount_range: amtRange,
+      owner,
+      filing_url: `https://www.capitoltrades.com/trades/${doc_id}`,
+      doc_id,
     });
   }
+
   return rows;
 }
 
-// ── Insert helper ─────────────────────────────────────────────────────────────
-const insertStmt = db.prepare(`
-  INSERT OR IGNORE INTO gov_trades
-    (chamber, member, ticker, asset_description, transaction_type,
-     transaction_date, disclosure_date, amount_range, owner, filing_url, doc_id)
-  VALUES
-    (@chamber, @member, @ticker, @asset_description, @transaction_type,
-     @transaction_date, @disclosure_date, @amount_range, @owner, @filing_url, @doc_id)
-`);
-const insertMany = db.transaction(rows => {
-  let n = 0;
-  for (const r of rows) { const info = insertStmt.run(r); n += info.changes; }
-  return n;
-});
-
-// ── HOUSE: fetch XML index, find new PTR filings ──────────────────────────────
-async function fetchHouse() {
-  const year = new Date().getFullYear();
-  // House publishes a ZIP file containing an XML index of all filings
-  const zipUrl = `https://disclosures-clerk.house.gov/public_disc/financial-pdfs/${year}FD.ZIP`;
-  console.log(`[congress] House: fetching ZIP index for ${year}...`);
-
-  let xmlBody;
+// ── Main ──────────────────────────────────────────────────────────────────────
+(async () => {
   try {
-    const { status, body } = await get(zipUrl, 60000);
-    if (status !== 200) throw new Error(`ZIP index returned HTTP ${status}`);
-    // Parse ZIP using Node built-ins — no external library needed
-    // ZIP local file header: signature 0x04034b50, then fixed fields, then filename, then data
-    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body, 'binary');
-    const zlib = require('zlib');
-    let extracted = false;
-    let offset = 0;
-    while (offset < buf.length - 4) {
-      if (buf.readUInt32LE(offset) !== 0x04034b50) { offset++; continue; }
-      const compression = buf.readUInt16LE(offset + 8);
-      const compSize    = buf.readUInt32LE(offset + 18);
-      const uncompSize  = buf.readUInt32LE(offset + 22);
-      const fnameLen    = buf.readUInt16LE(offset + 26);
-      const extraLen    = buf.readUInt16LE(offset + 28);
-      const fname       = buf.slice(offset + 30, offset + 30 + fnameLen).toString('utf8');
-      const dataStart   = offset + 30 + fnameLen + extraLen;
-      const dataEnd     = dataStart + compSize;
-      if (fname.endsWith('.xml') || fname.endsWith('.XML')) {
-        const compressed = buf.slice(dataStart, dataEnd);
-        if (compression === 0) {
-          xmlBody = compressed.toString('utf8'); // stored uncompressed
-        } else if (compression === 8) {
-          xmlBody = zlib.inflateRawSync(compressed).toString('utf8');
-        }
-        extracted = true;
-        break;
-      }
-      offset = dataEnd;
-    }
-    if (!extracted) throw new Error('No XML found in ZIP');
+    const total = await fetchCapitolTrades();
+    console.log(`[congress] Done. Capitol Trades total new: ${total}`);
+    db.close();
+    process.exit(0);
   } catch(e) {
-    console.warn(`[congress] House fetch failed: ${e.message}`);
-    return 0;
+    console.error('[congress] FATAL:', e.message);
+    process.exit(1);
   }
-
-  // Parse XML: <Member><Prefix>Hon.</Prefix><Last>Pelosi</Last><First>Nancy</First>...
-  // <FilingDate>01/17/2025</FilingDate><DocID>20026590</DocID><FilingType>PTR</FilingType>
-  const filingRe = /<Row>([\s\S]*?)<\/Row>/g;
-  const newFilings = [];
-  let xmlMatch;
-
-  while ((xmlMatch = filingRe.exec(xmlBody)) !== null) {
-    const row = xmlMatch[1];
-    const get = tag => { const m = row.match(new RegExp(`<${tag}>([^<]*)</${tag}>`)); return m ? m[1].trim() : ''; };
-    const filingType = get('FilingType');
-    if (filingType !== 'PTR') continue; // only Periodic Transaction Reports
-
-    const docId = get('DocID');
-    if (!docId || seenDocs.has(docId)) continue;
-
-    const last  = get('Last');
-    const first = get('First');
-    const member = `${first} ${last}`.trim() || get('OfficerName') || 'Unknown';
-    const filingDate = get('FilingDate');
-
-    newFilings.push({ docId, member, filingDate });
-  }
-
-  console.log(`[congress] House: ${newFilings.length} new PTR filings to process`);
-
-  let totalInserted = 0;
-  for (const filing of newFilings) {
-    const pdfUrl = `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/${year}/${filing.docId}.pdf`;
-    try {
-      await sleep(500); // polite delay
-      const { status, body } = await get(pdfUrl, 20000);
-      if (status !== 200) { console.warn(`[congress] House PDF ${filing.docId}: HTTP ${status}`); continue; }
-
-      const rows = parseHousePTR(body, filing.member, filing.docId, pdfUrl);
-      if (rows.length) {
-        const inserted = insertMany(rows);
-        totalInserted += inserted;
-        if (inserted > 0) console.log(`[congress] House ${filing.member} (${filing.docId}): ${inserted} trades inserted`);
-      }
-      seenDocs.add(filing.docId);
-    } catch(e) {
-      console.warn(`[congress] House ${filing.docId} error: ${e.message}`);
-    }
-  }
-
-  return totalInserted;
-}
-
-// ── SENATE: use efts.senate.gov search for recent PTRs ───────────────────────
-async function fetchSenate() {
-  // Senate PTRs — efts.senate.gov may be network-blocked on some hosts
-  // Try the endpoint; skip gracefully if unreachable
-  const today = new Date().toISOString().slice(0,10);
-  const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0,10);
-  const searchUrl = `https://efts.senate.gov/LATEST/search-index?q=%22Periodic+Transaction+Report%22&dateRange=custom&fromDate=${cutoff}&toDate=${today}&resultsPerPage=100`;
-
-  console.log('[congress] Senate: fetching recent PTRs...');
-  let data;
-  try {
-    const { status, body } = await get(searchUrl, 20000);
-    if (status !== 200) throw new Error(`Senate search returned HTTP ${status}`);
-    data = JSON.parse(body);
-  } catch(e) {
-    console.warn(`[congress] Senate skipped: ${e.message}`);
-    return 0;
-  }
-
-  const hits = data.hits?.hits || [];
-  console.log(`[congress] Senate: ${hits.length} recent PTR docs found`);
-
-  let totalInserted = 0;
-  for (const hit of hits) {
-    const src = hit._source || {};
-    const docId = hit._id || src.docId || '';
-    if (!docId || seenDocs.has(docId)) continue;
-
-    const member = `${src.first_name||''} ${src.last_name||''}`.trim() || 'Unknown';
-    const pdfUrl = src.url || src.link || '';
-    if (!pdfUrl) continue;
-
-    try {
-      await sleep(500);
-      const { status, body } = await get(pdfUrl, 20000);
-      if (status !== 200) { console.warn(`[congress] Senate doc ${docId}: HTTP ${status}`); continue; }
-
-      const rows = parseSenatePTR(body, member, docId, pdfUrl);
-      if (rows.length) {
-        const inserted = insertMany(rows);
-        totalInserted += inserted;
-        if (inserted > 0) console.log(`[congress] Senate ${member} (${docId}): ${inserted} trades inserted`);
-      }
-      seenDocs.add(docId);
-    } catch(e) {
-      console.warn(`[congress] Senate ${docId} error: ${e.message}`);
-    }
-  }
-
-  return totalInserted;
-}
+})();
