@@ -1245,6 +1245,23 @@ app.post('/api/gov-import', express.json({ limit: '10mb' }), (req, res) => {
   }
 });
 
+app.get('/api/gov-member', (req, res) => {
+  const member = (req.query.member || '').trim();
+  if (!member) return res.json([]);
+  try {
+    const rows = db.prepare(`
+      SELECT member, chamber, ticker, transaction_type, transaction_date,
+             disclosure_date, amount_range, owner, filing_url
+      FROM gov_trades
+      WHERE member = ?
+        AND transaction_type IN ('P','S')
+      ORDER BY transaction_date DESC
+      LIMIT 500
+    `).all(member);
+    res.json(rows);
+  } catch(e) { res.json([]); }
+});
+
 app.get('/api/gov', (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.json([]);
