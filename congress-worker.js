@@ -117,41 +117,74 @@ function normType(raw = '') {
 }
 
 async function fetchCapitolTrades() {
-  // Capitol Trades: free, covers both House and Senate, tickers already parsed
-  // Scrape the HTML table which renders server-side (no JS required for first page)
-  // Fetch last 2 pages of recent trades to catch anything new
+  // Use Capitol Trades BFF (backend-for-frontend) JSON API
+  // Returns structured JSON — no HTML parsing needed
+  // Covers both House and Senate, tickers already parsed
   let totalInserted = 0;
 
-  for (let page = 1; page <= 3; page++) {
-    const url = `https://www.capitoltrades.com/trades?page=${page}&pageSize=96&sortOrder=desc&sortBy=txDate`;
+  for (let page = 1; page <= 5; page++) {
+    const url = `https://bff.capitoltrades.com/trades?pageSize=100&page=${page}`;
     try {
-      await sleep(1000); // polite delay
+      await sleep(800);
       const { status, body } = await get(url, 30000);
-      if (status !== 200) { console.warn(`[congress] Capitol Trades page ${page}: HTTP ${status}`); break; }
+      if (status !== 200) { console.warn(`[congress] BFF page ${page}: HTTP ${status}`); break; }
 
-      // Parse trades from the HTML table
-      // Each row has: politician | issuer+ticker | published | traded | filed | owner | type | size | price
-      const rows = parseCapitolTradesHTML(body);
-      if (!rows.length) { console.log(`[congress] Capitol Trades page ${page}: no rows parsed`); break; }
+      let json;
+      try { json = JSON.parse(body); } catch(e) { console.warn('[congress] BFF JSON parse failed'); break; }
 
-      const newRows = rows.filter(r => {
-        if (!r.doc_id || seenDocs.has(r.doc_id)) return false;
-        return true;
-      });
+      const trades = json.data || json.trades || json.items || [];
+      if (!trades.length) { console.log(`[congress] BFF page ${page}: no trades`); break; }
 
-      if (newRows.length === 0) {
-        console.log(`[congress] Capitol Trades page ${page}: all ${rows.length} trades already seen`);
-        if (page > 1) break; // stop paging if nothing new
-        continue;
+      const rows = trades.map(t => {
+        // Extract ticker — may be in asset.assetTicker, issuer.issuerTicker, ticker field
+        const ticker = (t.issuer?.issuerTicker || t.asset?.assetTicker || t.ticker || '--')
+          .replace(/:.*/, '').trim().toUpperCase();
+        if (!ticker || ticker === '--' || ticker === 'N/A') return null;
+
+        const chamber = (t.politician?.chamber || t.chamber || '').toLowerCase() === 'senate' ? 'S' : 'H';
+        const member  = t.politician?.fullName || t.politician?.lastName || t.politicianName || 'Unknown';
+        const txType  = (t.txType || t.type || '').toLowerCase().includes('buy') ? 'P' : 'S';
+        const txDate  = (t.txDate || t.tradeDate || '').slice(0,10) || null;
+        const discDate = (t.pubDate || t.disclosureDate || t.publishedDate || '').slice(0,10) || null;
+        const doc_id  = String(t.id || t.tradeId || t.txId || '');
+        if (!doc_id || seenDocs.has(doc_id)) return null;
+
+        // Amount range
+        const SIZE_MAP = {'1K-15K':'$1,001 - $15,000','15K-50K':'$15,001 - $50,000',
+          '50K-100K':'$50,001 - $100,000','100K-250K':'$100,001 - $250,000',
+          '250K-500K':'$250,001 - $500,000','500K-1M':'$500,001 - $1,000,000',
+          '1M-5M':'$1,000,001 - $5,000,000','5M-25M':'$5,000,001 - $25,000,000'};
+        const sizeRaw = (t.txSize || t.size || '').replace(/[–—]/g,'-');
+        const amtRange = SIZE_MAP[sizeRaw] || sizeRaw || null;
+
+        return {
+          chamber, member, ticker,
+          asset_description: (t.issuer?.issuerName || t.assetName || ticker).slice(0,200),
+          transaction_type: txType,
+          transaction_date: txDate,
+          disclosure_date: discDate,
+          amount_range: amtRange ? amtRange.slice(0,50) : null,
+          owner: (t.owner || 'Self').slice(0,20),
+          filing_url: `https://www.capitoltrades.com/trades/${doc_id}`,
+          doc_id,
+        };
+      }).filter(Boolean);
+
+      if (!rows.length) {
+        console.log(`[congress] BFF page ${page}: all trades already seen — stopping`);
+        break;
       }
 
-      const inserted = insertMany(newRows);
+      const inserted = insertMany(rows);
       totalInserted += inserted;
-      newRows.forEach(r => seenDocs.add(r.doc_id));
-      console.log(`[congress] Capitol Trades page ${page}: ${inserted} new trades (${rows.length} total on page)`);
+      rows.forEach(r => seenDocs.add(r.doc_id));
+      console.log(`[congress] BFF page ${page}: ${inserted} new (${trades.length} total)`);
+
+      // Stop if we've hit all-seen trades for 2 consecutive pages
+      if (inserted === 0 && page > 1) break;
 
     } catch(e) {
-      console.warn(`[congress] Capitol Trades page ${page} error: ${e.message}`);
+      console.warn(`[congress] BFF page ${page} error: ${e.message}`);
       break;
     }
   }
