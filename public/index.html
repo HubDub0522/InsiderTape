@@ -3206,32 +3206,32 @@ function renderInsiderActivityAnalysis(ticker, trades, priceData) {
 
   // Overall posture
   if (buys30.length > 0 && sells30.length === 0) {
-    sentences.push(`Insiders have been <strong style="color:var(--buy)">active buyers</strong> in the last 30 days — ${uniqueBuyers30} insider${uniqueBuyers30>1?'s':''} purchased ${fmt(buyVal30)} worth of shares with no selling.`);
+    sentences.push('Insiders have been <strong style="color:var(--buy)">active buyers</strong> in the last 30 days — ' + uniqueBuyers30 + ' insider' + (uniqueBuyers30>1?'s':'') + ' purchased ' + fmt(buyVal30) + ' worth of shares with no selling.');
   } else if (sells30.length > 0 && buys30.length === 0) {
-    sentences.push(`Insiders have been <strong style="color:var(--sell)">net sellers</strong> over the last 30 days — ${uniqueSellers30} insider${uniqueSellers30>1?'s':''} sold ${fmt(sellVal30)} with no open-market buying.`);
+    sentences.push('Insiders have been <strong style="color:var(--sell)">net sellers</strong> over the last 30 days — ' + uniqueSellers30 + ' insider' + (uniqueSellers30>1?'s':'') + ' sold ' + fmt(sellVal30) + ' with no open-market buying.');
   } else if (buys30.length > 0 && sells30.length > 0) {
     const net = buyVal30 - sellVal30;
-    const dir = net >= 0 ? `<strong style="color:var(--buy)">net buying</strong>` : `<strong style="color:var(--sell)">net selling</strong>`;
-    sentences.push(`Insider activity is mixed over the last 30 days — ${fmt(buyVal30)} in purchases vs ${fmt(sellVal30)} in sales, a ${dir} position of ${fmt(Math.abs(net))}.`);
+    const dir = net >= 0 ? '<strong style="color:var(--buy)">net buying</strong>' : '<strong style="color:var(--sell)">net selling</strong>';
+    sentences.push('Insider activity is mixed over the last 30 days — ' + fmt(buyVal30) + ' in purchases vs ' + fmt(sellVal30) + ' in sales, a ' + dir + ' position of ' + fmt(Math.abs(net)) + '.');
   } else if (buys90.length > 0) {
-    sentences.push(`No insider transactions in the last 30 days. Looking out 90 days, ${uniqueBuyers90} insider${uniqueBuyers90>1?'s':''} bought ${fmt(buyVal90)} — activity has slowed recently.`);
+    sentences.push('No insider transactions in the last 30 days. Looking out 90 days, ' + uniqueBuyers90 + ' insider' + (uniqueBuyers90>1?'s':'') + ' bought ' + fmt(buyVal90) + ' — activity has slowed recently.');
   } else {
-    sentences.push(`No insider buying or selling activity recorded in the last 90 days.`);
+    sentences.push('No insider buying or selling activity recorded in the last 90 days.');
   }
 
   // Cluster signal
   if (uniqueBuyers30 >= 3) {
-    sentences.push(`The concentration of ${uniqueBuyers30} distinct buyers in a short window is a <strong style="color:var(--option)">cluster buy signal</strong> — historically one of the stronger indicators of insider conviction.`);
+    sentences.push('The concentration of ' + uniqueBuyers30 + ' distinct buyers in a short window is a <strong style="color:var(--option)">cluster buy signal</strong> — historically one of the stronger indicators of insider conviction.');
   } else if (uniqueBuyers30 >= 2) {
-    sentences.push(`With ${uniqueBuyers30} separate insiders buying, this reflects coordinated accumulation rather than a single executive's discretionary move.`);
+    sentences.push('With ' + uniqueBuyers30 + ' separate insiders buying, this reflects coordinated accumulation rather than a single executive's discretionary move.');
   }
 
   // Price context sentence
   if (priceContext) {
     if (buys30.length > 0 && currentPrice && low52 && currentPrice <= low52 * 1.15) {
-      sentences.push(`${priceContext} Buying near 52-week lows is generally the most meaningful insider signal — they are deploying capital at depressed prices.`);
+      sentences.push('' + priceContext + ' Buying near 52-week lows is generally the most meaningful insider signal — they are deploying capital at depressed prices.');
     } else if (buys30.length > 0 && currentPrice && high52 && currentPrice >= high52 * 0.90) {
-      sentences.push(`${priceContext} Insider buying near annual highs suggests they believe the stock has further to run despite the elevated price.`);
+      sentences.push('' + priceContext + ' Insider buying near annual highs suggests they believe the stock has further to run despite the elevated price.');
     } else if (priceContext) {
       sentences.push(priceContext);
     }
@@ -3240,7 +3240,7 @@ function renderInsiderActivityAnalysis(ticker, trades, priceData) {
   // Historical context
   const allTimebuys = buys.length;
   if (allTimebuys >= 10) {
-    sentences.push(`This insider group has ${allTimebuys} total buy transactions on record — a deep history of accumulation in ${ticker}.`);
+    sentences.push('This insider group has ' + allTimebuys + ' total buy transactions on record — a deep history of accumulation in ' + ticker + '.');
   }
 
   el.innerHTML = `
