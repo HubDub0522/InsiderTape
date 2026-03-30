@@ -1212,6 +1212,27 @@ app.get('/api/ranker', (req, res) => {
   }
 });
 
+// GOV TRADES — congressional trades for a ticker
+app.get('/api/gov', (req, res) => {
+  const sym = (req.query.symbol || '').toUpperCase().trim();
+  if (!sym) return res.json([]);
+  try {
+    const rows = db.prepare(`
+      SELECT member, chamber, ticker, transaction_type, transaction_date,
+             disclosure_date, amount_range, owner, filing_url
+      FROM gov_trades
+      WHERE ticker = ? AND ticker != '--'
+        AND transaction_date IS NOT NULL
+        AND transaction_type IN ('P','S')
+      ORDER BY transaction_date DESC
+      LIMIT 200
+    `).all(sym);
+    res.json(rows);
+  } catch(e) {
+    res.json([]);
+  }
+});
+
 // LEADERBOARD — top insiders by open-market buy activity (enough history to score)
 // ── SECTORS ─────────────────────────────────────────────────────────────────
 // Static sector/industry map. Zero external calls — instant lookups.
