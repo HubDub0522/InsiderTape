@@ -1023,8 +1023,8 @@ function fmtAmountRange(s) {
   const lo = parseInt(nums[0]);
   if (!lo) return s;
   // If there's a second number (it's a range), show lo+ 
-  if (nums.length > 1) return '$' + fmt(lo) + '+';
-  return '$' + fmt(lo);
+  if (nums.length > 1) return fmt(lo) + '+';
+  return fmt(lo);
 }
 
 function fmtDate(d) {
@@ -2780,6 +2780,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     groups[k].trades.push(t); groups[k].value+=t.value||0;
   });
   state.markerGroups=Object.values(groups);
+  state._allMarkerGroups=state.markerGroups; // unfiltered — for consistent diamond sizing
 
 
   const tooltip=document.getElementById('chartTooltip')||(() => {
@@ -2816,7 +2817,9 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         return acc;
       },{})
     ) : [];
-    const maxVal=Math.max(...state.markerGroups.map(g=>g.value),...govGroupedVals,1);
+    // Use ALL marker groups (unfiltered) + gov for consistent sizing across filter changes
+    const allGroupVals = (state._allMarkerGroups||state.markerGroups).map(g=>g.value);
+    const maxVal=Math.max(...allGroupVals,...govGroupedVals,1);
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
