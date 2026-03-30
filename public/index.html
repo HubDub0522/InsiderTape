@@ -2885,6 +2885,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       const gcolor=govHit.type==='P'?'#00d4ff':'#ff00ff';
       const glabel=govHit.type==='P'?'◆ GOV BUY':'◆ GOV SELL';
       tooltip.innerHTML='<div style="color:'+gcolor+';font-weight:700;margin-bottom:6px">'+glabel+' · '+govHit.date+'</div><div style="color:#b0c4d8">'+govHit.trades.slice(0,4).join(', ')+(govHit.trades.length>4?' +'+(govHit.trades.length-4)+' more':'')+'</div><div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Est. Amount: <span style="color:'+gcolor+'">'+(govHit.ranges&&govHit.ranges.length?govHit.ranges.map(function(r){return fmtAmountRange(r);}).join(' + '):'~'+fmt(govHit.val))+'</span></div>';
+      tooltip.style.display='block';
       const gtx=e.clientX+16,gty=e.clientY-10;
       tooltip.style.left=(gtx+280>window.innerWidth?e.clientX-296:gtx)+'px'; tooltip.style.top=gty+'px';
     } else {
