@@ -2640,7 +2640,7 @@ function runCongressWorker() {
   cp.on('exit', code => slog('congress-worker exited: ' + code));
 }
 
-setTimeout(runCongressWorker, 90000);
+setTimeout(runCongressWorker, 5 * 60 * 1000); // 5 min after boot — gives DB time to initialize
 
 // Daily at 8:05am ET
 setInterval(() => {
