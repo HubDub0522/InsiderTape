@@ -2737,13 +2737,13 @@ app.get('/api/admin/unban', (req, res) => {
   const ip = req.query.ip;
   if (!ip) {
     // Clear all bans
-    const count = _bannedIPs.size;
+    const count = _bannedIPs.size + _strikeMap.size;
     _bannedIPs.clear();
-    _strikes.clear();
+    _strikeMap.clear();
     return res.json({ ok: true, cleared: count });
   }
   _bannedIPs.delete(ip);
-  _strikes.delete(ip);
+  _strikeMap.delete(ip);
   res.json({ ok: true, unbanned: ip });
 });
 
