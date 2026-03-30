@@ -16,113 +16,47 @@ const Database = require('better-sqlite3');
 // PDFs store page content in FlateDecode (zlib) compressed streams.
 function extractPdfText(buf) {
   const text = [];
-
-  // Find all compressed stream objects
   let pos = 0;
-  while (pos < buf.length) {
-    // Look for stream keyword
+  while (pos < buf.length - 10) {
     const streamIdx = buf.indexOf('stream', pos);
     if (streamIdx < 0) break;
-
-    // Check for FlateDecode in the preceding dictionary
-    const dictStart = Math.max(0, streamIdx - 400);
+    const dictStart = Math.max(0, streamIdx - 500);
     const dict = buf.slice(dictStart, streamIdx).toString('latin1');
-    const isFlateDecode = dict.includes('FlateDecode') || dict.includes('Fl ');
-
-    // Skip CR LF or LF after 'stream'
+    const isFlateDecode = dict.includes('FlateDecode') || dict.includes('/Fl\n') || dict.includes('/Fl ') || dict.includes('/Fl>');
     let dataStart = streamIdx + 6;
-    if (buf[dataStart] === 13) dataStart++; // CR
-    if (buf[dataStart] === 10) dataStart++; // LF
-
-    // Find 'endstream'
+    if (buf[dataStart] === 13) dataStart++;
+    if (buf[dataStart] === 10) dataStart++;
     const endIdx = buf.indexOf('endstream', dataStart);
-    if (endIdx < 0) { pos = streamIdx + 6; continue; }
-
-    if (isFlateDecode && endIdx > dataStart) {
-      try {
-        const compressed = buf.slice(dataStart, endIdx);
-        const decompressed = zlib.inflateSync(compressed).toString('latin1');
-        // Extract text from PDF operators: (text) Tj, [(text)] TJ
-        const tjRe = /\(([^)]*)\)\s*Tj/g;
-        const TJRe = /\[([^\]]*)\]\s*TJ/g;
-        let m;
-        while ((m = tjRe.exec(decompressed)) !== null) {
-          text.push(decodePdfString(m[1]));
-        }
-        while ((m = TJRe.exec(decompressed)) !== null) {
-          // TJ arrays: [(text) offset (text) ...]
-          const inner = m[1];
-          const strRe = /\(([^)]*)\)/g;
-          let sm;
-          while ((sm = strRe.exec(inner)) !== null) {
-            text.push(decodePdfString(sm[1]));
+    if (endIdx < 0 || endIdx <= dataStart) { pos = streamIdx + 7; continue; }
+    if (isFlateDecode) {
+      const compressed = buf.slice(dataStart, endIdx);
+      let decompressed = null;
+      for (const fn of [zlib.inflateSync, zlib.inflateRawSync, zlib.unzipSync]) {
+        try { decompressed = fn(compressed).toString('latin1'); break; } catch(_) {}
+      }
+      if (!decompressed) {
+        for (let trim = 1; trim <= 8 && !decompressed; trim++) {
+          for (const fn of [zlib.inflateSync, zlib.inflateRawSync]) {
+            try { decompressed = fn(compressed.slice(0, compressed.length - trim)).toString('latin1'); break; } catch(_) {}
           }
         }
-      } catch(_) {}
+      }
+      if (decompressed) {
+        const tjRe = /\(([^)]*)\)\s*Tj/g;
+        let m;
+        while ((m = tjRe.exec(decompressed)) !== null) text.push(m[1].replace(/\\[nrt]/g, ' '));
+        const TJRe = /\[([^\]]*)\]\s*TJ/g;
+        while ((m = TJRe.exec(decompressed)) !== null) {
+          const strRe = /\(([^)]*)\)/g; let sm;
+          while ((sm = strRe.exec(m[1])) !== null) text.push(sm[1].replace(/\\[nrt]/g, ' '));
+        }
+      }
     }
     pos = endIdx + 9;
   }
-
-  return text.join(' ').replace(/\s+/g, ' ');
+  return text.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-function decodePdfString(s) {
-  // Unescape PDF string escapes
-  return s
-    .replace(/\\n/g, ' ')
-    .replace(/\\r/g, ' ')
-    .replace(/\\t/g, ' ')
-    .replace(/\\\(/g, '(')
-    .replace(/\\\)/g, ')')
-    .replace(/\\\\/g, '\\');
-}
-
-// ── DB ────────────────────────────────────────────────────────────────────────
-const DATA_DIR = (() => {
-  const e = process.env.DB_PATH;
-  if (e) return path.dirname(e);
-  for (const d of ['/var/data', path.join(__dirname, 'data')]) {
-    try { fs.mkdirSync(d, { recursive: true }); const p = path.join(d, '.probe'); fs.writeFileSync(p,'1'); fs.unlinkSync(p); return d; } catch(_){}
-  }
-  return path.join(__dirname, 'data');
-})();
-const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'trades.db');
-console.log(`[congress] DB: ${DB_PATH}`);
-
-let db;
-try { db = new Database(DB_PATH); } catch(e) { console.error(`[congress] DB open failed: ${e.message}`); process.exit(1); }
-db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 10000');
-
-// ── Schema ────────────────────────────────────────────────────────────────────
-db.exec(`
-  CREATE TABLE IF NOT EXISTS gov_trades (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    chamber          TEXT NOT NULL,
-    member           TEXT NOT NULL,
-    ticker           TEXT,
-    asset_description TEXT,
-    transaction_type TEXT,
-    transaction_date TEXT,
-    disclosure_date  TEXT,
-    amount_range     TEXT,
-    owner            TEXT,
-    filing_url       TEXT,
-    doc_id           TEXT,
-    UNIQUE(chamber, doc_id, ticker, transaction_date, transaction_type)
-  )
-`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_ticker  ON gov_trades(ticker)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_td      ON gov_trades(transaction_date DESC)`);
-try { db.exec(`ALTER TABLE gov_trades ADD COLUMN doc_id TEXT`); console.log('[congress] Migrated: added doc_id'); } catch(_) {}
-try { db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_docid ON gov_trades(doc_id)`); } catch(_) {}
-
-const seenDocs = new Set(
-  db.prepare("SELECT DISTINCT doc_id FROM gov_trades WHERE doc_id IS NOT NULL").all().map(r => r.doc_id)
-);
-console.log(`[congress] Already processed ${seenDocs.size} doc IDs`);
-
-// ── HTTP ──────────────────────────────────────────────────────────────────────
 function get(url, ms = 60000, hops = 0) {
   if (hops > 5) return Promise.reject(new Error('Too many redirects'));
   return new Promise((resolve, reject) => {
