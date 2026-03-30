@@ -2815,8 +2815,9 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       const g=govHit.group; const isBuy=g.type==='P';
       const color=isBuy?'#00d4ff':'#ff00ff';
       const label=isBuy?'▲ GOV BUY':'▼ GOV SELL';
-      const names=g.trades.slice(0,4).map(t=>`<div style="padding:2px 0;color:#b0c4d8"><span style="color:#e8f4fd">${t.member}</span><span style="color:#4a6580;font-size:10px"> · ${t.chamber==='S'?'Senate':'House'}</span><span style="color:${color};float:right;margin-left:12px">${t.amount_range||'—'}</span></div>`).join('');
-      tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>${names}${g.trades.length>4?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-4} more</div>`:''}`;
+      const names=g.trades.slice(0,4).map(t=>'<div style="padding:2px 0;color:#b0c4d8"><span style="color:#e8f4fd">'+t.member+'</span><span style="color:#4a6580;font-size:10px"> · '+(t.chamber==='S'?'Senate':'House')+'</span><span style="color:'+color+';float:right;margin-left:12px">'+(t.amount_range||'—')+'</span></div>').join('');
+      const more=g.trades.length>4?'<div style="color:#4a6580;font-size:10px;margin-top:4px">+' + (g.trades.length-4) + ' more</div>':'';
+      tooltip.innerHTML='<div style="color:'+color+';font-weight:700;margin-bottom:6px">'+label+' · '+g.date+'</div>'+names+more;
       tooltip.style.display='block';
       const tx=e.clientX+16,ty=e.clientY-10;
       tooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; tooltip.style.top=ty+'px';
@@ -2830,8 +2831,9 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       canvas.style.cursor='crosshair'; const g=hit.group; const tc=g.tc;
       const color=tc==='buy'?'#00ff88':tc==='sell'?'#ff4466':'#ffaa00';
       const label=tc==='buy'?'▲ BUY':tc==='sell'?'▼ SELL':'◆ OPTION/AWARD';
-      const rows=g.trades.slice(0,5).map(t=>`<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">${t.insider||'Unknown'}</span>${t.title?`<span style="color:#4a6580;font-size:10px"> · ${t.title}</span>`:''}<span style="color:${color};float:right;margin-left:12px">${fmt(t.value)}</span></div>`).join('');
-      tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.tradeDate||g.date}</div>${rows}${g.trades.length>5?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-5} more</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Total: <span style="color:${color}">${fmt(g.value)}</span></div>`;
+      const rows=g.trades.slice(0,5).map(t=>'<div style="padding:3px 0;border-bottom:1px solid #1e2d3d;color:#b0c4d8"><span style="color:#e8f4fd">'+(t.insider||'Unknown')+'</span>'+(t.title?'<span style="color:#4a6580;font-size:10px"> · '+t.title+'</span>':'')+'<span style="color:'+color+';float:right;margin-left:12px">'+fmt(t.value)+'</span></div>').join('');
+      const moreRows=g.trades.length>5?'<div style="color:#4a6580;font-size:10px;margin-top:4px">+'+(g.trades.length-5)+' more</div>':'';
+      tooltip.innerHTML='<div style="color:'+color+';font-weight:700;margin-bottom:6px">'+label+' · '+(g.tradeDate||g.date)+'</div>'+rows+moreRows+'<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Total: <span style="color:'+color+'">'+fmt(g.value)+'</span></div>';
       tooltip.style.display='block';
       const tx=e.clientX+16,ty=e.clientY-10;
       tooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; tooltip.style.top=ty+'px';
@@ -3191,11 +3193,11 @@ function renderInsiderActivityAnalysis(ticker, trades, priceData) {
     const pctFromLow  = ((currentPrice - low52) / range * 100).toFixed(0);
     const pctFromHigh = ((high52 - currentPrice) / high52 * 100).toFixed(1);
     if (currentPrice >= high52 * 0.95) {
-      priceContext = `Trading near its 52-week high ($${high52.toFixed(2)}).`;
+      priceContext = 'Trading near its 52-week high ($' + high52.toFixed(2) + ').';
     } else if (currentPrice <= low52 * 1.05) {
-      priceContext = `Trading near its 52-week low ($${low52.toFixed(2)}).`;
+      priceContext = 'Trading near its 52-week low ($' + low52.toFixed(2) + ').';
     } else {
-      priceContext = `Currently ${pctFromHigh}% below its 52-week high of $${high52.toFixed(2)}.`;
+      priceContext = 'Currently ' + pctFromHigh + '% below its 52-week high of $' + high52.toFixed(2) + '.';
     }
   }
 
@@ -5961,7 +5963,7 @@ function renderExitWarningCard(w) {
         { label:'TOTAL SOLD',   val: fmt(w.totalSellVal),   color:'var(--sell)' },
         { label:'TOTAL BOUGHT', val: w.totalBuyVal > 0 ? fmt(w.totalBuyVal) : 'None', color: w.totalBuyVal > 0 ? 'var(--buy)' : 'var(--muted)' },
         { label:'SELL/BUY',     val: w.totalBuyVal > 0 ? (w.totalSellVal/w.totalBuyVal).toFixed(1)+'x' : '∞', color:'var(--sell)' },
-        { label:'PRICE RANGE',  val: w.sellPriceRange ? `$${w.sellPriceRange.lo.toFixed(2)}–$${w.sellPriceRange.hi.toFixed(2)}` : '—', color:'var(--text)' },
+        { label:'PRICE RANGE',  val: w.sellPriceRange ? '$' + w.sellPriceRange.lo.toFixed(2) + '–$' + w.sellPriceRange.hi.toFixed(2) : '—', color:'var(--text)' },
       ].map(s => `
         <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
           <div style="font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${s.label}</div>
@@ -6198,7 +6200,7 @@ function renderFirstBuyCard(s) {
       ${[
         { label:'BUY DATE',     val: s.latestDate.slice(5),                         color:'var(--text)' },
         { label:'PREV BUY',     val: s.prevDate.slice(0,7),                         color:'var(--muted)' },
-        { label:'PRICE',        val: s.latestPrice ? `$${s.latestPrice.toFixed(2)}` : '—', color:'var(--text)' },
+        { label:'PRICE',        val: s.latestPrice ? '$' + s.latestPrice.toFixed(2) : '—', color:'var(--text)' },
         { label:'VALUE',        val: s.totalBuyVal ? fmt(s.totalBuyVal) : '—',      color:'var(--buy)' },
         { label:'POS CHANGE',   val: posLabel || '—',                               color: posColor },
         { label:'SHARES AFTER', val: s.latestOwned ? s.latestOwned.toLocaleString() : '—', color:'var(--text)' },
@@ -6331,7 +6333,7 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   const isStockPlan  = insiderCount >= 4 && uniquePrices.size === 1 && uniqueDates.size <= 2;
   if (isStockPlan) {
     score -= 40;
-    penalties.push(`⚠️ Likely stock plan / ESPP — ${insiderCount} insiders, identical price $${pricesAll[0]?.toFixed(2)}`);
+    penalties.push('⚠️ Likely stock plan / ESPP — ' + insiderCount + ' insiders, identical price $' + (pricesAll[0]?.toFixed(2)));
   }
 
   // ── FACTOR 2: Price tightness (up to 20 pts) ──────────────────
