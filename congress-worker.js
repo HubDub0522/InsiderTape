@@ -1,10 +1,9 @@
 'use strict';
 // congress-worker.js — fetches congressional trades from FMP API
-// Runs on startup (90s delay) and daily at 8am ET via server.js scheduler
 // Requires FMP_API_KEY env var (Starter plan or above)
 
-const https  = require('https');
-const path   = require('path');
+const https = require('https');
+const path  = require('path');
 
 const DB_PATH   = process.env.DB_PATH || path.join(__dirname, 'trades.db');
 const FMP_KEY   = process.env.FMP_API_KEY;
@@ -15,7 +14,9 @@ if (!FMP_KEY) { console.error('[congress] FMP_API_KEY not set — skipping'); pr
 const Database = require('better-sqlite3');
 const db = new Database(DB_PATH);
 
-// ── Ensure gov_trades table exists ────────────────────────────────────────────
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Ensure gov_trades table ───────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS gov_trades (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,7 +49,7 @@ const insertGov = db.prepare(`
 function fmpGet(endpoint) {
   return new Promise((resolve, reject) => {
     const url = 'https://financialmodelingprep.com/stable/' + endpoint + '&apikey=' + FMP_KEY;
-    https.get(url, { headers: { 'User-Agent': 'InsiderTape/1.0' } }, res => {
+    https.get(url, { headers: { 'User-Agent': 'InsiderTape/1.0' }, timeout: 15000 }, res => {
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
@@ -56,11 +57,9 @@ function fmpGet(endpoint) {
         catch(e) { reject(new Error('JSON parse: ' + e.message)); }
       });
       res.on('error', reject);
-    }).on('error', reject);
+    }).on('error', reject).on('timeout', function() { this.destroy(); reject(new Error('timeout')); });
   });
 }
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Normalize transaction type ────────────────────────────────────────────────
 function normType(raw) {
@@ -70,26 +69,19 @@ function normType(raw) {
   return null;
 }
 
-// ── Cutoff date string ────────────────────────────────────────────────────────
 function cutoffDate() {
   const d = new Date();
   d.setDate(d.getDate() - DAYS_BACK);
   return d.toISOString().split('T')[0];
 }
 
-// ── Process one FMP response array ───────────────────────────────────────────
+// ── Insert FMP trades array ───────────────────────────────────────────────────
 function processTrades(trades, chamber) {
   if (!Array.isArray(trades) || !trades.length) return 0;
   const cutoff = cutoffDate();
   let inserted = 0;
-
-  const insertMany = db.transaction(rows => {
-    for (const r of rows) {
-      if (insertGov.run(r).changes) inserted++;
-    }
-  });
-
   const rows = [];
+
   for (const t of trades) {
     if (t.transactionDate && t.transactionDate < cutoff) continue;
     const txType = normType(t.type);
@@ -114,14 +106,32 @@ function processTrades(trades, chamber) {
     });
   }
 
+  const insertMany = db.transaction(rs => {
+    for (const r of rs) { if (insertGov.run(r).changes) inserted++; }
+  });
   if (rows.length) insertMany(rows);
   return inserted;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 (async () => {
-  console.log('[congress] FMP congressional sync — days back:', DAYS_BACK);
+  console.log('[congress] FMP sync starting — days back:', DAYS_BACK);
 
+  // Wait up to 2 minutes for trades table to exist (DB initializes after server starts)
+  for (let i = 0; i < 24; i++) {
+    const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'").get();
+    if (exists) break;
+    console.log('[congress] Waiting for trades table... (' + (i * 5) + 's)');
+    await sleep(5000);
+  }
+  const tradesExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='trades'").get();
+  if (!tradesExists) {
+    console.error('[congress] trades table never appeared — aborting');
+    db.close();
+    process.exit(0);
+  }
+
+  // Get active tickers from our SEC data
   const tickers = db.prepare(`
     SELECT DISTINCT ticker FROM trades
     WHERE trade_date >= date('now', '-180 days')
@@ -140,7 +150,7 @@ function processTrades(trades, chamber) {
       totalH += processTrades(h, 'H');
       const s = await fmpGet('senate-trades?symbol=' + ticker);
       totalS += processTrades(s, 'S');
-      await sleep(250); // ~4 tickers/sec, well within 300 calls/min
+      await sleep(250); // ~4 tickers/sec, within 300 calls/min Starter limit
       if ((i + 1) % 100 === 0) {
         console.log('[congress] ' + (i+1) + '/' + tickers.length + ' | H+' + totalH + ' S+' + totalS);
       }
@@ -154,5 +164,6 @@ function processTrades(trades, chamber) {
   db.close();
 })().catch(e => {
   console.error('[congress] Fatal:', e.message);
+  try { db.close(); } catch(_) {}
   process.exit(1);
 });
