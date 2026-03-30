@@ -2627,28 +2627,7 @@ app.get('/api/scoreboard', (req, res) => {
 runDaily(3);
 
 // ── Congressional trades (STOCK Act PTRs) ────────────────────────────────────
-// Runs once at startup (offset 90s) then daily at 8am ET.
-// Fetches directly from disclosures-clerk.house.gov + efts.senate.gov.
-// Lightweight: 1 XML index fetch + ~5-20 PDF fetches per day.
-function runCongressWorker() {
-  if (process.env.SKIP_CONGRESS === '1') return;
-  slog('Running congress-worker...');
-  const { fork } = require('child_process');
-  const cp = fork(require('path').join(__dirname, 'congress-worker.js'), [], {
-    env: { ...process.env },
-    silent: false,
-  });
-  cp.on('exit', code => slog(`congress-worker exited: ${code}`));
-}
-
-setTimeout(runCongressWorker, 90000); // 90s after boot
-
-// Schedule daily at 8:05am ET (after markets open and new filings appear)
-setInterval(() => {
-  const etHour = (new Date().getUTCHours() - 4 + 24) % 24;
-  const etMin  = new Date().getUTCMinutes();
-  if (etHour === 8 && etMin >= 5 && etMin < 15) runCongressWorker();
-}, 10 * 60 * 1000); // check every 10 min
+// Congress worker disabled — re-enable when FMP data source is configured
 
 
 
@@ -2752,6 +2731,21 @@ function requireAdminSecret(req, res) {
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 // ── F13 admin endpoints ───────────────────────────────────────────────────────
 
+
+app.get('/api/admin/unban', (req, res) => {
+  if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({ error: 'Forbidden' });
+  const ip = req.query.ip;
+  if (!ip) {
+    // Clear all bans
+    const count = _bannedIPs.size;
+    _bannedIPs.clear();
+    _strikes.clear();
+    return res.json({ ok: true, cleared: count });
+  }
+  _bannedIPs.delete(ip);
+  _strikes.delete(ip);
+  res.json({ ok: true, unbanned: ip });
+});
 
 app.get('/api/admin/grant-premium', (req, res) => {
   if (requireAdminSecret(req, res)) return;
