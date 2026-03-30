@@ -2779,7 +2779,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         const r = 5 + Math.round((g.val / maxGovVal) * 8);
         const color = g.type === 'P' ? 'rgba(0,212,255,0.85)' : 'rgba(255,0,255,0.85)';
         const stroke = g.type === 'P' ? 'rgba(0,212,255,1)' : 'rgba(255,0,255,1)';
-        const oy = g.type === 'P' ? -(r + 14) : (r + 14);
+        const oy = g.type === 'P' ? -(r + 4) : (r + 4);
         const cx = xCoord, cy = yCoord + oy;
         drawDiamond(ctx, cx, cy, r, color, stroke);
         state._govDiamonds.push({ x:cx, y:cy, r, trades:g.trades, type:g.type, val:g.val, date:g.date });
@@ -2933,7 +2933,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
         });
         govSeries.setData(allDates
           .filter(t=>govByDate[t]!==undefined && govByDate[t]!==0)
-          .map(t=>({time:t,value:govByDate[t],color:govByDate[t]>=0?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)'}))
+          .map(t=>({time:t,value:govByDate[t],color:govByDate[t]>=0?'rgba(0,212,255,0.7)':'rgba(255,0,255,0.7)'}))
         );
       }
     }
