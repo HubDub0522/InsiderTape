@@ -2634,19 +2634,18 @@ function runCongressWorker() {
   slog('Running congress-worker (FMP)...');
   const { fork } = require('child_process');
   const cp = fork(require('path').join(__dirname, 'congress-worker.js'), [], {
-    env: { ...process.env, DB_PATH },
+    env: { ...process.env, DB_PATH, CONGRESS_DAYS_BACK: process.env.CONGRESS_DAYS_BACK || '5' },
     silent: false,
   });
   cp.on('exit', code => slog('congress-worker exited: ' + code));
 }
 
-setTimeout(runCongressWorker, 5 * 60 * 1000); // 5 min after boot — gives DB time to initialize
-
-// Daily at 8:05am ET
+// Congress worker runs daily at 8:30am ET — staggered 25min after daily SEC worker (8:05am)
+// No startup run — only daily delta (5 days back) needed
 setInterval(() => {
   const etHour = (new Date().getUTCHours() - 4 + 24) % 24;
   const etMin  = new Date().getUTCMinutes();
-  if (etHour === 8 && etMin >= 5 && etMin < 15) runCongressWorker();
+  if (etHour === 8 && etMin >= 30 && etMin < 40) runCongressWorker();
 }, 10 * 60 * 1000);
 
 
