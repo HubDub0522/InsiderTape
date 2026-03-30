@@ -5082,32 +5082,32 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 // ── GOV OFFICIAL ANALYSIS TILES ──────────────────────────────────────────────
 function buildGovTiles(govData) {
   if (!govData || !govData.length) return { buys:[], sells:[], newPos:[] };
-  const AMOUNT_MID = {'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
   const val = g => parseAmountRange(g.amount_range);
+  // govData entries are normalized: use .type (.type='P'/'S'), .insider, .trade
+  const isBuyG  = g => (g.type||g.transaction_type) === 'P';
+  const isSellG = g => (g.type||g.transaction_type) === 'S';
+  const nameG   = g => g.insider || g.member || '—';
+  const dateG   = g => g.trade   || g.transaction_date || '';
 
-  // Top Gov Buys: purchases sorted by estimated amount
-  const buys = [...govData.filter(g => g.transaction_type==='P')]
+  const buys = [...govData.filter(isBuyG)]
     .sort((a,b) => val(b)-val(a)).slice(0,3)
-    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${g.member} · ${g.transaction_date}`, color:'#00d4ff' }));
+    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${nameG(g)} · ${fmtDate(dateG(g))}`, color:'#00d4ff' }));
 
-  // Top Gov Sells
-  const sells = [...govData.filter(g => g.transaction_type==='S')]
+  const sells = [...govData.filter(isSellG)]
     .sort((a,b) => val(b)-val(a)).slice(0,3)
-    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${g.member} · ${g.transaction_date}`, color:'#ff00ff' }));
+    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${nameG(g)} · ${fmtDate(dateG(g))}`, color:'#ff00ff' }));
 
-  // New Positions: first time a member traded this ticker in our DB
-  // Proxy: tickers where that member only appears once total
   const memberTickers = {};
   govData.forEach(g => {
-    const key = g.member+'|'+g.ticker;
+    const key = nameG(g)+'|'+g.ticker;
     if (!memberTickers[key]) memberTickers[key] = [];
     memberTickers[key].push(g);
   });
   const newPos = Object.values(memberTickers)
-    .filter(arr => arr.length === 1 && arr[0].transaction_type==='P')
+    .filter(arr => arr.length === 1 && isBuyG(arr[0]))
     .map(arr => arr[0])
     .sort((a,b) => val(b)-val(a)).slice(0,3)
-    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${g.member} · ${g.transaction_date}`, color:'#00d4ff' }));
+    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${nameG(g)} · ${fmtDate(dateG(g))}`, color:'#00d4ff' }));
 
   return { buys, sells, newPos };
 }
@@ -5259,7 +5259,7 @@ function renderAnalysisDashboard() {
     icon: '🏛',
     name: 'Top Gov Official Buys',
     desc: 'Largest congressional purchases in the last 90 days — House and Senate members buying across any ticker.',
-    count: (_analysisGovData||[]).filter(g=>g.transaction_type==='P').length,
+    count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').length,
     countLabel: 'purchases (90d)',
     top3: _govTiles.buys,
     accentColor: '#00d4ff',
@@ -5271,7 +5271,7 @@ function renderAnalysisDashboard() {
     icon: '🏛',
     name: 'Top Gov Official Sells',
     desc: 'Largest congressional sales in the last 90 days — when elected officials exit positions it can precede broader moves.',
-    count: (_analysisGovData||[]).filter(g=>g.transaction_type==='S').length,
+    count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='S').length,
     countLabel: 'sales (90d)',
     top3: _govTiles.sells,
     accentColor: '#ff00ff',
@@ -5283,7 +5283,7 @@ function renderAnalysisDashboard() {
     icon: '🏛',
     name: 'Top Gov New Positions',
     desc: 'Congressional members opening brand-new positions — first recorded purchase of a ticker in our DB. High conviction signal.',
-    count: Object.values((_analysisGovData||[]).reduce((acc,g)=>{const k=g.insider+'|'+g.ticker;if(!acc[k])acc[k]=[];acc[k].push(g);return acc;},{}) ).filter(arr=>arr.length===1&&arr[0].transaction_type==='P').length,
+    count: Object.values((_analysisGovData||[]).reduce((acc,g)=>{const k=g.insider+'|'+g.ticker;if(!acc[k])acc[k]=[];acc[k].push(g);return acc;},{}) ).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').length,
     countLabel: 'new positions (90d)',
     top3: _govTiles.newPos,
     accentColor: '#00d4ff',
@@ -5500,19 +5500,19 @@ function renderGovTileSubpage(id) {
   let title, subtitle, icon, trades;
   if (id === 'govbuys') {
     title = 'TOP GOV OFFICIAL BUYS'; icon = '🏛'; subtitle = 'Congressional purchases · Last 30 days · Sorted by est. amount';
-    trades = [...govData.filter(g=>g.transaction_type==='P')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
+    trades = [...govData.filter(g=>(g.type||g.transaction_type)==='P')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   } else if (id === 'govsells') {
     title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 30 days · Sorted by est. amount';
-    trades = [...govData.filter(g=>g.transaction_type==='S')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
+    trades = [...govData.filter(g=>(g.type||g.transaction_type)==='S')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   } else {
     title = 'GOV NEW POSITIONS'; icon = '🏛'; subtitle = 'First recorded purchase by this member · Last 30 days';
     const seen = {};
     govData.forEach(g=>{const k=g.insider+'|'+g.ticker;if(!seen[k])seen[k]=[];seen[k].push(g);});
-    trades = Object.values(seen).filter(arr=>arr.length===1&&arr[0].transaction_type==='P').map(arr=>arr[0]).sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
+    trades = Object.values(seen).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').map(arr=>arr[0]).sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   }
 
   const rows = trades.map(g => {
-    const isBuy = g.transaction_type==='P';
+    const isBuy = (g.type||g.transaction_type)==='P';
     const color = isBuy ? '#00d4ff' : '#ff00ff';
     const bg    = isBuy ? 'rgba(0,212,255,0.08)' : 'rgba(255,0,255,0.08)';
     const border= isBuy ? 'rgba(0,212,255,0.25)' : 'rgba(255,0,255,0.25)';
