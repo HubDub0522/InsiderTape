@@ -2634,7 +2634,7 @@ function runCongressWorker() {
   slog('Running congress-worker (FMP)...');
   const { fork } = require('child_process');
   const cp = fork(require('path').join(__dirname, 'congress-worker.js'), [], {
-    env: { ...process.env },
+    env: { ...process.env, DB_PATH },
     silent: false,
   });
   cp.on('exit', code => slog('congress-worker exited: ' + code));
