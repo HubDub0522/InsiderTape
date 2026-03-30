@@ -4873,7 +4873,8 @@ document.addEventListener('click', e => {
 
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
-let _analysisData = null;     // 30-day trades cache
+let _analysisData = null;     // 30-day trades cache (Form 4 + gov)
+let _analysisGovData = [];    // gov-only ref for gov tiles
 let _analysisDataLong = null; // 3-year trades cache — loaded lazily by subpages that need it
 let _analysisDataLongLoading = false;
 let _analysisDataLongCallbacks = [];
@@ -4920,10 +4921,24 @@ async function loadAnalysisPage(subpage) {
   if (!_analysisData) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
     try {
-      const [raw] = await Promise.all([
+      const [raw, govRaw] = await Promise.all([
         apiFetch('/api/screener?days=30'),
+        apiFetch('/api/gov-recent?days=30').catch(()=>[]),
       ]);
-      _analysisData = Array.isArray(raw) ? raw : (raw.trades || []);
+      const form4 = Array.isArray(raw) ? raw : (raw.trades || []);
+      // Normalize gov trades to same shape as Form 4 for signal detection
+      const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
+        _isGov: true,
+        ticker: g.ticker, company: g.company || g.ticker,
+        insider: g.member, title: 'Gov Official',
+        type: g.transaction_type,
+        trade: g.transaction_date, filing: g.disclosure_date || g.transaction_date,
+        value: parseAmountRange(g.amount_range),
+        qty: 0, price: 0, owned: 0, accession: '',
+        amount_range: g.amount_range, chamber: g.chamber,
+      })) : [];
+      _analysisData = [...form4, ...govNorm];
+      _analysisGovData = govNorm; // keep gov-only ref for new tiles
     } catch(e) { _analysisData = []; }
   }
 
@@ -5053,6 +5068,40 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 
 
 
+
+
+// ── GOV OFFICIAL ANALYSIS TILES ──────────────────────────────────────────────
+function buildGovTiles(govData) {
+  if (!govData || !govData.length) return { buys:[], sells:[], newPos:[] };
+  const AMOUNT_MID = {'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+  const val = g => parseAmountRange(g.amount_range);
+
+  // Top Gov Buys: purchases sorted by estimated amount
+  const buys = [...govData.filter(g => g.transaction_type==='P')]
+    .sort((a,b) => val(b)-val(a)).slice(0,3)
+    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${g.member} · ${g.transaction_date}`, color:'#00d4ff' }));
+
+  // Top Gov Sells
+  const sells = [...govData.filter(g => g.transaction_type==='S')]
+    .sort((a,b) => val(b)-val(a)).slice(0,3)
+    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${g.member} · ${g.transaction_date}`, color:'#ff00ff' }));
+
+  // New Positions: first time a member traded this ticker in our DB
+  // Proxy: tickers where that member only appears once total
+  const memberTickers = {};
+  govData.forEach(g => {
+    const key = g.member+'|'+g.ticker;
+    if (!memberTickers[key]) memberTickers[key] = [];
+    memberTickers[key].push(g);
+  });
+  const newPos = Object.values(memberTickers)
+    .filter(arr => arr.length === 1 && arr[0].transaction_type==='P')
+    .map(arr => arr[0])
+    .sort((a,b) => val(b)-val(a)).slice(0,3)
+    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${g.member} · ${g.transaction_date}`, color:'#00d4ff' }));
+
+  return { buys, sells, newPos };
+}
 
 function renderAnalysisDashboard() {
   window.scrollTo(0, 0);
@@ -5194,6 +5243,45 @@ function renderAnalysisDashboard() {
     },
   ];
 
+  // Gov Official tiles (from _analysisGovData)
+  const _govTiles = buildGovTiles(_analysisGovData || []);
+  const govBuysTool = {
+    id: 'govbuys',
+    icon: '🏛',
+    name: 'Top Gov Official Buys',
+    desc: 'Largest congressional purchases in the last 30 days — House and Senate members buying across any ticker.',
+    count: (_analysisGovData||[]).filter(g=>g.transaction_type==='P').length,
+    countLabel: 'purchases tracked',
+    top3: _govTiles.buys,
+    accentColor: '#00d4ff',
+    accentBg: 'rgba(0,212,255,0.06)',
+    accentBorder: 'rgba(0,212,255,0.25)',
+  };
+  const govSellsTool = {
+    id: 'govsells',
+    icon: '🏛',
+    name: 'Top Gov Official Sells',
+    desc: 'Largest congressional sales in the last 30 days — when elected officials exit positions it can precede broader moves.',
+    count: (_analysisGovData||[]).filter(g=>g.transaction_type==='S').length,
+    countLabel: 'sales tracked',
+    top3: _govTiles.sells,
+    accentColor: '#ff00ff',
+    accentBg: 'rgba(255,0,255,0.06)',
+    accentBorder: 'rgba(255,0,255,0.25)',
+  };
+  const govNewPosTool = {
+    id: 'govnewpos',
+    icon: '🏛',
+    name: 'Top Gov New Positions',
+    desc: 'Congressional members opening brand-new positions — first recorded purchase of a ticker in our DB. High conviction signal.',
+    count: Object.values((_analysisGovData||[]).reduce((acc,g)=>{const k=g.insider+'|'+g.ticker;if(!acc[k])acc[k]=[];acc[k].push(g);return acc;},{}) ).filter(arr=>arr.length===1&&arr[0].transaction_type==='P').length,
+    countLabel: 'new positions',
+    top3: _govTiles.newPos,
+    accentColor: '#00d4ff',
+    accentBg: 'rgba(0,212,255,0.06)',
+    accentBorder: 'rgba(0,212,255,0.25)',
+  };
+
   // Event Proximity (uses cached results)
   const proxTop3 = (_proximityCache || []).slice(0, 3);
   const proximityTool = {
@@ -5262,7 +5350,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool, govBuysTool, govSellsTool, govNewPosTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5386,7 +5474,64 @@ function renderAnalysisSubpage(id) {
     renderFirstBuySubpage();
   }
 
+  else if (id === 'govbuys' || id === 'govsells' || id === 'govnewpos') {
+    renderGovTileSubpage(id);
+  }
 
+}
+
+
+function renderGovTileSubpage(id) {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('analysisViewBody');
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:'Space Mono',monospace">← ANALYSIS</button>`;
+  const govData = _analysisGovData || [];
+  const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+
+  let title, subtitle, icon, trades;
+  if (id === 'govbuys') {
+    title = 'TOP GOV OFFICIAL BUYS'; icon = '🏛'; subtitle = 'Congressional purchases · Last 30 days · Sorted by est. amount';
+    trades = [...govData.filter(g=>g.transaction_type==='P')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
+  } else if (id === 'govsells') {
+    title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 30 days · Sorted by est. amount';
+    trades = [...govData.filter(g=>g.transaction_type==='S')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
+  } else {
+    title = 'GOV NEW POSITIONS'; icon = '🏛'; subtitle = 'First recorded purchase by this member · Last 30 days';
+    const seen = {};
+    govData.forEach(g=>{const k=g.insider+'|'+g.ticker;if(!seen[k])seen[k]=[];seen[k].push(g);});
+    trades = Object.values(seen).filter(arr=>arr.length===1&&arr[0].transaction_type==='P').map(arr=>arr[0]).sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
+  }
+
+  const rows = trades.map(g => {
+    const isBuy = g.transaction_type==='P';
+    const color = isBuy ? '#00d4ff' : '#ff00ff';
+    const bg    = isBuy ? 'rgba(0,212,255,0.08)' : 'rgba(255,0,255,0.08)';
+    const border= isBuy ? 'rgba(0,212,255,0.25)' : 'rgba(255,0,255,0.25)';
+    return `<div onclick="openTickerFromScreener('${g.ticker}')" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:14px;transition:border-color .15s" onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="min-width:60px">
+        <div style="font-family:Bebas Neue,sans-serif;font-size:20px;letter-spacing:1px;color:var(--accent)">${g.ticker}</div>
+        <div style="font-size:9px;color:var(--muted)">${fmtDate(g.transaction_date)}</div>
+      </div>
+      <div style="flex:1">
+        <div class="gov-profile-link" data-member="${escName(g.insider||'')}" style="font-size:13px;color:var(--text);cursor:pointer;font-weight:500">${g.insider||'—'}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${g.chamber==='H'?'U.S. House':'U.S. Senate'}${g.owner&&g.owner!=='Self'?' · '+g.owner:''}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:Space Mono,monospace;font-size:14px;font-weight:700;color:${color}">${fmtAmountRange(g.amount_range)}</div>
+        <div style="margin-top:4px"><span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:9px;font-weight:700;font-family:Space Mono,monospace;background:${bg};color:${color};border:1px solid ${border}">${isBuy?'GOV BUY':'GOV SALE'}</span></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:24px 20px">
+    ${backBtn}
+    <div style="margin-bottom:20px">
+      <div style="font-family:Bebas Neue,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${icon} ${title}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${subtitle}</div>
+    </div>
+    ${trades.length ? `<div style="display:flex;flex-direction:column;gap:8px">${rows}</div>`
+      : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No gov trades found in the last 30 days.</div>`}
+  </div>`;
 }
 
 function renderRegimeShiftSubpage() {
@@ -6022,6 +6167,8 @@ async function renderExitWarningSubpage() {
 }
 
 function detectExitWarnings(trades, priceHighs={}) {
+  // Include gov sells as strong exit signals (senators/house members selling = institutional signal)
+  // Gov sells are already in trades array as _isGov trades
   if (!trades || !trades.length) return [];
 
   const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && (t.trade || t.filing));
@@ -6069,6 +6216,16 @@ function detectExitWarnings(trades, priceHighs={}) {
     else if (execSellers.length === 1) {
       const title = tickerSells.find(t => t.insider === execSellers[0])?.title || 'Executive';
       score += 8; signals.push(`${title} among sellers`);
+    }
+
+    // ── GOV OFFICIAL SELLING BONUS ─────────────────────────────
+    const govSellers = tickerSells.filter(t => t._isGov);
+    if (govSellers.length > 0) {
+      const govSellerNames = [...new Set(govSellers.map(t => t.insider))];
+      const govSellVal = govSellers.reduce((s,t) => s + (t.value||0), 0);
+      score += Math.min(18, govSellerNames.length * 7);
+      signals.push(`${govSellerNames.length} gov official${govSellerNames.length>1?'s':''} selling alongside insiders`);
+      if (govSellVal >= 100000) { score += 5; signals.push(`Gov selling commitment ${fmt(govSellVal)}+`); }
     }
 
     // ── FACTOR 3: Sell/buy ratio imbalance — sells overwhelm buys (up to 20pts) ──
@@ -6584,6 +6741,16 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
 
   if (execCount >= 2) { score += 10; signals.push(`${execCount} C-suite / senior execs involved`); }
   else if (execCount === 1) { score += 5; signals.push(`${clusterBuys.find(t=>highSigRoles.some(r=>(t.title||'').toUpperCase().includes(r)))?.title||'Executive'} among buyers`); }
+
+  // ── GOV OFFICIAL BONUS ────────────────────────────────────────
+  const govBuyers = clusterBuys.filter(t => t._isGov);
+  if (govBuyers.length > 0) {
+    const govNames = [...new Set(govBuyers.map(t => t.insider))];
+    const govVal = govBuyers.reduce((s,t) => s + (t.value||0), 0);
+    score += Math.min(20, govNames.length * 8);
+    signals.push(`${govNames.length} gov official${govNames.length>1?'s':''} buying alongside insiders`);
+    if (govVal >= 100000) { score += 5; signals.push(`Gov commitment ${fmt(govVal)}+`); }
+  }
 
   // ── STOCK PLAN / ESPP DETECTION ──────────────────────────────
   // If 5+ insiders buy the EXACT same price on the same date, it's almost certainly
