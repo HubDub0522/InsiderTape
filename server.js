@@ -2627,7 +2627,27 @@ app.get('/api/scoreboard', (req, res) => {
 runDaily(3);
 
 // ── Congressional trades (STOCK Act PTRs) ────────────────────────────────────
-// Congress worker disabled — re-enable when FMP data source is configured
+// Congress worker — fetches House + Senate trades from FMP API
+// Runs 90s after boot, then daily at 8am ET
+function runCongressWorker() {
+  if (!process.env.FMP_API_KEY) return;
+  slog('Running congress-worker (FMP)...');
+  const { fork } = require('child_process');
+  const cp = fork(require('path').join(__dirname, 'congress-worker.js'), [], {
+    env: { ...process.env },
+    silent: false,
+  });
+  cp.on('exit', code => slog('congress-worker exited: ' + code));
+}
+
+setTimeout(runCongressWorker, 90000);
+
+// Daily at 8:05am ET
+setInterval(() => {
+  const etHour = (new Date().getUTCHours() - 4 + 24) % 24;
+  const etMin  = new Date().getUTCMinutes();
+  if (etHour === 8 && etMin >= 5 && etMin < 15) runCongressWorker();
+}, 10 * 60 * 1000);
 
 
 
