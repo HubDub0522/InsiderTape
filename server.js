@@ -2573,6 +2573,30 @@ app.get('/api/scoreboard', (req, res) => {
 // Start daily ingestion immediately on boot (handles market-hours check internally)
 runDaily(3);
 
+// ── Congressional trades (STOCK Act PTRs) ────────────────────────────────────
+// Runs once at startup (offset 90s) then daily at 8am ET.
+// Fetches directly from disclosures-clerk.house.gov + efts.senate.gov.
+// Lightweight: 1 XML index fetch + ~5-20 PDF fetches per day.
+function runCongressWorker() {
+  if (process.env.SKIP_CONGRESS === '1') return;
+  slog('Running congress-worker...');
+  const { fork } = require('child_process');
+  const cp = fork(require('path').join(__dirname, 'congress-worker.js'), [], {
+    env: { ...process.env },
+    silent: false,
+  });
+  cp.on('exit', code => slog(`congress-worker exited: ${code}`));
+}
+
+setTimeout(runCongressWorker, 90000); // 90s after boot
+
+// Schedule daily at 8:05am ET (after markets open and new filings appear)
+setInterval(() => {
+  const etHour = (new Date().getUTCHours() - 4 + 24) % 24;
+  const etMin  = new Date().getUTCMinutes();
+  if (etHour === 8 && etMin >= 5 && etMin < 15) runCongressWorker();
+}, 10 * 60 * 1000); // check every 10 min
+
 
 
 // Pre-prepared statements for hot paths
