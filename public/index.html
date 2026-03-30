@@ -2927,7 +2927,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
     const bv=bys.reduce((s,t)=>s+(t.value||0),0),sv=sls.reduce((s,t)=>s+(t.value||0),0),net=bv-sv;
     const netColor=net>=0?'var(--buy)':'var(--sell)';
     const ins=[...new Set(dayTrades.map(t=>t.insider).filter(Boolean))];
-    pTooltip.innerHTML=`<div style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">${dateStr}</div>${bys.length?`<div style="color:var(--buy)">▲ BUY ${bys.length} insider${bys.length>1?'s':''} · ${fmt(bv)}</div>`:''}${sls.length?`<div style="color:var(--sell)">▼ SELL ${sls.length} insider${sls.length>1?'s':''} · ${fmt(sv)}</div>`:''}<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d"><span style="color:var(--muted);font-size:10px">NET </span><span style="color:${netColor}">${net>=0?'+':''}${fmt(net)}</span></div><div style="margin-top:4px;font-size:10px;color:var(--muted)">${ins.slice(0,3).join(', ')}${ins.length>3?' +'+(ins.length-3)+' more':''}</div>`;
+    pTooltip.innerHTML='<div style="font-family:\'Space Mono\',monospace;font-size:10px;color:var(--muted);margin-bottom:6px">'+dateStr+'</div>'+(bys.length?'<div style="color:var(--buy)">▲ BUY '+bys.length+' insider'+(bys.length>1?'s':'')+' · '+fmt(bv)+'</div>':'')+(sls.length?'<div style="color:var(--sell)">▼ SELL '+sls.length+' insider'+(sls.length>1?'s':'')+' · '+fmt(sv)+'</div>':'')+'<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d"><span style="color:var(--muted);font-size:10px">NET </span><span style="color:'+netColor+'">'+(net>=0?'+':'')+fmt(net)+'</span></div><div style="margin-top:4px;font-size:10px;color:var(--muted)">'+ins.slice(0,3).join(', ')+(ins.length>3?' +'+(ins.length-3)+' more':'')+'</div>';
     pTooltip.style.display='block';
     const tx=e.clientX+16,ty=e.clientY-10;
     pTooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; pTooltip.style.top=ty+'px';
@@ -3243,13 +3243,11 @@ function renderInsiderActivityAnalysis(ticker, trades, priceData) {
     sentences.push('This insider group has ' + allTimebuys + ' total buy transactions on record — a deep history of accumulation in ' + ticker + '.');
   }
 
-  el.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:2px">
-      <div style="font-family:'Space Mono',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">INSIDER ACTIVITY SUMMARY</div>
-      <div style="font-size:12px;color:var(--muted);line-height:1.8">
-        ${sentences.map(s => `<p style="margin:0 0 6px 0">${s}</p>`).join('')}
-      </div>
-    </div>`;
+  el.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-top:2px">'
+    + '<div style="font-family:\'Space Mono\',monospace;font-size:9px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px">INSIDER ACTIVITY SUMMARY</div>'
+    + '<div style="font-size:12px;color:var(--muted);line-height:1.8">'
+    + sentences.map(s => '<p style="margin:0 0 6px 0">' + s + '</p>').join('')
+    + '</div></div>';
 }
 
 function renderTradeMarkerList(trades) {
