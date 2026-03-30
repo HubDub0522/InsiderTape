@@ -1282,6 +1282,43 @@ app.get('/api/gov', (req, res) => {
   }
 });
 
+// Gov trades for screener — all tickers within N days
+app.get('/api/gov-recent', (req, res) => {
+  const days = Math.min(parseInt(req.query.days || '7'), 365);
+  try {
+    const rows = db.prepare(`
+      SELECT member, chamber, ticker, transaction_type, transaction_date,
+             disclosure_date, amount_range, owner, filing_url,
+             MAX(company) AS company
+      FROM gov_trades
+      LEFT JOIN (SELECT DISTINCT ticker AS ct, MAX(company) AS company FROM trades GROUP BY ticker) ON ct = gov_trades.ticker
+      WHERE gov_trades.transaction_date >= date('now', '-' || ? || ' days')
+        AND gov_trades.transaction_type IN ('P','S')
+        AND gov_trades.ticker GLOB '[A-Z]*' AND LENGTH(gov_trades.ticker) BETWEEN 1 AND 6
+      GROUP BY gov_trades.id
+      ORDER BY gov_trades.transaction_date DESC
+      LIMIT 2000
+    `).all(days);
+    res.json(rows);
+  } catch(e) {
+    slog('gov-recent error: ' + e.message);
+    // Fallback without company join
+    try {
+      const rows2 = db.prepare(`
+        SELECT member, chamber, ticker, transaction_type, transaction_date,
+               disclosure_date, amount_range, owner, filing_url, '' AS company
+        FROM gov_trades
+        WHERE transaction_date >= date('now', '-' || ? || ' days')
+          AND transaction_type IN ('P','S')
+          AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        ORDER BY transaction_date DESC
+        LIMIT 2000
+      `).all(days);
+      res.json(rows2);
+    } catch(e2) { res.json([]); }
+  }
+});
+
 // LEADERBOARD — top insiders by open-market buy activity (enough history to score)
 // ── SECTORS ─────────────────────────────────────────────────────────────────
 // Static sector/industry map. Zero external calls — instant lookups.
