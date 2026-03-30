@@ -2468,7 +2468,7 @@ async function loadStockView(ticker, opts={}) {
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    await buildChart(priceData, insiderData);
+    await buildChart(priceData, insiderData, state.govData || []);
 
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
@@ -2513,7 +2513,7 @@ async function loadStockView(ticker, opts={}) {
 function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
 const CHART_H = getChartH();
 let _chartType = 'candle'; // 'candle' | 'line'
-async function buildChart(priceData, trades) {
+async function buildChart(priceData, trades, govData=[]) {
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
     const cb = () => buildChart(priceData, trades);
@@ -2616,7 +2616,7 @@ async function buildChart(priceData, trades) {
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
 
-  buildCircleOverlay(container,chart,mainSeries,trades,cleanData);
+  buildCircleOverlay(container,chart,mainSeries,trades,cleanData,govData);
 
   // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
@@ -2634,7 +2634,7 @@ async function buildChart(priceData, trades) {
       try { chart.timeScale().fitContent(); } catch(e) {}
     }
     // Pressure chart after another rAF
-    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData));
+    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData,govData));
   });
 
   // Initialise stat bar to match the active 1Y range button
@@ -2666,7 +2666,7 @@ function setChartType(type) {
   }
 }
 
-function buildCircleOverlay(container,chart,series,trades,priceData) {
+function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
   canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
@@ -2742,6 +2742,62 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       state._circles.push({x:ts,y:yCoord,r,group:g});
     });
 
+    // ── Congressional trade diamonds ──────────────────────────────────────────
+    // Group by trade date + type, size by amount_range midpoint
+    state._govDiamonds = state._govDiamonds || [];
+    state._govDiamonds = [];
+    if (govData && govData.length) {
+      const AMOUNT_MID = {
+        '$1,001 - $15,000': 8000, '$1,001-$15,000': 8000,
+        '$15,001 - $50,000': 32500, '$15,001-$50,000': 32500,
+        '$50,001 - $100,000': 75000, '$50,001-$100,000': 75000,
+        '$100,001 - $250,000': 175000, '$100,001-$250,000': 175000,
+        '$250,001 - $500,000': 375000, '$250,001-$500,000': 375000,
+        '$500,001 - $1,000,000': 750000, '$500,001-$1,000,000': 750000,
+        '$1,000,001 - $5,000,000': 3000000, '$1,000,001-$5,000,000': 3000000,
+        '$5,000,001 - $25,000,000': 15000000,
+      };
+      function amtMid(range) {
+        if (!range) return 25000;
+        const key = Object.keys(AMOUNT_MID).find(k => range.replace(/\s/g,'').includes(k.replace(/\s/g,'')));
+        if (key) return AMOUNT_MID[key];
+        const nums = range.match(/[\d,]+/g);
+        if (nums && nums.length >= 2) return (parseInt(nums[0].replace(/,/g,'')) + parseInt(nums[1].replace(/,/g,'')))/2;
+        return 25000;
+      }
+
+      // Group gov trades by date+type
+      const govGroups = {};
+      govData.forEach(g => {
+        const d = nearestTradingDay((g.transaction_date||'').slice(0,10));
+        if (!d) return;
+        const k = d + '|' + g.transaction_type;
+        if (!govGroups[k]) govGroups[k] = { date:d, type:g.transaction_type, trades:[], totalMid:0 };
+        govGroups[k].trades.push(g);
+        govGroups[k].totalMid += amtMid(g.amount_range);
+      });
+
+      const govArr = Object.values(govGroups);
+      const maxGovVal = Math.max(...govArr.map(g => g.totalMid), 1);
+
+      govArr.forEach(g => {
+        const ts = chart.timeScale().timeToCoordinate(g.date);
+        if (ts === null || ts === undefined) return;
+        const pd = priceMap[g.date]; if (!pd) return;
+        const isBuy = g.type === 'P';
+        const refPrice = isBuy ? (pd.low||pd.close)*0.982 : (pd.high||pd.close)*1.018;
+        const yCoord = series.priceToCoordinate(refPrice);
+        if (yCoord === null || yCoord === undefined) return;
+
+        const ratio = g.totalMid / maxGovVal;
+        const size  = Math.max(5, Math.min(16, 5 + ratio * 11));
+        const color = isBuy ? '#00d4ff' : '#ff00ff';
+        const fill  = isBuy ? 'rgba(0,212,255,'+(0.1+ratio*0.2).toFixed(2)+')' : 'rgba(255,0,255,'+(0.1+ratio*0.2).toFixed(2)+')';
+        drawDiamond(ctx, ts, yCoord, size, fill, color);
+        state._govDiamonds.push({ x:ts, y:yCoord, r:size+2, group:g });
+      });
+    }
+
   }  // end drawCircles
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
@@ -2751,7 +2807,22 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
   canvas.addEventListener('mousemove',e=>{
     const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left,my=e.clientY-rect.top;
 
-    
+    // Check gov diamonds first
+    let govHit=null;
+    for(const d of(state._govDiamonds||[])){if(Math.hypot(mx-d.x,my-d.y)<=d.r+4){govHit=d;break;}}
+    if(govHit){
+      canvas.style.cursor='crosshair';
+      const g=govHit.group; const isBuy=g.type==='P';
+      const color=isBuy?'#00d4ff':'#ff00ff';
+      const label=isBuy?'▲ GOV BUY':'▼ GOV SELL';
+      const names=g.trades.slice(0,4).map(t=>`<div style="padding:2px 0;color:#b0c4d8"><span style="color:#e8f4fd">${t.member}</span><span style="color:#4a6580;font-size:10px"> · ${t.chamber==='S'?'Senate':'House'}</span><span style="color:${color};float:right;margin-left:12px">${t.amount_range||'—'}</span></div>`).join('');
+      tooltip.innerHTML=`<div style="color:${color};font-weight:700;margin-bottom:6px">${label} · ${g.date}</div>${names}${g.trades.length>4?`<div style="color:#4a6580;font-size:10px;margin-top:4px">+${g.trades.length-4} more</div>`:''}`;
+      tooltip.style.display='block';
+      const tx=e.clientX+16,ty=e.clientY-10;
+      tooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; tooltip.style.top=ty+'px';
+      return;
+    }
+
     // Then check circles
     let hit=null;
     for(const c of(state._circles||[])){if(Math.hypot(mx-c.x,my-c.y)<=c.r+4){hit=c;break;}}
@@ -2769,7 +2840,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
   canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 }
 
-function buildPressureChart(mainChart,trades,priceData) {
+function buildPressureChart(mainChart,trades,priceData,govData=[]) {
   // Wipe the wrapper completely on every build — prevents stale canvases and
   // duplicate labels from accumulating across ticker navigations.
   const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
@@ -2864,6 +2935,37 @@ function buildPressureChart(mainChart,trades,priceData) {
   state.drawPressure=null;
   try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir)pChart.timeScale().setVisibleLogicalRange(ir);}catch(e){}
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
+  // ── Gov pressure overlay ────────────────────────────────────────────────────
+  if (govData && govData.length) {
+    const AMOUNT_MID = {'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,
+      '$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,
+      '$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+    function amtMid(range) {
+      if (!range) return 25000;
+      const key = Object.keys(AMOUNT_MID).find(k => (range||'').replace(/\s/g,'').includes(k.replace(/\s/g,'')));
+      return key ? AMOUNT_MID[key] : 25000;
+    }
+    const govByDate = {};
+    govData.forEach(g => {
+      const d = (g.transaction_date||'').slice(0,10); if (!d) return;
+      if (!govByDate[d]) govByDate[d] = { buy:0, sell:0 };
+      const v = amtMid(g.amount_range);
+      if (g.transaction_type === 'P') govByDate[d].buy += v;
+      else if (g.transaction_type === 'S') govByDate[d].sell += v;
+    });
+    const maxGov = Math.max(...Object.values(govByDate).map(d => Math.max(d.buy, d.sell)), 1);
+    const govBarData = allDates.map(date => {
+      const d = govByDate[date]; if (!d) return null;
+      const net = d.buy - d.sell;
+      const v = +(net / maxGov * 55).toFixed(2); // scale to 55% of chart height
+      return { time: date, value: v, color: v >= 0 ? 'rgba(0,212,255,0.5)' : 'rgba(255,0,255,0.5)' };
+    }).filter(Boolean);
+    if (govBarData.length) {
+      const govHist = pChart.addHistogramSeries({ base:0, priceLineVisible:false, lastValueVisible:false });
+      govHist.setData(govBarData);
+    }
+  }
+
   const legend=document.createElement('div');
   legend.style.cssText='position:absolute;top:5px;left:10px;display:flex;align-items:center;gap:12px;pointer-events:none;z-index:2';
   legend.innerHTML=`
@@ -2875,7 +2977,15 @@ function buildPressureChart(mainChart,trades,priceData) {
     <span style="display:flex;align-items:center;gap:4px">
       <span style="width:10px;height:10px;background:rgba(255,68,102,0.7);display:inline-block;border-radius:1px"></span>
       <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">INSIDER SELL</span>
-    </span>`;
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(0,212,255,0.5);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">GOV BUY</span>
+    </span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span style="width:10px;height:10px;background:rgba(255,0,255,0.5);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:'Space Mono',monospace;font-size:8px;color:#4a6580">GOV SELL</span>
+    </span>\`;
   pw.style.position='relative';
   pw.appendChild(legend);
 }
