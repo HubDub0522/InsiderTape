@@ -118,16 +118,23 @@ function extractPdfText(buf) {
       const compressed = buf.slice(dataStart, endIdx);
       let decompressed = null;
       // Try all inflate variants
+      const errors = [];
       for (const fn of [zlib.inflateSync, zlib.inflateRawSync, zlib.unzipSync]) {
-        try { decompressed = fn(compressed).toString('latin1'); break; } catch(_) {}
+        try { decompressed = fn(compressed).toString('latin1'); break; }
+        catch(e) { errors.push(fn.name+':'+e.message.slice(0,30)); }
       }
-      // Retry trimming trailing bytes (some PDFs have padding)
+      // Retry trimming trailing bytes
       if (!decompressed) {
         for (let trim = 1; trim <= 8 && !decompressed; trim++) {
           for (const fn of [zlib.inflateSync, zlib.inflateRawSync]) {
             try { decompressed = fn(compressed.slice(0, compressed.length - trim)).toString('latin1'); break; } catch(_) {}
           }
         }
+      }
+      if (!decompressed && errors.length && text.length === 0) {
+        // Log first stream failure only
+        const firstBytes = compressed.slice(0,8).toString('hex');
+        process.stderr.write('[pdf-dbg] compress firstBytes:'+firstBytes+' size:'+compressed.length+' errors:'+errors.join('|')+'\n');
       }
       if (decompressed) {
         const tjRe = /\(([^)]*)\)\s*Tj/g;
