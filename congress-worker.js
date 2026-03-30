@@ -26,6 +26,7 @@ console.log(`[congress] DB: ${DB_PATH}`);
 let db;
 try { db = new Database(DB_PATH); } catch(e) { console.error(`[congress] DB open failed: ${e.message}`); process.exit(1); }
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 10000');
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 db.exec(`
@@ -61,7 +62,7 @@ function get(url, ms = 60000, hops = 0) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; InsiderTape/1.0)', 'Accept': '*/*' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.5' },
       timeout: ms,
     }, res => {
       if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
@@ -218,10 +219,17 @@ async function fetchYearZip(year) {
   for (const f of newFilings) {
     const pdfUrl = `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/${f.year}/${f.docId}.pdf`;
     try {
-      await sleep(300);
+      await sleep(500); // yield to let server reads through
       const { status, body } = await get(pdfUrl, 20000);
       if (status !== 200) continue;
-      const rows = parseHousePTR(body.toString('utf8'), f.member, f.docId, pdfUrl);
+      const bodyStr = body.toString('utf8');
+      // Detect if we got binary PDF instead of HTML (binary starts with %PDF)
+      if (bodyStr.startsWith('%PDF')) {
+        console.warn(`[congress] ${f.docId}: got binary PDF — skipping (need HTML renderer)`);
+        seenDocs.add(f.docId);
+        continue;
+      }
+      const rows = parseHousePTR(bodyStr, f.member, f.docId, pdfUrl);
       if (rows.length) {
         const n = insertMany(rows);
         if (n) console.log(`[congress] ${f.member} (${f.docId}): ${n} trades`);
