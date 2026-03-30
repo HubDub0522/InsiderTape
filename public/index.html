@@ -2767,26 +2767,21 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         grouped[k].val += AMOUNT_MID[g.amount_range] || 8000;
       });
       Object.values(grouped).forEach(g => {
-        const xCoord = chart.timeScale().timeToCoordinate(g.date);
+        // Use nearestTradingDay + priceMap (.time) same as insider circles
+        const td = nearestTradingDay(g.date);
+        if (!td) return;
+        const xCoord = chart.timeScale().timeToCoordinate(td);
         if (xCoord === null) return;
-        const pricePoint = priceData.find(p => p.date === g.date) || priceData.reduce((a,b) => Math.abs(new Date(b.date)-new Date(g.date)) < Math.abs(new Date(a.date)-new Date(g.date)) ? b : a, priceData[0]);
+        const pricePoint = priceMap[td];
         if (!pricePoint) return;
         const yCoord = series.priceToCoordinate(pricePoint.close);
         if (yCoord === null) return;
         const r = 5 + Math.round((g.val / maxGovVal) * 8);
         const color = g.type === 'P' ? 'rgba(0,212,255,0.85)' : 'rgba(255,0,255,0.85)';
-        const oy = g.type === 'P' ? -(r + 12) : (r + 12);
+        const stroke = g.type === 'P' ? 'rgba(0,212,255,1)' : 'rgba(255,0,255,1)';
+        const oy = g.type === 'P' ? -(r + 14) : (r + 14);
         const cx = xCoord, cy = yCoord + oy;
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - r);
-        ctx.lineTo(cx + r, cy);
-        ctx.lineTo(cx, cy + r);
-        ctx.lineTo(cx - r, cy);
-        ctx.closePath();
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.restore();
+        drawDiamond(ctx, cx, cy, r, color, stroke);
         state._govDiamonds.push({ x:cx, y:cy, r, trades:g.trades, type:g.type, val:g.val, date:g.date });
       });
     }
@@ -2912,20 +2907,33 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
         priceFormat:{type:'price',precision:1,minMove:0.1},
       });
       const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-      const validDates=new Set(allDates);
-      const govByDate={};
+      // Aggregate gov trades by week (same logic as insider pressure bars)
+      const govByWeek={};
       govData.forEach(g=>{
-        const d=g.transaction_date||''; if(!d||!validDates.has(d)) return;
-        if(!govByDate[d]) govByDate[d]=0;
-        govByDate[d]+=(g.transaction_type==='P'?1:-1)*(AMOUNT_MID[g.amount_range]||8000);
+        const d=g.transaction_date||''; if(!d) return;
+        const dt=new Date(d+'T12:00:00Z');
+        const dow=dt.getUTCDay();
+        const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
+        const wk=mon.toISOString().slice(0,10);
+        if(!govByWeek[wk]) govByWeek[wk]=0;
+        govByWeek[wk]+=(g.transaction_type==='P'?1:-1)*(AMOUNT_MID[g.amount_range]||8000);
       });
-      if (Object.keys(govByDate).length) {
-        const govMax=Math.max(...Object.values(govByDate).map(Math.abs),1);
+      if (Object.keys(govByWeek).length) {
+        const govMax=Math.max(...Object.values(govByWeek).map(Math.abs),1);
         const insMax=Math.max(...Object.values(valueByDate).map(Math.abs),1);
         const scale=insMax/govMax*0.6;
+        // Spread weekly value across each trading day in that week (same as insider bars)
+        const govByDate={};
+        allDates.forEach(date=>{
+          const dt=new Date(date+'T12:00:00Z');
+          const dow=dt.getUTCDay();
+          const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
+          const wk=mon.toISOString().slice(0,10);
+          if(govByWeek[wk]!==undefined) govByDate[date]=govByWeek[wk]*scale;
+        });
         govSeries.setData(allDates
-          .filter(t=>govByDate[t]!==undefined)
-          .map(t=>({time:t,value:govByDate[t]*scale,color:govByDate[t]>=0?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)'}))
+          .filter(t=>govByDate[t]!==undefined && govByDate[t]!==0)
+          .map(t=>({time:t,value:govByDate[t],color:govByDate[t]>=0?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)'}))
         );
       }
     }
