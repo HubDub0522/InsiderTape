@@ -4926,7 +4926,6 @@ async function loadAnalysisPage(subpage) {
         apiFetch('/api/gov-recent?days=30').catch(()=>[]),
       ]);
       const form4 = Array.isArray(raw) ? raw : (raw.trades || []);
-      // Normalize gov trades to same shape as Form 4 for signal detection
       const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
         _isGov: true,
         ticker: g.ticker, company: g.company || g.ticker,
@@ -4938,8 +4937,26 @@ async function loadAnalysisPage(subpage) {
         amount_range: g.amount_range, chamber: g.chamber,
       })) : [];
       _analysisData = [...form4, ...govNorm];
-      _analysisGovData = govNorm; // keep gov-only ref for new tiles
+      _analysisGovData = govNorm;
     } catch(e) { _analysisData = []; }
+  } else if (!_analysisGovData.length) {
+    // _analysisData already cached but gov data wasn't fetched yet — fetch separately
+    try {
+      const govRaw = await apiFetch('/api/gov-recent?days=30').catch(()=>[]);
+      const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
+        _isGov: true,
+        ticker: g.ticker, company: g.company || g.ticker,
+        insider: g.member, title: 'Gov Official',
+        type: g.transaction_type,
+        trade: g.transaction_date, filing: g.disclosure_date || g.transaction_date,
+        value: parseAmountRange(g.amount_range),
+        qty: 0, price: 0, owned: 0, accession: '',
+        amount_range: g.amount_range, chamber: g.chamber,
+      })) : [];
+      _analysisGovData = govNorm;
+      // Merge into _analysisData (remove any stale gov entries first)
+      _analysisData = [..._analysisData.filter(t => !t._isGov), ..._analysisGovData];
+    } catch(e) {}
   }
 
   // Pre-fetch drift and proximity in background so tiles are instant when clicked
