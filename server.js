@@ -348,6 +348,29 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_ticker_type ON trades(ticker, type, trade_date DESC)`); // speeds up /api/ticker
+
+  // Gov trades table — also created by congress-worker but must exist here for queries
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gov_trades (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      chamber          TEXT NOT NULL,
+      member           TEXT NOT NULL,
+      ticker           TEXT NOT NULL,
+      transaction_type TEXT NOT NULL,
+      transaction_date TEXT,
+      disclosure_date  TEXT,
+      amount_range     TEXT,
+      owner            TEXT,
+      asset_description TEXT,
+      filing_url       TEXT,
+      doc_id           TEXT,
+      created_at       TEXT DEFAULT (date('now')),
+      UNIQUE(chamber, member, ticker, transaction_type, transaction_date, amount_range)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_ticker_date ON gov_trades(ticker, transaction_date DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_member ON gov_trades(member)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_tx_date ON gov_trades(transaction_date DESC)`);
 } catch(e) { console.warn('Schema init warning:', e.message); }
 
 // ─── AUTH / SUBSCRIPTION TABLES ──────────────────────────────
@@ -1243,6 +1266,17 @@ app.post('/api/gov-import', express.json({ limit: '10mb' }), (req, res) => {
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get('/api/gov-debug', (req, res) => {
+  // Temporary diagnostic — shows what's in gov_trades
+  try {
+    const count = db.prepare('SELECT COUNT(*) as n FROM gov_trades').get();
+    const latest = db.prepare('SELECT transaction_date, disclosure_date, member, ticker, amount_range FROM gov_trades ORDER BY transaction_date DESC LIMIT 5').all();
+    const oldest = db.prepare('SELECT transaction_date FROM gov_trades ORDER BY transaction_date ASC LIMIT 1').get();
+    const byMonth = db.prepare("SELECT substr(transaction_date,1,7) as mo, COUNT(*) as n FROM gov_trades GROUP BY mo ORDER BY mo DESC LIMIT 6").all();
+    res.json({ count: count.n, latest, oldest, byMonth });
+  } catch(e) { res.json({ error: e.message }); }
 });
 
 app.get('/api/gov-member', (req, res) => {
