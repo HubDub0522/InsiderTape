@@ -1284,7 +1284,9 @@ app.get('/api/gov', (req, res) => {
 
 // Gov trades for screener — all tickers within N days
 app.get('/api/gov-recent', (req, res) => {
-  const days = Math.min(parseInt(req.query.days || '7'), 365);
+  const days = Math.min(parseInt(req.query.days || '90'), 365);
+  // Use disclosure_date for recency — that's when the trade became public
+  // transaction_date can be weeks earlier so filtering by it misses recent disclosures
   try {
     const rows = db.prepare(`
       SELECT member, chamber, ticker, transaction_type, transaction_date,
@@ -1302,7 +1304,6 @@ app.get('/api/gov-recent', (req, res) => {
     res.json(rows);
   } catch(e) {
     slog('gov-recent error: ' + e.message);
-    // Fallback without company join
     try {
       const rows2 = db.prepare(`
         SELECT member, chamber, ticker, transaction_type, transaction_date,
