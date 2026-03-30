@@ -2139,7 +2139,13 @@ function renderStockLanding(lists) {
   window.scrollTo(0, 0);
   const content = document.getElementById('stockContent');
   if (!content) return;
+  if (!lists || typeof lists !== 'object') {
+    console.error('renderStockLanding: invalid lists', lists);
+    loadStockLanding();
+    return;
+  }
   const { hotBuys=[], clusterBuys=[], freshBuys=[], heavySells=[], mostActive=[] } = lists;
+  console.log('renderStockLanding: mostActive=' + mostActive.length + ' hotBuys=' + hotBuys.length + ' heavySells=' + heavySells.length);
 
   const sectionStyle = `margin-bottom:32px`;
   const headerStyle  = `display:flex;align-items:baseline;gap:10px;margin-bottom:14px`;
