@@ -325,7 +325,7 @@ try {
 }
 
 try { db.pragma('journal_mode = WAL'); } catch(e) { console.warn('WAL pragma failed (read-only disk?):', e.message); }
-try { db.pragma('busy_timeout = 5000'); } catch(e) {} // wait up to 5s if worker holds write lock
+try { db.pragma('busy_timeout = 15000'); } catch(e) {} // wait up to 15s if congress worker holds write lock
 
 // Each table/index created separately so existing DBs get new tables too
 // All wrapped in try/catch — on Render the persistent disk can be briefly
@@ -1213,6 +1213,38 @@ app.get('/api/ranker', (req, res) => {
 });
 
 // GOV TRADES — congressional trades for a ticker
+// GOV TRADES BULK IMPORT — called by GitHub Actions worker
+// Requires IMPORT_SECRET env var to match X-Import-Token header
+app.post('/api/gov-import', express.json({ limit: '10mb' }), (req, res) => {
+  const token = req.headers['x-import-token'];
+  const secret = process.env.IMPORT_SECRET;
+  if (!secret || token !== secret) return res.status(401).json({ error: 'unauthorized' });
+
+  const rows = req.body;
+  if (!Array.isArray(rows) || !rows.length) return res.json({ inserted: 0 });
+
+  try {
+    const ins = db.prepare(`
+      INSERT OR IGNORE INTO gov_trades
+        (chamber,member,ticker,asset_description,transaction_type,
+         transaction_date,disclosure_date,amount_range,owner,filing_url,doc_id)
+      VALUES
+        (@chamber,@member,@ticker,@asset_description,@transaction_type,
+         @transaction_date,@disclosure_date,@amount_range,@owner,@filing_url,@doc_id)
+    `);
+    const insertMany = db.transaction(rs => {
+      let n = 0;
+      for (const r of rs) n += ins.run(r).changes;
+      return n;
+    });
+    const inserted = insertMany(rows);
+    slog(`gov-import: ${inserted} new trades from ${rows.length} rows`);
+    res.json({ inserted, total: rows.length });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/gov', (req, res) => {
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.json([]);
