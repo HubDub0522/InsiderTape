@@ -4922,52 +4922,33 @@ async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
 
-  // Always refetch gov data on analysis page load (reset to null so fetch runs)
-  _analysisGovData = null;
-
-  // Fetch 30-day data once
-  if (!_analysisData) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
-    try {
-      const [raw, govRaw] = await Promise.all([
-        apiFetch('/api/screener?days=30'),
-        apiFetch('/api/gov-recent?days=90').catch(()=>[]),
-      ]);
-      const form4 = Array.isArray(raw) ? raw : (raw.trades || []);
-      const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
-        _isGov: true,
-        ticker: g.ticker, company: g.company || g.ticker,
-        insider: g.member, title: 'Gov Official',
-        type: g.transaction_type,
-        trade: g.transaction_date, filing: g.disclosure_date || g.transaction_date,
-        value: parseAmountRange(g.amount_range),
-        qty: 0, price: 0, owned: 0, accession: '',
-        amount_range: g.amount_range, chamber: g.chamber,
-      })) : [];
-      _analysisData = [...form4, ...govNorm];
-      _analysisGovData = govNorm;
-    } catch(e) { _analysisData = []; }
-  }
-  // Always fetch gov data if not yet loaded (null = not yet fetched)
-  if (_analysisGovData === null) {
-    _analysisGovData = []; // mark as loading to prevent double-fetch
-    try {
-      const govRaw = await apiFetch('/api/gov-recent?days=90').catch(()=>[]);
-      const govNorm = Array.isArray(govRaw) ? govRaw.map(g => ({
-        _isGov: true,
-        ticker: g.ticker, company: g.company || g.ticker,
-        insider: g.member, title: 'Gov Official',
-        type: g.transaction_type,
-        trade: g.transaction_date, filing: g.disclosure_date || g.transaction_date,
-        value: parseAmountRange(g.amount_range),
-        qty: 0, price: 0, owned: 0, accession: '',
-        amount_range: g.amount_range, chamber: g.chamber,
-      })) : [];
-      _analysisGovData = govNorm;
-      // Merge into _analysisData — remove any stale gov entries then add fresh ones
-      if (_analysisData) _analysisData = [..._analysisData.filter(t => !t._isGov), ..._analysisGovData];
-      console.log('[analysis] gov trades loaded:', _analysisGovData.length);
-    } catch(e) { console.warn('[analysis] gov fetch failed:', e); }
+  // Always fetch fresh gov data + form4 together on every analysis load
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
+  try {
+    const fetchForm4 = _analysisData
+      ? Promise.resolve(_analysisData.filter(t => !t._isGov))
+      : apiFetch('/api/screener?days=30').then(r => Array.isArray(r) ? r : (r.trades||[]));
+    const [form4, govRaw] = await Promise.all([
+      fetchForm4,
+      apiFetch('/api/gov-recent?days=90').catch(()=>[]),
+    ]);
+    const normGov = g => ({
+      _isGov: true,
+      ticker: g.ticker, company: g.company||g.ticker,
+      insider: g.member, title: 'Gov Official',
+      type: g.transaction_type,
+      trade: g.transaction_date, filing: g.transaction_date,
+      value: parseAmountRange(g.amount_range),
+      qty: 0, price: 0, owned: 0, accession: '',
+      amount_range: g.amount_range, chamber: g.chamber,
+    });
+    _analysisGovData = Array.isArray(govRaw) ? govRaw.map(normGov) : [];
+    _analysisData = [...form4, ..._analysisGovData];
+    console.log('[analysis] loaded form4:', form4.length, 'gov:', _analysisGovData.length);
+  } catch(e) {
+    console.error('[analysis] fetch failed:', e);
+    _analysisGovData = _analysisGovData || [];
+    _analysisData = _analysisData || [];
   }
 
   // Pre-fetch drift and proximity in background so tiles are instant when clicked
