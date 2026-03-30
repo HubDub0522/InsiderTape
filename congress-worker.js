@@ -197,7 +197,7 @@ async function fetchHouse() {
   const getTag = (xml, tag) => { const m = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`,'i')); return m ? m[1].trim() : ''; };
   const rowRe  = /<(?:Row|Member)>([\s\S]*?)<\/(?:Row|Member)>/gi;
   const newFilings = [];
-  const PTR_TYPES = new Set(['ptr','periodic transaction report','periodic','p t r']);
+  const PTR_TYPES = new Set(['ptr','periodic transaction report','periodic','p t r','p']);
   let rm;
   while ((rm = rowRe.exec(xmlBody)) !== null) {
     const row = rm[1];
