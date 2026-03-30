@@ -11,6 +11,72 @@ const path     = require('path');
 const fs       = require('fs');
 const Database = require('better-sqlite3');
 
+// ── Lightweight PDF text extractor ───────────────────────────────────────────
+// Extracts readable text from binary PDFs without external libraries.
+// PDFs store page content in FlateDecode (zlib) compressed streams.
+function extractPdfText(buf) {
+  const text = [];
+
+  // Find all compressed stream objects
+  let pos = 0;
+  while (pos < buf.length) {
+    // Look for stream keyword
+    const streamIdx = buf.indexOf('stream', pos);
+    if (streamIdx < 0) break;
+
+    // Check for FlateDecode in the preceding dictionary
+    const dictStart = Math.max(0, streamIdx - 400);
+    const dict = buf.slice(dictStart, streamIdx).toString('latin1');
+    const isFlateDecode = dict.includes('FlateDecode') || dict.includes('Fl ');
+
+    // Skip CR LF or LF after 'stream'
+    let dataStart = streamIdx + 6;
+    if (buf[dataStart] === 13) dataStart++; // CR
+    if (buf[dataStart] === 10) dataStart++; // LF
+
+    // Find 'endstream'
+    const endIdx = buf.indexOf('endstream', dataStart);
+    if (endIdx < 0) { pos = streamIdx + 6; continue; }
+
+    if (isFlateDecode && endIdx > dataStart) {
+      try {
+        const compressed = buf.slice(dataStart, endIdx);
+        const decompressed = zlib.inflateSync(compressed).toString('latin1');
+        // Extract text from PDF operators: (text) Tj, [(text)] TJ
+        const tjRe = /\(([^)]*)\)\s*Tj/g;
+        const TJRe = /\[([^\]]*)\]\s*TJ/g;
+        let m;
+        while ((m = tjRe.exec(decompressed)) !== null) {
+          text.push(decodePdfString(m[1]));
+        }
+        while ((m = TJRe.exec(decompressed)) !== null) {
+          // TJ arrays: [(text) offset (text) ...]
+          const inner = m[1];
+          const strRe = /\(([^)]*)\)/g;
+          let sm;
+          while ((sm = strRe.exec(inner)) !== null) {
+            text.push(decodePdfString(sm[1]));
+          }
+        }
+      } catch(_) {}
+    }
+    pos = endIdx + 9;
+  }
+
+  return text.join(' ').replace(/\s+/g, ' ');
+}
+
+function decodePdfString(s) {
+  // Unescape PDF string escapes
+  return s
+    .replace(/\\n/g, ' ')
+    .replace(/\\r/g, ' ')
+    .replace(/\\t/g, ' ')
+    .replace(/\\\(/g, '(')
+    .replace(/\\\)/g, ')')
+    .replace(/\\\\/g, '\\');
+}
+
 // ── DB ────────────────────────────────────────────────────────────────────────
 const DATA_DIR = (() => {
   const e = process.env.DB_PATH;
@@ -222,12 +288,17 @@ async function fetchYearZip(year) {
       await sleep(500); // yield to let server reads through
       const { status, body } = await get(pdfUrl, 20000);
       if (status !== 200) continue;
-      const bodyStr = body.toString('utf8');
-      // Detect if we got binary PDF instead of HTML (binary starts with %PDF)
-      if (bodyStr.startsWith('%PDF')) {
-        console.warn(`[congress] ${f.docId}: got binary PDF — skipping (need HTML renderer)`);
-        seenDocs.add(f.docId);
-        continue;
+      let bodyStr;
+      if (body[0] === 0x25 && body[1] === 0x50 && body[2] === 0x44 && body[3] === 0x46) {
+        // Binary PDF — extract text from compressed streams
+        bodyStr = extractPdfText(body);
+        if (!bodyStr.trim()) {
+          console.warn(`[congress] ${f.docId}: PDF text extraction failed`);
+          seenDocs.add(f.docId);
+          continue;
+        }
+      } else {
+        bodyStr = body.toString('utf8');
       }
       const rows = parseHousePTR(bodyStr, f.member, f.docId, pdfUrl);
       if (rows.length) {
