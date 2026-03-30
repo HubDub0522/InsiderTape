@@ -2731,7 +2731,16 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     state._circles=[];
 
     // ── Form 4 circles ──────────────────────────────────────────────────────
-    const maxVal=Math.max(...state.markerGroups.map(g=>g.value),1);
+    const AMOUNT_MID_G={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+    const govGroupedVals = govData ? Object.values(
+      govData.reduce((acc,g)=>{
+        const k=(g.transaction_date||'')+'|'+g.transaction_type;
+        if(!acc[k]) acc[k]=0;
+        acc[k]+=AMOUNT_MID_G[g.amount_range]||8000;
+        return acc;
+      },{})
+    ) : [];
+    const maxVal=Math.max(...state.markerGroups.map(g=>g.value),...govGroupedVals,1);
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
@@ -2758,7 +2767,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         '$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,
         '$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000,
       };
-      const maxGovVal = Math.max(...govData.map(g => AMOUNT_MID[g.amount_range]||8000), 1);
+      // maxVal already computed above using unified scale across Form 4 + gov
       const grouped = {};
       govData.forEach(g => {
         const k = (g.transaction_date||'') + '|' + g.transaction_type;
@@ -2776,11 +2785,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         if (!pricePoint) return;
         const yCoord = series.priceToCoordinate(pricePoint.close);
         if (yCoord === null) return;
-        const r = 5 + Math.round((g.val / maxGovVal) * 8);
-        const color = g.type === 'P' ? 'rgba(0,212,255,0.85)' : 'rgba(255,0,255,0.85)';
-        const stroke = g.type === 'P' ? 'rgba(0,212,255,1)' : 'rgba(255,0,255,1)';
+        const _mob=window.innerWidth<=640;
+        const rMin=_mob?5:6, rMax=_mob?22:30;
+        const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, g.val) / maxVal);
+        const baseColor = g.type === 'P' ? 'rgba(0,212,255,' : 'rgba(255,0,255,';
+        // Match Form 4 circle transparency: glow ring + 0.20 fill + 0.85 stroke
+        ctx.beginPath(); ctx.arc(xCoord,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=baseColor+'0.08)'; ctx.fill();
         const cx = xCoord, cy = yCoord;
-        drawDiamond(ctx, cx, cy, r, color, stroke);
+        drawDiamond(ctx, cx, cy, r, baseColor+'0.20)', baseColor+'0.85)');
         state._govDiamonds.push({ x:cx, y:cy, r, trades:g.trades, type:g.type, val:g.val, date:g.date });
       });
     }
