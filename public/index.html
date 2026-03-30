@@ -2766,12 +2766,6 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         grouped[k].trades.push(g.member);
         grouped[k].val += AMOUNT_MID[g.amount_range] || 8000;
       });
-      // Canvas rect relative to chart container — needed to offset y correctly
-      const canvasRect = ctx.canvas.getBoundingClientRect();
-      const chartPane = container.querySelector('td:first-child div') || container;
-      const chartRect = chartPane.getBoundingClientRect();
-      const canvasOffsetY = canvasRect.top - chartRect.top;
-
       Object.values(grouped).forEach(g => {
         const xCoord = chart.timeScale().timeToCoordinate(g.date);
         if (xCoord === null) return;
@@ -2782,7 +2776,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         const r = 5 + Math.round((g.val / maxGovVal) * 8);
         const color = g.type === 'P' ? 'rgba(0,212,255,0.85)' : 'rgba(255,0,255,0.85)';
         const oy = g.type === 'P' ? -(r + 12) : (r + 12);
-        const cx = xCoord, cy = (yCoord - canvasOffsetY) + oy;
+        const cx = xCoord, cy = yCoord + oy;
         ctx.save();
         ctx.beginPath();
         ctx.moveTo(cx, cy - r);
@@ -2911,26 +2905,31 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
 
 
   // ── Gov overlay bars ─────────────────────────────────────────────────────────
-  if (govData && govData.length) {
-    const govSeries=pChart.addHistogramSeries({
-      base:0,priceLineVisible:false,lastValueVisible:false,
-      priceFormat:{type:'price',precision:1,minMove:0.1},
-    });
-    const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-    const govByDate={};
-    govData.forEach(g=>{
-      const d=g.transaction_date||''; if(!d) return;
-      if(!govByDate[d]) govByDate[d]=0;
-      govByDate[d]+=(g.transaction_type==='P'?1:-1)*(AMOUNT_MID[g.amount_range]||8000);
-    });
-    const govMax=Math.max(...Object.values(govByDate).map(Math.abs),1);
-    const insMax=Math.max(...Object.values(valueByDate).map(Math.abs),1);
-    const scale=insMax/govMax*0.6;
-    govSeries.setData(Object.entries(govByDate).map(([t,v])=>({
-      time:t, value:v*scale,
-      color:v>=0?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)'
-    })));
-  }
+  try {
+    if (govData && govData.length) {
+      const govSeries=pChart.addHistogramSeries({
+        base:0,priceLineVisible:false,lastValueVisible:false,
+        priceFormat:{type:'price',precision:1,minMove:0.1},
+      });
+      const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+      const validDates=new Set(allDates);
+      const govByDate={};
+      govData.forEach(g=>{
+        const d=g.transaction_date||''; if(!d||!validDates.has(d)) return;
+        if(!govByDate[d]) govByDate[d]=0;
+        govByDate[d]+=(g.transaction_type==='P'?1:-1)*(AMOUNT_MID[g.amount_range]||8000);
+      });
+      if (Object.keys(govByDate).length) {
+        const govMax=Math.max(...Object.values(govByDate).map(Math.abs),1);
+        const insMax=Math.max(...Object.values(valueByDate).map(Math.abs),1);
+        const scale=insMax/govMax*0.6;
+        govSeries.setData(allDates
+          .filter(t=>govByDate[t]!==undefined)
+          .map(t=>({time:t,value:govByDate[t]*scale,color:govByDate[t]>=0?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)'}))
+        );
+      }
+    }
+  } catch(e) { console.warn('gov overlay:', e.message); }
 
   const byDayTrades={};
   trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
