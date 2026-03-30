@@ -48,11 +48,20 @@ db.exec(`
     UNIQUE(chamber, doc_id, ticker, transaction_date, transaction_type)
   )
 `);
+// Migrate: add doc_id column if old table exists without it
+try {
+  const cols = db.prepare("PRAGMA table_info(gov_trades)").all().map(c => c.name);
+  if (!cols.includes('doc_id')) {
+    db.exec("ALTER TABLE gov_trades ADD COLUMN doc_id TEXT");
+    console.log('[congress] Migrated: added doc_id column');
+  }
+} catch(e) { console.warn('[congress] Migration check failed:', e.message); }
+
 db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_ticker  ON gov_trades(ticker)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_member  ON gov_trades(member)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_td      ON gov_trades(transaction_date DESC)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_chamber ON gov_trades(chamber)`);
-db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_docid   ON gov_trades(doc_id)`);
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_gov_docid ON gov_trades(doc_id)`); } catch(_) {}
 
 // Track which doc IDs we've already processed
 const seenDocs = new Set(
