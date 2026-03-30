@@ -854,7 +854,7 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="Gov"  onclick="toggleRole(this)" style="color:#00d4ff">Gov Official</div>
+          <div class="chip" data-role="Gov"  onclick="toggleRole(this)">Gov Official</div>
         </div>
       </div>
       <div class="filter-section">
@@ -1654,7 +1654,7 @@ function renderScreener() {
   const tbody = document.getElementById('screenerBody');
   if (!page.length) { tbody.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
   const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);
-  tbody.innerHTML = page.map(t => {
+  try { tbody.innerHTML = page.map(t => {
     if (t._isGov) {
       // Gov official row
       const isBuy = t.type === 'P';
@@ -1704,7 +1704,7 @@ function renderScreener() {
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Space Mono,monospace">${fmt(t.value)}</td>
       <td class="hide-mobile" style="font-family:Space Mono,monospace;color:var(--muted)">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</td>
     </tr>`;
-  }).join('');
+  }).join(''); } catch(e) { console.error('Screener render error:', e); }
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
   const cur = state.currentPage;
