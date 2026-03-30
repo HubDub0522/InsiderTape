@@ -255,7 +255,7 @@ const insertMany = db.transaction(rows => {
 async function fetchHouse() {
   const year = new Date().getFullYear();
   // House publishes a ZIP file containing an XML index of all filings
-  const zipUrl = `https://disclosures-clerk.house.gov/public_disc/financial-disclosure-pdfs/${year}FD.zip`;
+  const zipUrl = `https://disclosures-clerk.house.gov/public_disc/financial-pdfs/${year}FD.ZIP`;
   console.log(`[congress] House: fetching ZIP index for ${year}...`);
 
   let xmlBody;
@@ -346,20 +346,20 @@ async function fetchHouse() {
 
 // ── SENATE: use efts.senate.gov search for recent PTRs ───────────────────────
 async function fetchSenate() {
-  // The Senate eFD search returns JSON of recent PTR filings
+  // Senate PTRs — efts.senate.gov may be network-blocked on some hosts
+  // Try the endpoint; skip gracefully if unreachable
   const today = new Date().toISOString().slice(0,10);
-  const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0,10); // last 60 days
-  // Senate eFD search endpoint — returns JSON list of PTR filings
+  const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0,10);
   const searchUrl = `https://efts.senate.gov/LATEST/search-index?q=%22Periodic+Transaction+Report%22&dateRange=custom&fromDate=${cutoff}&toDate=${today}&resultsPerPage=100`;
 
-  console.log(`[congress] Senate: fetching recent PTRs...`);
+  console.log('[congress] Senate: fetching recent PTRs...');
   let data;
   try {
-    const { status, body } = await get(searchUrl, 30000);
+    const { status, body } = await get(searchUrl, 20000);
     if (status !== 200) throw new Error(`Senate search returned HTTP ${status}`);
     data = JSON.parse(body);
   } catch(e) {
-    console.warn(`[congress] Senate search failed: ${e.message}`);
+    console.warn(`[congress] Senate skipped: ${e.message}`);
     return 0;
   }
 
@@ -373,8 +373,8 @@ async function fetchSenate() {
     if (!docId || seenDocs.has(docId)) continue;
 
     const member = `${src.first_name||''} ${src.last_name||''}`.trim() || 'Unknown';
-    // Senate PTR PDFs are at efts.senate.gov
-    const pdfUrl = src.url || src.link || `https://efts.senate.gov/LATEST/search-index?id=${docId}`;
+    const pdfUrl = src.url || src.link || '';
+    if (!pdfUrl) continue;
 
     try {
       await sleep(500);
@@ -395,21 +395,3 @@ async function fetchSenate() {
 
   return totalInserted;
 }
-
-// ── Main ──────────────────────────────────────────────────────────────────────
-(async () => {
-  try {
-    const [houseN, senateN] = await Promise.allSettled([
-      fetchHouse(),
-      fetchSenate(),
-    ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : 0));
-
-    const total = (houseN || 0) + (senateN || 0);
-    console.log(`[congress] Done. House: ${houseN} | Senate: ${senateN} | Total new: ${total}`);
-    db.close();
-    process.exit(0);
-  } catch(e) {
-    console.error('[congress] FATAL:', e.message);
-    process.exit(1);
-  }
-})();
