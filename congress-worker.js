@@ -190,19 +190,27 @@ async function fetchHouse() {
     return 0;
   }
 
-  // Parse XML rows — find PTR filings not yet processed
-  const rowRe  = /<Row>([\s\S]*?)<\/Row>/g;
-  const getTag = (xml, tag) => { const m = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`)); return m ? m[1].trim() : ''; };
+  // Diagnostic: log XML structure
+  console.log('[congress] XML preview:', xmlBody.slice(0, 300));
+
+  // Parse XML — try both <Row> and <Member> container tags
+  const getTag = (xml, tag) => { const m = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`,'i')); return m ? m[1].trim() : ''; };
+  const rowRe  = /<(?:Row|Member)>([\s\S]*?)<\/(?:Row|Member)>/gi;
   const newFilings = [];
+  const PTR_TYPES = new Set(['ptr','periodic transaction report','periodic','p t r']);
   let rm;
   while ((rm = rowRe.exec(xmlBody)) !== null) {
     const row = rm[1];
-    if (getTag(row, 'FilingType') !== 'PTR') continue;
-    const docId = getTag(row, 'DocID');
+    const ft  = getTag(row, 'FilingType').toLowerCase();
+    // Accept PTR filings — if no FilingType found, accept all (structure may differ)
+    if (ft && !PTR_TYPES.has(ft)) continue;
+    const docId = getTag(row, 'DocID') || getTag(row, 'DocumentID') || getTag(row, 'Id');
     if (!docId || seenDocs.has(docId)) continue;
-    const first  = getTag(row, 'First');
-    const last   = getTag(row, 'Last');
-    newFilings.push({ docId, member: `${first} ${last}`.trim() || 'Unknown', year });
+    const first  = getTag(row, 'First') || getTag(row, 'FirstName');
+    const last   = getTag(row, 'Last')  || getTag(row, 'LastName');
+    const prefix = getTag(row, 'Prefix');
+    const member = `${first} ${last}`.trim() || prefix || 'Unknown';
+    newFilings.push({ docId, member, year });
   }
 
   console.log(`[congress] House: ${newFilings.length} new PTR filings`);
