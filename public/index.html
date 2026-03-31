@@ -18,21 +18,21 @@
 <!-- Favicon: radar icon -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <!-- SEO meta -->
-<meta name="description" content="Track what corporate insiders are buying and selling. InsiderTape surfaces SEC Form 4 filings in real time — so you can see cluster buys, conviction signals, and first buys before they become headlines.">
-<meta name="keywords" content="insider trading tracker, SEC Form 4, insider buying, insider selling, stock screener, cluster buy, corporate insider trades">
+<meta name="description" content="Track what corporate insiders and members of Congress are buying and selling. InsiderTape surfaces SEC Form 4 and STOCK Act filings in real time — cluster buys, conviction signals, and congressional trades all in one place.">
+<meta name="keywords" content="insider trading tracker, SEC Form 4, STOCK Act, congressional trades, insider buying, insider selling, stock screener, cluster buy, corporate insider trades, Nancy Pelosi trades">
 <meta name="author" content="InsiderTape">
 <meta name="robots" content="index, follow">
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://insidertape.com">
 <meta property="og:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
-<meta property="og:description" content="Track corporate insiders buying and selling. SEC Form 4 filings in real time — cluster buys, conviction signals, and first-time purchases.">
+<meta property="og:description" content="Track corporate insiders and congressional members buying and selling. SEC Form 4 and STOCK Act filings in real time — cluster buys, conviction signals, and congressional trades.">
 <meta property="og:image" content="https://insidertape.com/og-image.png">
 <!-- Twitter/X Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@insidertape">
 <meta name="twitter:title" content="InsiderTape — Real-Time SEC Insider Trading Tracker">
-<meta name="twitter:description" content="Track insider trades in real time. SEC Form 4 filings — cluster buys, conviction signals, and more.">
+<meta name="twitter:description" content="Track insider trades and congressional stock activity in real time. SEC Form 4 and STOCK Act filings — cluster buys, conviction signals, and gov official trades.">
 <meta name="twitter:image" content="https://insidertape.com/og-image.png">
 <!-- Preconnect to critical external origins to reduce latency -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -908,7 +908,7 @@
         <div>
           <div class="screener-title">RECENT INSIDER TRADES</div>
           <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
-          <div style="font-size:10px;color:#2a3d52;font-family:Space Mono,monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 · US domestic issuers only · Foreign private issuers (ADRs, Chinese listings, etc.) are exempt from Section 16 and do not file Form 4s</div>
+          <div style="font-size:10px;color:#2a3d52;font-family:Space Mono,monospace;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 (corporate insiders) · STOCK Act (congressional members) · US domestic issuers only · Foreign private issuers exempt from Section 16</div>
           <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:Space Mono,monospace;letter-spacing:0.5px;margin-top:2px">v1.6</div>
         </div>
       </div>
@@ -2189,7 +2189,7 @@ function _renderProximityResults(body, backBtn, results) {
 
     <div style="font-size:10px;color:var(--muted);margin-top:16px;opacity:0.6;line-height:1.6">
       ⚠ This tool identifies statistical proximity, not insider knowledge. Insiders are legally prohibited from trading on material non-public information.
-      All data sourced from public SEC filings and estimated earnings calendar.
+      Corporate insider data sourced from SEC EDGAR (Form 4). Congressional trading data sourced from public STOCK Act disclosures. Earnings calendar estimated from historical filing patterns.
     </div>
   </div>`;
 }
@@ -9264,7 +9264,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
   <div style="max-width:1200px;margin:0 auto">
     <div style="font-family:Bebas Neue,sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
     <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
-      InsiderTape tracks SEC Form 4 insider trades in real time — cluster buys, conviction signals, and first-time purchases.
+      InsiderTape tracks SEC Form 4 corporate insider trades and STOCK Act congressional disclosures in real time — cluster buys, conviction signals, and gov official activity.
       Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
@@ -9272,7 +9272,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
       <span style="color:#1e2d3d">·</span>
       <button onclick="showPrivacy()" style="background:none;border:none;color:#3a5570;font-size:11px;cursor:pointer;font-family:Space Mono,monospace;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Privacy Policy</button>
       <span style="color:#1e2d3d">·</span>
-      <span style="font-size:11px;color:#2e4055;font-family:Space Mono,monospace">DATA: SEC EDGAR</span>
+      <span style="font-size:11px;color:#2e4055;font-family:Space Mono,monospace">DATA: SEC EDGAR · STOCK ACT DISCLOSURES</span>
     </div>
     <div style="font-size:10px;color:#1e3040;font-family:Space Mono,monospace">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
     <div style="font-size:9px;color:#1a2535;font-family:Space Mono,monospace;margin-top:6px">build 2026-03-11.1</div>
@@ -9320,7 +9320,7 @@ function showTerms() {
     ${p('Historical data, scores, return calculations, and pattern analysis shown on InsiderTape are based on past performance. <strong style="color:#e0e8f0">Past performance is not indicative of future results.</strong> Insider buying or selling activity does not guarantee any particular outcome for a security\'s price. All investing involves risk, including the possible loss of principal.')}
 
     ${h2('5. GOVERNMENT OFFICIAL TRADES')}
-    ${p('Government official trading data is sourced from public STOCK Act disclosures. This data reflects required periodic transaction reports (PTRs) filed by covered officials and may be subject to reporting delays of up to 45 days or more as permitted by law. InsiderTape makes no representations as to the completeness or real-time accuracy of such filings.')}
+    ${p('Congressional trading data is sourced from public STOCK Act (Stop Trading on Congressional Knowledge Act) disclosures filed by members of the U.S. House of Representatives and U.S. Senate. Members are required to file transaction reports within 45 days of a qualifying trade. This data may be subject to reporting delays as permitted by law. InsiderTape makes no representations as to the completeness or real-time accuracy of such filings.')}
 
     ${h2('6. LIMITATION OF LIABILITY')}
     ${p('To the fullest extent permitted by applicable law, InsiderTape, its owners, operators, employees, and affiliates shall not be liable for any direct, indirect, incidental, special, consequential, punitive, or exemplary damages arising from or related to your use of the Platform, including but not limited to: investment losses, lost profits, loss of data, or any other pecuniary or non-pecuniary loss, even if advised of the possibility of such damages.')}
@@ -9376,7 +9376,7 @@ function showPrivacy() {
     ${p('InsiderTape may use minimal functional cookies or browser local storage to preserve your in-session preferences (e.g., selected filters or view state). We do not use third-party advertising cookies, behavioral tracking pixels, or cross-site tracking technologies. You may disable cookies in your browser settings; this may affect Platform functionality.')}
 
     ${h2('5. PUBLIC DATA DISPLAYED')}
-    ${p('The data displayed on InsiderTape — insider names, trade amounts, government official disclosures — is sourced from public government filings (SEC EDGAR) and is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
+    ${p('The data displayed on InsiderTape — insider names, trade amounts, government official disclosures — is sourced from public government filings including SEC EDGAR (Form 4 filings) and public STOCK Act disclosures filed with the Clerk of the U.S. House and the Secretary of the U.S. Senate. All such data is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
 
     ${h2('6. DATA SECURITY')}
     ${p('We implement reasonable technical and organizational measures to protect the Platform and any data it processes. However, no system is completely secure. We cannot guarantee the absolute security of any information.')}
