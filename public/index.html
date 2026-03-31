@@ -4818,6 +4818,7 @@ async function openGovProfile(name) {
       + '<div style="background:var(--bg2);border:1px solid rgba(255,68,102,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:4px">EST. SELLS</div><div style="font-size:20px;font-weight:600;color:var(--sell)">' + fmt(sellVal) + '</div></div>'
       + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:4px">NET POSITION</div><div style="font-size:20px;font-weight:600;color:' + (netVal>=0?'var(--buy)':'var(--sell)') + '">' + (netVal>=0?'+':'') + fmt(Math.abs(netVal)) + '</div></div>'
       + '</div>'
+      + '<div style="font-size:10px;color:var(--muted);font-family:Space Mono,monospace;margin-bottom:16px;padding:8px 12px;background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:5px">Statistics reflect the last 5 years of available STOCK Act disclosures and may not represent the member\'s complete trading history.</div>'
       + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">'
       + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">'
       + '<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:12px">HOLDINGS TRADED</div>'
