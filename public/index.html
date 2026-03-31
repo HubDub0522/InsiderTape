@@ -10014,12 +10014,12 @@ function loadPremiumPage() {
     },
     {
       icon: '🔍', title: 'EXTENDED SCREENER',
-      desc: 'Go beyond 7 days. Filter by 30D, 90D, or a full year of insider filings. Add minimum trade value, role filters, and trade type to zero in on the signals that matter.',
+      desc: 'Go beyond 7 days. Filter by 30D, 90D, or a full year of insider filings. Add minimum trade value, role filters including Gov Official, and trade type to zero in on the signals that matter. Free users see congressional trades from the last 7 days — premium unlocks the full 90-day history.',
       mock: screenerMockup
     },
     {
       icon: '📊', title: 'ANALYSIS DASHBOARD',
-      desc: 'Six AI-powered scan tools running across all insider activity: Opportunity Ranker, Cluster Detection, Exit Warning, Regime Shift Detector, First Buy Signals, and Event Proximity — plus an Insider Scoreboard ranking traders by their historical accuracy.',
+      desc: 'Nine signal tools running across corporate insider and congressional trade activity: Opportunity Ranker, Cluster Detection, Exit Warning, Regime Shift Detector, First Buy Signals, Event Proximity, Top Gov Official Buys, Top Gov Official Sells, and Gov Cluster Buys — plus an Insider Scoreboard.',
       mock: analysisMockup
     },
     {
@@ -10047,6 +10047,11 @@ function loadPremiumPage() {
       desc: 'Pin tickers and follow specific insiders by name. See every move they make across any ticker the moment it\'s filed — 90D pressure bars, activity badges, and a live signal feed all in one place.',
       mock: watchlistMockup
     },
+    {
+      icon: '🏛', title: 'CONGRESSIONAL TRADING',
+      desc: 'STOCK Act disclosures from House and Senate members overlaid directly on every price chart as cyan diamonds alongside corporate insider trades. See when Congress and insiders are buying the same ticker simultaneously. Includes gov cluster detection, full member trading history, and three dedicated Analysis tiles showing top buys, top sells, and multi-member cluster signals across the last 90 days.',
+      mock: analysisMockup
+    },
   ];
 
   el.innerHTML = `
@@ -10054,7 +10059,7 @@ function loadPremiumPage() {
 
       <div style="text-align:center;margin-bottom:56px">
         <div style="font-family:Bebas Neue,sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
-        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required Form 4 disclosures when they buy or sell company stock. InsiderTape Premium gives you every tool to act on those signals before the crowd does.</div>
+        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders and members of Congress both file legally required disclosures when they trade. InsiderTape Premium gives you every tool to track both signals, find where they overlap, and act before the crowd does.</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:56px;margin-bottom:72px">
@@ -10098,6 +10103,8 @@ function loadPremiumPage() {
           ['Screener — 30D / 90D / 1Y + filters', false, true],
           ['Stock View — price chart + trade markers', true, true],
           ['Insider sidebar — trade history', true, true],
+          ['Gov official trades — 7 days visible', true, false],
+          ['Gov official trades — full 90D history', false, true],
           ['Insider Pressure indicator', false, true],
           ['Cluster Buys & Largest Trades', false, true],
           ['Notable Insiders & Best Timers', false, true],
