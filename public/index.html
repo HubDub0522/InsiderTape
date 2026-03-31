@@ -2834,7 +2834,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     // Use ALL marker groups (unfiltered) + gov for consistent sizing across filter changes
     const allGroupVals = (state._allMarkerGroups||state.markerGroups).map(g=>g.value);
     // Floor of $2M ensures small trades never get scaled to max size on quiet charts
-    const maxVal=Math.max(...allGroupVals,...govGroupedVals,500000);
+    const maxVal=Math.max(...allGroupVals,...govGroupedVals,1000000);
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
