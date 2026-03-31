@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Congressional Trades vs Corporate Insider Trades: What Is the Difference | InsiderTape</title>
+<meta name="description" content="STOCK Act filings and SEC Form 4s both reveal what informed people are doing with money. Here is how they differ, which carries more weight, and how to use them together.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://insidertape.com/articles/congressional-vs-insider-trading.html">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://insidertape.com/articles/congressional-vs-insider-trading.html">
+<meta property="og:title" content="Congressional Trades vs Corporate Insider Trades: What Is the Difference?">
+<meta property="og:description" content="STOCK Act filings and SEC Form 4s both reveal what informed people are doing with money. Here is how they differ and how to use them together.">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Congressional Trades vs Corporate Insider Trades: What Is the Difference?",
+  "description": "STOCK Act filings and SEC Form 4s both reveal what informed people are doing with money. Here is how they differ, which carries more weight, and how to use them together.",
+  "author": { "@type": "Organization", "name": "InsiderTape" },
+  "publisher": { "@type": "Organization", "name": "InsiderTape", "url": "https://insidertape.com" },
+  "url": "https://insidertape.com/articles/congressional-vs-insider-trading.html"
+}
+</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.3'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.8'/%3E%3Cline x1='32' y1='10' x2='32' y2='54' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cline x1='10' y1='32' x2='54' y2='32' stroke='%2300d4ff' stroke-width='1' opacity='0.3'/%3E%3Cpath d='M32 32 L48 20' stroke='%2300d4ff' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap">
+<style>
+  :root { --bg:#080b0f; --bg2:#0d1117; --bg3:#111820; --border:#1e2d3d; --border2:#253447; --text:#c9d8e8; --muted:#4a6580; --accent:#00d4ff; --buy:#00ff88; --sell:#ff4466; --header-h:64px; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 16px; line-height: 1.75; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: var(--bg2); } ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  header { position: sticky; top: 0; z-index: 100; height: var(--header-h); background: rgba(8,11,15,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; gap: 16px; }
+  .logo { font-family: 'Bebas Neue', sans-serif; font-size: 26px; letter-spacing: 3px; color: var(--accent); text-shadow: 0 0 20px rgba(0,212,255,0.4); text-decoration: none; }
+  .logo span { color: var(--text); opacity: 0.5; }
+  nav { display: flex; gap: 4px; }
+  nav a { color: var(--muted); font-size: 12px; font-weight: 500; text-decoration: none; padding: 7px 14px; border: 1px solid transparent; border-radius: 5px; transition: all .2s; }
+  nav a:hover { color: var(--text); border-color: var(--border); }
+  nav a.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.07); }
+  .article-wrap { max-width: 720px; margin: 0 auto; padding: 64px 24px 100px; }
+  .article-tag { display: inline-block; padding: 3px 10px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2); border-radius: 20px; font-family: 'Space Mono', monospace; font-size: 10px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 20px; }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: clamp(36px, 5vw, 58px); letter-spacing: 2px; color: var(--text); line-height: 1.05; margin-bottom: 20px; }
+  .article-meta { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--muted); margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+  .article-body p { margin-bottom: 24px; font-size: 16px; line-height: 1.8; color: #b8cfe0; }
+  .article-body h2 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1.5px; color: var(--text); margin: 48px 0 16px; }
+  .article-body h3 { font-family: 'Space Mono', monospace; font-size: 13px; letter-spacing: 1px; color: var(--accent); text-transform: uppercase; margin: 32px 0 12px; }
+  .article-body strong { color: var(--text); font-weight: 600; }
+  .article-body em { color: var(--muted); font-style: italic; }
+  .article-body a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(0,212,255,0.3); }
+  .article-body a:hover { border-bottom-color: var(--accent); }
+  .article-body ul, .article-body ol { margin: 0 0 24px 20px; }
+  .article-body li { margin-bottom: 8px; color: #b8cfe0; line-height: 1.75; }
+  .callout { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 18px 20px; margin: 32px 0; }
+  .callout.green { border-left-color: var(--buy); }
+  .callout.gov { border-left-color: #00d4ff; background: rgba(0,212,255,0.04); }
+  .callout p { margin: 0; font-size: 14px; color: var(--muted); }
+  .callout strong { color: var(--text); }
+  .vs-table { width: 100%; border-collapse: collapse; margin: 28px 0; font-size: 14px; }
+  .vs-table th { font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 10px 14px; border-bottom: 2px solid var(--border); text-align: left; }
+  .vs-table th.gov-header { color: #00d4ff; }
+  .vs-table th.form4-header { color: var(--buy); }
+  .vs-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); color: var(--muted); vertical-align: top; line-height: 1.5; }
+  .vs-table td:first-child { color: var(--text); font-weight: 500; font-size: 13px; width: 28%; }
+  .vs-table tr:last-child td { border-bottom: none; }
+  .scenario-block { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 22px 24px; margin: 28px 0; }
+  .scenario-label { font-family: 'Space Mono', monospace; font-size: 10px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-bottom: 12px; }
+  .scenario-title { font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 1px; color: var(--text); margin-bottom: 10px; }
+  .scenario-body { font-size: 14px; color: var(--muted); line-height: 1.65; }
+  .scenario-body strong { color: var(--text); }
+  .back-link { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); text-decoration: none; font-family: 'Space Mono', monospace; font-size: 11px; letter-spacing: 1px; margin-bottom: 40px; transition: color .2s; }
+  .back-link:hover { color: var(--text); }
+  .cta-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 32px; text-align: center; margin-top: 56px; }
+  .cta-box h3 { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 2px; color: var(--text); margin-bottom: 10px; }
+  .cta-box p { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .cta-btn { display: inline-block; background: var(--accent); color: #000 !important; padding: 11px 28px; border-radius: 6px; font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; text-decoration: none; transition: background .2s; border: none; }
+  .cta-btn:hover { background: #33ddff; }
+  footer { border-top: 1px solid var(--border); padding: 32px 24px; text-align: center; }
+  footer p { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  footer a { color: var(--accent); text-decoration: none; }
+  @media (max-width: 640px) { .article-wrap { padding: 40px 16px 80px; } .vs-table { font-size: 13px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/">INSIDER<span>TAPE</span></a>
+  <nav>
+    <a href="/">Screener</a>
+    <a href="/articles/" class="active">Learn</a>
+  </nav>
+</header>
+
+<div class="article-wrap">
+  <a class="back-link" href="/articles/">← All Articles</a>
+
+  <div class="article-tag">🏛 Gov Officials</div>
+  <h1>CONGRESSIONAL TRADES VS CORPORATE INSIDER TRADES: WHAT IS THE DIFFERENCE?</h1>
+  <div class="article-meta">InsiderTape · 9 min read · Signal Comparison</div>
+
+  <div class="article-body">
+
+    <p>There are two categories of informed-money filings that investors can track legally and for free. The first is the SEC Form 4, filed by corporate insiders when they buy or sell stock in their own company. The second is the STOCK Act disclosure, filed by members of Congress when they trade any publicly listed security. Both are public. Both tell you something meaningful. And both are misused constantly by people who treat them as simple buy or sell signals without understanding what each one actually measures.</p>
+
+    <p>This article breaks down how the two differ, what each one is good at, and why the most interesting situations are the ones where they point in the same direction.</p>
+
+    <h2>WHAT EACH FILING ACTUALLY MEASURES</h2>
+
+    <p>A corporate insider buying their own company's stock is making a bet on one specific outcome: that the company's value will go up. They know the product roadmap. They know the upcoming earnings. They know whether the pipeline is full or thin. Their buy is a highly concentrated expression of confidence in one thing they understand deeply. Their sell is harder to read, since executives sell for all kinds of reasons, but their buy is generally clean.</p>
+
+    <p>A congressional member buying a stock is doing something different. They may have policy-adjacent information about the sector. They may be making a macro call. They may be following a financial advisor. They may simply like the company and have done their own research like any retail investor. The range of possible motivations is wider, which means you need more context before drawing conclusions.</p>
+
+    <table class="vs-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th class="gov-header">🏛 STOCK Act (Congressional)</th>
+          <th class="form4-header">📋 Form 4 (Corporate Insider)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Disclosure window</td>
+          <td>Up to 45 days after the trade</td>
+          <td>Within 2 business days</td>
+        </tr>
+        <tr>
+          <td>Amount precision</td>
+          <td>Broad ranges only (e.g. $100K to $250K)</td>
+          <td>Exact dollar amount and share count</td>
+        </tr>
+        <tr>
+          <td>Price disclosed</td>
+          <td>No</td>
+          <td>Yes, exact price per share</td>
+        </tr>
+        <tr>
+          <td>Stocks covered</td>
+          <td>Any publicly traded security</td>
+          <td>Their own company only</td>
+        </tr>
+        <tr>
+          <td>Edge type</td>
+          <td>Policy, macro, regulatory direction</td>
+          <td>Company-specific operational knowledge</td>
+        </tr>
+        <tr>
+          <td>Sell signal reliability</td>
+          <td>More meaningful (fewer routine reasons)</td>
+          <td>Weak (executives sell for many reasons)</td>
+        </tr>
+        <tr>
+          <td>Buy signal reliability</td>
+          <td>Moderate (many possible motivations)</td>
+          <td>Strong (why buy if you expect decline?)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>WHERE EACH SIGNAL TENDS TO BE STRONGEST</h2>
+
+    <h3>Corporate insiders are better at company-level conviction</h3>
+
+    <p>When a CFO buys $2 million of their own company's stock on the open market, that is hard to explain away. They are not required to hold. They have no upside from buying if they expect things to get worse. They have access to every piece of internal financial data. That purchase is about as close as you get to an informed insider saying: I believe this specific company is undervalued at this price.</p>
+
+    <p>Corporate insider buys are especially powerful when they come from multiple insiders in a short period. That pattern, called <a href="/articles/what-is-cluster-buying.html">cluster buying</a>, suggests that the conviction is not limited to one person's view. It is a shared belief across the executive team or board that the stock represents value at the current price.</p>
+
+    <h3>Congressional members are better at sector and macro direction</h3>
+
+    <p>Members of Congress who sit on relevant oversight committees have access to information about regulatory trends, government contract flows, and legislative priorities that will affect entire industries. A senator on the Armed Services Committee has a different view of the defense procurement landscape than any retail investor could construct from public filings alone. That structural information advantage plays out at the sector level, not the company level.</p>
+
+    <p>This is why congressional trades carry more weight when they are concentrated in sectors that align with the member's committee assignments, and less weight when they involve diversified consumer names with no obvious policy connection.</p>
+
+    <div class="callout gov">
+      <p><strong>An important asymmetry:</strong> Corporate insider sells are notoriously unreliable as signals because executives sell for planned diversification, taxes, option exercises, and liquidity needs unrelated to company outlook. Congressional sells are somewhat more meaningful because members have fewer structural reasons to sell on a preset schedule. A large congressional sale in a sector the member oversees is worth more attention than the equivalent Form 4 sell.</p>
+    </div>
+
+    <h2>THREE SCENARIOS WHERE THE COMBINATION MATTERS</h2>
+
+    <div class="scenario-block">
+      <div class="scenario-label">Scenario 1</div>
+      <div class="scenario-title">CONGRESSIONAL + CORPORATE INSIDERS BOTH BUYING</div>
+      <div class="scenario-body">This is the combination worth the most attention. <strong>Corporate insiders know the company.</strong> Congressional members may know the policy environment that will drive the sector. When both groups are buying the same stock independently over the same period, you have company-level conviction overlapping with macro or regulatory tailwinds. That is rare and historically has been meaningful.</div>
+    </div>
+
+    <div class="scenario-block">
+      <div class="scenario-label">Scenario 2</div>
+      <div class="scenario-title">CONGRESSIONAL SELLING WHILE CORPORATE INSIDERS ARE QUIET</div>
+      <div class="scenario-body">If multiple congressional members are selling a sector heavily while corporate insiders in that sector are not buying, that is worth noting. It may suggest that policy or regulatory changes are coming that insiders inside the companies do not yet have visibility into. <strong>Policy risk can arrive before operational risk shows up in earnings.</strong></div>
+    </div>
+
+    <div class="scenario-block">
+      <div class="scenario-label">Scenario 3</div>
+      <div class="scenario-title">DIVERGENCE: GOV BUYING WHILE INSIDERS SELL</div>
+      <div class="scenario-body">This is the most ambiguous situation and usually not actionable on its own. Corporate insiders selling is often routine and not bearish. Congressional members buying may be making a long-term macro bet that plays out over years. <strong>Do not assume the two signals cancel each other out.</strong> They may be reflecting different time horizons entirely.</div>
+    </div>
+
+    <h2>THE TIMING PROBLEM</h2>
+
+    <p>The single biggest practical challenge with congressional trade data is the 45-day disclosure window. By the time you see a filing, the trade happened at most six weeks ago and possibly much longer. In a fast market, prices can move substantially in that window. The information value has partially decayed.</p>
+
+    <p>Corporate Form 4 filings arrive within two business days, which means you get the signal while it is still reasonably fresh. Congressional disclosures are more useful as confirming signals than as leading indicators. When you already have corporate insider cluster buying in a ticker and you then see congressional buying in the same name over the past month, that confirmation has value even if the congressional trade is older.</p>
+
+    <h2>HOW TO READ THEM TOGETHER ON INSIDERTAPE</h2>
+
+    <p>On any stock view page, InsiderTape overlays both data types on the same price chart. Corporate insider buys appear as green circles sized by transaction value. Congressional buys appear as cyan diamonds, also sized by estimated transaction value. Hovering over either type shows the filer, date, and amount.</p>
+
+    <p>Visually, you are looking for periods where both types of markers cluster around the same price range. That visual overlap on the chart is the clearest representation of what convergent informed-money conviction looks like in practice. It is not a guarantee of anything, but it narrows the set of tickers where the evidence is pointing in a consistent direction from multiple independent sources.</p>
+
+    <p>For a step-by-step guide to the congressional-specific features on InsiderTape, including the Gov Official Screener filter and the Analysis page cluster tiles, see the full guide on <a href="/articles/how-to-track-congressional-trades.html">how to track congressional trades</a>.</p>
+
+    <div class="cta-box">
+      <h3>SEE BOTH SIGNALS ON THE SAME CHART</h3>
+      <p>InsiderTape overlays congressional STOCK Act trades and corporate SEC Form 4 filings on the same price chart for every ticker. Find the tickers where both types of informed buyers are active.</p>
+      <a class="cta-btn" href="/">OPEN INSIDERTAPE →</a>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <p><a href="/articles/">← Back to Articles</a> &nbsp;·&nbsp; Data sourced from SEC EDGAR and public STOCK Act disclosures &nbsp;·&nbsp; Not financial advice</p>
+</footer>
+
+</body>
+</html>
