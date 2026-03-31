@@ -1279,6 +1279,20 @@ app.get('/api/gov-debug', (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
+app.get('/api/gov-member-search', (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q || q.length < 2) return res.json([]);
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT member, chamber
+      FROM gov_trades
+      WHERE member LIKE ? COLLATE NOCASE
+      LIMIT 8
+    `).all('%' + q + '%');
+    res.json(rows);
+  } catch(e) { res.json([]); }
+});
+
 app.get('/api/gov-member', (req, res) => {
   const member = (req.query.member || '').trim();
   if (!member) return res.json([]);
