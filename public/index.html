@@ -2833,7 +2833,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     ) : [];
     // Use ALL marker groups (unfiltered) + gov for consistent sizing across filter changes
     const allGroupVals = (state._allMarkerGroups||state.markerGroups).map(g=>g.value);
-    const maxVal=Math.max(...allGroupVals,...govGroupedVals,1);
+    // Floor of $2M ensures small trades never get scaled to max size on quiet charts
+    const maxVal=Math.max(...allGroupVals,...govGroupedVals,2000000);
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
@@ -4838,7 +4839,7 @@ async function openGovProfile(name) {
       + '<div style="font-size:10px;color:var(--muted);font-family:Space Mono,monospace;margin-bottom:16px;padding:8px 12px;background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:5px">Statistics reflect the last 5 years of available STOCK Act disclosures and may not represent the member\'s complete trading history.</div>'
       + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">'
       + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">'
-      + '<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:12px">HOLDINGS TRADED</div>'
+      + '<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">HOLDINGS TRADED</div><div style="font-size:10px;color:var(--muted);font-family:Space Mono,monospace;margin-bottom:10px">Last 5 years</div>'
       + tickerList.slice(0,8).map(t=>{
           const total=t.buyVal+t.sellVal||1;
           return '<div data-ticker="' + t.ticker + '" class="gov-ticker-link" style="margin-bottom:8px;cursor:pointer">'
@@ -4853,7 +4854,7 @@ async function openGovProfile(name) {
         }).join('')
       + '</div>'
       + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">'
-      + '<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:12px">RECENT TRADES</div>'
+      + '<div style="font-family:Bebas Neue,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">RECENT TRADES</div><div style="font-size:10px;color:var(--muted);font-family:Space Mono,monospace;margin-bottom:10px">Last 5 years · Most recent first</div>'
       + trades.slice(0,10).map(t=>{
           const isBuy=t.transaction_type==='P';
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">'
