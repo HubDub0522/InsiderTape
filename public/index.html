@@ -1456,7 +1456,7 @@ async function loadScreener() {
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
 
     // Merge gov trades: free users get 7 days, premium get full window
-    const govDays = 120; // gov trades use 120d window (transaction_date)
+    const govDays = 90; // gov trades use 90d window (transaction_date)
     try {
       const govResp = await apiFetch('/api/gov-recent?days=' + govDays);
       if (Array.isArray(govResp) && govResp.length) {
@@ -4939,7 +4939,7 @@ async function loadAnalysisPage(subpage) {
       : apiFetch('/api/screener?days=30').then(r => Array.isArray(r) ? r : (r.trades||[]));
     const [form4, govRaw] = await Promise.all([
       fetchForm4,
-      apiFetch('/api/gov-recent?days=120').catch(()=>[]),
+      apiFetch('/api/gov-recent?days=90').catch(()=>[]),
     ]);
     const normGov = g => ({
       _isGov: true,
@@ -5267,9 +5267,9 @@ function renderAnalysisDashboard() {
     id: 'govbuys',
     icon: '🏛',
     name: 'Top Gov Official Buys',
-    desc: 'Largest congressional purchases in the last 120 days — House and Senate members buying across any ticker.',
+    desc: 'Largest congressional purchases in the last 90 days — House and Senate members buying across any ticker.',
     count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').length,
-    countLabel: 'purchases (120d)',
+    countLabel: 'purchases (90d)',
     top3: _govTiles.buys,
     accentColor: '#00d4ff',
     accentBg: 'rgba(0,212,255,0.06)',
@@ -5279,9 +5279,9 @@ function renderAnalysisDashboard() {
     id: 'govsells',
     icon: '🏛',
     name: 'Top Gov Official Sells',
-    desc: 'Largest congressional sales in the last 120 days — when elected officials exit positions it can precede broader moves.',
+    desc: 'Largest congressional sales in the last 90 days — when elected officials exit positions it can precede broader moves.',
     count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='S').length,
-    countLabel: 'sales (120d)',
+    countLabel: 'sales (90d)',
     top3: _govTiles.sells,
     accentColor: '#ff00ff',
     accentBg: 'rgba(255,0,255,0.06)',
@@ -5293,7 +5293,7 @@ function renderAnalysisDashboard() {
     name: 'Top Gov New Positions',
     desc: 'Congressional members opening brand-new positions — first recorded purchase of a ticker in our DB. High conviction signal.',
     count: Object.values((_analysisGovData||[]).reduce((acc,g)=>{const k=g.insider+'|'+g.ticker;if(!acc[k])acc[k]=[];acc[k].push(g);return acc;},{}) ).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').length,
-    countLabel: 'new positions (120d)',
+    countLabel: 'new positions (90d)',
     top3: _govTiles.newPos,
     accentColor: '#00d4ff',
     accentBg: 'rgba(0,212,255,0.06)',
@@ -5508,13 +5508,13 @@ function renderGovTileSubpage(id) {
 
   let title, subtitle, icon, trades;
   if (id === 'govbuys') {
-    title = 'TOP GOV OFFICIAL BUYS'; icon = '🏛'; subtitle = 'Congressional purchases · Last 120 days · Sorted by est. amount';
+    title = 'TOP GOV OFFICIAL BUYS'; icon = '🏛'; subtitle = 'Congressional purchases · Last 90 days · Sorted by est. amount';
     trades = [...govData.filter(g=>(g.type||g.transaction_type)==='P')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   } else if (id === 'govsells') {
-    title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 120 days · Sorted by est. amount';
+    title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 90 days · Sorted by est. amount';
     trades = [...govData.filter(g=>(g.type||g.transaction_type)==='S')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   } else {
-    title = 'GOV NEW POSITIONS'; icon = '🏛'; subtitle = 'First recorded purchase by this member · Last 120 days';
+    title = 'GOV NEW POSITIONS'; icon = '🏛'; subtitle = 'First recorded purchase by this member · Last 90 days';
     const seen = {};
     govData.forEach(g=>{const k=g.insider+'|'+g.ticker;if(!seen[k])seen[k]=[];seen[k].push(g);});
     trades = Object.values(seen).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').map(arr=>arr[0]).sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
