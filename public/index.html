@@ -1456,7 +1456,7 @@ async function loadScreener() {
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
 
     // Merge gov trades: free users get 7 days, premium get full window
-    const govDays = 90; // gov trades always use 90d window (transaction_date)
+    const govDays = 120; // gov trades use 120d window (transaction_date)
     try {
       const govResp = await apiFetch('/api/gov-recent?days=' + govDays);
       if (Array.isArray(govResp) && govResp.length) {
@@ -1586,6 +1586,15 @@ function buildConvictionData(trades) {
         const roleList = [...new Set(tickerBuys.map(t => t.title || '').filter(Boolean))].slice(0, 2).join(', ');
         reasons.push(`${roleList} — high-signal executive`);
       }
+    }
+    // Gov official buying bonus — congress + insiders = elevated conviction
+    const govBuysConviction = tickerBuys.filter(t => t._isGov);
+    if (govBuysConviction.length > 0) {
+      const govConvNames = [...new Set(govBuysConviction.map(t => t.insider))];
+      const govConvVal = govBuysConviction.reduce((s,t) => s+(t.value||0), 0);
+      score += Math.min(15, govConvNames.length * 8);
+      reasons.push(`🏛 ${govConvNames.length} gov official${govConvNames.length>1?'s':''} buying — congress + insider alignment`);
+      if (govConvVal >= 250000) { score += 5; reasons.push(`Gov commitment ${fmtAmountRange(govBuysConviction[0].amount_range)}`); }
     }
     score = Math.min(100, Math.max(0, Math.round(score)));
     if (score >= 40) scored.push({
@@ -4930,7 +4939,7 @@ async function loadAnalysisPage(subpage) {
       : apiFetch('/api/screener?days=30').then(r => Array.isArray(r) ? r : (r.trades||[]));
     const [form4, govRaw] = await Promise.all([
       fetchForm4,
-      apiFetch('/api/gov-recent?days=90').catch(()=>[]),
+      apiFetch('/api/gov-recent?days=120').catch(()=>[]),
     ]);
     const normGov = g => ({
       _isGov: true,
@@ -5258,9 +5267,9 @@ function renderAnalysisDashboard() {
     id: 'govbuys',
     icon: '🏛',
     name: 'Top Gov Official Buys',
-    desc: 'Largest congressional purchases in the last 90 days — House and Senate members buying across any ticker.',
+    desc: 'Largest congressional purchases in the last 120 days — House and Senate members buying across any ticker.',
     count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').length,
-    countLabel: 'purchases (90d)',
+    countLabel: 'purchases (120d)',
     top3: _govTiles.buys,
     accentColor: '#00d4ff',
     accentBg: 'rgba(0,212,255,0.06)',
@@ -5270,9 +5279,9 @@ function renderAnalysisDashboard() {
     id: 'govsells',
     icon: '🏛',
     name: 'Top Gov Official Sells',
-    desc: 'Largest congressional sales in the last 90 days — when elected officials exit positions it can precede broader moves.',
+    desc: 'Largest congressional sales in the last 120 days — when elected officials exit positions it can precede broader moves.',
     count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='S').length,
-    countLabel: 'sales (90d)',
+    countLabel: 'sales (120d)',
     top3: _govTiles.sells,
     accentColor: '#ff00ff',
     accentBg: 'rgba(255,0,255,0.06)',
@@ -5284,7 +5293,7 @@ function renderAnalysisDashboard() {
     name: 'Top Gov New Positions',
     desc: 'Congressional members opening brand-new positions — first recorded purchase of a ticker in our DB. High conviction signal.',
     count: Object.values((_analysisGovData||[]).reduce((acc,g)=>{const k=g.insider+'|'+g.ticker;if(!acc[k])acc[k]=[];acc[k].push(g);return acc;},{}) ).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').length,
-    countLabel: 'new positions (90d)',
+    countLabel: 'new positions (120d)',
     top3: _govTiles.newPos,
     accentColor: '#00d4ff',
     accentBg: 'rgba(0,212,255,0.06)',
@@ -5499,13 +5508,13 @@ function renderGovTileSubpage(id) {
 
   let title, subtitle, icon, trades;
   if (id === 'govbuys') {
-    title = 'TOP GOV OFFICIAL BUYS'; icon = '🏛'; subtitle = 'Congressional purchases · Last 30 days · Sorted by est. amount';
+    title = 'TOP GOV OFFICIAL BUYS'; icon = '🏛'; subtitle = 'Congressional purchases · Last 120 days · Sorted by est. amount';
     trades = [...govData.filter(g=>(g.type||g.transaction_type)==='P')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   } else if (id === 'govsells') {
-    title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 30 days · Sorted by est. amount';
+    title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 120 days · Sorted by est. amount';
     trades = [...govData.filter(g=>(g.type||g.transaction_type)==='S')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   } else {
-    title = 'GOV NEW POSITIONS'; icon = '🏛'; subtitle = 'First recorded purchase by this member · Last 30 days';
+    title = 'GOV NEW POSITIONS'; icon = '🏛'; subtitle = 'First recorded purchase by this member · Last 120 days';
     const seen = {};
     govData.forEach(g=>{const k=g.insider+'|'+g.ticker;if(!seen[k])seen[k]=[];seen[k].push(g);});
     trades = Object.values(seen).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').map(arr=>arr[0]).sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
@@ -6336,14 +6345,16 @@ function detectExitWarnings(trades, priceHighs={}) {
     else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(255,170,0,0.08)';   severityBorder='rgba(255,170,0,0.3)'; }
     else                  { severity='WATCH';       severityColor='var(--muted)';  severityBg='rgba(201,216,232,0.05)'; severityBorder='rgba(201,216,232,0.2)'; }
 
+    const govSellerNames = [...new Set(tickerSells.filter(t=>t._isGov).map(t=>t.insider))];
     warnings.push({
       ticker,
       company: tickerSells[0]?.company || ticker,
       score, signals, context, severity, severityColor, severityBg, severityBorder,
       sellerCount, execSellers: execSellers.length,
       totalSellVal, totalBuyVal,
-      sellerNames: sellerNames.slice(0, 5),
-      sellPriceRange: null, // price comparison removed — needs live price data
+      sellerNames: sellerNames.filter(n => !govSellerNames.includes(n)).slice(0, 5),
+      govSellers: govSellerNames,
+      sellPriceRange: null,
       latestSell: [...tickerSells].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0],
       topSignal: signals[0] || '',
     });
@@ -6849,6 +6860,8 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
 
   score = Math.min(100, Math.max(1, Math.round(score)));
 
+  const govBuyersInCluster = clusterBuys.filter(t => t._isGov);
+  const govNames = [...new Set(govBuyersInCluster.map(t => t.insider))];
   return {
     ticker,
     company: clusterBuys[0]?.company || ticker,
@@ -6856,7 +6869,8 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
     signals,
     penalties,
     insiderCount,
-    insiderNames: insiderNames.slice(0, 4),
+    insiderNames: insiderNames.filter(n => !clusterBuys.find(t=>t.insider===n&&t._isGov)).slice(0, 4),
+    govNames,
     execCount,
     daySpan: Math.ceil(daySpan),
     priceSpread: +priceSpread.toFixed(1),
@@ -6894,6 +6908,7 @@ function renderClusterCard(c) {
             <span style="background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Space Mono,monospace;color:var(--buy)">${c.insiderCount} INSIDERS</span>
             <span style="background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Space Mono,monospace;color:var(--accent)">${c.daySpan <= 1 ? 'SAME DAY' : c.daySpan + '-DAY WINDOW'}</span>
             ${c.execCount > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
+            ${c.govNames && c.govNames.length ? `<span style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:#00d4ff">🏛 ${c.govNames.length} GOV</span>` : ''}
             ${c.concurrentSells > 0 ? `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'Space Mono',monospace;color:var(--sell)">⚠ ${c.concurrentSells} SELL${c.concurrentSells>1?'S':''}</span>` : ''}
           </div>
           <div style="font-size:10px;color:var(--muted)">${fmtDate(c.earliestDate)}${c.latestDate !== c.earliestDate ? ` – ${fmtDate(c.latestDate)}` : ''} · avg @${c.avgPrice > 0 ? '$' + c.avgPrice : '—'}</div>
