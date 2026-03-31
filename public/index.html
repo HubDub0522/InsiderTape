@@ -5106,19 +5106,45 @@ function buildGovTiles(govData) {
     .sort((a,b) => val(b)-val(a)).slice(0,3)
     .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${nameG(g)} · ${fmtDate(dateG(g))}`, color:'#ff00ff' }));
 
-  const memberTickers = {};
-  govData.forEach(g => {
-    const key = nameG(g)+'|'+g.ticker;
-    if (!memberTickers[key]) memberTickers[key] = [];
-    memberTickers[key].push(g);
+  // Gov Cluster Buys: 2+ gov officials buying same ticker within 30 days
+  const govBuysByTicker = {};
+  govData.filter(isBuyG).forEach(g => {
+    if (!govBuysByTicker[g.ticker]) govBuysByTicker[g.ticker] = [];
+    govBuysByTicker[g.ticker].push(g);
   });
-  const newPos = Object.values(memberTickers)
-    .filter(arr => arr.length === 1 && isBuyG(arr[0]))
-    .map(arr => arr[0])
-    .sort((a,b) => val(b)-val(a)).slice(0,3)
-    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${nameG(g)} · ${fmtDate(dateG(g))}`, color:'#00d4ff' }));
+  const govClusters = Object.entries(govBuysByTicker)
+    .map(([ticker, arr]) => {
+      // Find densest 30-day window
+      const sorted = [...arr].sort((a,b) => dateG(a).localeCompare(dateG(b)));
+      let best = null;
+      for (let i = 0; i < sorted.length; i++) {
+        const anchor = new Date((dateG(sorted[i])+'T12:00:00Z')).getTime();
+        const window = sorted.filter(g => {
+          const d = new Date((dateG(g)+'T12:00:00Z')).getTime();
+          return d >= anchor && d <= anchor + 30 * 86400000;
+        });
+        const uniqueMembers = new Set(window.map(g => nameG(g)));
+        if (uniqueMembers.size >= 2) {
+          const totalVal = window.reduce((s,g) => s+val(g), 0);
+          if (!best || uniqueMembers.size > best.members.size || totalVal > best.totalVal) {
+            best = { ticker, members: uniqueMembers, window, totalVal,
+              earliest: dateG(window[0]), latest: dateG(window[window.length-1]) };
+          }
+        }
+      }
+      return best;
+    })
+    .filter(Boolean)
+    .sort((a,b) => b.members.size - a.members.size || b.totalVal - a.totalVal)
+    .slice(0,3)
+    .map(c => ({
+      ticker: c.ticker,
+      label: `${c.members.size} officials · ${fmt(c.totalVal)}+`,
+      sub: [...c.members].slice(0,2).join(', ') + (c.members.size > 2 ? ` +${c.members.size-2}` : '') + ' · ' + fmtDate(c.earliest),
+      color: '#00d4ff'
+    }));
 
-  return { buys, sells, newPos };
+  return { buys, sells, govClusters };
 }
 
 function renderAnalysisDashboard() {
@@ -5287,14 +5313,31 @@ function renderAnalysisDashboard() {
     accentBg: 'rgba(255,0,255,0.06)',
     accentBorder: 'rgba(255,0,255,0.25)',
   };
+  // Count gov clusters (2+ officials same ticker in 30d)
+  const _govClusterCount = (() => {
+    const byTicker = {};
+    (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').forEach(g=>{
+      if(!byTicker[g.ticker])byTicker[g.ticker]=[];
+      byTicker[g.ticker].push(g);
+    });
+    return Object.values(byTicker).filter(arr=>{
+      const sorted=[...arr].sort((a,b)=>(a.trade||a.transaction_date||'').localeCompare(b.trade||b.transaction_date||''));
+      for(let i=0;i<sorted.length;i++){
+        const anchor=new Date(((sorted[i].trade||sorted[i].transaction_date||'')+'T12:00:00Z')).getTime();
+        const w=sorted.filter(g=>{const d=new Date(((g.trade||g.transaction_date||'')+'T12:00:00Z')).getTime();return d>=anchor&&d<=anchor+30*86400000;});
+        if(new Set(w.map(g=>g.insider||g.member)).size>=2)return true;
+      }
+      return false;
+    }).length;
+  })();
   const govNewPosTool = {
     id: 'govnewpos',
     icon: '🏛',
-    name: 'Top Gov New Positions',
-    desc: 'Congressional members opening brand-new positions — first recorded purchase of a ticker in our DB. High conviction signal.',
-    count: Object.values((_analysisGovData||[]).reduce((acc,g)=>{const k=g.insider+'|'+g.ticker;if(!acc[k])acc[k]=[];acc[k].push(g);return acc;},{}) ).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').length,
-    countLabel: 'new positions (90d)',
-    top3: _govTiles.newPos,
+    name: 'Gov Cluster Buys',
+    desc: '2+ government officials buying the same ticker within a 30-day window — coordinated congressional conviction signal.',
+    count: _govClusterCount,
+    countLabel: 'cluster signals (90d)',
+    top3: _govTiles.govClusters,
     accentColor: '#00d4ff',
     accentBg: 'rgba(0,212,255,0.06)',
     accentBorder: 'rgba(0,212,255,0.25)',
@@ -5514,10 +5557,57 @@ function renderGovTileSubpage(id) {
     title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 90 days · Sorted by est. amount';
     trades = [...govData.filter(g=>(g.type||g.transaction_type)==='S')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
   } else {
-    title = 'GOV NEW POSITIONS'; icon = '🏛'; subtitle = 'First recorded purchase by this member · Last 90 days';
-    const seen = {};
-    govData.forEach(g=>{const k=g.insider+'|'+g.ticker;if(!seen[k])seen[k]=[];seen[k].push(g);});
-    trades = Object.values(seen).filter(arr=>arr.length===1&&(arr[0].type||arr[0].transaction_type)==='P').map(arr=>arr[0]).sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
+    title = 'GOV CLUSTER BUYS'; icon = '🏛'; subtitle = '2+ gov officials buying same ticker within 30 days · Last 90 days';
+    const govBuysByTickerSub = {};
+    govData.filter(g=>(g.type||g.transaction_type)==='P').forEach(g=>{
+      if(!govBuysByTickerSub[g.ticker])govBuysByTickerSub[g.ticker]=[];
+      govBuysByTickerSub[g.ticker].push(g);
+    });
+    trades = [];
+    const clusterRows = Object.entries(govBuysByTickerSub).map(([ticker, arr]) => {
+      const sorted = [...arr].sort((a,b)=>(a.trade||a.transaction_date||'').localeCompare(b.trade||b.transaction_date||''));
+      let best = null;
+      for(let i=0;i<sorted.length;i++){
+        const anchor=new Date(((sorted[i].trade||sorted[i].transaction_date||'')+'T12:00:00Z')).getTime();
+        const w=sorted.filter(g=>{const d=new Date(((g.trade||g.transaction_date||'')+'T12:00:00Z')).getTime();return d>=anchor&&d<=anchor+30*86400000;});
+        const members=[...new Set(w.map(g=>g.insider||g.member))];
+        if(members.length>=2){
+          const totalVal=w.reduce((s,g)=>s+parseAmountRange(g.amount_range),0);
+          if(!best||members.length>best.members.length||totalVal>best.totalVal)
+            best={ticker,members,window:w,totalVal};
+        }
+      }
+      return best;
+    }).filter(Boolean).sort((a,b)=>b.members.length-a.members.length||b.totalVal-a.totalVal);
+
+    const clusterHtml = clusterRows.length
+      ? '<div style="display:flex;flex-direction:column;gap:10px">' + clusterRows.map(c =>
+          '<div onclick="openTickerFromScreener(' + "'"+c.ticker+"'" + ')" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 18px;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor=\'#00d4ff\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+          + '<div style="display:flex;align-items:center;gap:12px">'
+          + '<div style="font-family:Bebas Neue,sans-serif;font-size:22px;color:var(--accent)">' + c.ticker + '</div>'
+          + '<span style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Space Mono,monospace;color:#00d4ff">🏛 ' + c.members.length + ' OFFICIALS</span>'
+          + '</div>'
+          + '<div style="font-family:Space Mono,monospace;font-size:13px;color:#00d4ff">' + fmt(c.totalVal) + '+</div>'
+          + '</div>'
+          + '<div style="display:flex;flex-direction:column;gap:6px">'
+          + c.window.map(g =>
+              '<div style="display:flex;align-items:center;gap:8px;font-size:11px">'
+              + '<span class="gov-profile-link" data-member="' + escName(g.insider||g.member||'') + '" style="color:#00d4ff;cursor:pointer;flex:1">' + (g.insider||g.member||'—') + '</span>'
+              + '<span style="color:var(--muted)">' + fmtDate(g.trade||g.transaction_date) + '</span>'
+              + '<span style="font-family:Space Mono,monospace;color:#00d4ff">' + fmtAmountRange(g.amount_range) + '</span>'
+              + '</div>'
+            ).join('')
+          + '</div></div>'
+        ).join('') + '</div>'
+      : '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No gov cluster buys found in the last 90 days.</div>';
+
+    body.innerHTML = '<div style="max-width:900px;margin:0 auto;padding:24px 20px">'
+      + backBtn
+      + '<div style="margin-bottom:20px"><div style="font-family:Bebas Neue,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🏛 ' + title + '</div>'
+      + '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + subtitle + '</div></div>'
+      + clusterHtml + '</div>';
+    return;
   }
 
   const rows = trades.map(g => {
