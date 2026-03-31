@@ -4754,16 +4754,33 @@ async function runInsiderSearch() {
   document.getElementById('insiderSearchInput').addEventListener('input',e=>insiderAutocomplete(e.target.value));
   document.getElementById('insiderSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter')runInsiderSearch();});
   try {
-    const trades=await apiFetch('/api/insider?name='+encodeURIComponent(q));
+    const [trades, govResults] = await Promise.all([
+      apiFetch('/api/insider?name='+encodeURIComponent(q)).catch(()=>[]),
+      apiFetch('/api/gov-member-search?q='+encodeURIComponent(q)).catch(()=>[]),
+    ]);
     const area=document.getElementById('insiderResultsArea');
-    if(!trades.length){area.innerHTML=`<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;return;}
+
+    // Build Form 4 insider rows
     const byInsider={};
     trades.forEach(t=>{const k=t.insider||'Unknown';if(!byInsider[k])byInsider[k]={name:k,title:t.title,trades:[],buyVal:0,sellVal:0,tickers:new Set()};byInsider[k].trades.push(t);byInsider[k].tickers.add(t.ticker);if(t.type==='P')byInsider[k].buyVal+=t.value||0;if(t.type==='S'||t.type==='S-')byInsider[k].sellVal+=t.value||0;});
     const insiders=Object.values(byInsider).sort((a,b)=>b.trades.length-a.trades.length);
+
+    // Build gov official rows
+    const govMembers = Array.isArray(govResults) ? [...new Set(govResults.map(r=>r.member).filter(Boolean))] : [];
+
+    if(!insiders.length && !govMembers.length){area.innerHTML=`<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;return;}
+
+    const totalCount = insiders.length + govMembers.length;
+    const govBadge = `<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.12);color:#00d4ff;font-family:Space Mono,monospace;margin-left:6px">GOV</span>`;
+
+    const form4Rows = insiders.map(ins=>`<tr class="insider-profile-link" data-iname="${escName(ins.name)}" data-ititle="${escName(ins.title||'')}" style="cursor:pointer"><td style="font-weight:500;color:var(--text)">${ins.name}</td><td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td><td class="hide-mobile" style="font-family:Space Mono,monospace">${ins.trades.length}</td><td class="hide-mobile" style="font-family:Space Mono,monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td><td style="color:var(--buy);font-family:Space Mono,monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td><td style="color:var(--sell);font-family:Space Mono,monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td><td style="color:var(--accent);font-size:11px">VIEW →</td></tr>`).join('');
+
+    const govRows = govMembers.map(name=>`<tr class="gov-profile-link" data-member="${escName(name)}" style="cursor:pointer"><td style="font-weight:500;color:#00d4ff">${name}${govBadge}</td><td style="color:#00d4ff;font-size:11px">${govResults.find(r=>r.member===name)?.chamber==='H'?'U.S. House':'U.S. Senate'}</td><td class="hide-mobile" style="font-family:Space Mono,monospace;color:var(--muted)">—</td><td class="hide-mobile" style="font-family:Space Mono,monospace;color:var(--accent)">STOCK Act</td><td style="color:var(--muted)">—</td><td style="color:var(--muted)">—</td><td style="color:#00d4ff;font-size:11px">VIEW →</td></tr>`).join('');
+
     area.innerHTML=`
-      <div style="font-family:Bebas Neue,sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">${insiders.length} INSIDER${insiders.length>1?'S':''} FOUND FOR "${q.toUpperCase()}"</div>
+      <div style="font-family:Bebas Neue,sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">${totalCount} RESULT${totalCount>1?'S':''} FOR "${q.toUpperCase()}"</div>
       <div class="table-wrap"><table><thead><tr><th>INSIDER</th><th>TITLE</th><th class="hide-mobile">TRADES</th><th class="hide-mobile">COMPANIES</th><th>TOTAL BOUGHT</th><th>TOTAL SOLD</th><th></th></tr></thead>
-      <tbody>${insiders.map(ins=>`<tr onclick="openInsiderProfileFull('${escName(ins.name)}','${escName(ins.title||'')}')" style="cursor:pointer"><td style="font-weight:500;color:var(--text)">${ins.name}</td><td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td><td class="hide-mobile" style="font-family:'Space Mono',monospace">${ins.trades.length}</td><td class="hide-mobile" style="font-family:'Space Mono',monospace;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td><td style="color:var(--buy);font-family:'Space Mono',monospace">${ins.buyVal?fmt(ins.buyVal):'—'}</td><td style="color:var(--sell);font-family:'Space Mono',monospace">${ins.sellVal?fmt(ins.sellVal):'—'}</td><td style="color:var(--accent);font-size:11px">VIEW →</td></tr>`).join('')}</tbody></table></div>`;
+      <tbody>${govRows}${form4Rows}</tbody></table></div>`;
   } catch(e) { document.getElementById('insiderResultsArea').innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`; }
 }
 
