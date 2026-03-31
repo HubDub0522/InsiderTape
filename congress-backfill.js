@@ -1,5 +1,5 @@
 // 5-year congressional backfill — loops all tickers in trades DB
-// Run: DB_PATH=/var/data/trades.db FMP_API_KEY=your_key node congress-backfill.js
+// Run: DB_PATH=/var/data/trades.db FMP_API_KEY=your_key nohup node congress-backfill.js > /var/data/backfill.log 2>&1 &
 'use strict';
 const https    = require('https');
 const path     = require('path');
@@ -7,8 +7,9 @@ const Database = require('better-sqlite3');
 
 const FMP_KEY  = process.env.FMP_API_KEY;
 const DB_PATH  = process.env.DB_PATH || path.join(__dirname, 'trades.db');
-const DELAY_MS = 350; // ~170 req/min — safe under 300/min Starter limit
+const DELAY_MS = 220;
 const CUTOFF   = '2020-01-01';
+const LOG_PATH = process.env.LOG_PATH || '/var/data/backfill.log';
 
 if (!FMP_KEY) { console.error('FMP_API_KEY not set'); process.exit(1); }
 
@@ -25,6 +26,11 @@ db.exec(`
     UNIQUE(chamber, member, ticker, transaction_type, transaction_date, amount_range)
   )
 `);
+
+// Progress checkpoint — so we can resume if interrupted
+db.exec(`CREATE TABLE IF NOT EXISTS backfill_progress (key TEXT PRIMARY KEY, val TEXT)`);
+const getProgress = db.prepare(`SELECT val FROM backfill_progress WHERE key='last_ticker_idx'`);
+const setProgress = db.prepare(`INSERT OR REPLACE INTO backfill_progress(key,val) VALUES('last_ticker_idx',?)`);
 
 const insert = db.prepare(`
   INSERT OR IGNORE INTO gov_trades
@@ -51,7 +57,6 @@ function fmpGet(endpoint) {
     }).on('error', reject).on('timeout', () => reject(new Error('timeout')));
   });
 }
-
 function processTrades(trades, chamber) {
   if (!Array.isArray(trades)||!trades.length) return 0;
   let n = 0;
@@ -82,20 +87,22 @@ function processTrades(trades, chamber) {
 }
 
 (async () => {
-  // Get ALL tickers ever seen in our DB (not just recent ones)
   const tickers = db.prepare(`
     SELECT DISTINCT ticker FROM trades
     WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
     ORDER BY ticker
   `).all().map(r => r.ticker);
 
-  console.log('Backfilling', tickers.length, 'tickers from', CUTOFF, '→ now');
-  console.log('Estimated time:', Math.round(tickers.length * DELAY_MS * 2 / 60000), 'minutes');
+  // Resume from checkpoint if interrupted
+  const saved = getProgress.get();
+  const startIdx = saved ? parseInt(saved.val) + 1 : 0;
+
+  console.log(new Date().toISOString(), '| Backfill start | tickers:', tickers.length, '| resuming from index:', startIdx);
 
   let total = 0, errors = 0;
   const startTime = Date.now();
 
-  for (let i = 0; i < tickers.length; i++) {
+  for (let i = startIdx; i < tickers.length; i++) {
     const ticker = tickers[i];
     try {
       const [h, s] = await Promise.all([
@@ -104,23 +111,32 @@ function processTrades(trades, chamber) {
       ]);
       const n = processTrades(h, 'H') + processTrades(s, 'S');
       total += n;
-      if (n > 0) process.stdout.write('.');
       await sleep(DELAY_MS);
     } catch(e) {
       errors++;
       await sleep(1000);
     }
 
-    if ((i+1) % 50 === 0) {
+    // Save checkpoint every 25 tickers
+    if ((i+1) % 25 === 0) {
+      setProgress.run(String(i));
+    }
+
+    if ((i+1) % 100 === 0) {
       const elapsed = ((Date.now()-startTime)/60000).toFixed(1);
-      const eta = ((tickers.length-(i+1)) * DELAY_MS * 2 / 60000).toFixed(0);
-      console.log('\n['+elapsed+'min] '+( i+1)+'/'+tickers.length+' tickers | +'+total+' inserted | ~'+eta+'min left');
+      const rate = (i - startIdx + 1) / ((Date.now()-startTime)/60000);
+      const eta = ((tickers.length-(i+1)) / rate).toFixed(0);
+      const dbCount = db.prepare('SELECT COUNT(*) as n FROM gov_trades').get().n;
+      console.log(new Date().toISOString(), '| '+(i+1)+'/'+tickers.length+' | +'+total+' new | DB total:'+dbCount+' | '+elapsed+'min elapsed | ~'+eta+'min left');
     }
   }
 
+  // Clear checkpoint on successful completion
+  db.prepare(`DELETE FROM backfill_progress WHERE key='last_ticker_idx'`).run();
+
   const final = db.prepare('SELECT COUNT(*) as n FROM gov_trades').get();
   const byYear = db.prepare("SELECT substr(transaction_date,1,4) yr, COUNT(*) n FROM gov_trades GROUP BY yr ORDER BY yr DESC").all();
-  console.log('\n✅ Done! New rows:', total, '| Total in DB:', final.n, '| Errors:', errors);
+  console.log(new Date().toISOString(), '| COMPLETE | new rows:', total, '| total in DB:', final.n);
   console.log('By year:', byYear.map(r=>r.yr+':'+r.n).join(', '));
   db.close();
 })();
