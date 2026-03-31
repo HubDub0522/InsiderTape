@@ -4860,7 +4860,18 @@ async function openInsiderProfileFull(name, title, opts={}) {
   body.innerHTML=`<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading ${name}...</span></div>`;
   try {
     const trades=await fetchInsiderByName(name);
-    if(!trades.length){body.innerHTML=`<div class="empty-state" style="height:60vh"><div class="empty-icon">📭</div><div>No trades found for ${name}</div><button class="back-btn" style="margin-top:16px" onclick="insiderLanding()">← Back</button></div>`;return;}
+    if(!trades.length){
+      // No Form 4 trades — check if this is a gov official
+      try {
+        const govCheck = await apiFetch('/api/gov-member?member=' + encodeURIComponent(name));
+        if (govCheck && govCheck.length) {
+          await openGovProfile(name);
+          return;
+        }
+      } catch(e) {}
+      body.innerHTML=`<div class="empty-state" style="height:60vh"><div class="empty-icon">📭</div><div>No trades found for ${name}</div><button class="back-btn" style="margin-top:16px" onclick="insiderLanding()">← Back</button></div>`;
+      return;
+    }
     const wrap=document.createElement('div'); wrap.id='insiderContent'; body.innerHTML=''; body.appendChild(wrap);
     await renderInsiderProfile(name, title, trades, { serverScore: opts.serverScore, serverScoreType: opts.serverScoreType });
   } catch(e) { body.innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div>${e.message}</div></div>`; }
@@ -4871,10 +4882,27 @@ function insiderAutocomplete(val) {
   clearTimeout(_acTimer); const box=document.getElementById('insiderSuggest'); if(!box)return;
   if(!val||val.length<2){box.style.display='none';return;}
   _acTimer=setTimeout(async()=>{
-    try{const trades=await apiFetch('/api/insider?name='+encodeURIComponent(val));const names=[...new Set(trades.map(t=>t.insider).filter(Boolean))].slice(0,8);if(!names.length){box.style.display='none';return;}
-    box.innerHTML=names.map(n=>`<div onclick="document.getElementById('insiderSearchInput').value='${escName(n)}';document.getElementById('insiderSuggest').style.display='none';runInsiderSearch()" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`).join('');box.style.display='block';}catch(e){}
+    try{
+      const [trades, govTrades] = await Promise.all([
+        apiFetch('/api/insider?name='+encodeURIComponent(val)).catch(()=>[]),
+        apiFetch('/api/gov-member-search?q='+encodeURIComponent(val)).catch(()=>[]),
+      ]);
+      const form4Names = [...new Set(trades.map(t=>t.insider).filter(Boolean))].slice(0,5);
+      const govNames = Array.isArray(govTrades) ? [...new Set(govTrades.map(t=>t.member).filter(Boolean))].slice(0,3) : [];
+      if(!form4Names.length && !govNames.length){box.style.display='none';return;}
+      const form4Html = form4Names.map(n=>`<div class="ac-insider-link" data-name="${escName(n)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`).join('');
+      const govHtml = govNames.map(n=>`<div class="ac-gov-link" data-name="${escName(n)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''"><span style="color:#00d4ff">${n}</span><span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.1);color:#00d4ff;font-family:Space Mono,monospace">GOV</span></div>`).join('');
+      box.innerHTML = form4Html + govHtml;
+      box.style.display='block';
+    }catch(e){}
   },280);
 }
+document.addEventListener('click', e => {
+  const acIns = e.target.closest('.ac-insider-link');
+  if (acIns) { const n=acIns.dataset.name; document.getElementById('insiderSearchInput').value=n; document.getElementById('insiderSuggest').style.display='none'; runInsiderSearch(); return; }
+  const acGov = e.target.closest('.ac-gov-link');
+  if (acGov) { const n=acGov.dataset.name; document.getElementById('insiderSuggest').style.display='none'; openGovProfile(n); return; }
+});
 document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput')&&!e.target.closest('#insiderSuggest')){const box=document.getElementById('insiderSuggest');if(box)box.style.display='none';}});
 // Delegated handlers for profile links (avoids inline onclick quote issues)
 document.addEventListener('click', e => {
@@ -9119,6 +9147,13 @@ window.addEventListener('popstate', e => {
     document.getElementById('view-stock').classList.add('active');
     document.getElementById('tickerInput').value = '';
     if (_stockListsCache) { renderStockLanding(_stockListsCache); } else { loadStockLanding(); }
+  } else if (s.view === 'insider' && s.name && s.title === 'Gov Official') {
+    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+    document.getElementById('insiderTab').classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-insider').classList.add('active');
+    openGovProfile(s.name);
+    return;
   } else if (s.view === 'insider' && s.name) {
     document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
     document.getElementById('insiderTab').classList.add('active');
