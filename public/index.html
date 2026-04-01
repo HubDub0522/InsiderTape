@@ -1057,16 +1057,16 @@ function insiderRoleBadge(title) {
   const u = title.toUpperCase();
   // C-suite / senior officers — highest signal value
   if (/\b(CEO|C\.E\.O|CHIEF EXECUTIVE)\b/.test(u))
-    return '<span title="CEO — highest signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:'Barlow Condensed',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">CEO</span>';
+    return '<span title="CEO — highest signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:\'Barlow Condensed\',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">CEO</span>';
   if (/\b(CFO|C\.F\.O|CHIEF FINANCIAL)\b/.test(u))
-    return '<span title="CFO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:'Barlow Condensed',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">CFO</span>';
+    return '<span title="CFO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:\'Barlow Condensed\',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">CFO</span>';
   if (/\b(COO|C\.O\.O|CHIEF OPERATING)\b/.test(u))
-    return '<span title="COO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:'Barlow Condensed',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">COO</span>';
+    return '<span title="COO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:\'Barlow Condensed\',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">COO</span>';
   if (/\b(CHAIRMAN|FOUNDER|PRESIDENT)\b/.test(u) && !/VICE PRESIDENT|VP/.test(u))
-    return '<span title="Senior executive — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:'Barlow Condensed',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">EXEC</span>';
+    return '<span title="Senior executive — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:\'Barlow Condensed\',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">EXEC</span>';
   // Directors — moderate signal, noted but not highlighted
   if (/\bDIRECTOR\b/.test(u))
-    return '<span title="Director — moderate signal (non-executive)" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(100,120,160,0.1);border:1px solid rgba(100,120,160,0.25);border-radius:3px;font-size:9px;color:#8899aa;font-family:'IBM Plex Mono',monospace;cursor:default">DIR</span>';
+    return '<span title="Director — moderate signal (non-executive)" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(100,120,160,0.1);border:1px solid rgba(100,120,160,0.25);border-radius:3px;font-size:9px;color:#8899aa;font-family:\'IBM Plex Mono\',monospace;cursor:default">DIR</span>';
   return '';
 }
 
@@ -1079,7 +1079,7 @@ function insiderOwnershipPct(t) {
     if (pct < 0.5) return ''; // too small to be meaningful
     const color = t.type === 'P' ? 'var(--buy)' : 'var(--sell)';
     const label = pct >= 100 ? '>100' : pct.toFixed(pct >= 10 ? 0 : 1);
-    return `<span title="${t.type==='P'?'Buy':'Sale'} = ${label}% of position" style="display:block;font-size:9px;color:${color};font-family:'IBM Plex Mono',monospace;margin-top:1px">${t.type==='P'?'+':'−'}${label}% pos</span>`;
+    return `<span title="${t.type==='P'?'Buy':'Sale'} = ${label}% of position" style="display:block;font-size:9px;color:${color};font-family:\'IBM Plex Mono\',monospace;margin-top:1px">${t.type==='P'?'+':'−'}${label}% pos</span>`;
   } catch(_) { return ''; }
 }
 function showToast(msg, isError=false) {
@@ -1711,7 +1711,7 @@ function renderScreener() {
       <td><span style="font-family:'IBM Plex Mono',monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${edgarLink}</td>
       <td class="ticker-cell">${t.ticker}</td>
       <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:transparent;border:1px solid var(--border2);border-radius:0;font-size:9px;color:var(--muted);font-family:\'Barlow Condensed\',sans-serif;letter-spacing:0.1em;text-transform:uppercase;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:'IBM Plex Mono',monospace;cursor:default">10b5-1</span>':''}</td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:\'IBM Plex Mono\',monospace;cursor:default">10b5-1</span>':''}</td>
       <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace">${fmtShares(t.qty)}</td>
       <td class="hide-mobile" style="font-family:'IBM Plex Mono',monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:'IBM Plex Mono',monospace">${fmt(t.value)}</td>
@@ -2155,17 +2155,17 @@ function _renderProximityResults(body, backBtn, results) {
       <div onclick="proxFilter('abnormal')" id="proxTile-abnormal" style="background:rgba(255,68,102,0.06);border:1px solid rgba(255,68,102,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,68,102,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(255,68,102,0.2)'">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--sell)">${abnormal.length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Abnormal flags</div>
-        ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:'IBM Plex Mono',monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">C-suite ≤30d</div>'}
+        ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:\'IBM Plex Mono\',monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">C-suite ≤30d</div>'}
       </div>
       <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(255,170,0,0.06);border:1px solid rgba(255,170,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,170,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(255,170,0,0.2)'">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=21).length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Within 21 days</div>
-        ${results.filter(r=>r.daysTo<=21).length ? '<div style="font-size:9px;color:var(--option);margin-top:4px;font-family:'IBM Plex Mono',monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">≤21d to earnings</div>'}
+        ${results.filter(r=>r.daysTo<=21).length ? '<div style="font-size:9px;color:var(--option);margin-top:4px;font-family:\'IBM Plex Mono\',monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">≤21d to earnings</div>'}
       </div>
       <div onclick="proxFilter('repeat')" id="proxTile-repeat" style="background:rgba(26,18,8,0.04);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='var(--border2)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='var(--border)'">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--accent)">${results.filter(r=>r.repeatPattern).length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Repeat patterns</div>
-        ${results.filter(r=>r.repeatPattern).length ? '<div style="font-size:9px;color:var(--accent);margin-top:4px;font-family:'IBM Plex Mono',monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">Bought before prior events</div>'}
+        ${results.filter(r=>r.repeatPattern).length ? '<div style="font-size:9px;color:var(--accent);margin-top:4px;font-family:\'IBM Plex Mono\',monospace">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">Bought before prior events</div>'}
       </div>
       <div onclick="proxFilter('all')" id="proxTile-all" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s;border-color:var(--accent)" class="prox-active" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='var(--border)'">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:700;color:var(--text)">${results.length}</div>
@@ -3393,7 +3393,7 @@ function renderSidebarTrades(trades, govData=[]) {
       + '<div class="trade-card-top"><span class="trade-type-label" style="background:' + (tc==='buy'?'rgba(26,18,8,0.08)':'rgba(139,26,26,0.08)') + ';color:' + (tc==='buy'?'var(--accent)':'var(--sell)') + ';border-color:' + (tc==='buy'?'rgba(139,26,26,0.3)':'rgba(139,26,26,0.3)') + '">' + (tc==='buy'?'Gov Buy':'Gov Sale') + '</span><span class="trade-date">' + fmtDate(g.transaction_date) + '</span></div>'
       + '<div style="display:flex;gap:5px;align-items:center;margin-bottom:2px">'
       + '<div class="trade-insider insider-name-link" class="gov-profile-link" style="flex:1" data-member="' + escName(g.member) + '">' + (g.member||'—') + '</div>'
-      + '<span style="font-size:8px;padding:1px 5px;border-radius:2px;background:rgba(26,18,8,0.06);color:var(--accent);font-family:'IBM Plex Mono',monospace;letter-spacing:0.5px;white-space:nowrap">GOV OFFICIAL</span>'
+      + '<span style="font-size:8px;padding:1px 5px;border-radius:2px;background:rgba(26,18,8,0.06);color:var(--accent);font-family:\'IBM Plex Mono\',monospace;letter-spacing:0.5px;white-space:nowrap">GOV OFFICIAL</span>'
       + '</div>'
       + '<div class="trade-role">' + (g.chamber==='H'?'U.S. House':'U.S. Senate') + (g.owner&&g.owner!=='Self'?' · '+g.owner:'') + '</div>'
       + '<div class="trade-numbers">'
@@ -3408,7 +3408,7 @@ function renderSidebarTrades(trades, govData=[]) {
       return '<div style="position:relative;margin-bottom:8px">'
         + '<div style="filter:blur(4px);pointer-events:none;user-select:none">' + card + '</div>'
         + '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,11,15,0.5);border-radius:6px">'
-        + '<button onclick="showPremiumOverlay(\'Gov Official Trades\')" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:7px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:1px">🔒 GOV OFFICIAL · PREMIUM</button>'
+        + '<button onclick="showPremiumOverlay(\'Gov Official Trades\')" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:7px 14px;font-family:\'IBM Plex Mono\',monospace;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:1px">🔒 GOV OFFICIAL · PREMIUM</button>'
         + '</div></div>';
     }
     return card;
@@ -3461,7 +3461,7 @@ function renderSidebarSummary(trades) {
       </div>
     </div>
     <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
-    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
+    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:\'IBM Plex Mono\',monospace;font-size:12px;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
 }
 function renderStockTradesTable(trades, govData=[]) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
@@ -3471,18 +3471,18 @@ function renderStockTradesTable(trades, govData=[]) {
   const govRows = govData.map(g => {
     const tc = g.transaction_type==='P'?'buy':'sell';
     const valClass = tc==='buy'?'val-positive':'val-negative';
-    const govBadge = '<span style="font-size:8px;padding:1px 5px;border-radius:2px;background:rgba(26,18,8,0.06);color:var(--accent);font-family:'IBM Plex Mono',monospace;margin-left:4px">GOV</span>';
+    const govBadge = '<span style="font-size:8px;padding:1px 5px;border-radius:2px;background:rgba(26,18,8,0.06);color:var(--accent);font-family:\'IBM Plex Mono\',monospace;margin-left:4px">GOV</span>';
     const row = '<tr style="opacity:0.92">'
-      + '<td style="font-family:'IBM Plex Mono',monospace;font-size:11px">' + fmtDate(g.transaction_date) + '</td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace;font-size:11px">' + fmtDate(g.transaction_date) + '</td>'
       + '<td><span class="insider-name-link" class="gov-profile-link" data-member="' + escName(g.member) + '">' + (g.member||'—') + '</span>' + govBadge + '</td>'
       + '<td style="color:var(--accent);font-size:11px">' + (g.chamber==='H'?'House':'Senate') + '</td>'
-      + '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;font-family:'IBM Plex Mono',monospace;letter-spacing:0.5px;background:' + (tc==='buy'?'rgba(26,18,8,0.08)':'rgba(139,26,26,0.08)') + ';color:' + (tc==='buy'?'var(--accent)':'var(--sell)') + ';border:1px solid ' + (tc==='buy'?'rgba(139,26,26,0.3)':'rgba(139,26,26,0.3)') + '">' + (tc==='buy'?'Gov Buy':'Gov Sale') + '</span></td>'
-      + '<td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">—</td>'
-      + '<td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">—</td>'
-      + '<td class="' + valClass + '" style="font-family:'IBM Plex Mono',monospace">' + fmtAmountRange(g.amount_range) + '</td>'
+      + '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;font-family:\'IBM Plex Mono\',monospace;letter-spacing:0.5px;background:' + (tc==='buy'?'rgba(26,18,8,0.08)':'rgba(139,26,26,0.08)') + ';color:' + (tc==='buy'?'var(--accent)':'var(--sell)') + ';border:1px solid ' + (tc==='buy'?'rgba(139,26,26,0.3)':'rgba(139,26,26,0.3)') + '">' + (tc==='buy'?'Gov Buy':'Gov Sale') + '</span></td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace;color:var(--muted)">—</td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace;color:var(--muted)">—</td>'
+      + '<td class="' + valClass + '" style="font-family:\'IBM Plex Mono\',monospace">' + fmtAmountRange(g.amount_range) + '</td>'
       + '<td style="color:var(--muted)">—</td>'
       + '<td style="font-size:10px;color:var(--muted)">'
-      + (g.filing_url ? '<a href="' + g.filing_url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:9px;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">FILING ↗</a>' : '')
+      + (g.filing_url ? '<a href="' + g.filing_url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--muted);font-family:\'IBM Plex Mono\',monospace;font-size:9px;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">FILING ↗</a>' : '')
       + '</td></tr>';
     const sevenDaysAgoT = new Date(); sevenDaysAgoT.setDate(sevenDaysAgoT.getDate()-7);
     const tradeDateT = new Date((g.transaction_date||'')+'T12:00:00Z');
@@ -3492,7 +3492,7 @@ function renderStockTradesTable(trades, govData=[]) {
         + '<div style="position:relative">'
         + '<div style="filter:blur(3px);pointer-events:none;user-select:none"><table style="width:100%"><tbody>' + row + '</tbody></table></div>'
         + '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">'
-        + '<button onclick="showPremiumOverlay(\'Gov Official Trades\')" style="background:var(--accent);color:#000;border:none;border-radius:5px;padding:5px 12px;font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:700;cursor:pointer">🔒 GOV OFFICIAL · PREMIUM</button>'
+        + '<button onclick="showPremiumOverlay(\'Gov Official Trades\')" style="background:var(--accent);color:#000;border:none;border-radius:5px;padding:5px 12px;font-family:\'IBM Plex Mono\',monospace;font-size:9px;font-weight:700;cursor:pointer">🔒 GOV OFFICIAL · PREMIUM</button>'
         + '</div></div></td></tr>';
     }
     return row;
@@ -3501,19 +3501,19 @@ function renderStockTradesTable(trades, govData=[]) {
   // Form 4 rows
   const form4Rows = trades.map(t => {
     const secLink = t.accession
-      ? '<a href="https://www.sec.gov/Archives/edgar/data/' + parseInt(t.accession.split('-')[0]) + '/' + t.accession.replace(/-/g,'') + '/' + t.accession + '-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>'
+      ? '<a href="https://www.sec.gov/Archives/edgar/data/' + parseInt(t.accession.split('-')[0]) + '/' + t.accession.replace(/-/g,'') + '/' + t.accession + '-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>'
       : '';
     return { date: t.trade||t.filing||'', html:
       '<tr>'
-      + '<td style="font-family:'IBM Plex Mono',monospace;font-size:11px">' + fmtDate(t.trade||t.filing) + '</td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace;font-size:11px">' + fmtDate(t.trade||t.filing) + '</td>'
       + '<td><span class="insider-name-link insider-profile-link" data-iname="' + escName(t.insider||'') + '" data-ititle="' + escName(t.title||'') + '">' + (t.insider||'—') + '</span>' + insiderRoleBadge(t.title||'') + '</td>'
       + '<td style="color:var(--muted);font-size:12px">' + (t.title||'') + '</td>'
       + '<td><span class="badge ' + badgeClass(t.type) + '">' + tradeLabel(t.type) + '</span></td>'
-      + '<td style="font-family:'IBM Plex Mono',monospace">' + fmtShares(t.qty) + '</td>'
-      + '<td style="font-family:'IBM Plex Mono',monospace">$' + (t.price||0).toFixed(2) + '</td>'
-      + '<td class="' + (tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral') + '" style="font-family:'IBM Plex Mono',monospace">' + fmt(t.value) + '</td>'
-      + '<td style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">' + fmtShares(t.owned) + insiderOwnershipPct(t) + '</td>'
-      + '<td style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">' + fmtDate(t.filing) + '<br>' + secLink + '</td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace">' + fmtShares(t.qty) + '</td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace">$' + (t.price||0).toFixed(2) + '</td>'
+      + '<td class="' + (tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral') + '" style="font-family:\'IBM Plex Mono\',monospace">' + fmt(t.value) + '</td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace;color:var(--muted)">' + fmtShares(t.owned) + insiderOwnershipPct(t) + '</td>'
+      + '<td style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--muted)">' + fmtDate(t.filing) + '<br>' + secLink + '</td>'
       + '</tr>'
     };
   });
@@ -4823,22 +4823,22 @@ async function openGovProfile(name) {
     body.innerHTML = '<div id="insiderContent" style="max-width:900px;margin:0 auto;padding:24px 20px">'
       + '<button class="back-btn" onclick="insiderLanding()" style="margin-bottom:20px">← Back</button>'
       + '<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">'
-      + '<div style="width:52px;height:52px;border-radius:0;background:var(--text);border:1px solid var(--text);display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-weight:900;font-size:20px;color:var(--text)">' + initials + '</div>'
-      + '<div><div style="font-family:'Playfair Display',serif;font-size:26px;letter-spacing:2px;color:var(--text)">' + name + '</div>'
+      + '<div style="width:52px;height:52px;border-radius:0;background:var(--text);border:1px solid var(--text);display:flex;align-items:center;justify-content:center;font-family:\'Playfair Display\',serif;font-weight:900;font-size:20px;color:var(--text)">' + initials + '</div>'
+      + '<div><div style="font-family:\'Playfair Display\',serif;font-size:26px;letter-spacing:2px;color:var(--text)">' + name + '</div>'
       + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
-      + '<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:rgba(26,18,8,0.06);color:var(--accent);font-family:'IBM Plex Mono',monospace">GOV OFFICIAL</span>'
+      + '<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:rgba(26,18,8,0.06);color:var(--accent);font-family:\'IBM Plex Mono\',monospace">GOV OFFICIAL</span>'
       + '<span style="font-size:11px;color:var(--muted)">' + chamber + '</span>'
       + '</div></div></div>'
       + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:24px">'
-      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;letter-spacing:1px;margin-bottom:4px">TOTAL TRADES</div><div style="font-size:20px;font-weight:600;color:var(--text)">' + trades.length + '</div></div>'
-      + '<div style="background:var(--bg2);border:1px solid rgba(0,255,136,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;letter-spacing:1px;margin-bottom:4px">EST. BUYS</div><div style="font-size:20px;font-weight:600;color:var(--buy)">' + fmt(buyVal) + '</div></div>'
-      + '<div style="background:var(--bg2);border:1px solid rgba(255,68,102,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;letter-spacing:1px;margin-bottom:4px">EST. SELLS</div><div style="font-size:20px;font-weight:600;color:var(--sell)">' + fmt(sellVal) + '</div></div>'
-      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;letter-spacing:1px;margin-bottom:4px">NET POSITION</div><div style="font-size:20px;font-weight:600;color:' + (netVal>=0?'var(--buy)':'var(--sell)') + '">' + (netVal>=0?'+':'') + fmt(Math.abs(netVal)) + '</div></div>'
+      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;letter-spacing:1px;margin-bottom:4px">TOTAL TRADES</div><div style="font-size:20px;font-weight:600;color:var(--text)">' + trades.length + '</div></div>'
+      + '<div style="background:var(--bg2);border:1px solid rgba(0,255,136,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;letter-spacing:1px;margin-bottom:4px">EST. BUYS</div><div style="font-size:20px;font-weight:600;color:var(--buy)">' + fmt(buyVal) + '</div></div>'
+      + '<div style="background:var(--bg2);border:1px solid rgba(255,68,102,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;letter-spacing:1px;margin-bottom:4px">EST. SELLS</div><div style="font-size:20px;font-weight:600;color:var(--sell)">' + fmt(sellVal) + '</div></div>'
+      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;letter-spacing:1px;margin-bottom:4px">NET POSITION</div><div style="font-size:20px;font-weight:600;color:' + (netVal>=0?'var(--buy)':'var(--sell)') + '">' + (netVal>=0?'+':'') + fmt(Math.abs(netVal)) + '</div></div>'
       + '</div>'
-      + '<div style="font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:16px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:0">Statistics reflect the last 5 years of available STOCK Act disclosures and may not represent the member\'s complete trading history.</div>'
+      + '<div style="font-size:10px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;margin-bottom:16px;padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:0">Statistics reflect the last 5 years of available STOCK Act disclosures and may not represent the member\'s complete trading history.</div>'
       + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">'
       + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">'
-      + '<div style="font-family:'Playfair Display',serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">HOLDINGS TRADED</div><div style="font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:10px">Last 5 years</div>'
+      + '<div style="font-family:\'Playfair Display\',serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">HOLDINGS TRADED</div><div style="font-size:10px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;margin-bottom:10px">Last 5 years</div>'
       + tickerList.slice(0,8).map(t=>{
           const total=t.buyVal+t.sellVal||1;
           return '<div data-ticker="' + t.ticker + '" class="gov-ticker-link" style="margin-bottom:8px;cursor:pointer">'
@@ -4853,7 +4853,7 @@ async function openGovProfile(name) {
         }).join('')
       + '</div>'
       + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">'
-      + '<div style="font-family:'Playfair Display',serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">RECENT TRADES</div><div style="font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:10px">Last 5 years · Most recent first</div>'
+      + '<div style="font-family:\'Playfair Display\',serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">RECENT TRADES</div><div style="font-size:10px;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;margin-bottom:10px">Last 5 years · Most recent first</div>'
       + trades.slice(0,10).map(t=>{
           const isBuy=t.transaction_type==='P';
           return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">'
@@ -5631,17 +5631,17 @@ function renderGovTileSubpage(id) {
           '<div onclick="openTickerFromScreener(' + "'"+c.ticker+"'" + ')" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 18px;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
           + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
           + '<div style="display:flex;align-items:center;gap:12px">'
-          + '<div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--accent)">' + c.ticker + '</div>'
-          + '<span style="background:rgba(26,18,8,0.06);border:1px solid var(--border2);border-radius:0;padding:2px 8px;font-size:10px;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.08em;color:var(--muted)">🏛 ' + c.members.length + ' OFFICIALS</span>'
+          + '<div style="font-family:\'Playfair Display\',serif;font-size:22px;color:var(--accent)">' + c.ticker + '</div>'
+          + '<span style="background:rgba(26,18,8,0.06);border:1px solid var(--border2);border-radius:0;padding:2px 8px;font-size:10px;font-family:\'Barlow Condensed\',sans-serif;letter-spacing:0.08em;color:var(--muted)">🏛 ' + c.members.length + ' OFFICIALS</span>'
           + '</div>'
-          + '<div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--accent)">' + fmt(c.totalVal) + '+</div>'
+          + '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:13px;color:var(--accent)">' + fmt(c.totalVal) + '+</div>'
           + '</div>'
           + '<div style="display:flex;flex-direction:column;gap:6px">'
           + c.window.map(g =>
               '<div style="display:flex;align-items:center;gap:8px;font-size:11px">'
               + '<span class="gov-profile-link" data-member="' + escName(g.insider||g.member||'') + '" style="color:var(--accent);cursor:pointer;flex:1">' + (g.insider||g.member||'—') + '</span>'
               + '<span style="color:var(--muted)">' + fmtDate(g.trade||g.transaction_date) + '</span>'
-              + '<span style="font-family:'IBM Plex Mono',monospace;color:var(--accent)">' + fmtAmountRange(g.amount_range) + '</span>'
+              + '<span style="font-family:\'IBM Plex Mono\',monospace;color:var(--accent)">' + fmtAmountRange(g.amount_range) + '</span>'
               + '</div>'
             ).join('')
           + '</div></div>'
@@ -5650,7 +5650,7 @@ function renderGovTileSubpage(id) {
 
     body.innerHTML = '<div style="max-width:900px;margin:0 auto;padding:24px 20px">'
       + backBtn
-      + '<div style="margin-bottom:20px"><div style="font-family:'Playfair Display',serif;font-size:24px;font-weight:900;color:var(--text)">🏛 ' + title + '</div>'
+      + '<div style="margin-bottom:20px"><div style="font-family:\'Playfair Display\',serif;font-size:24px;font-weight:900;color:var(--text)">🏛 ' + title + '</div>'
       + '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + subtitle + '</div></div>'
       + clusterHtml + '</div>';
     return;
@@ -6251,7 +6251,7 @@ function renderRankerCard(r, idx) {
       </div>
       <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">MAX STAKE Δ</div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:700;color:${r.max_stake_pct >= 20 ? 'var(--buy)' : 'var(--text)'}">${r.max_stake_pct > 0 ? '+' + r.max_stake_pct + '%' : '—'}</div>
+        <div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;font-weight:700;color:${r.max_stake_pct >= 20 ? 'var(--buy)' : 'var(--text)'}">${r.max_stake_pct > 0 ? '+' + r.max_stake_pct + '%' : '—'}</div>
       </div>
       ${priceBlock}
       <div style="padding:10px 14px;flex:1;min-width:80px">
@@ -7042,7 +7042,7 @@ function renderClusterCard(c) {
         <div style="display:flex;flex-direction:column;gap:4px">
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <span style="background:rgba(44,94,26,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--buy)">${c.insiderCount} INSIDERS</span>
-            <span style="background:rgba(26,18,8,0.06);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--accent)">${c.daySpan <= 1 ? 'SAME DAY' : c.daySpan + '-DAY WINDOW'}</span>
+            <span style="background:rgba(26,18,8,0.06);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-size:10px;font-family:\'IBM Plex Mono\',monospace;color:var(--accent)">${c.daySpan <= 1 ? 'SAME DAY' : c.daySpan + '-DAY WINDOW'}</span>
             ${c.execCount > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
             ${c.govNames && c.govNames.length ? `<span style="background:rgba(26,18,8,0.06);border:1px solid var(--border2);border-radius:0;padding:2px 8px;font-size:10px;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.08em;color:var(--muted)">🏛 ${c.govNames.length} GOV</span>` : ''}
             ${c.concurrentSells > 0 ? `<span style="background:rgba(139,26,26,0.08);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--sell)">⚠ ${c.concurrentSells} SELL${c.concurrentSells>1?'S':''}</span>` : ''}
@@ -7250,7 +7250,7 @@ function renderSectorsPage(data) {
               <div style="background:var(--bg3);border-radius:3px;height:8px;overflow:hidden">
                 <div style="width:${barW}%;height:100%;background:${isBuy?'var(--buy)':'var(--sell)'};border-radius:3px;transition:width .4s"></div>
               </div>
-              <div style="font-size:11px;font-family:'IBM Plex Mono',monospace;color:${isBuy?'var(--buy)':'var(--sell)'};text-align:right">${isBuy?'+':''}${fmtSector(net)}</div>
+              <div style="font-size:11px;font-family:\'IBM Plex Mono\',monospace;color:${isBuy?'var(--buy)':'var(--sell)'};text-align:right">${isBuy?'+':''}${fmtSector(net)}</div>
             </div>`;
         }).join('')}
       </div>
@@ -9011,7 +9011,7 @@ function renderSentimentGauge(s) {
         </div>
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-size:9px;color:var(--muted);font-family:'IBM Plex Mono',monospace;letter-spacing:1px;margin-bottom:6px">NET DOLLAR FLOW</div>
-          <div style="font-size:16px;font-family:'IBM Plex Mono',monospace;color:${s.netFlow>=0?'var(--buy)':'var(--sell)'};font-weight:700">${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
+          <div style="font-size:16px;font-family:\'IBM Plex Mono\',monospace;color:${s.netFlow>=0?'var(--buy)':'var(--sell)'};font-weight:700">${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px">Net: ${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
         </div>
       </div>
@@ -9619,7 +9619,7 @@ function renderAuthHeader() {
   if (auth.loggedIn) {
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px">
-        ${auth.isPremium ? '<span style="font-size:9px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 6px;font-family:'IBM Plex Mono',monospace">PREMIUM</span>' : ''}
+        ${auth.isPremium ? '<span style="font-size:9px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 6px;font-family:\'IBM Plex Mono\',monospace">PREMIUM</span>' : ''}
         <button onclick="switchView('account',null)" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);cursor:pointer;letter-spacing:0.5px">ACCOUNT</button>
       </div>`;
   } else {
@@ -10491,7 +10491,7 @@ function renderAlertPrefs(p) {
     <!-- Alerts on/off -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
       <div>
-        <div style="font-size:13px;color:var(--text);font-weight:600">Alerts ${enabled ? '<span style="font-size:10px;color:var(--accent);margin-left:6px;font-family:'IBM Plex Mono',monospace">ON</span>' : '<span style="font-size:10px;color:var(--muted);margin-left:6px;font-family:'IBM Plex Mono',monospace">OFF</span>'}</div>
+        <div style="font-size:13px;color:var(--text);font-weight:600">Alerts ${enabled ? '<span style="font-size:10px;color:var(--accent);margin-left:6px;font-family:\'IBM Plex Mono\',monospace">ON</span>' : '<span style="font-size:10px;color:var(--muted);margin-left:6px;font-family:\'IBM Plex Mono\',monospace">OFF</span>'}</div>
 
       </div>
       <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:${enabled?'var(--accent)':'#1e2d3d'};cursor:pointer;position:relative;transition:background 0.2s">
