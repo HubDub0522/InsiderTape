@@ -1279,6 +1279,44 @@ app.get('/api/gov-debug', (req, res) => {
   } catch(e) { res.json({ error: e.message }); }
 });
 
+app.get('/api/search', (req, res) => {
+  const q = (req.query.q || '').trim().toUpperCase();
+  if (!q || q.length < 1) return res.json({ tickers: [], insiders: [], gov: [] });
+  try {
+    // Tickers
+    const tickers = db.prepare(`
+      SELECT ticker, MAX(company) AS company,
+        MAX(CASE WHEN type='P' THEN fmt_value END) AS lastTrade
+      FROM trades
+      WHERE ticker LIKE ? AND ticker GLOB '[A-Z]*'
+      GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 6
+    `).all(q + '%').map(r => ({ ticker: r.ticker, company: r.company || '', lastTrade: null }));
+
+    // Insiders — search by name
+    const insiderRows = db.prepare(`
+      SELECT insider AS name, MAX(title) AS title,
+        GROUP_CONCAT(DISTINCT ticker) AS tickers
+      FROM trades
+      WHERE insider LIKE ? AND insider IS NOT NULL
+      GROUP BY insider ORDER BY COUNT(*) DESC LIMIT 5
+    `).all('%' + q.toLowerCase() + '%');
+    const insiders = insiderRows.map(r => ({
+      name: r.name,
+      title: r.title || '',
+      tickers: (r.tickers || '').split(',').slice(0,3).join(', ')
+    }));
+
+    // Gov officials
+    const govRows = db.prepare(`
+      SELECT DISTINCT member, chamber FROM gov_trades
+      WHERE member LIKE ? COLLATE NOCASE LIMIT 4
+    `).all('%' + q + '%');
+    const gov = govRows.map(r => ({ member: r.member, chamber: r.chamber }));
+
+    res.json({ tickers, insiders, gov });
+  } catch(e) { res.json({ tickers: [], insiders: [], gov: [] }); }
+});
+
 app.get('/api/gov-member-search', (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q || q.length < 2) return res.json([]);
