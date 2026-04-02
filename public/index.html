@@ -924,7 +924,7 @@
               <th onclick="sortTable('shares')" class="hide-mobile">SHARES <span class="sort-arrow">↕</span></th>
               <th onclick="sortTable('price')" class="hide-mobile" title="Price per share as reported on SEC Form 4 — reflects the actual execution price on the transaction date, not the current market price"><span style="border-bottom:1px dashed var(--muted);cursor:help">PRICE</span> <span class="sort-arrow">↕</span></th>
               <th onclick="sortTable('value')">VALUE <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('owned')" class="hide-mobile" title="Shares owned after transaction as reported on Form 4 — may reflect direct holdings only; indirect holdings (trusts, family) are reported separately on the filing"><span style="border-bottom:1px dashed var(--muted);cursor:help">OWNED AFTER</span> <span class="sort-arrow">↕</span></th>
+              <th style="width:28px"></th>
             </tr>
           </thead>
           <tbody id="screenerBody">
@@ -1481,7 +1481,7 @@ async function loadScreener() {
     } catch(e) { /* gov fetch failed silently */ }
 
     if (!trades.length) {
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
     }
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
@@ -1517,14 +1517,14 @@ async function loadScreener() {
       const tfMsg = state.tickerFilter.size > 0
         ? `No filings found for ${[...state.tickerFilter].join(', ')} in this window`
         : 'No filings match your filters';
-      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📭</div><div>${tfMsg}</div></div></td></tr>`;
+      document.getElementById('screenerBody').innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📭</div><div>${tfMsg}</div></div></td></tr>`;
       return;
     }
     state.screenerData = trades;
     state.currentPage = 1;
     renderScreener();
   } catch(e) {
-    document.getElementById('screenerBody').innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load data: ${e.message}</div><button onclick="loadScreener()" style="margin-top:10px;padding:6px 16px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:4px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ RETRY</button></div></td></tr>`;
+    document.getElementById('screenerBody').innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">Could not load data: ${e.message}</div><button onclick="loadScreener()" style="margin-top:10px;padding:6px 16px;background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.3);border-radius:4px;color:var(--sell);cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">↺ RETRY</button></div></td></tr>`;
   }
 }
 
@@ -1666,7 +1666,7 @@ function renderScreener() {
   const page = sorted.slice(start, start+state.pageSize);
   const pages = Math.ceil(sorted.length/state.pageSize);
   const tbody = document.getElementById('screenerBody');
-  if (!page.length) { tbody.innerHTML=`<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
+  if (!page.length) { tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
   const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);
   try { tbody.innerHTML = page.map(t => {
     if (t._isGov) {
@@ -1703,21 +1703,23 @@ function renderScreener() {
       }
       return row;
     }
-    // Regular Form 4 row
-    const edgarLink = t.accession
-      ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="View SEC EDGAR filing" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:'Space Mono',monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>`
+    // Regular Form 4 row with expandable dropdown
+    const srid = 'scr' + Math.random().toString(36).slice(2,8);
+    const secUrl = t.accession
+      ? `https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm`
       : '';
+    const detailRow = `<tr id="${srid}d" style="display:none"><td colspan="8" style="padding:0"><div style="background:rgba(0,212,255,0.03);border-top:1px solid var(--border);padding:12px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px 24px"><div><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:3px">OWNED AFTER</div><div style="font-size:12px;color:var(--text);font-family:Space Mono,monospace">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</div></div><div><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:3px">FILING DATE</div><div style="font-size:12px;color:var(--text);font-family:Space Mono,monospace">${fmtDate(t.filing)}</div></div><div><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:3px">SEC FILING</div><div style="font-size:12px">${secUrl ? `<a href="${secUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-family:Space Mono,monospace;font-size:10px;text-decoration:none">View SEC Filing</a>` : '<span style="color:var(--muted)">No filing link</span>'}</div></div></div></td></tr>`;
     return `
-    <tr onclick="openTickerFromScreener('${t.ticker}')">
-      <td><span style="font-family:Space Mono,monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span><span style="font-family:Space Mono,monospace;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${edgarLink}</td>
+    <tr id="${srid}" style="cursor:pointer" onclick="(function(){if(event.target.closest('.insider-name-link')||event.target.closest('a'))return;var d=document.getElementById('${srid}d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#${srid} .sra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();})()">
+      <td style="width:28px;text-align:center"><span class="sra" style="display:inline-block;color:var(--muted);font-size:10px;transition:transform .15s">&#9658;</span></td>
+      <td><span style="font-family:Space Mono,monospace;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
       <td class="ticker-cell">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span title="Government Official" style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px;cursor:default">🏛 GOV OFFICIAL</span>':''}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span title="Rule 10b5-1 pre-scheduled plan sale" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace;cursor:default">10b5-1</span>':''}</td>
+      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Space Mono\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Space Mono,monospace">10b5-1</span>':''}</td>
       <td class="hide-mobile" style="font-family:Space Mono,monospace">${fmtShares(t.qty)}</td>
       <td class="hide-mobile" style="font-family:Space Mono,monospace">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Space Mono,monospace">${fmt(t.value)}</td>
-      <td class="hide-mobile" style="font-family:Space Mono,monospace;color:var(--muted)">${fmtShares(t.owned)}${insiderOwnershipPct(t)}</td>
-    </tr>`;
+    </tr>${detailRow}`;
   }).join(''); } catch(e) { console.error('Screener render error:', e); }
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
@@ -2537,8 +2539,9 @@ async function loadStockView(ticker, opts={}) {
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>TRADE DATE</th><th>INSIDER</th><th>TITLE</th><th>TYPE</th>
-              <th>SHARES</th><th>PRICE</th><th>VALUE</th><th>OWNED AFTER</th><th>FILING DATE</th>
+              <th style="width:28px"></th>
+              <th>TRADE DATE</th><th>INSIDER</th><th>TYPE</th>
+              <th>SHARES</th><th>PRICE</th><th>VALUE</th>
             </tr></thead>
             <tbody id="stockTradesBody"></tbody>
           </table>
@@ -3499,30 +3502,41 @@ function renderStockTradesTable(trades, govData=[]) {
     return row;
   });
 
-  // Form 4 rows
+  // Form 4 rows with expandable dropdown
   const form4Rows = trades.map(t => {
-    const secLink = t.accession
-      ? '<a href="https://www.sec.gov/Archives/edgar/data/' + parseInt(t.accession.split('-')[0]) + '/' + t.accession.replace(/-/g,'') + '/' + t.accession + '-index.htm" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:Space Mono,monospace;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">SEC ↗</a>'
+    const rid = 'sr' + Math.random().toString(36).slice(2,8);
+    const secUrl = t.accession
+      ? 'https://www.sec.gov/Archives/edgar/data/' + parseInt(t.accession.split('-')[0]) + '/' + t.accession.replace(/-/g,'') + '/' + t.accession + '-index.htm'
       : '';
+    const detailHtml = '<tr id="' + rid + 'd" style="display:none"><td colspan="7" style="padding:0">'
+      + '<div style="background:rgba(0,212,255,0.03);border-top:1px solid var(--border);padding:12px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px 24px">'
+      + '<div><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:3px">TITLE</div><div style="font-size:12px;color:var(--text)">' + (t.title||'—') + '</div></div>'
+      + '<div><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:3px">OWNED AFTER</div><div style="font-size:12px;color:var(--text);font-family:Space Mono,monospace">' + fmtShares(t.owned) + insiderOwnershipPct(t) + '</div></div>'
+      + '<div><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:3px">FILING DATE</div><div style="font-size:12px;color:var(--text);font-family:Space Mono,monospace">' + fmtDate(t.filing) + '</div></div>'
+      + '<div><div style="font-size:9px;color:var(--muted);font-family:Space Mono,monospace;letter-spacing:1px;margin-bottom:3px">SEC FILING</div><div style="font-size:12px">'
+      + (secUrl ? '<a href="' + secUrl + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-family:Space Mono,monospace;font-size:10px;text-decoration:none">View SEC Filing ↗</a>' : '<span style="color:var(--muted)">—</span>')
+      + '</div></div>'
+      + '</div></td></tr>';
+    const toggleFn = "var d=document.getElementById('" + rid + "d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#" + rid + " .ra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();";
     return { date: t.trade||t.filing||'', html:
-      '<tr>'
+      '<tr id="' + rid + '" style="cursor:pointer" onclick="(function(){if(event.target.closest(\'.insider-profile-link\')||event.target.closest(\'a\'))return;' + toggleFn + '})()">'
+      + '<td style="width:28px;text-align:center"><span class="ra" style="display:inline-block;color:var(--muted);font-size:10px;transition:transform .15s">▶</span></td>'
       + '<td style="font-family:Space Mono,monospace;font-size:11px">' + fmtDate(t.trade||t.filing) + '</td>'
-      + '<td><span class="insider-name-link insider-profile-link" data-iname="' + escName(t.insider||'') + '" data-ititle="' + escName(t.title||'') + '">' + (t.insider||'—') + '</span>' + insiderRoleBadge(t.title||'') + '</td>'
-      + '<td style="color:var(--muted);font-size:12px">' + (t.title||'') + '</td>'
+      + '<td><span class="insider-name-link insider-profile-link" data-iname="' + escName(t.insider||'') + '" data-ititle="' + escName(t.title||'') + '">' + (t.insider||'—') + '</span>'
+      + '<span style="display:block;font-size:10px;color:var(--muted);margin-top:1px">' + (t.title||'') + '</span>'
+      + insiderRoleBadge(t.title||'') + '</td>'
       + '<td><span class="badge ' + badgeClass(t.type) + '">' + tradeLabel(t.type) + '</span></td>'
       + '<td style="font-family:Space Mono,monospace">' + fmtShares(t.qty) + '</td>'
       + '<td style="font-family:Space Mono,monospace">$' + (t.price||0).toFixed(2) + '</td>'
       + '<td class="' + (tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral') + '" style="font-family:Space Mono,monospace">' + fmt(t.value) + '</td>'
-      + '<td style="font-family:Space Mono,monospace;color:var(--muted)">' + fmtShares(t.owned) + insiderOwnershipPct(t) + '</td>'
-      + '<td style="font-family:Space Mono,monospace;font-size:11px;color:var(--muted)">' + fmtDate(t.filing) + '<br>' + secLink + '</td>'
-      + '</tr>'
+      + '</tr>' + detailHtml
     };
   });
   const govRowObjs = govData.map((g,i) => ({ date: g.transaction_date||'', html: govRows[i] }));
   const all = [...form4Rows, ...govRowObjs].sort((a,b) => b.date.localeCompare(a.date));
 
   if (!all.length) {
-    el.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>';
+    el.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>';
     return;
   }
   el.innerHTML = all.map(r => r.html).join('');
@@ -4963,6 +4977,7 @@ let _rankerCache = null;        // opportunity ranker scored results cache
 let _rankerRawRows = null;      // raw rows from /api/ranker before price enrichment
 let _insiderScoreCache = null;  // top insider accuracy scores cache
 let _timingAlphaCache = null;   // top timing alpha scores cache
+let _govScoreCache = [];        // top gov official activity rankings
 
 async function loadAnalysisPage(subpage) {
   // Wait for auth to finish loading before showing blur gate
@@ -5282,7 +5297,7 @@ function renderAnalysisDashboard() {
       id: 'topscores',
       icon: '🥇',
       name: 'Top Insider Scores',
-      desc: 'Ranks insiders by accuracy score over the last 5 years — win rate, average forward return, and consistency across all tracked trades.',
+      desc: 'Ranks corporate insiders by accuracy score over the last 5 years — win rate, average forward return, and consistency. Gov officials ranked separately by trading activity and volume.',
       count: _insiderScoreCache ? _insiderScoreCache.length : '…',
       countLabel: 'insiders scored',
       loading: _insiderScoreCache === null,
@@ -5779,6 +5794,36 @@ function renderRegimeShiftSubpage() {
 
 // ── INSIDER LEADERBOARDS ──────────────────────────────────────────
 
+
+function renderGovScoresList(ranked) {
+  if (!ranked || !ranked.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No gov officials ranked yet.</div>';
+  return ranked.map((r, i) => {
+    const sc = r.activityScore;
+    const scColor  = sc>=75?'var(--buy)':sc>=55?'#00d4ff':sc>=35?'var(--option)':'var(--muted)';
+    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.08)':'rgba(255,170,0,0.06)';
+    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.25)':'rgba(255,170,0,0.18)';
+    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s" class="gov-profile-link" data-member="' + escName(r.name) + '"'
+      + ' data-hc="' + scBorder + '" onmouseover="this.style.borderColor=this.dataset.hc" onmouseout="this.style.borderColor=\'var(--border)\'">' 
+      + '<div style="font-family:Bebas Neue,sans-serif;font-size:20px;color:' + rankColor + ';min-width:28px;text-align:center">#' + (i+1) + '</div>'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">'
+      + '<div style="font-size:13px;color:#00d4ff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + r.name + '</div>'
+      + '<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.12);color:#00d4ff;font-family:Space Mono,monospace;flex-shrink:0">GOV</span>'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">' + r.chamber + ' · ' + r.tickers + '</div>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+      + '<span style="font-size:10px;color:var(--buy)">' + r.buyCount + ' purchases</span>'
+      + '<span style="font-size:10px;color:var(--accent)">' + fmt(r.buyVal) + '+ est. bought</span>'
+      + '<span style="font-size:10px;color:var(--muted)">' + r.tradeCount + ' total trades</span>'
+      + '</div></div>'
+      + '<div style="background:' + scBg + ';border:1px solid ' + scBorder + ';border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">'
+      + '<div style="font-family:Bebas Neue,sans-serif;font-size:26px;line-height:1;color:' + scColor + '">' + sc + '</div>'
+      + '<div style="font-size:8px;font-family:Space Mono,monospace;color:' + scColor + ';margin-top:2px;letter-spacing:1px">ACTIVITY</div>'
+      + '</div></div>';
+  }).join('');
+}
+
 async function computeLeaderboardScores() {
   try {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
@@ -5789,6 +5834,7 @@ async function computeLeaderboardScores() {
     }
     _insiderScoreCache = data.accuracy || [];
     _timingAlphaCache  = data.timing   || [];
+    _govScoreCache     = data.gov      || [];
   } catch(e) {
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
@@ -5877,11 +5923,13 @@ function renderTopScoresSubpage() {
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:660px">
       Open-market buys scored against actual price data at <span style="color:var(--text)">+30 / +90 days</span>.
       Only insiders with <span style="color:var(--text)">4+ completed trades</span> in the last 5 years are ranked.
-      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_insiderScoreCache.length} insiders ranked</span>`}
+      Gov officials ranked by trading activity — STOCK Act filings do not include exact prices so forward return scoring is not available.
+      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_insiderScoreCache.length} insiders · ${_govScoreCache.length} gov officials ranked</span>`}
     </div>
     <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
       ${loading ? '<div class="loading-state"><div class="spinner"></div><span>Scoring insiders server-side…</span></div>' : renderTopScoresList(_insiderScoreCache)}
     </div>
+    ${!loading && _govScoreCache.length ? '<div style="font-family:Bebas Neue,sans-serif;font-size:18px;letter-spacing:2px;color:var(--text);margin:32px 0 12px">🏛 GOV OFFICIAL ACTIVITY RANKINGS</div><div style="font-size:11px;color:var(--muted);margin-bottom:16px">Ranked by trading volume, trade count, and ticker diversity across STOCK Act disclosures · Last 5 years</div><div style="display:flex;flex-direction:column;gap:8px">' + renderGovScoresList(_govScoreCache) + '</div>' : ''}
   </div>`;
   if (loading) {
     const poll = setInterval(() => {
