@@ -934,6 +934,7 @@
         <table id="screenerTable">
           <thead>
             <tr>
+              <th style="width:28px"></th>
               <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
               <th onclick="sortTable('ticker')">TICKER <span class="sort-arrow">↕</span></th>
               <th onclick="sortTable('insider')">INSIDER <span class="sort-arrow">↕</span></th>
@@ -1167,6 +1168,9 @@ function switchView(view, btn, opts={}) {
     } else if (!analysisBody.hasChildNodes() || analysisBody.querySelector('.loading-state')) {
       renderAnalysisDashboard();
     }
+  }
+  if (view === 'screener' && !opts.fromPopstate) {
+    loadScreener();
   }
   if (view === 'monitor') {
     loadMonitorPage();
@@ -1533,8 +1537,13 @@ async function loadScreener() {
           accession: '', amount_range: g.amount_range, filing_url: g.filing_url||'',
           _govDate: g.transaction_date,
         }));
+        // Apply same date window to gov trades
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        const cutoffStr = cutoff.toISOString().slice(0,10);
+        const filteredGovTrades = govTrades.filter(g => (g._govDate || g.trade || '') >= cutoffStr);
         // Merge and sort by trade date descending so gov and Form 4 intermix properly
-        trades = [...govTrades, ...trades].sort((a,b) => {
+        trades = [...filteredGovTrades, ...trades].sort((a,b) => {
           const da = a.trade||a.filing||'';
           const db_ = b.trade||b.filing||'';
           return db_.localeCompare(da);
@@ -1748,7 +1757,7 @@ function renderScreener() {
       const govBadge  = `<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.35);border-radius:3px;font-size:9px;color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px">GOV OFFICIAL</span>`;
       const row = `<tr onclick="openTickerFromScreener('${t.ticker}')" style="opacity:0.95">
         <td><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade)}</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${filingLink}</td>
-        <td class="ticker-cell">${t.ticker}</td>
+        <td class="ticker-cell" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
         <td onclick="event.stopPropagation()"><span class="gov-profile-link insider-name-link" data-member="${escName(t.insider||'')}" style="cursor:pointer">${t.insider||'—'}</span>${govBadge}</td>
         <td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;background:${govBg};color:${govColor};border:1px solid ${govBorder}">${govLabel}</span></td>
         <td class="hide-mobile" style="color:var(--muted)">—</td>
@@ -1775,7 +1784,7 @@ function renderScreener() {
     <tr id="${srid}" style="cursor:pointer" onclick="(function(){if(event.target.closest('.insider-name-link')||event.target.closest('a'))return;var d=document.getElementById('${srid}d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#${srid} .sra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();})()">
       <td style="width:28px;text-align:center"><span class="sra" style="display:inline-block;color:var(--muted);font-size:10px;transition:transform .15s">&#9658;</span></td>
       <td><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
-      <td class="ticker-cell">${t.ticker}</td>
+      <td class="ticker-cell" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
       <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Inter\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
       <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
       <td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtShares(t.qty)}</td>
@@ -3699,7 +3708,7 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
                 ${trades.map(t=>`
                   <tr style="cursor:pointer" onclick="openTickerFromScreener('${t.ticker}')">
                     <td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</td>
-                    <td class="ticker-cell">${t.ticker}</td>
+                    <td class="ticker-cell" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
                     <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span></td>
                     <td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtShares(t.qty)}</td>
                     <td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
@@ -4494,10 +4503,10 @@ function renderSentimentChart(el, insider, spx, thresholds) {
 
   // Inverted colored line — high buy% = low on chart (market near top = red)
   function indColor(v) {
-    if (v >= p90) return '#ff4466';
-    if (v >= p75) return '#ff8844';
-    if (v <= p10) return '#00ff88';
-    if (v <= p25) return '#22c55e';
+    if (v >= p90) return '#22c55e';
+    if (v >= p75) return '#55bb77';
+    if (v <= p10) return '#cc2244';
+    if (v <= p25) return '#dd4455';
     return '#00d4ff';
   }
 
@@ -4525,9 +4534,9 @@ function renderSentimentChart(el, insider, spx, thresholds) {
 
   // Threshold lines (inverted positions)
   const threshLines = [
-    [p90, '#ff446666', 'BUY EXTREME'],
-    [p75, '#ff664433', ''],
-    [p25, '#22c55e33', ''],
+    [p90, '#22c55e66', 'BUY EXTREME'],
+    [p75, '#55bb7733', ''],
+    [p25, '#cc224433', ''],
     [p10, '#00ff8866', 'SELL EXTREME'],
   ].map(([v, c, lbl]) => {
     const y = yInd(v).toFixed(1);
@@ -9337,6 +9346,13 @@ function routeFromPath(path, fromPopstate) {
   // default → screener
   switchView('screener', null, {fromPopstate});
 }
+
+// Auto-refresh screener every 5 minutes when it's the active view
+setInterval(() => {
+  if (document.getElementById('view-screener').classList.contains('active')) {
+    loadScreener();
+  }
+}, 5 * 60 * 1000);
 
 // Init: route based on current URL, then load screener data
 (function init() {
