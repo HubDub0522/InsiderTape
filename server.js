@@ -2541,6 +2541,7 @@ async function preComputeScoreboard() {
         AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
         AND trade_date >= date('now', '-1825 days')
         AND trade_date <= date('now', '-95 days')
+        AND insider NOT IN ('AULT MILTON C III', 'Ault Milton C III', 'Ault Milton')
       GROUP BY insider
       HAVING buy_count >= ? AND span_days >= 30
       ORDER BY buy_count DESC, span_days DESC LIMIT ?
@@ -2681,7 +2682,56 @@ async function preComputeScoreboard() {
     accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
     timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
 
-    const result = { accuracy: accuracyResults, timing: timingResults };
+    // Gov official rankings — scored by total disclosed value, trade count, and ticker diversity
+    // Cannot use price-based forward return scoring (no exact price in STOCK Act filings)
+    let govRanked = [];
+    try {
+      const AMOUNT_MID = {'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+      const govRows = db.prepare(`
+        SELECT member, chamber,
+          COUNT(*) AS trade_count,
+          SUM(CASE WHEN transaction_type='P' THEN 1 ELSE 0 END) AS buy_count,
+          SUM(CASE WHEN transaction_type='S' THEN 1 ELSE 0 END) AS sell_count,
+          GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
+          GROUP_CONCAT(amount_range || '|' || transaction_type, ';;') AS amounts,
+          MAX(transaction_date) AS latest_trade
+        FROM gov_trades
+        WHERE transaction_type IN ('P','S')
+          AND transaction_date >= date('now', '-1825 days')
+          AND ticker != '--' AND ticker != ''
+        GROUP BY member
+        HAVING buy_count >= 3
+        ORDER BY trade_count DESC LIMIT 50
+      `).all();
+
+      govRows.forEach(r => {
+        const amounts = (r.amounts||'').split(';;').map(s => {
+          const [range, type] = s.split('|');
+          return { val: AMOUNT_MID[range] || 8000, type };
+        });
+        const buyVal  = amounts.filter(a=>a.type==='P').reduce((s,a)=>s+a.val,0);
+        const sellVal = amounts.filter(a=>a.type==='S').reduce((s,a)=>s+a.val,0);
+        const tickers = [...new Set((r.tickers_csv||'').split(',').filter(Boolean))];
+        // Activity score: weighted by buy volume, trade count, ticker diversity
+        const activityScore = Math.min(100, Math.round(
+          Math.min(40, Math.log10(Math.max(buyVal,1)) * 5) +
+          Math.min(30, r.buy_count * 2) +
+          Math.min(20, tickers.length * 2) +
+          (sellVal > 0 ? 5 : 0) // has both buys and sells = more active trader
+        ));
+        if (activityScore >= 30) {
+          govRanked.push({
+            name: r.member, chamber: r.chamber==='H'?'U.S. House':'U.S. Senate',
+            activityScore, tradeCount: r.trade_count, buyCount: r.buy_count,
+            buyVal, sellVal, tickers: tickers.slice(0,3).join(', '),
+            latestTrade: r.latest_trade,
+          });
+        }
+      });
+      govRanked.sort((a,b) => b.activityScore - a.activityScore);
+    } catch(e) { slog('gov scoreboard err: ' + e.message); }
+
+    const result = { accuracy: accuracyResults, timing: timingResults, gov: govRanked };
     _scoreboardCache     = result;
     _scoreboardCacheTime = Date.now();
     slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
