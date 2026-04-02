@@ -58,17 +58,17 @@
   @font-face { font-family: 'Inter'; font-display: optional; src: local('Inter'); }
   @font-face { font-family: 'DM Sans'; font-display: optional; src: local('DM Sans'); }
   :root {
-    --bg:        #eef0f3;
-    --bg2:       #ffffff;
-    --bg3:       #f5f6f8;
-    --border:    #dde0e5;
-    --border2:   #c8ccd4;
+    --bg:        #e3e6eb;
+    --bg2:       #f0f2f5;
+    --bg3:       #eaecf0;
+    --border:    #d0d4db;
+    --border2:   #b8bdc8;
     --text:      #1a2030;
-    --muted:     #9aa0aa;
+    --muted:     #6e7a8a;
     --accent:    #2478cc;
     --accent2:   #1a5fa8;
-    --buy:       #167a40;
-    --buy-dim:   #1da854;
+    --buy:       #2aab5c;
+    --buy-dim:   #38c872;
     --sell:      #b03030;
     --sell-dim:  #d94040;
     --option:    #b07800;
@@ -94,7 +94,7 @@
   header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     height: var(--header-h);
-    background: rgba(255,255,255,0.95);
+    background: rgba(240,242,245,0.97);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
     box-shadow: 0 1px 3px rgba(0,0,0,0.08);
@@ -812,7 +812,7 @@
   <div class="logo" onclick="switchView('screener', document.querySelectorAll('.nav-tab')[0])" style="cursor:pointer">INSIDER<span>TAPE</span></div>
   <div class="search-wrap" style="position:relative">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    <input type="text" id="tickerInput" placeholder="Search ticker or insider name…" maxlength="60" autocomplete="off" oninput="onGlobalInput(this.value)" onblur="setTimeout(()=>hideGlobalSuggest(),200)">
+    <input type="text" id="tickerInput" placeholder="Search ticker or insider name…" maxlength="60" autocomplete="off" oninput="if(!_suppressSuggest)onGlobalInput(this.value)" onblur="setTimeout(()=>hideGlobalSuggest(),200)">
     <button class="search-btn" onclick="globalSearch()">GO</button>
     <div id="globalSuggest"></div>
 
@@ -1814,7 +1814,9 @@ function sortTable(col) {
 }
 function openTickerFromScreener(ticker) {
   window.scrollTo(0, 0);
+  _suppressSuggest = true;
   document.getElementById('tickerInput').value = ticker;
+  setTimeout(() => { _suppressSuggest = false; }, 300);
   loadStockView(ticker);
 }
 
