@@ -3346,7 +3346,7 @@ app.get('/api/admin/free-disk', (req, res) => {
 // H1: 15-min server-side cache — prevents 5 heavy GROUP BY queries on every Stock View open
 let _stockListsCache     = null;
 let _stockListsCacheTime = 0;
-const STOCK_LISTS_TTL    = 12 * 60 * 60 * 1000; // 12 hours
+const STOCK_LISTS_TTL    = 2 * 60 * 60 * 1000; // 2 hours
 
 app.get('/api/stock-lists', (req, res) => {
   if (_stockListsCache && Date.now() - _stockListsCacheTime < STOCK_LISTS_TTL) {
