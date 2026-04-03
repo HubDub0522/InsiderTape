@@ -129,7 +129,7 @@ function xmlGet(xml, tag) {
 }
 
 function parseForm4(xml, filingDate, accession) {
-  const ticker  = xmlGet(xml, 'issuerTradingSymbol').toUpperCase().trim();
+  const ticker  = xmlGet(xml, 'issuerTradingSymbol').toUpperCase().trim().replace(/^[A-Z]+:/,'');
   const company = xmlGet(xml, 'issuerName').trim();
   const insider = xmlGet(xml, 'rptOwnerName').trim();
   const title   = (xmlGet(xml, 'officerTitle') || xmlGet(xml, 'rptOwnerRelationship') || '').trim();
