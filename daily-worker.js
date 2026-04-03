@@ -153,10 +153,10 @@ function parseForm4(xml, filingDate, accession) {
     const owned = Math.round(Math.abs(parseFloat(xmlGet(block, 'sharesOwnedFollowingTransaction') || '0') || 0));
 
     // Sanity checks: reject implausible values that indicate parsing errors or derivative noise
-    if (qty > 50_000_000) return;       // >50M shares in one trade = likely a conversion/derivative artifact
+    if (qty > 500_000_000) return;      // >500M shares = likely a derivative artifact or bad parse
     if (price > 1_500_000) return;      // >$1.5M/share = above even Berkshire A, likely bad data
     const value = Math.round(qty * price);
-    if (value > 2_000_000_000) return;  // >$2B single trade = implausible, cap any edge cases
+    if (value > 5_000_000_000) return;  // >$5B single trade = implausible
 
     // Extract footnote text — used to detect DRIP/compensation-plan purchases
     // which are coded 'P' by the SEC but are NOT discretionary open-market buys
@@ -683,7 +683,7 @@ async function main() {
   // Purge non-open-market codes and implausible values from any previously ingested data
   const c2 = db.prepare(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`).run();
   if (c2.changes > 0) log(`Removed ${c2.changes} non-market transaction records`);
-  const c3 = db.prepare(`DELETE FROM trades WHERE value > 2000000000 OR price > 1500000 OR qty > 50000000`).run();
+  const c3 = db.prepare(`DELETE FROM trades WHERE value > 5000000000 OR price > 1500000 OR qty > 500000000`).run();
   if (c3.changes > 0) log(`Removed ${c3.changes} records with implausible values`);
 
   // Prune seen_filings older than 30 days to keep the table lean
