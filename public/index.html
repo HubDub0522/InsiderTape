@@ -5505,12 +5505,19 @@ function renderAnalysisDashboard() {
       count: _insiderScoreCache ? _insiderScoreCache.length : '…',
       countLabel: 'insiders scored',
       loading: _insiderScoreCache === null,
-      top3: (_insiderScoreCache || []).slice(0,3).map(r => ({
-        ticker: r.name.split(' ')[0],
-        label: `Score ${r.accuracyScore}`,
-        sub: `${r.winRate}% win · ${r.tradeCount} trades`,
-        color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
-      })),
+      top3: (() => {
+        const govN = (_govScoreCache||[]).map(g => ({
+          name: g.name, accuracyScore: g.activityScore, _isGov: true,
+          winRate: null, tradeCount: g.tradeCount, sellVal: g.sellVal, buyVal: g.buyVal,
+        }));
+        const merged = [...(_insiderScoreCache||[]), ...govN].sort((a,b) => b.accuracyScore - a.accuracyScore);
+        return merged.slice(0,3).map(r => ({
+          ticker: r.name.split(' ').slice(-1)[0],
+          label: `Score ${r.accuracyScore}`,
+          sub: r._isGov ? `Gov · ${r.tradeCount} trades` : `${r.winRate}% win · ${r.tradeCount} trades`,
+          color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
+        }));
+      })(),
       accentColor: '#b8940a',
       accentBg: 'rgba(180,140,0,0.05)',
       accentBorder: 'rgba(180,140,0,0.22)',
