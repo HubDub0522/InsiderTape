@@ -2590,7 +2590,7 @@ async function preComputeScoreboard() {
         AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
         AND trade_date >= date('now', '-1825 days')
         AND trade_date <= date('now', '-95 days')
-        AND insider NOT IN ('AULT MILTON C III', 'Ault Milton C III', 'Ault Milton')
+        AND insider NOT IN ('AULT MILTON C III', 'Ault Milton C III', 'Ault Milton', 'STALLINGS ROBERT W', 'Stallings Robert W', 'STALLINGS ROBERT')
       GROUP BY insider
       HAVING buy_count >= ? AND span_days >= 30
       ORDER BY buy_count DESC, span_days DESC LIMIT ?
@@ -2643,7 +2643,7 @@ async function preComputeScoreboard() {
 
         // Cap returns at ±500% to eliminate reverse-split artifacts
         // (e.g. Ault Global has done multiple reverse splits causing 7000%+ fake returns)
-        const CAP = 200; // cap at 200% to eliminate split artifacts
+        const CAP = 100; // cap at 100% to eliminate reverse-split artifacts
         const capRet = r => Math.max(-CAP, Math.min(CAP, r));
 
         const rets90   = completed.map(s => capRet(s.ret90));
@@ -2681,8 +2681,8 @@ async function preComputeScoreboard() {
           if (yr1Bars.length < 20) return;
           const yr1Lo = Math.min(...yr1Bars.map(b => b.low || b.close));
           if ((s.buyPrice - yr1Lo) / yr1Lo * 100 <= 20) nearLowCount++;
-          if (s.ret90  !== null) { ret90sum  += Math.max(-200, Math.min(200, s.ret90));  retN++; }
-          if (s.ret180 !== null)   ret180sum += Math.max(-200, Math.min(200, s.ret180));
+          if (s.ret90  !== null) { ret90sum  += Math.max(-100, Math.min(100, s.ret90));  retN++; }
+          if (s.ret180 !== null)   ret180sum += Math.max(-100, Math.min(100, s.ret180));
         });
 
         const n         = scored.length;
@@ -2753,6 +2753,8 @@ async function preComputeScoreboard() {
         ORDER BY trade_count DESC LIMIT 50
       `).all();
 
+      // Collect all net values first so we can normalise across all members
+      const govIntermediate = [];
       govRows.forEach(r => {
         const amounts = (r.amounts||'').split(';;').map(s => {
           const [range, type] = s.split('|');
@@ -2761,21 +2763,25 @@ async function preComputeScoreboard() {
         const buyVal  = amounts.filter(a=>a.type==='P').reduce((s,a)=>s+a.val,0);
         const sellVal = amounts.filter(a=>a.type==='S').reduce((s,a)=>s+a.val,0);
         const tickers = [...new Set((r.tickers_csv||'').split(',').filter(Boolean))];
-        // Activity score: weighted by buy volume, trade count, ticker diversity
-        const activityScore = Math.min(100, Math.round(
-          Math.min(40, Math.log10(Math.max(buyVal,1)) * 5) +
-          Math.min(30, r.buy_count * 2) +
-          Math.min(20, tickers.length * 2) +
-          (sellVal > 0 ? 5 : 0) // has both buys and sells = more active trader
-        ));
-        if (activityScore >= 30) {
-          govRanked.push({
+        // sellVal - buyVal: how much they took out vs put in
+        const profitProxy = sellVal - buyVal;
+        if (r.buy_count >= 1 || r.sell_count >= 1) {
+          govIntermediate.push({
             name: r.member, chamber: r.chamber==='H'?'U.S. House':'U.S. Senate',
-            activityScore, tradeCount: r.trade_count, buyCount: r.buy_count,
-            buyVal, sellVal, tickers: tickers.slice(0,3).join(', '),
+            profitProxy, buyVal, sellVal,
+            tradeCount: r.trade_count, buyCount: r.buy_count, sellCount: r.sell_count,
+            tickers: tickers.slice(0,3).join(', '),
             latestTrade: r.latest_trade,
           });
         }
+      });
+      // Normalise profitProxy to 0–100 across the group
+      const maxProfit = Math.max(...govIntermediate.map(g => g.profitProxy), 1);
+      const minProfit = Math.min(...govIntermediate.map(g => g.profitProxy), 0);
+      const range = maxProfit - minProfit || 1;
+      govIntermediate.forEach(g => {
+        const netScore = Math.min(100, Math.max(1, Math.round((g.profitProxy - minProfit) / range * 99) + 1));
+        govRanked.push({ ...g, activityScore: netScore });
       });
       govRanked.sort((a,b) => b.activityScore - a.activityScore);
     } catch(e) { slog('gov scoreboard err: ' + e.message); }
@@ -2871,9 +2877,15 @@ setTimeout(() => {
       r.on('data', c => d += c);
       r.on('end', () => {
         try {
-          _stockListsCache = JSON.parse(d);
-          _stockListsCacheTime = Date.now();
-          slog('Stock-lists pre-warmed: mostActive=' + (_stockListsCache.mostActive||[]).length + ' hotBuys=' + (_stockListsCache.hotBuys||[]).length);
+          const parsed = JSON.parse(d);
+          // Only cache if data is present — don't cache empty startup results
+          if ((parsed.mostActive||[]).length || (parsed.hotBuys||[]).length || (parsed.heavySells||[]).length) {
+            _stockListsCache = parsed;
+            _stockListsCacheTime = Date.now();
+            slog('Stock-lists pre-warmed: mostActive=' + parsed.mostActive.length + ' hotBuys=' + parsed.hotBuys.length);
+          } else {
+            slog('Stock-lists pre-warm: empty result, not caching');
+          }
         } catch(_) {}
       });
     }).on('error', () => {});
