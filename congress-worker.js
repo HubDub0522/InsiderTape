@@ -139,11 +139,11 @@ function processTrades(trades, chamber) {
     process.exit(0);
   }
 
-  // Get active tickers from our SEC data
+  // Get tickers from our SEC data — use a wider window so tickers like SMPL
+  // that have no recent Form 4 activity still get their congressional trades fetched
   const tickers = db.prepare(`
     SELECT DISTINCT ticker FROM trades
-    WHERE trade_date >= date('now', '-180 days')
-      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+    WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
     ORDER BY ticker
   `).all().map(r => r.ticker);
 
