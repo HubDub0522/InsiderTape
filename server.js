@@ -477,9 +477,9 @@ try {
   // Remove records with implausible values that slipped through
   const r3 = db.prepare(`
     DELETE FROM trades
-    WHERE value > 2000000000
+    WHERE value > 5000000000
        OR price > 1500000
-       OR qty   > 50000000
+       OR qty   > 500000000
   `).run();
   if (r3.changes > 0) console.log(`Removed ${r3.changes} records with implausible values (likely derivative artifacts)`);
 } catch(e) { console.warn('Startup cleanup skipped (disk busy?):', e.message); }
@@ -1056,7 +1056,7 @@ app.get('/api/insider', (req, res) => {
       FROM trades
       WHERE UPPER(insider) LIKE UPPER(?)
         AND TRIM(type) IN ('P','S','S-')
-        AND COALESCE(value, 0) <= 2000000000
+        AND COALESCE(value, 0) <= 5000000000
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC LIMIT ?
     `).all(pattern, limit);
@@ -3203,7 +3203,7 @@ app.get('/api/admin/reingest-accession', async (req, res) => {
       const price   = Math.abs(parseFloat((block.match(/<transactionPricePerShare[^>]*>[\s\S]*?<value>\s*([^<]+)/i) || [])[1] || '0') || 0);
       const owned   = Math.round(Math.abs(parseFloat((block.match(/<sharesOwnedFollowingTransaction[^>]*>[\s\S]*?<value>\s*([^<]+)/i) || [])[1] || '0') || 0));
       const value   = Math.round(qty * price);
-      if (qty > 50000000 || price > 1500000 || value > 2000000000) continue;
+      if (qty > 500000000 || price > 1500000 || value > 5000000000) continue;
       rows.push([ticker, company, insider, title, date, filingDate, code, qty, +price.toFixed(4), value, owned, accession, null]);
     }
 
