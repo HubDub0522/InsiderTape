@@ -5019,8 +5019,9 @@ async function openGovProfile(name) {
 
     // Compute scorecard vars before building HTML
     const profitPerTrade = trades.length > 0 ? (sellVal - buyVal) / trades.length : 0;
-    const rawScore = 50 + Math.min(50, Math.max(-50, profitPerTrade / 100000 * 50));
-    const govScore = Math.round(Math.max(1, Math.min(100, rawScore)));
+    // Use server-computed score from cache if available (normalised relative to all gov officials)
+    const cachedGov = (_govScoreCache||[]).find(g => g.name === name || g.name.replace(/\b(Mr|Ms|Mrs|Dr|Jr|Sr)\.?\s*/gi,'').trim() === name.replace(/\b(Mr|Ms|Mrs|Dr|Jr|Sr)\.?\s*/gi,'').trim());
+    const govScore = cachedGov ? cachedGov.activityScore : Math.round(Math.max(1, Math.min(100, (profitPerTrade / 1000000) * 100)));
     const scoreColor = govScore>=75?'var(--buy)':govScore>=55?'var(--accent)':govScore>=35?'var(--option)':'var(--sell)';
     const scoreBg = govScore>=75?'rgba(22,122,64,0.08)':govScore>=55?'rgba(36,120,204,0.08)':'rgba(176,48,48,0.06)';
     const scoreBdr = govScore>=75?'rgba(22,122,64,0.3)':govScore>=55?'rgba(36,120,204,0.25)':'rgba(176,48,48,0.25)';
