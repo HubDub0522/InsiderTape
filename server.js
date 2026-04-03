@@ -2838,7 +2838,7 @@ function runCongressWorker() {
 setInterval(() => {
   const etHour = (new Date().getUTCHours() - 4 + 24) % 24;
   const etMin  = new Date().getUTCMinutes();
-  if (etHour === 6 && etMin >= 0 && etMin < 10) runCongressWorker();
+  if (etHour === 0 && etMin >= 30 && etMin < 40) runCongressWorker();
 }, 10 * 60 * 1000);
 
 
