@@ -150,17 +150,38 @@ function processTrades(trades, chamber) {
   console.log('[congress] Tickers to check:', tickers.length);
 
   let totalH = 0, totalS = 0, errors = 0;
+  // Rate limit: 300 calls/min on Starter plan. Each ticker = 2 calls.
+  // Cap at 240 calls/min (120 tickers/min) to leave headroom for other endpoints.
+  // 120 tickers/min = 1 ticker per 500ms.
+  // Hard-cap: track calls in the current minute, pause if approaching 240.
+  let callsThisMinute = 0;
+  let minuteStart = Date.now();
 
   for (let i = 0; i < tickers.length; i++) {
     const ticker = tickers[i];
+
+    // Hard rate-cap: if we've made 240 calls this minute, wait out the remainder
+    if (callsThisMinute >= 240) {
+      const elapsed = Date.now() - minuteStart;
+      const waitMs = Math.max(0, 60000 - elapsed + 500);
+      if (waitMs > 0) {
+        console.log('[congress] Rate cap reached — pausing ' + Math.round(waitMs/1000) + 's');
+        await sleep(waitMs);
+      }
+      callsThisMinute = 0;
+      minuteStart = Date.now();
+    }
+
     try {
       const h = await fmpGet('house-trades?symbol='  + ticker);
+      callsThisMinute++;
       totalH += processTrades(h, 'H');
       const s = await fmpGet('senate-trades?symbol=' + ticker);
+      callsThisMinute++;
       totalS += processTrades(s, 'S');
-      await sleep(250); // ~4 tickers/sec, within 300 calls/min Starter limit
+      await sleep(500); // 2 calls per 500ms = 240 calls/min max
       if ((i + 1) % 100 === 0) {
-        console.log('[congress] ' + (i+1) + '/' + tickers.length + ' | H+' + totalH + ' S+' + totalS);
+        console.log('[congress] ' + (i+1) + '/' + tickers.length + ' | H+' + totalH + ' S+' + totalS + ' | calls/min: ' + callsThisMinute);
       }
     } catch(e) {
       errors++;
