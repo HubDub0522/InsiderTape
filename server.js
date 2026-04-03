@@ -2807,21 +2807,20 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 5; // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 6; // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
-  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL
-      && _scoreboardCache._formulaVersion === SCOREBOARD_FORMULA_VERSION) {
-    return res.json(_scoreboardCache);
-  }
-  // Cache miss or stale formula version — recompute
+  const cacheValid = _scoreboardCache
+    && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL
+    && _scoreboardCache._formulaVersion === SCOREBOARD_FORMULA_VERSION;
+  if (cacheValid) return res.json(_scoreboardCache);
+  // Stale or missing — expire and trigger recompute
   _scoreboardCache = null;
-  if (!_scoreboardCache && Date.now() - _bootTime < STARTUP_GRACE_MS) {
+  _scoreboardCacheTime = 0;
+  if (Date.now() - _bootTime < STARTUP_GRACE_MS) {
     return res.json({ computing: true, accuracy: [], timing: [] });
   }
-  // Trigger compute in background (guard prevents double-runs)
   preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
-  if (_scoreboardCache) return res.json(_scoreboardCache);
   return res.json({ computing: true, accuracy: [], timing: [] });
 });
 
