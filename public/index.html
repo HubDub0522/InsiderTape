@@ -2867,6 +2867,19 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
   });
   state.markerGroups=Object.values(groups);
   state._allMarkerGroups=state.markerGroups; // unfiltered — for consistent diamond sizing
+  // Build initial gov marker groups from full govData (all types visible on load)
+  state._govMarkerGroups = govData ? (() => {
+    const AMOUNT_MID_I={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+    const gg = {};
+    govData.forEach(g => {
+      const tc = g.transaction_type==='P'?'buy':'sell';
+      const k = (g.transaction_date||'')+'|'+tc+'|'+g.member;
+      if(!gg[k]) gg[k]={date:g.transaction_date,tc,trades:[{insider:g.member,amount_range:g.amount_range}],value:0,_isGov:true};
+      else gg[k].trades.push({insider:g.member,amount_range:g.amount_range});
+      gg[k].value += AMOUNT_MID_I[g.amount_range]||8000;
+    });
+    return Object.values(gg);
+  })() : [];
 
 
   const tooltip=document.getElementById('chartTooltip')||(() => {
@@ -2924,20 +2937,13 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       state._circles.push({x:ts,y:yCoord,r,group:g});
     });
 
-    // ── Congressional trade diamonds (premium only) ─────────────────────────
+    // ── Congressional trade diamonds (premium only, respects active filters) ──
     state._govDiamonds = [];
-    if (auth.isPremium && govData && govData.length) {
-            // maxVal already computed above using unified scale across Form 4 + gov
-      const grouped = {};
-      govData.forEach(g => {
-        const k = (g.transaction_date||'') + '|' + g.transaction_type;
-        if (!grouped[k]) grouped[k] = { date:g.transaction_date, type:g.transaction_type, trades:[], val:0, ranges:[] };
-        grouped[k].trades.push(g.member);
-        grouped[k].val += parseAmountRange(g.amount_range);
-        grouped[k].ranges.push(g.amount_range);
-      });
-      Object.values(grouped).forEach(g => {
-        // Use nearestTradingDay + priceMap (.time) same as insider circles
+    if (auth.isPremium) {
+      // Use state._govMarkerGroups which is built by applyChartFilters and already
+      // respects both buy/sell type filters and role filters
+      const govGroupsToRender = state._govMarkerGroups || [];
+      govGroupsToRender.forEach(g => {
         const td = nearestTradingDay(g.date);
         if (!td) return;
         const xCoord = chart.timeScale().timeToCoordinate(td);
@@ -2948,13 +2954,15 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         if (yCoord === null) return;
         const _mob=window.innerWidth<=640;
         const rMin=_mob?6:8, rMax=_mob?28:38;
-        const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, g.val) / maxVal);
-        const baseColor = g.type === 'P' ? 'rgba(0,212,255,' : 'rgba(255,0,255,';
-        // Match Form 4 circle transparency: glow ring + 0.20 fill + 0.85 stroke
+        const val = g.value || 0;
+        const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, val) / maxVal);
+        const isBuy = g.tc === 'buy';
+        const baseColor = isBuy ? 'rgba(0,212,255,' : 'rgba(255,0,255,';
         ctx.beginPath(); ctx.arc(xCoord,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=baseColor+'0.08)'; ctx.fill();
-        const cx = xCoord, cy = yCoord;
-        drawDiamond(ctx, cx, cy, r, baseColor+'0.20)', baseColor+'0.85)');
-        state._govDiamonds.push({ x:cx, y:cy, r, trades:g.trades, type:g.type, val:g.val, date:g.date, ranges:g.ranges||[] });
+        drawDiamond(ctx, xCoord, yCoord, r, baseColor+'0.20)', baseColor+'0.85)');
+        const memberNames = g.trades.map(t => t.insider).filter(Boolean);
+        const ranges = g.trades.map(t => t.amount_range).filter(Boolean);
+        state._govDiamonds.push({ x:xCoord, y:yCoord, r, trades:memberNames, type:isBuy?'P':'S', val, date:g.date, ranges });
       });
     }
 
@@ -3267,14 +3275,25 @@ function getChartFilteredTrades() {
     chartActiveFilters.has(tradeFilterGroup(t.type)) && tradeMatchesRoleFilter(t)
   );
   // Gov trades — only include if 'all' or 'gov' role filter active (and premium)
+  // Also respect the buy/sell type filter
   if (auth.isPremium && (chartActiveRoles.has('all') || chartActiveRoles.has('gov'))) {
-    const govAsTrades = (state.govData||[]).map(g => ({
-      _isGov: true,
-      insider: g.member, title: 'Gov Official',
-      trade: g.transaction_date, filing: g.transaction_date,
-      type: g.transaction_type, value: 0, qty: 0, price: 0, owned: 0,
-      ticker: g.ticker, company: '', accession: ''
-    }));
+    const AMOUNT_MID_G={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+    const govAsTrades = (state.govData||[])
+      .filter(g => {
+        // Respect buy/sell type filter
+        const type = g.transaction_type === 'P' ? 'P' : 'S';
+        return chartActiveFilters.has(type);
+      })
+      .map(g => ({
+        _isGov: true,
+        insider: g.member, title: g.chamber === 'H' ? 'U.S. House' : 'U.S. Senate',
+        trade: g.transaction_date, filing: g.transaction_date,
+        type: g.transaction_type,
+        value: AMOUNT_MID_G[g.amount_range] || 8000,
+        qty: 0, price: 0, owned: 0,
+        ticker: g.ticker, company: '', accession: '',
+        amount_range: g.amount_range,
+      }));
     return [...form4, ...govAsTrades];
   }
   return form4;
@@ -3329,8 +3348,23 @@ function applyChartFilters() {
     const pm={};state.currentPriceData.forEach(d=>{pm[d.time]=true;});
     function snapDay(ds){if(pm[ds])return ds;for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}return null;}
     const groups={};
-    filtered.forEach(t=>{const raw=(t.trade||t.filing||'').slice(0,10);const d=snapDay(raw);if(!d)return;const tc=tradeClass(t.type);const k=d+'|'+tc;if(!groups[k])groups[k]={date:d,tc,trades:[],value:0};groups[k].trades.push(t);groups[k].value+=t.value||0;});
+    const govGroups={};
+    filtered.forEach(t=>{
+      const raw=(t.trade||t.filing||'').slice(0,10);
+      const d=snapDay(raw);if(!d)return;
+      const tc=tradeClass(t.type);
+      if(t._isGov){
+        const k=d+'|'+tc+'|'+t.insider;
+        if(!govGroups[k])govGroups[k]={date:d,tc,trades:[],value:0,_isGov:true};
+        govGroups[k].trades.push(t);govGroups[k].value+=t.value||0;
+      } else {
+        const k=d+'|'+tc;
+        if(!groups[k])groups[k]={date:d,tc,trades:[],value:0};
+        groups[k].trades.push(t);groups[k].value+=t.value||0;
+      }
+    });
     state.markerGroups=Object.values(groups);
+    state._govMarkerGroups=Object.values(govGroups);
   }
   if(state.drawCircles)state.drawCircles();
   renderSidebarTrades(filtered, state.govData||[]); renderStockTradesTable(filtered, state.govData||[]); renderTradeMarkerList(filtered);
