@@ -2804,7 +2804,10 @@ async function buildChart(priceData, trades, govData=[]) {
       try { chart.timeScale().fitContent(); } catch(e) {}
     }
     // Pressure chart after another rAF
-    requestAnimationFrame(() => buildPressureChartGated(chart,trades,priceData,govData));
+    requestAnimationFrame(() => {
+      // On initial load show all gov trades (filters are in default all/both state)
+      buildPressureChartGated(chart,trades,priceData,govData);
+    });
   });
 
   // Initialise stat bar to match the active 1Y range button
@@ -3010,7 +3013,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
 function buildPressureChart(mainChart,trades,priceData,govData=[]) {
   // Wipe the wrapper completely on every build — prevents stale canvases and
   // duplicate labels from accumulating across ticker navigations.
-  const pw=document.getElementById('pressureWrapper'); if(!pw||!trades.length)return;
+  const pw=document.getElementById('pressureWrapper'); if(!pw||(trades.length===0&&(!govData||!govData.length)))return;
   pw.innerHTML='<div id="pressureContainer" style="width:100%;height:'+(window.innerWidth<=640?'80':'120')+'px;" class="pressure-container"></div>';
   const pc=document.getElementById('pressureContainer');
 
@@ -3368,7 +3371,15 @@ function applyChartFilters() {
   }
   if(state.drawCircles)state.drawCircles();
   renderSidebarTrades(filtered, state.govData||[]); renderStockTradesTable(filtered, state.govData||[]); renderTradeMarkerList(filtered);
-  buildPressureChartGated(state.chart,filtered,state.currentPriceData,state.govData||[]);
+  // Build filtered gov data for pressure chart — respect active buy/sell and role filters
+  let filteredGovForPressure = [];
+  if (auth.isPremium && (chartActiveRoles.has('all') || chartActiveRoles.has('gov'))) {
+    filteredGovForPressure = (state.govData||[]).filter(g => {
+      const type = g.transaction_type === 'P' ? 'P' : 'S';
+      return chartActiveFilters.has(type);
+    });
+  }
+  buildPressureChartGated(state.chart,filtered,state.currentPriceData,filteredGovForPressure);
 }
 
 
