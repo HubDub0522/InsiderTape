@@ -1346,7 +1346,8 @@ app.get('/api/gov-member', (req, res) => {
   const member = (req.query.member || '').trim();
   if (!member) return res.json([]);
   try {
-    const rows = db.prepare(`
+    // Try exact match first
+    let rows = db.prepare(`
       SELECT member, chamber, ticker, transaction_type, transaction_date,
              disclosure_date, amount_range, owner, filing_url
       FROM gov_trades
@@ -1355,6 +1356,18 @@ app.get('/api/gov-member', (req, res) => {
       ORDER BY transaction_date DESC
       LIMIT 500
     `).all(member);
+    // Fuzzy fallback: LIKE match in case name format differs slightly
+    if (!rows.length) {
+      rows = db.prepare(`
+        SELECT member, chamber, ticker, transaction_type, transaction_date,
+               disclosure_date, amount_range, owner, filing_url
+        FROM gov_trades
+        WHERE member LIKE ?
+          AND transaction_type IN ('P','S')
+        ORDER BY transaction_date DESC
+        LIMIT 500
+      `).all('%' + member.split(' ').slice(-1)[0] + '%');
+    }
     res.json(rows);
   } catch(e) { res.json([]); }
 });
@@ -2763,9 +2776,9 @@ async function preComputeScoreboard() {
         const buyVal  = amounts.filter(a=>a.type==='P').reduce((s,a)=>s+a.val,0);
         const sellVal = amounts.filter(a=>a.type==='S').reduce((s,a)=>s+a.val,0);
         const tickers = [...new Set((r.tickers_csv||'').split(',').filter(Boolean))];
-        // sellVal - buyVal: how much they took out vs put in
-        const profitProxy = sellVal - buyVal;
-        if (r.buy_count >= 1 || r.sell_count >= 1) {
+        // profitProxy = (sellVal - buyVal) / totalTrades — est. profit extracted per trade
+        const profitProxy = r.trade_count > 0 ? (sellVal - buyVal) / r.trade_count : 0;
+        if (r.trade_count >= 2) {
           govIntermediate.push({
             name: r.member, chamber: r.chamber==='H'?'U.S. House':'U.S. Senate',
             profitProxy, buyVal, sellVal,
@@ -2781,7 +2794,7 @@ async function preComputeScoreboard() {
       const range = maxProfit - minProfit || 1;
       govIntermediate.forEach(g => {
         const netScore = Math.min(100, Math.max(1, Math.round((g.profitProxy - minProfit) / range * 99) + 1));
-        govRanked.push({ ...g, activityScore: netScore });
+        govRanked.push({ ...g, activityScore: netScore, profitPerTrade: g.profitProxy });
       });
       govRanked.sort((a,b) => b.activityScore - a.activityScore);
     } catch(e) { slog('gov scoreboard err: ' + e.message); }
