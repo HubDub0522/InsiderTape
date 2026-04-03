@@ -5394,7 +5394,10 @@ function renderAnalysisDashboard() {
   const _convData    = buildConvictionData(trades);
   const _clusterData = detectAdvancedClusters(trades);
   const _regimeData  = buildRegimeShiftData(longTrades, trades);
-  window._cachedRegimeData = _regimeData; // cache so subpage uses same sorted results
+  // Only cache if we have meaningful long data — subpage will rebuild if not
+  if ((longTrades||[]).length > (trades||[]).length) {
+    window._cachedRegimeData = _regimeData;
+  }
 
   const convTop3    = _convData.slice(0, 3);
   // Boost cluster scores when gov officials are also buying the same ticker
@@ -5914,16 +5917,34 @@ function renderRegimeShiftSubpage() {
     <div id="regimeShiftResults"><div class="loading-state"><div class="spinner"></div><span>Scanning insider behavior history...</span></div></div>
   </div>`;
 
-  // Build once long trades are available
-  ensureAnalysisDataLong(longTrades => {
-    const trades = _analysisData || [];
-    // Use cached results from dashboard render if available — ensures tile and subpage match
-    const results = window._cachedRegimeData || buildRegimeShiftData(longTrades, trades);
-    // Refresh cache for next time
-    window._cachedRegimeData = buildRegimeShiftData(longTrades, trades);
-    const el = document.getElementById('regimeShiftResults');
-    if (!el) return;
+  // If we already have cached results from the dashboard render, use them immediately
+  if (window._cachedRegimeData && window._cachedRegimeData.length > 0) {
+    window._regimeResults = window._cachedRegimeData;
+    renderRegimeResults(window._cachedRegimeData);
+    return;
+  }
 
+  // Also try building from already-loaded data without waiting
+  if (_analysisDataLong && _analysisData) {
+    try {
+      const quickResults = buildRegimeShiftData(_analysisDataLong, _analysisData);
+      if (quickResults.length > 0) {
+        window._cachedRegimeData = quickResults;
+        window._regimeResults = quickResults;
+        renderRegimeResults(quickResults);
+        return;
+      }
+    } catch(e) { console.warn('regime quick build failed:', e); }
+  }
+
+  // Otherwise wait for long trades to load and build fresh
+  ensureAnalysisDataLong(longTrades => {
+    const el = document.getElementById('regimeShiftResults');
+    if (!el) return; // user navigated away
+    const trades = _analysisData || [];
+    const results = buildRegimeShiftData(longTrades, trades);
+    window._cachedRegimeData = results;
+    window._regimeResults = results;
     if (!results.length) {
       el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
         No regime shifts detected in the last 30 days.<br>
@@ -5931,27 +5952,6 @@ function renderRegimeShiftSubpage() {
       </div>`;
       return;
     }
-
-    const typeColors = {
-      SELLER_FLIPS_BUY: 'var(--buy)',
-      BUY_ACCELERATION: '#b8940a',
-      DORMANT_ACTIVATES: 'var(--accent)',
-      SELL_SPIKE: 'var(--sell)',
-    };
-    const typeBg = {
-      SELLER_FLIPS_BUY: 'rgba(0,255,136,0.06)',
-      BUY_ACCELERATION: 'rgba(180,140,0,0.06)',
-      DORMANT_ACTIVATES: 'rgba(0,212,255,0.06)',
-      SELL_SPIKE: 'rgba(255,68,102,0.06)',
-    };
-    const typeBorder = {
-      SELLER_FLIPS_BUY: 'rgba(0,255,136,0.25)',
-      BUY_ACCELERATION: 'rgba(180,140,0,0.25)',
-      DORMANT_ACTIVATES: 'rgba(0,212,255,0.25)',
-      SELL_SPIKE: 'rgba(255,68,102,0.25)',
-    };
-
-    window._regimeResults = results; // store for filter
     renderRegimeResults(results);
   });
 }
