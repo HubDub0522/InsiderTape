@@ -474,6 +474,17 @@ try {
   `).run();
   if (r2.changes > 0) console.log(`Removed ${r2.changes} non-market transaction records (conversions, exercises, awards, etc.)`);
 
+  // Strip exchange prefixes from tickers (e.g. NASDAQ:SVC -> SVC)
+  try {
+    const badTickers = db.prepare(`SELECT DISTINCT ticker FROM trades WHERE ticker LIKE '%:%'`).all();
+    if (badTickers.length) {
+      const upd = db.prepare(`UPDATE trades SET ticker = SUBSTR(ticker, INSTR(ticker,':')+1) WHERE ticker = ?`);
+      const fix = db.transaction(rows => { for (const r of rows) upd.run(r.ticker); });
+      fix(badTickers);
+      console.log('Fixed ' + badTickers.length + ' ticker(s) with exchange prefix');
+    }
+  } catch(e) {}
+
   // Remove records with implausible values that slipped through
   const r3 = db.prepare(`
     DELETE FROM trades
@@ -3185,7 +3196,7 @@ app.get('/api/admin/reingest-accession', async (req, res) => {
     if (!xml) return res.status(404).json({ error: 'Could not fetch XML from EDGAR — check accession number and try again' });
 
     // Parse WITHOUT the footnote filter — this is a manually verified clean trade
-    const ticker  = (xml.match(/<issuerTradingSymbol[^>]*>\s*([^<]+)/i) || [])[1]?.trim().toUpperCase() || '';
+    const ticker  = ((xml.match(/<issuerTradingSymbol[^>]*>\s*([^<]+)/i) || [])[1]?.trim().toUpperCase() || '').replace(/^[A-Z]+:/,'');
     const company = (xml.match(/<issuerName[^>]*>\s*([^<]+)/i) || [])[1]?.trim() || '';
     const insider = (xml.match(/<rptOwnerName[^>]*>\s*([^<]+)/i) || [])[1]?.trim() || '';
     const title   = (xml.match(/<officerTitle[^>]*>\s*([^<]+)/i) || [])[1]?.trim() || '';
