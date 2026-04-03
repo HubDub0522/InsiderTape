@@ -5028,7 +5028,14 @@ async function openGovProfile(name) {
     const govTier = govScore>=75?'ELITE':govScore>=55?'STRONG':govScore>=35?'AVERAGE':'WEAK';
 
     body.innerHTML = `<div id="insiderContent" style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
-      <button class="back-btn" onclick="insiderLanding()" style="margin-bottom:20px">← Back</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+        <button class="back-btn" onclick="insiderLanding()" style="margin-bottom:0">← Back</button>
+        <button id="govFollowBtn"
+          onclick="toggleFollowGov('${name}','${chamber}')"
+          style="padding:7px 16px;border-radius:6px;font-family:Inter,sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;${fiHas(name)?'background:rgba(36,120,204,0.12);border:1px solid var(--accent);color:var(--accent)':'background:transparent;border:1px solid var(--border);color:var(--muted)'}">
+          ${fiHas(name)?'★ FOLLOWING':'☆ FOLLOW'}
+        </button>
+      </div>
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
         <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(36,120,204,0.3),rgba(36,120,204,0.1));border:1px solid rgba(36,120,204,0.4);display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;font-size:20px;color:var(--accent)">${initials}</div>
         <div>
@@ -8337,9 +8344,9 @@ function fiLoad() {
 function fiSave(list) {
   try { localStorage.setItem(FOLLOWED_KEY, JSON.stringify(list)); } catch(_) {}
 }
-function fiAdd(name, title) {
+function fiAdd(name, title, isGov=false) {
   const list = fiLoad();
-  if (!list.find(i => i.name === name)) { list.push({ name, title: title || '' }); fiSave(list); }
+  if (!list.find(i => i.name === name)) { list.push({ name, title: title || '', _isGov: isGov }); fiSave(list); }
 }
 function fiRemove(name) {
   fiSave(fiLoad().filter(i => i.name !== name));
@@ -8396,7 +8403,21 @@ function loadWatchlistPage() {
 
   const insiderFetches = missingFollowed.map(async i => {
     try {
-      const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(i.name) + '&exact=1');
+      let trades;
+      if (i._isGov) {
+        // Gov official — fetch from STOCK Act endpoint and normalise to Form4 shape
+        const govTrades = await apiFetch('/api/gov-member?member=' + encodeURIComponent(i.name));
+        const AMOUNT_MID_W={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+        trades = Array.isArray(govTrades) ? govTrades.map(g => ({
+          insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
+          ticker: g.ticker, type: g.transaction_type,
+          value: AMOUNT_MID_W[g.amount_range]||8000,
+          trade: g.transaction_date, filing: g.transaction_date,
+          _isGov: true, amount_range: g.amount_range,
+        })) : [];
+      } else {
+        trades = await apiFetch('/api/insider?name=' + encodeURIComponent(i.name) + '&exact=1');
+      }
       _followedData[i.name] = Array.isArray(trades) ? trades : [];
     } catch(_) { _followedData[i.name] = []; }
   });
@@ -8783,6 +8804,20 @@ function watchlistRemove(ticker) {
 }
 
 // ── Toggle Follow Insider ────────────────────────────────────
+function toggleFollowGov(name, chamber) {
+  const btn = document.getElementById('govFollowBtn');
+  if (fiHas(name)) {
+    fiRemove(name);
+    if (btn) { btn.textContent='☆ FOLLOW'; btn.style.background='transparent'; btn.style.borderColor='var(--border)'; btn.style.color='var(--muted)'; }
+    showToast('Unfollowed ' + name.replace(/\b(Mr|Ms|Mrs|Dr)\.?\s*/gi,'').trim().split(' ').slice(-1)[0], false);
+  } else {
+    fiAdd(name, chamber, true); // _isGov=true
+    if (btn) { btn.textContent='★ FOLLOWING'; btn.style.background='rgba(36,120,204,0.12)'; btn.style.borderColor='var(--accent)'; btn.style.color='var(--accent)'; }
+    showToast('Following ' + name.replace(/\b(Mr|Ms|Mrs|Dr)\.?\s*/gi,'').trim().split(' ').slice(-1)[0], false);
+  }
+  if (document.getElementById('view-watchlist')?.classList.contains('active')) loadWatchlistPage();
+}
+
 function toggleFollowInsider(name, title, btn) {
   if (fiHas(name)) {
     fiRemove(name);
