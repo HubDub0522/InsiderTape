@@ -3640,13 +3640,20 @@ function renderStockTradesTable(trades, govData=[]) {
     const secUrl = t.accession
       ? 'https://www.sec.gov/Archives/edgar/data/' + parseInt(t.accession.split('-')[0]) + '/' + t.accession.replace(/-/g,'') + '/' + t.accession + '-index.htm'
       : '';
+    const typeLabel = tradeLabel(t.type);
+    const typeColor = tradeClass(t.type)==='buy' ? 'var(--buy)' : tradeClass(t.type)==='sell' ? 'var(--sell)' : 'var(--muted)';
+    const cell = (label, val, color) => '<div><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">' + label + '</div><div style="font-size:12px;color:' + (color||'var(--text)') + ';font-variant-numeric:tabular-nums">' + val + '</div></div>';
     const detailHtml = '<tr id="' + rid + 'd" style="display:none"><td colspan="7" style="padding:0">'
-      + '<div style="background:rgba(0,212,255,0.03);border-top:1px solid var(--border);padding:12px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px 24px">'
-      + '<div><div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:1px;margin-bottom:3px">TITLE</div><div style="font-size:12px;color:var(--text)">' + (t.title||'—') + '</div></div>'
-      + '<div><div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:1px;margin-bottom:3px">OWNED AFTER</div><div style="font-size:12px;color:var(--text);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">' + fmtShares(t.owned) + insiderOwnershipPct(t) + '</div></div>'
-      + '<div><div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:1px;margin-bottom:3px">FILING DATE</div><div style="font-size:12px;color:var(--text);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">' + fmtDate(t.filing) + '</div></div>'
-      + '<div><div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:1px;margin-bottom:3px">SEC FILING</div><div style="font-size:12px">'
-      + (secUrl ? '<a href="' + secUrl + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;text-decoration:none">View SEC Filing ↗</a>' : '<span style="color:var(--muted)">—</span>')
+      + '<div style="background:rgba(36,120,204,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">'
+      + cell('Company', t.company||'—')
+      + cell('Trade Type', typeLabel, typeColor)
+      + cell('Price per Share', '$' + (t.price||0).toFixed(2))
+      + cell('Total Value', fmt(t.value||0), typeColor)
+      + cell('Trade Date', fmtDate(t.trade||t.filing))
+      + cell('Filing Date', fmtDate(t.filing))
+      + cell('Owned After', fmtShares(t.owned) + insiderOwnershipPct(t))
+      + '<div><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">SEC Filing</div><div style="font-size:12px">'
+      + (secUrl ? '<a href="' + secUrl + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-size:11px;font-weight:500;text-decoration:none">View on SEC ↗</a>' : '<span style="color:var(--muted)">—</span>')
       + '</div></div>'
       + '</div></td></tr>';
     const toggleFn = "var d=document.getElementById('" + rid + "d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#" + rid + " .ra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();";
