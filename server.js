@@ -2788,15 +2788,13 @@ async function preComputeScoreboard() {
           });
         }
       });
-      // Absolute score — same formula as profile page so scores match everywhere
-      // score = 50 + clamp((profitPerTrade / $100k) * 50, -50, +50)
-      // $100k profit/trade → 100, $0/trade → 50, -$100k/trade → 0
+      // Rank by profitPerTrade — top earner = 100, rest scale proportionally
+      const maxPpt = Math.max(...govIntermediate.map(g => g.profitProxy), 1);
       govIntermediate.forEach(g => {
-        const rawScore = 50 + Math.min(50, Math.max(-50, g.profitProxy / 100000 * 50));
-        const netScore = Math.min(100, Math.max(1, Math.round(rawScore)));
+        const netScore = Math.min(100, Math.max(1, Math.round((g.profitProxy / maxPpt) * 100)));
         govRanked.push({ ...g, activityScore: netScore, profitPerTrade: g.profitProxy });
       });
-      govRanked.sort((a,b) => b.activityScore - a.activityScore);
+      govRanked.sort((a,b) => b.profitPerTrade - a.profitPerTrade);
     } catch(e) { slog('gov scoreboard err: ' + e.message); }
 
     const result = { accuracy: accuracyResults, timing: timingResults, gov: govRanked, _formulaVersion: SCOREBOARD_FORMULA_VERSION };
@@ -2809,7 +2807,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 3; // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 5; // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
   if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL
