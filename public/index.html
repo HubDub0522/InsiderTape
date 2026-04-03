@@ -1150,8 +1150,7 @@ function switchView(view, btn, opts={}) {
       loadStockLanding();
     } else {
       // Always load fresh if cache is empty
-      _stockLandingRetried = false;
-  if (!_stockListsCache) {
+      if (!_stockListsCache) {
         loadStockLanding();
       } else {
         const content = document.getElementById('stockContent');
@@ -2273,7 +2272,6 @@ function _renderProximityResults(body, backBtn, results) {
 }
 // ── STOCK LANDING ─────────────────────────────────────────────────
 let _stockListsCache = null;
-let _stockLandingRetried = false;
 
 async function loadStockLanding() {
   const content = document.getElementById('stockContent');
@@ -2425,14 +2423,6 @@ function renderStockLanding(lists) {
   });
 
   const hasAny = activeCards.length || hotBuyCards.length || sellCards.length;
-  // If no data, clear the cache and retry once — server may still be warming up
-  if (!hasAny && !_stockLandingRetried) {
-    _stockLandingRetried = true;
-    _stockListsCache = null;
-    setTimeout(loadStockLanding, 3000);
-    content.innerHTML = '<div style="text-align:center;padding:80px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading market activity…</span></div></div>';
-    return;
-  }
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:28px">
       <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
@@ -5397,7 +5387,16 @@ function renderAnalysisDashboard() {
   window._cachedRegimeData = _regimeData; // cache so subpage uses same sorted results
 
   const convTop3    = _convData.slice(0, 3);
-  const clusterTop3 = _clusterData.slice(0, 3);
+  // Boost cluster scores when gov officials are also buying the same ticker
+  const govBuyTickers = new Set((_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').map(g=>g.ticker));
+  const clusterDataBoosted = _clusterData.map(c => {
+    if (!govBuyTickers.has(c.ticker)) return c;
+    const govBuysForTicker = (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P'&&g.ticker===c.ticker);
+    const govCount = new Set(govBuysForTicker.map(g=>g.insider||g.member)).size;
+    const boost = Math.min(15, govCount * 6); // up to +15 pts, 6 per official
+    return { ...c, score: Math.min(100, c.score + boost), _govBoost: boost, _govCount: govCount };
+  }).sort((a,b) => b.score - a.score);
+  const clusterTop3 = clusterDataBoosted.slice(0, 3);
   const firstBuyTop3 = _firstBuyCache ? _firstBuyCache.slice(0, 3) : [];
 
   // Kick off API fetch for first-buy tile data if not cached yet
@@ -5440,12 +5439,12 @@ function renderAnalysisDashboard() {
       icon: '🔬',
       name: 'Cluster Buy Detection',
       desc: 'Advanced multi-factor engine detecting true cluster buys: multiple insiders, tight price range, short timeframe, after a decline, with no offsetting sells.',
-      count: _clusterData.length,
+      count: clusterDataBoosted.length,
       countLabel: 'clusters scored',
       top3: clusterTop3.map(c => ({
         ticker: c.ticker,
         label: `Score ${c.score}`,
-        sub: `${c.insiderCount} insiders · ${c.daySpan <= 1 ? 'same day' : c.daySpan + 'd window'}`,
+        sub: `${c.insiderCount} insiders · ${c.daySpan <= 1 ? 'same day' : c.daySpan + 'd window'}${c._govBoost ? ' · 🏛 +' + c._govBoost + ' gov' : ''}`,
         color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
       })),
       accentColor: 'var(--accent)',
@@ -6065,29 +6064,45 @@ async function computeLeaderboardScores() {
 }
 
 function renderTopScoresList(ranked) {
-  if (!ranked || !ranked.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No scored insiders yet.</div>';
-  return ranked.map((r, i) => {
+  // Merge gov officials into the same list, sorted by score
+  const govNormalized = (_govScoreCache||[]).map(g => ({
+    name: g.name, title: g.chamber, tickers: g.tickers,
+    accuracyScore: g.activityScore, tier: 'GOV',
+    winRate: null, avgRet90: null, tradeCount: g.tradeCount,
+    buyCount: g.buyCount, buyVal: g.buyVal, _isGov: true,
+  }));
+  const merged = [...(ranked||[]), ...govNormalized].sort((a,b) => b.accuracyScore - a.accuracyScore);
+  if (!merged.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No scored insiders yet.</div>';
+  return merged.map((r, i) => {
     const sc = r.accuracyScore;
     const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
     const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(154,110,0,0.06)';
     const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(154,110,0,0.18)';
     const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
+    const govBadge = r._isGov ? '<span style="font-size:8px;padding:1px 5px;border-radius:2px;background:rgba(36,120,204,0.12);color:var(--accent);font-weight:600;margin-left:6px">GOV</span>' : '';
+    const onclick = r._isGov
+      ? `openGovProfile('${escName(r.name)}')`
+      : `openInsiderProfile('${escName(r.name)}','${escName(r.title||'')}',{serverScore:${sc},serverScoreType:'accuracy'})`;
+    const subStats = r._isGov
+      ? `<span style="font-size:10px;color:var(--buy)">${r.buyCount} purchases</span>
+         <span style="font-size:10px;color:var(--accent)">${fmt(r.buyVal)}+ est. bought</span>
+         <span style="font-size:10px;color:var(--muted)">${r.tradeCount} total trades</span>`
+      : `<span style="font-size:10px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}% win rate</span>
+         <span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>
+         <span style="font-size:10px;color:var(--muted)">${r.tradeCount} trades scored</span>`;
+    const tierLabel = r._isGov ? 'ACTIVITY' : r.tier;
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}',{serverScore:${sc},serverScoreType:'accuracy'})">
+                 onclick="${onclick}">
       <div style="font-family:Inter,sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        <div style="font-size:13px;color:${r._isGov?'var(--accent)':'var(--text)'};font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}${govBadge}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers}</div>
-        <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
-          <span style="font-size:10px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}% win rate</span>
-          <span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>
-          <span style="font-size:10px;color:var(--muted)">${r.tradeCount} trades scored</span>
-        </div>
+        <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">${subStats}</div>
       </div>
       <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">
         <div style="font-family:Inter,sans-serif;font-size:26px;line-height:1;color:${scColor}">${sc}</div>
-        <div style="font-size:8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:${scColor};margin-top:1px">${r.tier}</div>
+        <div style="font-size:8px;font-family:Inter,sans-serif;color:${scColor};margin-top:1px">${tierLabel}</div>
       </div>
     </div>`;
   }).join('');
@@ -6136,12 +6151,12 @@ function renderTopScoresSubpage() {
       Open-market buys scored against actual price data at <span style="color:var(--text)">+30 / +90 days</span>.
       Only insiders with <span style="color:var(--text)">4+ completed trades</span> in the last 5 years are ranked.
       Gov officials ranked by trading activity — STOCK Act filings do not include exact prices so forward return scoring is not available.
-      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_insiderScoreCache.length} insiders · ${_govScoreCache.length} gov officials ranked</span>`}
+      ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_insiderScoreCache.length + (_govScoreCache||[]).length} total ranked (insiders + gov)</span>`}
     </div>
     <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
       ${loading ? '<div class="loading-state"><div class="spinner"></div><span>Scoring insiders server-side…</span></div>' : renderTopScoresList(_insiderScoreCache)}
     </div>
-    ${!loading && _govScoreCache.length ? '<div style="font-family:Inter,sans-serif;font-size:18px;letter-spacing:2px;color:var(--text);margin:32px 0 12px">🏛 GOV OFFICIAL ACTIVITY RANKINGS</div><div style="font-size:11px;color:var(--muted);margin-bottom:16px">Ranked by trading volume, trade count, and ticker diversity across STOCK Act disclosures · Last 5 years</div><div style="display:flex;flex-direction:column;gap:8px">' + renderGovScoresList(_govScoreCache) + '</div>' : ''}
+    <!-- Gov officials now merged into top scores list above -->
   </div>`;
   if (loading) {
     const poll = setInterval(() => {
