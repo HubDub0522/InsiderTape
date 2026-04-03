@@ -2832,7 +2832,7 @@ function runCongressWorker() {
 setInterval(() => {
   const etHour = (new Date().getUTCHours() - 4 + 24) % 24;
   const etMin  = new Date().getUTCMinutes();
-  if (etHour === 8 && etMin >= 30 && etMin < 40) runCongressWorker();
+  if (etHour === 6 && etMin >= 0 && etMin < 10) runCongressWorker();
 }, 10 * 60 * 1000);
 
 
@@ -2987,6 +2987,17 @@ app.get('/api/admin/sync', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   runSync(parseInt(req.query.q || '4'));
   res.json({ ok: true, message: 'Sync triggered' });
+});
+
+// GET /api/admin/congress — trigger a congress worker run immediately
+app.get('/api/admin/congress', (req, res) => {
+  if (requireAdminSecret(req, res)) return;
+  try {
+    runCongressWorker();
+    res.json({ ok: true, message: 'Congress worker triggered — check server logs for progress' });
+  } catch(e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 // POST /api/admin/daily — trigger daily ingestion now regardless of market hours
 app.get('/api/admin/daily', (req, res) => {
