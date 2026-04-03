@@ -5011,66 +5011,83 @@ async function openGovProfile(name) {
     const chamber=trades[0]?.chamber==='H'?'U.S. House of Representatives':'U.S. Senate';
     const initials=name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
 
-    body.innerHTML = '<div id="insiderContent" style="max-width:900px;margin:0 auto;padding:6px 20px 24px">'
-      + '<button class="back-btn" onclick="insiderLanding()" style="margin-bottom:20px">← Back</button>'
-      + '<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">'
-      + '<div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(0,212,255,0.3),rgba(0,212,255,0.1));border:1px solid rgba(0,212,255,0.4);display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;font-size:20px;color:#00d4ff">' + initials + '</div>'
-      + '<div><div style="font-family:Inter,sans-serif;font-size:26px;letter-spacing:2px;color:var(--text)">' + name + '</div>'
-      + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
-      + '<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:rgba(0,212,255,0.12);color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">GOV OFFICIAL</span>'
-      + '<span style="font-size:11px;color:var(--muted)">' + chamber + '</span>'
-      + '</div></div></div>'
-      // Score = (sellVal - buyVal) / totalTrades
-      const profitPerTrade = trades.length > 0 ? (sellVal - buyVal) / trades.length : 0;
-      const rawScore = 50 + Math.min(50, Math.max(-50, profitPerTrade / 100000 * 50));
-      const govScore = Math.round(Math.max(1, Math.min(100, rawScore)));
-      const scoreColor = govScore>=75?'var(--buy)':govScore>=55?'var(--accent)':govScore>=35?'var(--option)':'var(--sell)';
-      const scoreBg = govScore>=75?'rgba(22,122,64,0.08)':govScore>=55?'rgba(36,120,204,0.08)':'rgba(176,48,48,0.06)';
-      const scoreBdr = govScore>=75?'rgba(22,122,64,0.3)':govScore>=55?'rgba(36,120,204,0.25)':'rgba(176,48,48,0.25)';
-      const govTier = govScore>=75?'ELITE':govScore>=55?'STRONG':govScore>=35?'AVERAGE':'WEAK';
-      + '<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap">'
-      + '<div style="background:'+scoreBg+';border:2px solid '+scoreBdr+';border-radius:10px;padding:16px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:110px;flex-shrink:0">'
-      + '<div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">PROFIT SCORE</div>'
-      + '<div style="font-size:42px;font-weight:800;line-height:1;color:'+scoreColor+'">'+govScore+'</div>'
-      + '<div style="font-size:9px;color:'+scoreColor+';font-weight:700;margin-top:4px">'+govTier+'</div>'
-      + '<div style="font-size:9px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.4">(Sells − Buys)<br>÷ Total Trades</div>'
-      + '</div>'
-      + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;flex:1">'
-      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">TOTAL TRADES</div><div style="font-size:20px;font-weight:600;color:var(--text)">'+trades.length+'</div></div>'
-      + '<div style="background:var(--bg2);border:1px solid rgba(22,122,64,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. BUYS</div><div style="font-size:20px;font-weight:600;color:var(--buy)">'+fmt(buyVal)+'</div></div>'
-      + '<div style="background:var(--bg2);border:1px solid rgba(176,48,48,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. SELLS</div><div style="font-size:20px;font-weight:600;color:var(--sell)">'+fmt(sellVal)+'</div></div>'
-      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. PROFIT/TRADE</div><div style="font-size:18px;font-weight:600;color:'+scoreColor+'">'+(profitPerTrade>=0?'+':'')+fmt(Math.abs(profitPerTrade))+'</div></div>'
-      + '</div></div>'
-      + '<div style="font-size:10px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-bottom:16px;padding:8px 12px;background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.12);border-radius:5px">Statistics reflect the last 5 years of available STOCK Act disclosures and may not represent the member\'s complete trading history.</div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">'
-      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">'
-      + '<div style="font-family:Inter,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">HOLDINGS TRADED</div><div style="font-size:10px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-bottom:10px">Last 5 years</div>'
-      + tickerList.slice(0,8).map(t=>{
-          const total=t.buyVal+t.sellVal||1;
-          return '<div data-ticker="' + t.ticker + '" class="gov-ticker-link" style="margin-bottom:8px;cursor:pointer">'
-            + '<div style="display:flex;justify-content:space-between;margin-bottom:3px">'
-            + '<span style="font-size:12px;color:var(--accent);font-weight:600">' + t.ticker + '</span>'
-            + '<span style="font-size:11px;color:var(--muted)">' + t.count + ' trade' + (t.count!==1?'s':'') + '</span>'
-            + '</div>'
-            + '<div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">'
-            + '<div style="height:100%;width:' + Math.round(t.buyVal/total*100) + '%;background:var(--buy);display:inline-block"></div>'
-            + '<div style="height:100%;width:' + Math.round(t.sellVal/total*100) + '%;background:var(--sell);display:inline-block"></div>'
-            + '</div></div>';
-        }).join('')
-      + '</div>'
-      + '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">'
-      + '<div style="font-family:Inter,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">RECENT TRADES</div><div style="font-size:10px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-bottom:10px">Last 5 years · Most recent first</div>'
-      + trades.slice(0,10).map(t=>{
-          const isBuy=t.transaction_type==='P';
-          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">'
-            + '<div><div data-ticker="' + t.ticker + '" class="gov-ticker-link" style="font-size:12px;color:var(--accent);font-weight:600;cursor:pointer">' + t.ticker + '</div>'
-            + '<div style="font-size:10px;color:var(--muted)">' + fmtDate(t.transaction_date) + '</div></div>'
-            + '<div style="text-align:right"><div style="font-size:11px;color:' + (isBuy?'var(--buy)':'var(--sell)') + '">' + (isBuy?'▲ BUY':'▼ SELL') + '</div>'
-            + '<div style="font-size:10px;color:var(--muted)">' + fmtAmountRange(t.amount_range) + '</div></div>'
-            + '</div>';
-        }).join('')
-      + '</div></div>'
-      + '</div>';
+    // Compute scorecard vars before building HTML
+    const profitPerTrade = trades.length > 0 ? (sellVal - buyVal) / trades.length : 0;
+    const rawScore = 50 + Math.min(50, Math.max(-50, profitPerTrade / 100000 * 50));
+    const govScore = Math.round(Math.max(1, Math.min(100, rawScore)));
+    const scoreColor = govScore>=75?'var(--buy)':govScore>=55?'var(--accent)':govScore>=35?'var(--option)':'var(--sell)';
+    const scoreBg = govScore>=75?'rgba(22,122,64,0.08)':govScore>=55?'rgba(36,120,204,0.08)':'rgba(176,48,48,0.06)';
+    const scoreBdr = govScore>=75?'rgba(22,122,64,0.3)':govScore>=55?'rgba(36,120,204,0.25)':'rgba(176,48,48,0.25)';
+    const govTier = govScore>=75?'ELITE':govScore>=55?'STRONG':govScore>=35?'AVERAGE':'WEAK';
+
+    body.innerHTML = `<div id="insiderContent" style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
+      <button class="back-btn" onclick="insiderLanding()" style="margin-bottom:20px">← Back</button>
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
+        <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(36,120,204,0.3),rgba(36,120,204,0.1));border:1px solid rgba(36,120,204,0.4);display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;font-size:20px;color:var(--accent)">${initials}</div>
+        <div>
+          <div style="font-family:Inter,sans-serif;font-size:26px;letter-spacing:2px;color:var(--text)">${name}</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+            <span style="font-size:10px;padding:2px 7px;border-radius:3px;background:rgba(36,120,204,0.12);color:var(--accent);font-family:Inter,sans-serif">GOV OFFICIAL</span>
+            <span style="font-size:11px;color:var(--muted)">${chamber}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scorecard -->
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap">
+        <div style="background:${scoreBg};border:2px solid ${scoreBdr};border-radius:10px;padding:16px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:110px;flex-shrink:0">
+          <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">PROFIT SCORE</div>
+          <div style="font-size:42px;font-weight:800;line-height:1;color:${scoreColor}">${govScore}</div>
+          <div style="font-size:9px;color:${scoreColor};font-weight:700;margin-top:4px">${govTier}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.4">(Sells − Buys)<br>÷ Total Trades</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;flex:1">
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">TOTAL TRADES</div><div style="font-size:20px;font-weight:600;color:var(--text)">${trades.length}</div></div>
+          <div style="background:var(--bg2);border:1px solid rgba(22,122,64,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. BUYS</div><div style="font-size:20px;font-weight:600;color:var(--buy)">${fmt(buyVal)}</div></div>
+          <div style="background:var(--bg2);border:1px solid rgba(176,48,48,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. SELLS</div><div style="font-size:20px;font-weight:600;color:var(--sell)">${fmt(sellVal)}</div></div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. PROFIT/TRADE</div><div style="font-size:18px;font-weight:600;color:${scoreColor}">${profitPerTrade>=0?'+':''}${fmt(Math.abs(profitPerTrade))}</div></div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:var(--muted);margin-bottom:16px;padding:8px 12px;background:rgba(36,120,204,0.04);border:1px solid rgba(36,120,204,0.12);border-radius:5px">Statistics reflect the last 5 years of available STOCK Act disclosures and may not represent the member's complete trading history.</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">
+          <div style="font-family:Inter,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">HOLDINGS TRADED</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Last 5 years</div>
+          ${tickerList.slice(0,8).map(t => {
+            const total = t.buyVal+t.sellVal||1;
+            return `<div data-ticker="${t.ticker}" class="gov-ticker-link" style="margin-bottom:8px;cursor:pointer">
+              <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+                <span style="font-size:12px;color:var(--accent);font-weight:600">${t.ticker}</span>
+                <span style="font-size:11px;color:var(--muted)">${t.count} trade${t.count!==1?'s':''}</span>
+              </div>
+              <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+                <div style="height:100%;width:${Math.round(t.buyVal/total*100)}%;background:var(--buy);display:inline-block"></div>
+                <div style="height:100%;width:${Math.round(t.sellVal/total*100)}%;background:var(--sell);display:inline-block"></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">
+          <div style="font-family:Inter,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">RECENT TRADES</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Last 5 years · Most recent first</div>
+          ${trades.slice(0,10).map(t => {
+            const isBuy = t.transaction_type==='P';
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
+              <div>
+                <div data-ticker="${t.ticker}" class="gov-ticker-link" style="font-size:12px;color:var(--accent);font-weight:600;cursor:pointer">${t.ticker}</div>
+                <div style="font-size:10px;color:var(--muted)">${fmtDate(t.transaction_date)}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:11px;color:${isBuy?'var(--buy)':'var(--sell)'}">${isBuy?'▲ BUY':'▼ SELL'}</div>
+                <div style="font-size:10px;color:var(--muted)">${fmtAmountRange(t.amount_range)}</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>`;
   } catch(e) {
     body.innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><div>'+e.message+'</div></div>';
   }
