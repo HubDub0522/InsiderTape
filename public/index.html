@@ -1150,7 +1150,8 @@ function switchView(view, btn, opts={}) {
       loadStockLanding();
     } else {
       // Always load fresh if cache is empty
-      if (!_stockListsCache) {
+      _stockLandingRetried = false;
+  if (!_stockListsCache) {
         loadStockLanding();
       } else {
         const content = document.getElementById('stockContent');
@@ -2272,6 +2273,7 @@ function _renderProximityResults(body, backBtn, results) {
 }
 // ── STOCK LANDING ─────────────────────────────────────────────────
 let _stockListsCache = null;
+let _stockLandingRetried = false;
 
 async function loadStockLanding() {
   const content = document.getElementById('stockContent');
@@ -2423,6 +2425,14 @@ function renderStockLanding(lists) {
   });
 
   const hasAny = activeCards.length || hotBuyCards.length || sellCards.length;
+  // If no data, clear the cache and retry once — server may still be warming up
+  if (!hasAny && !_stockLandingRetried) {
+    _stockLandingRetried = true;
+    _stockListsCache = null;
+    setTimeout(loadStockLanding, 3000);
+    content.innerHTML = '<div style="text-align:center;padding:80px 20px"><div class="loading-state"><div class="spinner"></div><span>Loading market activity…</span></div></div>';
+    return;
+  }
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:28px">
       <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
@@ -4487,7 +4497,7 @@ async function loadInsiderDashboard() {
     const govNames = new Set(govTrades.map(g=>g.insider));
     const largestGateHtml = ``; // Stock view landing is fully open to all users
     const govBadgeSm = '<span style="font-size:8px;padding:1px 4px;border-radius:2px;background:rgba(36,120,204,0.12);color:var(--accent);font-weight:600;margin-left:4px">GOV</span>';
-    const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}${t._isGov?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:${color}">${t._isGov?'~':''}\${fmt(t.value)}</span></div>`;
+    const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}${t._isGov?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:${color}">${t._isGov?'~':''}${fmt(t.value)}</span></div>`;
     dash.innerHTML=`
       <div class="insider-dash-grid">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
@@ -5384,6 +5394,7 @@ function renderAnalysisDashboard() {
   const _convData    = buildConvictionData(trades);
   const _clusterData = detectAdvancedClusters(trades);
   const _regimeData  = buildRegimeShiftData(longTrades, trades);
+  window._cachedRegimeData = _regimeData; // cache so subpage uses same sorted results
 
   const convTop3    = _convData.slice(0, 3);
   const clusterTop3 = _clusterData.slice(0, 3);
@@ -5884,13 +5895,23 @@ function renderRegimeShiftSubpage() {
     <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7;max-width:680px">
       Compares recent insider activity against their personal baseline. A chronic seller suddenly buying, a dormant insider waking up, or an unusual sell surge — all indicate a <span style="color:var(--text)">regime shift</span> before price reacts.
     </div>
+    <div id="regimeFilterBar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+      <button onclick="filterRegime(null,this)" class="regime-filter-btn active" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:rgba(36,120,204,0.1);color:var(--accent);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">All</button>
+      <button onclick="filterRegime('SELLER_FLIPS_BUY',this)" class="regime-filter-btn" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">Seller Flipped Buyer</button>
+      <button onclick="filterRegime('BUY_ACCELERATION',this)" class="regime-filter-btn" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">Buy Acceleration</button>
+      <button onclick="filterRegime('DORMANT_ACTIVATES',this)" class="regime-filter-btn" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">Dormant Insider Activated</button>
+      <button onclick="filterRegime('SELL_SPIKE',this)" class="regime-filter-btn" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">Sell Spike</button>
+    </div>
     <div id="regimeShiftResults"><div class="loading-state"><div class="spinner"></div><span>Scanning insider behavior history...</span></div></div>
   </div>`;
 
   // Build once long trades are available
   ensureAnalysisDataLong(longTrades => {
     const trades = _analysisData || [];
-    const results = buildRegimeShiftData(longTrades, trades);
+    // Use cached results from dashboard render if available — ensures tile and subpage match
+    const results = window._cachedRegimeData || buildRegimeShiftData(longTrades, trades);
+    // Refresh cache for next time
+    window._cachedRegimeData = buildRegimeShiftData(longTrades, trades);
     const el = document.getElementById('regimeShiftResults');
     if (!el) return;
 
@@ -5921,6 +5942,33 @@ function renderRegimeShiftSubpage() {
       SELL_SPIKE: 'rgba(255,68,102,0.25)',
     };
 
+    window._regimeResults = results; // store for filter
+    renderRegimeResults(results);
+  });
+}
+
+function filterRegime(type, btn) {
+  document.querySelectorAll('.regime-filter-btn').forEach(b => {
+    b.style.background = 'transparent'; b.style.color = 'var(--muted)'; b.style.borderColor = 'var(--border)';
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  const typeColors = { SELLER_FLIPS_BUY:'var(--buy)', BUY_ACCELERATION:'#b8940a', DORMANT_ACTIVATES:'var(--accent)', SELL_SPIKE:'var(--sell)' };
+  const accentColor = type ? (typeColors[type]||'var(--accent)') : 'var(--accent)';
+  btn.style.color = accentColor;
+  btn.style.borderColor = accentColor;
+  btn.style.background = 'rgba(36,120,204,0.08)';
+  const filtered = type ? (window._regimeResults||[]).filter(r => r.regimeType === type) : (window._regimeResults||[]);
+  renderRegimeResults(filtered);
+}
+
+function renderRegimeResults(results) {
+    const el = document.getElementById('regimeShiftResults');
+    if (!el) return;
+    if (!results.length) {
+      el.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No regime shifts match this filter.</div>';
+      return;
+    }
     el.innerHTML = `
       <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);margin-bottom:12px">${results.length} REGIME SHIFT${results.length!==1?'S':''} DETECTED · SORTED BY SCORE</div>
       <div style="display:flex;flex-direction:column;gap:12px">
@@ -5953,7 +6001,6 @@ function renderRegimeShiftSubpage() {
           </div>`;
         }).join('')}
       </div>`;
-  });
 }
 
 
