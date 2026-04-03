@@ -5535,9 +5535,9 @@ function renderAnalysisDashboard() {
         }));
         const merged = [...(_insiderScoreCache||[]), ...govN].sort((a,b) => b.accuracyScore - a.accuracyScore);
         return merged.slice(0,3).map(r => ({
-          ticker: r.name.split(' ').slice(-1)[0],
+          ticker: r._isGov ? r.name.split(' ').filter(w=>!/^(Mr|Ms|Mrs|Dr|Jr|Sr|II|III)$/i.test(w)).slice(-1)[0] : r.name.split(' ')[0],
           label: `Score ${r.accuracyScore}`,
-          sub: r._isGov ? `Gov · ${r.tradeCount} trades` : `${r.winRate}% win · ${r.tradeCount} trades`,
+          sub: r._isGov ? `Gov Official · ${r.tradeCount} trades` : `${r.winRate}% win · ${r.tradeCount} trades`,
           color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
         }));
       })(),
@@ -6145,7 +6145,7 @@ function renderTopScoresList(ranked) {
     const subStats = r._isGov
       ? `<span style="font-size:10px;color:var(--sell)">Sold ${fmt(r.sellVal||0)}</span>
          <span style="font-size:10px;color:var(--buy)">Bought ${fmt(r.buyVal||0)}</span>
-         <span style="font-size:10px;color:${net>=0?'var(--buy)':'var(--sell)'}">Net ${net>=0?'+':''}${fmt(Math.abs(net))}</span>`
+         <span style="font-size:10px;color:${net>=0?'var(--buy)':'var(--sell)'}">~${net>=0?'+':''}${fmt(Math.abs(r.profitPerTrade||0))}/trade</span>`
       : `<span style="font-size:10px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}% win rate</span>
          <span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>
          <span style="font-size:10px;color:var(--muted)">${r.tradeCount} trades scored</span>`;
@@ -6155,7 +6155,7 @@ function renderTopScoresList(ranked) {
                  onclick="${onclick}">
       <div style="font-family:Inter,sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:${r._isGov?'var(--accent)':'var(--text)'};font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}${govBadge}</div>
+        <div style="font-size:13px;color:${r._isGov?'var(--accent)':'var(--text)'};font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r._isGov ? r.name.replace(/\b(Mr|Ms|Mrs|Dr|Jr|Sr)\.?\s*/gi,'').trim() : r.name}${govBadge}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers}</div>
         <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">${subStats}</div>
       </div>
