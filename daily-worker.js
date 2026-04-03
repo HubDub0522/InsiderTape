@@ -157,6 +157,11 @@ function parseForm4(xml, filingDate, accession) {
     if (price > 1_500_000) return;      // >$1.5M/share = above even Berkshire A, likely bad data
     const value = Math.round(qty * price);
     if (value > 5_000_000_000) return;  // >$5B single trade = implausible
+    // Reject trades where price is suspiciously low relative to share count
+    // $0.01/share on 7.84M shares = $78K reported value, but stock trades at $1.30+
+    // These are typically reclassifications or conversions mislabeled as P/S
+    if (price > 0 && price < 0.05 && qty > 1_000_000) return; // sub-nickel price + huge qty = artifact
+    if (value > 0 && value < 500) return;  // under $500 total = noise, not a real open-market trade
 
     // Extract footnote text — used to detect DRIP/compensation-plan purchases
     // which are coded 'P' by the SEC but are NOT discretionary open-market buys
