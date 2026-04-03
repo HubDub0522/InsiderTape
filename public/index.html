@@ -311,8 +311,7 @@
   .tf-btn { padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--muted); font-family: 'Inter', sans-serif; font-size: 11px; cursor: pointer; transition: all .15s; }
   .tf-btn:hover { color: var(--text); }
   .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
-  #chartContainer, .chart-container-sized { width: 100%; height: 480px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); background: #0d1b2e; }
-  #chartContainer canvas, .chart-container-sized canvas { background: #0d1b2e !important; }
+  #chartContainer, .chart-container-sized { width: 100%; height: 480px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
   .insider-sidebar { background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; height: calc(100vh - var(--header-h) - 110px); overflow: hidden; }
   .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .sidebar-tab { flex: 1; padding: 12px 8px; text-align: center; font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 1px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; text-transform: uppercase; }
@@ -7774,6 +7773,7 @@ async function switchSectorDays(days) {
 let _compareTickers  = [];       // array of ticker strings (up to 4)
 let _compareData     = {};       // { TICKER: trades[] }
 let _compareLoading  = new Set();
+let _compareDays     = 30;  // default to 30-day window
 
 const COMPARE_COLORS = ['var(--accent)', 'var(--buy)', 'var(--option)', 'var(--sell)'];
 const COMPARE_COLORS_HEX = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4466'];
@@ -7794,14 +7794,26 @@ function renderComparePage() {
   if (!body) return;
 
   const hasTickers = _compareTickers.length > 0;
+  const dayBtn = (d, label) => `<button onclick="_compareDays=${d};renderComparePage()" style="
+    padding:6px 14px;font-family:Inter,sans-serif;font-size:11px;font-weight:500;
+    border-radius:6px;cursor:pointer;transition:all .15s;
+    background:${_compareDays===d?'var(--accent)':'transparent'};
+    color:${_compareDays===d?'#fff':'var(--muted)'};
+    border:1px solid ${_compareDays===d?'var(--accent)':'var(--border)'};
+  ">${label}</button>`.trim();
 
   body.innerHTML = `
     <div style="max-width:1400px;margin:0 auto;padding:24px 20px">
 
       <!-- Header -->
-      <div style="margin-bottom:28px">
-        <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">⚖️ INSIDER COMPARISON</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">Compare insider activity side-by-side across up to 4 tickers</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:28px">
+        <div>
+          <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">⚖️ INSIDER COMPARISON</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px">Compare insider activity side-by-side · ${_compareDays === 365 ? '1 year' : _compareDays + ' day'} window</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${dayBtn(7,'7D')} ${dayBtn(30,'30D')} ${dayBtn(90,'90D')} ${dayBtn(365,'1Y')}
+        </div>
       </div>
 
       <!-- Ticker input row -->
@@ -7868,8 +7880,11 @@ function renderCompareResults() {
   if (ready.length === 0) return '';
 
   // ── Build summary metrics for each ticker ──
+  const cutoff = new Date(Date.now() - _compareDays * 86400000).toISOString().slice(0,10);
   const metrics = ready.map((ticker, idx) => {
-    const trades  = _compareData[ticker] || [];
+    const allTrades = _compareData[ticker] || [];
+    // Filter to selected time window
+    const trades  = allTrades.filter(t => ((t.trade||t.filing||'') >= cutoff));
     const buys    = trades.filter(t => t.type === 'P');
     const sells   = trades.filter(t => t.type === 'S' || t.type === 'S-');
     const buyVal  = buys.reduce((s, t) => s + (t.value || 0), 0);
@@ -7877,12 +7892,7 @@ function renderCompareResults() {
     const company = trades[0]?.company || ticker;
     const uniqueBuyers  = new Set(buys.map(t => t.insider)).size;
     const uniqueSellers = new Set(sells.map(t => t.insider)).size;
-    const recentBuys30  = buys.filter(t => {
-      const ds = (t.trade || t.filing || '').slice(0, 10);
-      if (!ds) return false;
-      const d = new Date(ds + 'T12:00:00Z');
-      return (Date.now() - d) < 30 * 86400000;
-    });
+    const recentBuys30  = buys; // already filtered to _compareDays window
     const lastBuy  = buys[0]?.trade || buys[0]?.filing || '—';
     const lastSell = sells[0]?.trade || sells[0]?.filing || '—';
     const sentiment = buyVal + sellVal > 0 ? Math.round(buyVal / (buyVal + sellVal) * 100) : 0;
@@ -7909,7 +7919,7 @@ function renderCompareResults() {
           { label:'BUY FLOW',    val: fmt(m.buyVal),            color:'var(--buy)'  },
           { label:'SELL FLOW',   val: fmt(m.sellVal),           color:'var(--sell)' },
           { label:'BUYERS',      val: m.uniqueBuyers,           color:'var(--text)' },
-          { label:'RECENT 30D',  val: m.recentBuys30.length + ' buys', color:'var(--text)' },
+          { label:`BUYS (${_compareDays}D)`, val: m.recentBuys30.length + ' buys', color:'var(--text)' },
           { label:'CONVICTION',  val: m.convScore || '—',       color: m.convScore >= 70 ? 'var(--buy)' : m.convScore >= 45 ? 'var(--accent)' : 'var(--muted)' },
           { label:'SENTIMENT',   val: m.sentiment + '% buy',    color: m.sentiment >= 60 ? 'var(--buy)' : m.sentiment >= 40 ? 'var(--option)' : 'var(--sell)' },
         ].map(x => `
@@ -8088,14 +8098,24 @@ async function fetchCompareData(ticker) {
   if (_compareLoading.has(ticker)) return;
   _compareLoading.add(ticker);
   try {
-    const trades = await apiFetch('/api/ticker?symbol=' + encodeURIComponent(ticker));
-    if (Array.isArray(trades)) _compareData[ticker] = trades;
-    else _compareData[ticker] = [];
+    const [trades, govTrades] = await Promise.all([
+      apiFetch('/api/ticker?symbol=' + encodeURIComponent(ticker)),
+      apiFetch('/api/gov?symbol=' + encodeURIComponent(ticker)).catch(() => []),
+    ]);
+    const AMOUNT_MID_C={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+    const normalizedGov = Array.isArray(govTrades) ? govTrades.map(g => ({
+      insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
+      ticker, type: g.transaction_type==='P'?'P':'S',
+      value: AMOUNT_MID_C[g.amount_range]||8000,
+      trade: g.transaction_date, filing: g.transaction_date,
+      _isGov: true,
+    })) : [];
+    const allTrades = Array.isArray(trades) ? [...trades, ...normalizedGov] : normalizedGov;
+    _compareData[ticker] = allTrades;
   } catch(_) {
     _compareData[ticker] = [];
   }
   _compareLoading.delete(ticker);
-  // Re-render if we're still on the compare page
   const body = document.getElementById('compareViewBody');
   if (body && body.closest('.view.active')) renderComparePage();
 }
