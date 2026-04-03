@@ -2423,6 +2423,14 @@ function renderStockLanding(lists) {
   });
 
   const hasAny = activeCards.length || hotBuyCards.length || sellCards.length;
+  // If server returned empty arrays (cold start), auto-retry after a few seconds
+  if (!hasAny) {
+    _stockListsCache = null; // force re-fetch next time
+    setTimeout(() => {
+      const c2 = document.getElementById('stockContent');
+      if (c2 && c2.innerHTML.includes('RETRY')) loadStockLanding();
+    }, 5000);
+  }
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:24px 20px">
     <div style="margin-bottom:28px">
       <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
@@ -3896,7 +3904,8 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades, opts={})
   }
   const avg    = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
   const stddev = arr => { const m=avg(arr); return Math.sqrt(avg(arr.map(x=>(x-m)**2))); };
-  const rets90=completed.map(s=>s.ret90), rets60=completed.filter(s=>s.ret60!==null).map(s=>s.ret60), rets30=completed.filter(s=>s.ret30!==null).map(s=>s.ret30);
+  const capR=r=>Math.max(-100,Math.min(100,r)); // cap at ±100% to eliminate reverse-split artifacts
+  const rets90=completed.map(s=>capR(s.ret90)), rets60=completed.filter(s=>s.ret60!==null).map(s=>capR(s.ret60)), rets30=completed.filter(s=>s.ret30!==null).map(s=>capR(s.ret30));
   const winRate=Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
   const avgRet90=avg(rets90), avgRet60=rets60.length?avg(rets60):null, avgRet30=rets30.length?avg(rets30):null;
   const avgMag=avg(rets90.map(Math.abs)), bestTrade=Math.max(...rets90), worstTrade=Math.min(...rets90);
@@ -6066,11 +6075,13 @@ async function computeLeaderboardScores() {
 
 function renderTopScoresList(ranked) {
   // Merge gov officials into the same list, sorted by score
+  // Gov score = (sellVal - buyVal) normalised 1-100 — shows who has taken most profit out
   const govNormalized = (_govScoreCache||[]).map(g => ({
     name: g.name, title: g.chamber, tickers: g.tickers,
     accuracyScore: g.activityScore, tier: 'GOV',
     winRate: null, avgRet90: null, tradeCount: g.tradeCount,
-    buyCount: g.buyCount, buyVal: g.buyVal, _isGov: true,
+    buyVal: g.buyVal, sellVal: g.sellVal, profitProxy: g.profitProxy,
+    _isGov: true,
   }));
   const merged = [...(ranked||[]), ...govNormalized].sort((a,b) => b.accuracyScore - a.accuracyScore);
   if (!merged.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No scored insiders yet.</div>';
@@ -6084,14 +6095,15 @@ function renderTopScoresList(ranked) {
     const onclick = r._isGov
       ? `openGovProfile('${escName(r.name)}')`
       : `openInsiderProfile('${escName(r.name)}','${escName(r.title||'')}',{serverScore:${sc},serverScoreType:'accuracy'})`;
+    const net = r._isGov ? (r.sellVal||0)-(r.buyVal||0) : null;
     const subStats = r._isGov
-      ? `<span style="font-size:10px;color:var(--buy)">${r.buyCount} purchases</span>
-         <span style="font-size:10px;color:var(--accent)">${fmt(r.buyVal)}+ est. bought</span>
-         <span style="font-size:10px;color:var(--muted)">${r.tradeCount} total trades</span>`
+      ? `<span style="font-size:10px;color:var(--sell)">Sold ${fmt(r.sellVal||0)}</span>
+         <span style="font-size:10px;color:var(--buy)">Bought ${fmt(r.buyVal||0)}</span>
+         <span style="font-size:10px;color:${net>=0?'var(--buy)':'var(--sell)'}">Net ${net>=0?'+':''}${fmt(Math.abs(net))}</span>`
       : `<span style="font-size:10px;color:${r.winRate>=55?'var(--buy)':r.winRate>=45?'var(--option)':'var(--muted)'}">${r.winRate}% win rate</span>
          <span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>
          <span style="font-size:10px;color:var(--muted)">${r.tradeCount} trades scored</span>`;
-    const tierLabel = r._isGov ? 'ACTIVITY' : r.tier;
+    const tierLabel = r._isGov ? 'PROFIT' : r.tier;
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
                  onclick="${onclick}">
