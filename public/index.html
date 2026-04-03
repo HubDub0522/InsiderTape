@@ -2428,12 +2428,8 @@ function renderStockLanding(lists) {
     </div>
     ${!hasAny ? '<div style="text-align:center;padding:60px 20px;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">🔍</div><div style="font-size:13px;font-weight:500;color:var(--text)">Search a ticker or insider name above</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Try NVDA, AAPL, Zuckerberg, or Nancy Pelosi</div></div>' : ''}
     ${section('Recent Activity', 'Insider moves · Last 14 days', '⚡', activeCards)}
-    ${auth.isPremium
-      ? section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)
-      : premiumSectionBlur('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards, 'Top Insider Buying — ranked by dollar value')}
-    ${auth.isPremium
-      ? section('Heavy Selling', 'Watch list · Last 30 days', '🔴', sellCards)
-      : premiumSectionBlur('Heavy Selling', 'Watch list · Last 30 days', '🔴', sellCards, 'Heavy Selling watchlist')}
+    ${section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)}
+    ${section('Heavy Selling', 'Watch list · Last 30 days', '🔴', sellCards)}
   </div>`;
 }
 
@@ -4435,11 +4431,7 @@ async function loadInsiderDashboard() {
     const bigSells=[...allTrades].filter(t=>t.type==='S'||t.type==='S-').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
     // Track which names are gov for badge display
     const govNames = new Set(govTrades.map(g=>g.insider));
-    const largestGateHtml = auth.isPremium ? `` : `
-      <div onclick="showPremiumOverlay('Largest Trades — biggest single insider moves')" style="position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,11,15,0.75);cursor:pointer;backdrop-filter:blur(2px)">
-        <span style="font-size:18px">🔒</span>
-        <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--accent);letter-spacing:1px">PREMIUM FEATURE</span>
-      </div>`;
+    const largestGateHtml = ``; // Stock view landing is fully open to all users
     const govBadgeSm = '<span style="font-size:8px;padding:1px 4px;border-radius:2px;background:rgba(36,120,204,0.12);color:var(--accent);font-weight:600;margin-left:4px">GOV</span>';
     const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}${t._isGov?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:${color}">${t._isGov?'~':''}\${fmt(t.value)}</span></div>`;
     dash.innerHTML=`
@@ -4486,14 +4478,14 @@ async function loadInsiderRatioChart() {
     }
     const { insider, spx, thresholds } = _sentimentCache;
     if (!insider || !insider.length) { el.innerHTML = ''; return; }
-    renderSentimentChart(el, insider, spx || [], thresholds);
+    renderSentimentChart(el, insider, spx || [], thresholds, auth.isPremium);
   } catch(e) {
     console.error('loadInsiderRatioChart:', e);
     el.innerHTML = '';
   }
 }
 
-function renderSentimentChart(el, insider, spx, thresholds) {
+function renderSentimentChart(el, insider, spx, thresholds, isPrem=false) {
   const W = 800;
   const H_SPX   = 200;
   const H_IND   = 130;
@@ -4643,11 +4635,18 @@ function renderSentimentChart(el, insider, spx, thresholds) {
           ${spxTicks}
 
           <text x="${PAD.left}" y="${indTop - 6}" fill="#4a6580" font-family="monospace" font-size="8" letter-spacing="1.5">INSIDER BUY %</text>
-          ${threshLines}
-          ${medianLine}
-          ${bars}
+          ${isPrem ? threshLines + medianLine + bars : ''}
           ${xLabels}
         </svg>
+
+        ${!isPrem ? `
+        <div style="position:absolute;left:${PAD.left}px;right:${44}px;top:${H_SPX + 32}px;height:${H_IND}px;display:flex;align-items:center;justify-content:center;background:rgba(240,242,245,0.7);backdrop-filter:blur(3px);border-top:1px dashed var(--border);cursor:pointer" onclick="showPremiumOverlay('Insider Buy % Indicator')">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+            <span style="font-size:16px">🔒</span>
+            <span style="font-size:10px;font-weight:600;color:var(--accent);letter-spacing:1px;font-family:Inter,sans-serif">PREMIUM FEATURE</span>
+            <span style="font-size:10px;color:var(--muted)">Insider Buy % Signal</span>
+          </div>
+        </div>` : ''}
 
         <div id="sentimentTooltip" style="position:fixed;display:none;background:#0d1117;border:1px solid #1e2d3d;border-radius:6px;padding:10px 14px;font-size:12px;color:#e8f4fd;z-index:9999;pointer-events:none;max-width:220px;box-shadow:0 4px 20px rgba(0,0,0,0.6)"></div>
       </div>
@@ -7033,7 +7032,8 @@ function detectAdvancedClusters(trades) {
     if (bestCluster && bestCluster.score >= 30) results.push(bestCluster);
   });
 
-  return results.filter(r => r.totalVal > 0).sort((a, b) => b.score - a.score).slice(0, 12);
+  // Require minimum $25,000 total cluster value — eliminates micro-cap noise like $3.4K FNWD
+  return results.filter(r => r.totalVal >= 25000).sort((a, b) => b.score - a.score).slice(0, 12);
 }
 
 function scoreCluster(ticker, clusterBuys, allTicker) {
@@ -7153,7 +7153,8 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   if (totalVal >= 10000000)      { score += 10; signals.push(`${fmt(totalVal)} total committed`); }
   else if (totalVal >= 2000000)  { score += 7;  signals.push(`${fmt(totalVal)} combined outlay`); }
   else if (totalVal >= 500000)   { score += 4;  signals.push(`${fmt(totalVal)} invested`); }
-  else                           { penalties.push(`Modest outlay: ${fmt(totalVal)}`); }
+  else if (totalVal >= 25000)    { score -= 10; penalties.push(`Very small outlay: ${fmt(totalVal)}`); }
+  else                           { score -= 30; penalties.push(`Negligible outlay: ${fmt(totalVal)} — likely noise`); }
 
   score = Math.min(100, Math.max(1, Math.round(score)));
 
