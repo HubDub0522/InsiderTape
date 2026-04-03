@@ -71,7 +71,7 @@
     --buy-dim:   #38c872;
     --sell:      #b03030;
     --sell-dim:  #d94040;
-    --option:    #b07800;
+    --option:    #7a5200;
     --header-h:  64px;
   }
 
@@ -253,7 +253,7 @@
   .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
   .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
   .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
-  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(255,170,0,0.08); }
+  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(138,94,0,0.08); }
   .filter-range { display: flex; flex-direction: column; gap: 8px; }
   .filter-range select, .filter-range input[type=number] { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; color: var(--text); font-size: 12px; outline: none; width: 100%; }
   .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
@@ -284,7 +284,7 @@
   .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
   .badge-buy  { background: rgba(0,255,136,0.15); color: var(--buy); border: 1px solid rgba(0,255,136,0.3); }
   .badge-sell { background: rgba(255,68,102,0.15); color: var(--sell); border: 1px solid rgba(255,68,102,0.3); }
-  .badge-option { background: rgba(255,170,0,0.15); color: var(--option); border: 1px solid rgba(255,170,0,0.3); }
+  .badge-option { background: rgba(138,94,0,0.15); color: var(--option); border: 1px solid rgba(138,94,0,0.3); }
   .val-positive { color: var(--buy); font-weight: 500; }
   .val-negative { color: var(--sell); font-weight: 500; }
   .val-neutral  { color: var(--option); font-weight: 500; }
@@ -1682,8 +1682,8 @@ function renderConvictionCards(trades) {
   if (!top.length) return '<div style="color:var(--muted);font-size:12px;padding:16px">No high-conviction trades found. Try expanding the time period.</div>';
   return top.map(c => {
     const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)';
-    const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.08)' : c.score >= 60 ? 'rgba(0,212,255,0.08)' : 'rgba(255,170,0,0.08)';
-    const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.25)' : c.score >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(255,170,0,0.2)';
+    const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.08)' : c.score >= 60 ? 'rgba(0,212,255,0.08)' : 'rgba(138,94,0,0.08)';
+    const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.25)' : c.score >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(138,94,0,0.2)';
     return `<div class="conviction-card" onclick="openTickerFromScreener('${c.ticker}')">
       <div class="conviction-card-header">
         <div><div class="conviction-ticker">${c.ticker}</div><div class="conviction-company">${c.company}</div></div>
@@ -1786,7 +1786,7 @@ function renderScreener() {
       <td><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
       <td class="ticker-cell" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
       <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Inter\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(138,94,0,0.1);border:1px solid rgba(138,94,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
       <td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtShares(t.qty)}</td>
       <td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
@@ -1929,7 +1929,7 @@ function proxFilter(type) {
     t.classList.remove('prox-active');
     // Reset borders
     if (t.id === 'proxTile-abnormal') t.style.borderColor = 'rgba(255,68,102,0.2)';
-    else if (t.id === 'proxTile-imminent') t.style.borderColor = 'rgba(255,170,0,0.2)';
+    else if (t.id === 'proxTile-imminent') t.style.borderColor = 'rgba(138,94,0,0.2)';
     else if (t.id === 'proxTile-repeat') t.style.borderColor = 'rgba(0,212,255,0.18)';
     else t.style.borderColor = 'var(--border)';
   });
@@ -1937,7 +1937,7 @@ function proxFilter(type) {
   if (activeTile) {
     activeTile.classList.add('prox-active');
     if (type === 'abnormal') activeTile.style.borderColor = 'rgba(255,68,102,0.6)';
-    else if (type === 'imminent') activeTile.style.borderColor = 'rgba(255,170,0,0.6)';
+    else if (type === 'imminent') activeTile.style.borderColor = 'rgba(138,94,0,0.6)';
     else if (type === 'repeat') activeTile.style.borderColor = 'rgba(0,212,255,0.5)';
     else activeTile.style.borderColor = 'var(--accent)';
   }
@@ -1985,15 +1985,15 @@ function proxFilter(type) {
 
   const renderCard = r => {
     const scoreColor  = r.score >= 75 ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : r.score >= 35 ? 'var(--accent)' : 'var(--muted)';
-    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(255,170,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
-    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(255,170,0,0.07)' : 'rgba(0,212,255,0.05)';
+    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(138,94,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
+    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(138,94,0,0.07)' : 'rgba(0,212,255,0.05)';
     const daysBarWidth = Math.max(5, Math.min(95, Math.round((1 - r.daysTo / PROXIMITY_WINDOW) * 100)));
     const evtIcon = typeIcon[r.nextEvent?.type] || '📅';
     const evtDate = r.nextEvent?.date || '—';
     const evtLabel = r.nextEvent?.label || 'Upcoming Event';
     const badges = [];
     if (r.isAbnormal) badges.push(`<span style="font-size:9px;background:rgba(255,68,102,0.15);color:var(--sell);border:1px solid rgba(255,68,102,0.35);border-radius:3px;padding:2px 7px;font-weight:700">⚠ ABNORMAL</span>`);
-    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(255,170,0,0.1);color:var(--option);border:1px solid rgba(255,170,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT</span>`);
+    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(138,94,0,0.1);color:var(--option);border:1px solid rgba(138,94,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT</span>`);
     return `<div onclick="openTickerFromScreener('${r.ticker}')" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
       <div style="height:3px;background:rgba(255,255,255,0.05)"><div style="height:100%;width:${r.score}%;background:${scoreColor};opacity:0.75"></div></div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:13px 16px 8px;gap:10px">
@@ -2108,8 +2108,8 @@ function _renderProximityResults(body, backBtn, results) {
 
   const renderCard = r => {
     const scoreColor  = r.score >= 75 ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : r.score >= 35 ? 'var(--accent)' : 'var(--muted)';
-    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(255,170,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
-    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(255,170,0,0.07)' : 'rgba(0,212,255,0.05)';
+    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(138,94,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
+    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(138,94,0,0.07)' : 'rgba(0,212,255,0.05)';
 
     // Days-to bar
     const daysBarWidth = Math.max(5, Math.min(95, Math.round((1 - r.daysTo / PROXIMITY_WINDOW) * 100)));
@@ -2143,7 +2143,7 @@ function _renderProximityResults(body, backBtn, results) {
     // Signal badges
     const badges = [];
     if (r.isAbnormal) badges.push(`<span style="font-size:9px;background:rgba(255,68,102,0.15);color:var(--sell);border:1px solid rgba(255,68,102,0.35);border-radius:3px;padding:2px 7px;font-weight:700">⚠ ABNORMAL TIMING</span>`);
-    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(255,170,0,0.1);color:var(--option);border:1px solid rgba(255,170,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT PATTERN</span>`);
+    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(138,94,0,0.1);color:var(--option);border:1px solid rgba(138,94,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT PATTERN</span>`);
 
     return `
     <div onclick="openTickerFromScreener('${r.ticker}')"
@@ -2233,7 +2233,7 @@ function _renderProximityResults(body, backBtn, results) {
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Abnormal flags</div>
         ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">C-suite ≤30d</div>'}
       </div>
-      <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(255,170,0,0.06);border:1px solid rgba(255,170,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,170,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(255,170,0,0.2)'">
+      <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(138,94,0,0.06);border:1px solid rgba(138,94,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(138,94,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(138,94,0,0.2)'">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=21).length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Within 21 days</div>
         ${results.filter(r=>r.daysTo<=21).length ? '<div style="font-size:9px;color:var(--option);margin-top:4px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">≤21d to earnings</div>'}
@@ -2426,7 +2426,7 @@ function renderStockLanding(lists) {
       <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
     </div>
-    ${!hasAny ? '<div style="text-align:center;padding:60px 20px;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">📋</div><div style="font-size:12px">Search any ticker above to view insider activity</div></div>' : ''}
+    ${!hasAny ? '<div style="text-align:center;padding:60px 20px;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">🔍</div><div style="font-size:13px;font-weight:500;color:var(--text)">Search a ticker or insider name above</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Try NVDA, AAPL, Zuckerberg, or Nancy Pelosi</div></div>' : ''}
     ${section('Recent Activity', 'Insider moves · Last 14 days', '⚡', activeCards)}
     ${auth.isPremium
       ? section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)
@@ -2592,7 +2592,7 @@ async function loadStockView(ticker, opts={}) {
             </div>
           </div>
         </div>
-        <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#080b0f;"></div>
+        <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#0d1b2e;"></div>
         <div id="pressureWrapper" style="width:100%;background:#080b0f;border:1px solid var(--border);border-top:1px solid #1e2d3d;border-radius:0 0 6px 6px;overflow:hidden;">
           <div id="pressureContainer" style="width:100%;height:120px;" class="pressure-container"></div>
         </div>
@@ -2733,7 +2733,7 @@ async function buildChart(priceData, trades, govData=[]) {
     attributionLogo: false,
     width: w,
     height: h,
-    layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
+    layout:{background:{type:'solid',color:'#0d1b2e'},textColor:'#6e8aa0'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
     rightPriceScale:{borderColor:'#1e2d3d',autoScale:true,scaleMargins:{top:0.08,bottom:0.18}},timeScale:{borderColor:'#1e2d3d',timeVisible:true},
@@ -2922,7 +2922,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       // Min radius: 4 (mobile) or 5 (desktop) — Max radius: 18 (mobile) or 24 (desktop)
       const rMin=_mob?6:8, rMax=_mob?28:38;
       const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, g.value) / maxVal);
-      const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(255,170,0,';
+      const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(138,94,0,';
       ctx.beginPath(); ctx.arc(ts,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=color+'0.08)'; ctx.fill();
       ctx.beginPath(); ctx.arc(ts,yCoord,r,0,Math.PI*2); ctx.fillStyle=color+'0.20)'; ctx.strokeStyle=color+'0.85)'; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
       state._circles.push({x:ts,y:yCoord,r,group:g});
@@ -3051,7 +3051,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
     attributionLogo: false,
     width: pcW,
     height: pcH,
-    layout:{background:{type:'solid',color:'#080b0f'},textColor:'#4a6580'},
+    layout:{background:{type:'solid',color:'#0d1b2e'},textColor:'#6e8aa0'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
     rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
     timeScale:{borderColor:'#1e2d3d',visible:false},
@@ -3444,8 +3444,8 @@ function renderTradeMarkerList(trades) {
   const sorted=[...trades].sort((a,b)=>new Date(b.trade||b.filing)-new Date(a.trade||a.filing));
   el.innerHTML=sorted.slice(0,15).map(t=>{
     const tc=tradeClass(t.type),color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--option)';
-    const border=tc==='buy'?'rgba(0,255,136,0.3)':tc==='sell'?'rgba(255,68,102,0.3)':'rgba(255,170,0,0.3)';
-    const bg=tc==='buy'?'rgba(0,255,136,0.07)':tc==='sell'?'rgba(255,68,102,0.07)':'rgba(255,170,0,0.07)';
+    const border=tc==='buy'?'rgba(0,255,136,0.3)':tc==='sell'?'rgba(255,68,102,0.3)':'rgba(138,94,0,0.3)';
+    const bg=tc==='buy'?'rgba(0,255,136,0.07)':tc==='sell'?'rgba(255,68,102,0.07)':'rgba(138,94,0,0.07)';
     return `<div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
       <span style="color:${color};font-size:10px;font-weight:700">${tc==='buy'?'▲':'▼'} ${tradeLabel(t.type)}</span>
       <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted)">${fmtDate(t.trade||t.filing)}</span>
@@ -3534,7 +3534,7 @@ function renderSidebarSummary(trades) {
       <div style="display:grid;gap:6px">
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(0,255,136,0.07);border-radius:4px;border:1px solid rgba(0,255,136,0.2)"><span style="color:var(--buy);font-size:12px">▲ Buys (${buys.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,68,102,0.07);border-radius:4px;border:1px solid rgba(255,68,102,0.2)"><span style="color:var(--sell);font-size:12px">▼ Sells (${sells.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,170,0,0.07);border-radius:4px;border:1px solid rgba(255,170,0,0.2)"><span style="color:var(--option);font-size:12px">◆ Other (${opts.length+trades.length-buys.length-sells.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(138,94,0,0.07);border-radius:4px;border:1px solid rgba(138,94,0,0.2)"><span style="color:var(--option);font-size:12px">◆ Other (${opts.length+trades.length-buys.length-sells.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span></div>
       </div>
     </div>
     <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
@@ -3845,7 +3845,7 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades, opts={})
   const tierColor={ELITE:'var(--buy)',STRONG:'var(--accent)',AVERAGE:'var(--option)',WEAK:'var(--sell)'}[tier];
   const followRec=accuracyScore>=75?{label:'FOLLOW CLOSELY',color:'var(--buy)',bg:'rgba(0,255,136,.1)',border:'rgba(0,255,136,.3)'}
     :accuracyScore>=55?{label:'MONITOR',color:'var(--accent)',bg:'rgba(0,212,255,.08)',border:'rgba(0,212,255,.25)'}
-    :accuracyScore>=35?{label:'LOW PRIORITY',color:'var(--option)',bg:'rgba(255,170,0,.08)',border:'rgba(255,170,0,.25)'}
+    :accuracyScore>=35?{label:'LOW PRIORITY',color:'var(--option)',bg:'rgba(138,94,0,.08)',border:'rgba(138,94,0,.25)'}
     :{label:'IGNORE',color:'var(--sell)',bg:'rgba(255,68,102,.08)',border:'rgba(255,68,102,.25)'};
 
   // ── TIMING QUALITY: analyse where in the price range each buy landed ──
@@ -4143,8 +4143,8 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
   const timingBlock = timing ? (() => {
     const ta = timing.timingAlpha;
     const taColor  = ta >= 80 ? 'var(--buy)' : ta >= 60 ? 'var(--accent)' : ta >= 40 ? 'var(--option)' : 'var(--sell)';
-    const taBg     = ta >= 80 ? 'rgba(0,255,136,0.08)'  : ta >= 60 ? 'rgba(0,212,255,0.07)'  : ta >= 40 ? 'rgba(255,170,0,0.06)'  : 'rgba(255,68,102,0.06)';
-    const taBorder = ta >= 80 ? 'rgba(0,255,136,0.3)'   : ta >= 60 ? 'rgba(0,212,255,0.25)'  : ta >= 40 ? 'rgba(255,170,0,0.2)'   : 'rgba(255,68,102,0.2)';
+    const taBg     = ta >= 80 ? 'rgba(0,255,136,0.08)'  : ta >= 60 ? 'rgba(0,212,255,0.07)'  : ta >= 40 ? 'rgba(138,94,0,0.06)'  : 'rgba(255,68,102,0.06)';
+    const taBorder = ta >= 80 ? 'rgba(0,255,136,0.3)'   : ta >= 60 ? 'rgba(0,212,255,0.25)'  : ta >= 40 ? 'rgba(138,94,0,0.2)'   : 'rgba(255,68,102,0.2)';
 
     const rs = v => v === null ? '—' : (v >= 0 ? '+' : '') + v + '%';
     const rc = v => v === null ? 'var(--muted)' : v >= 0 ? 'var(--buy)' : 'var(--sell)';
@@ -5873,8 +5873,8 @@ function renderGovScoresList(ranked) {
   return ranked.map((r, i) => {
     const sc = r.activityScore;
     const scColor  = sc>=75?'var(--buy)':sc>=55?'#00d4ff':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.08)':'rgba(255,170,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.25)':'rgba(255,170,0,0.18)';
+    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.08)':'rgba(138,94,0,0.06)';
+    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.25)':'rgba(138,94,0,0.18)';
     const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s" class="gov-profile-link" data-member="' + escName(r.name) + '"'
       + ' data-hc="' + scBorder + '" onmouseover="this.style.borderColor=this.dataset.hc" onmouseout="this.style.borderColor=\'var(--border)\'">' 
@@ -5930,8 +5930,8 @@ function renderTopScoresList(ranked) {
   return ranked.map((r, i) => {
     const sc = r.accuracyScore;
     const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
+    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(138,94,0,0.06)';
+    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(138,94,0,0.18)';
     const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
@@ -5959,8 +5959,8 @@ function renderTimingLeadersList(ranked) {
   return ranked.map((r, i) => {
     const ta = r.timingAlpha;
     const taColor  = ta>=80?'var(--buy)':ta>=60?'var(--accent)':ta>=40?'var(--option)':'var(--muted)';
-    const taBg     = ta>=80?'rgba(0,255,136,0.08)':ta>=60?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
-    const taBorder = ta>=80?'rgba(0,255,136,0.28)':ta>=60?'rgba(0,212,255,0.22)':'rgba(255,170,0,0.18)';
+    const taBg     = ta>=80?'rgba(0,255,136,0.08)':ta>=60?'rgba(0,212,255,0.07)':'rgba(138,94,0,0.06)';
+    const taBorder = ta>=80?'rgba(0,255,136,0.28)':ta>=60?'rgba(0,212,255,0.22)':'rgba(138,94,0,0.18)';
     const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${taBorder}'" onmouseout="this.style.borderColor='var(--border)'"
@@ -6268,8 +6268,8 @@ function scoreOpportunityRanker(rows) {
     const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
                   score >= 55 ? 'B'  : score >= 45 ? 'C+': score >= 35 ? 'C' : 'D';
     const scoreColor  = score >= 75 ? 'var(--buy)'    : score >= 55 ? 'var(--accent)' : score >= 40 ? 'var(--option)' : 'var(--muted)';
-    const scoreBg     = score >= 75 ? 'rgba(0,255,136,0.08)'  : score >= 55 ? 'rgba(0,212,255,0.07)'  : 'rgba(255,170,0,0.06)';
-    const scoreBorder = score >= 75 ? 'rgba(0,255,136,0.3)'   : score >= 55 ? 'rgba(0,212,255,0.25)'  : 'rgba(255,170,0,0.2)';
+    const scoreBg     = score >= 75 ? 'rgba(0,255,136,0.08)'  : score >= 55 ? 'rgba(0,212,255,0.07)'  : 'rgba(138,94,0,0.06)';
+    const scoreBorder = score >= 75 ? 'rgba(0,255,136,0.3)'   : score >= 55 ? 'rgba(0,212,255,0.25)'  : 'rgba(138,94,0,0.2)';
 
     // Cross-tool badges for card display
     const crossToolBadges = [
@@ -6341,7 +6341,7 @@ function renderRankerCard(r, idx) {
           <!-- Factor pills -->
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">
             ${r.buyer_count >= 2 ? `<span style="background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--buy)">${r.buyer_count} BUYERS</span>` : ''}
-            ${r.has_exec_buyer ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--option)">EXEC</span>` : ''}
+            ${r.has_exec_buyer ? `<span style="background:rgba(138,94,0,0.08);border:1px solid rgba(138,94,0,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--option)">EXEC</span>` : ''}
             ${r.sell_count === 0 ? `<span style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.15);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--buy)">NO SELLS</span>` : `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--sell)">${r.seller_count} SELLING</span>`}
             ${r._pctFromLow != null && r._pctFromLow <= 15 ? `<span style="background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--accent)">NEAR LOW</span>` : ''}
             ${(r.crossToolBadges||[]).map(([lbl,c,bg]) => `<span style="background:${bg};border:1px solid ${c}44;border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:${c}">${lbl}</span>`).join('')}
@@ -6600,7 +6600,7 @@ function detectExitWarnings(trades, priceHighs={}) {
     // Severity label
     let severity, severityColor, severityBg, severityBorder;
     if (score >= 75)      { severity='HIGH ALERT';  severityColor='var(--sell)';   severityBg='rgba(255,68,102,0.1)';   severityBorder='rgba(255,68,102,0.35)'; }
-    else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(255,170,0,0.08)';   severityBorder='rgba(255,170,0,0.3)'; }
+    else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(138,94,0,0.08)';   severityBorder='rgba(138,94,0,0.3)'; }
     else                  { severity='WATCH';       severityColor='var(--muted)';  severityBg='rgba(201,216,232,0.05)'; severityBorder='rgba(201,216,232,0.2)'; }
 
     const govSellerNames = [...new Set(tickerSells.filter(t=>t._isGov).map(t=>t.insider))];
@@ -6639,7 +6639,7 @@ function renderExitWarningCard(w) {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <span style="background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--sell)">${w.sellerCount} SELLERS</span>
-          ${w.execSellers > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${w.execSellers} EXEC${w.execSellers>1?'S':''}</span>` : ''}
+          ${w.execSellers > 0 ? `<span style="background:rgba(138,94,0,0.08);border:1px solid rgba(138,94,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${w.execSellers} EXEC${w.execSellers>1?'S':''}</span>` : ''}
           ${w.latestSell ? `<span style="font-size:10px;color:var(--muted)">${fmtDate(w.latestSell.trade||w.latestSell.filing)}</span>` : ''}
         </div>
       </div>
@@ -6802,7 +6802,7 @@ function buildFirstBuySignal(r) {
   let tier, tierColor, tierBg, tierBorder;
   if (gapYears >= 5)       { tier='EXTREME';   tierColor='var(--buy)';    tierBg='rgba(0,255,136,0.08)';  tierBorder='rgba(0,255,136,0.3)'; }
   else if (gapYears >= 3)  { tier='VERY HIGH'; tierColor='var(--accent)'; tierBg='rgba(0,212,255,0.07)';  tierBorder='rgba(0,212,255,0.25)'; }
-  else if (gapYears >= 1)  { tier='HIGH';      tierColor='var(--option)'; tierBg='rgba(255,170,0,0.07)';  tierBorder='rgba(255,170,0,0.25)'; }
+  else if (gapYears >= 1)  { tier='HIGH';      tierColor='var(--option)'; tierBg='rgba(138,94,0,0.07)';  tierBorder='rgba(138,94,0,0.25)'; }
   else                     { tier='NOTABLE';   tierColor='var(--text)';   tierBg='rgba(201,216,232,0.04)';tierBorder='rgba(201,216,232,0.15)'; }
 
   return {
@@ -7144,8 +7144,8 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
 
 function renderClusterCard(c) {
   const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : c.score >= 40 ? 'var(--option)' : 'var(--sell)';
-  const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.06)' : c.score >= 60 ? 'rgba(0,212,255,0.06)' : c.score >= 40 ? 'rgba(255,170,0,0.06)' : 'rgba(255,68,102,0.06)';
-  const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.3)' : c.score >= 60 ? 'rgba(0,212,255,0.25)' : c.score >= 40 ? 'rgba(255,170,0,0.25)' : 'rgba(255,68,102,0.25)';
+  const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.06)' : c.score >= 60 ? 'rgba(0,212,255,0.06)' : c.score >= 40 ? 'rgba(138,94,0,0.06)' : 'rgba(255,68,102,0.06)';
+  const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.3)' : c.score >= 60 ? 'rgba(0,212,255,0.25)' : c.score >= 40 ? 'rgba(138,94,0,0.25)' : 'rgba(255,68,102,0.25)';
   const strengthLabel = c.isStockPlan ? 'STOCK PLAN / ESPP' : c.score >= 80 ? 'STRONG CLUSTER' : c.score >= 60 ? 'MODERATE CLUSTER' : c.score >= 40 ? 'WEAK CLUSTER' : 'NOISE';
   const barW = c.score;
 
@@ -7165,7 +7165,7 @@ function renderClusterCard(c) {
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <span style="background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--buy)">${c.insiderCount} INSIDERS</span>
             <span style="background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent)">${c.daySpan <= 1 ? 'SAME DAY' : c.daySpan + '-DAY WINDOW'}</span>
-            ${c.execCount > 0 ? `<span style="background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
+            ${c.execCount > 0 ? `<span style="background:rgba(138,94,0,0.08);border:1px solid rgba(138,94,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
             ${c.govNames && c.govNames.length ? `<span style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:#00d4ff">🏛 ${c.govNames.length} GOV</span>` : ''}
             ${c.concurrentSells > 0 ? `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--sell)">⚠ ${c.concurrentSells} SELL${c.concurrentSells>1?'S':''}</span>` : ''}
           </div>
@@ -7412,12 +7412,28 @@ function renderSectorsPage(data) {
 function renderSectorCard(s, maxBuy, rank) {
   const heatPct  = Math.round(s.buy_val / maxBuy * 100);
   const sentiment = parseInt(s.sentiment) || 0;
-  // Heat color: low = dim blue, high = bright green
-  const heatR = Math.round(0   + heatPct * 0);
-  const heatG = Math.round(100 + heatPct * 1.55);
-  const heatB = Math.round(180 - heatPct * 1.3);
-  const heatColor = `rgb(${heatR},${Math.min(255,heatG)},${Math.max(0,heatB)})`;
-  const heatAlpha = 0.04 + heatPct / 100 * 0.18;
+  // Heat color: 0-33 = red (cold), 34-66 = neutral (transparent), 67-100 = green (hot)
+  let heatR, heatG, heatB, heatAlpha;
+  if (heatPct >= 50) {
+    // Green zone: scale from neutral to bright green
+    const t = (heatPct - 50) / 50;
+    heatR = Math.round(40 * (1 - t));
+    heatG = Math.round(130 + 95 * t);
+    heatB = Math.round(60 * (1 - t));
+    heatAlpha = 0.04 + t * 0.18;
+  } else if (heatPct >= 20) {
+    // Neutral zone: very subtle, mostly transparent
+    heatR = 100; heatG = 100; heatB = 110;
+    heatAlpha = 0.02;
+  } else {
+    // Red zone: scale from neutral to red for lowest sectors
+    const t = (20 - heatPct) / 20;
+    heatR = Math.round(140 + 76 * t);
+    heatG = Math.round(40 * (1 - t));
+    heatB = Math.round(40 * (1 - t));
+    heatAlpha = 0.03 + t * 0.12;
+  }
+  const heatColor = `rgb(${heatR},${heatG},${heatB})`;
 
   const net = s.buy_val - s.sell_val;
   const isBullish = net > 0;
@@ -7720,7 +7736,7 @@ let _compareLoading  = new Set();
 
 const COMPARE_COLORS = ['var(--accent)', 'var(--buy)', 'var(--option)', 'var(--sell)'];
 const COMPARE_COLORS_HEX = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4466'];
-const COMPARE_COLORS_RGBA10 = ['rgba(0,212,255,0.1)', 'rgba(0,255,136,0.1)', 'rgba(255,170,0,0.1)', 'rgba(255,68,102,0.1)'];
+const COMPARE_COLORS_RGBA10 = ['rgba(0,212,255,0.1)', 'rgba(0,255,136,0.1)', 'rgba(138,94,0,0.1)', 'rgba(255,68,102,0.1)'];
 
 function loadComparePage() {
   if (!auth.isPremium) {
@@ -9100,7 +9116,7 @@ function renderSentimentGauge(s) {
           <!-- Low zone (0-20%, typical/below norm) -->
           <path d="${arcPath(0,20)}" fill="none" stroke="rgba(255,68,102,0.4)" stroke-width="12" stroke-linecap="round"/>
           <!-- Normal zone (20-40%) -->
-          <path d="${arcPath(20,40)}" fill="none" stroke="rgba(255,170,0,0.4)" stroke-width="12" stroke-linecap="round"/>
+          <path d="${arcPath(20,40)}" fill="none" stroke="rgba(138,94,0,0.4)" stroke-width="12" stroke-linecap="round"/>
           <!-- Elevated zone (40-100%) -->
           <path d="${arcPath(40,100)}" fill="none" stroke="rgba(0,255,136,0.4)" stroke-width="12" stroke-linecap="round"/>
           <!-- Filled arc -->
@@ -9110,7 +9126,7 @@ function renderSentimentGauge(s) {
           <circle cx="${cx}" cy="${cy}" r="4" fill="${s.ratioColor}"/>
           <!-- Zone labels -->
           <text x="8" y="98" fill="rgba(255,68,102,0.6)" font-family="monospace" font-size="6">LOW</text>
-          <text x="84" y="98" fill="rgba(255,170,0,0.6)" font-family="monospace" font-size="6">NORM</text>
+          <text x="84" y="98" fill="rgba(138,94,0,0.6)" font-family="monospace" font-size="6">NORM</text>
           <text x="163" y="98" fill="rgba(0,255,136,0.6)" font-family="monospace" font-size="6">HIGH</text>
           <!-- Center: ratio value -->
           <text x="${cx}" y="${cy-10}" fill="${s.ratioColor}" font-family="monospace" font-size="20" font-weight="700" text-anchor="middle">${s.ratio}</text>
@@ -9217,8 +9233,8 @@ function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
     ${groups.map(([ticker, group]) => {
       const topScore   = Math.max(...group.alerts.map(a=>a.score));
       const scoreColor = topScore>=80?'var(--buy)':topScore>=60?'var(--accent)':'var(--option)';
-      const scoreBg    = topScore>=80?'rgba(0,255,136,0.08)':topScore>=60?'rgba(0,212,255,0.07)':'rgba(255,170,0,0.06)';
-      const scoreBorder= topScore>=80?'rgba(0,255,136,0.25)':topScore>=60?'rgba(0,212,255,0.2)':'rgba(255,170,0,0.18)';
+      const scoreBg    = topScore>=80?'rgba(0,255,136,0.08)':topScore>=60?'rgba(0,212,255,0.07)':'rgba(138,94,0,0.06)';
+      const scoreBorder= topScore>=80?'rgba(0,255,136,0.25)':topScore>=60?'rgba(0,212,255,0.2)':'rgba(138,94,0,0.18)';
       return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden;transition:border-color .15s"
            onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
@@ -9991,7 +10007,7 @@ function loadPremiumPage() {
     <rect width="340" height="12" fill="#0d1421"/>
     <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">ANALYSIS TOOLS — 30 DAY SCAN</text>
     <rect x="4" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="12" y="25" fill="#f59e0b" font-family="monospace" font-size="6" letter-spacing="0.5">⚡ OPPORTUNITY RANKER</text>
+    <text x="12" y="25" fill="#8a5e00" font-family="monospace" font-size="6" letter-spacing="0.5">⚡ OPPORTUNITY RANKER</text>
     <text x="12" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">NVDA · Score 94</text>
     <text x="12" y="44" fill="#4a6580" font-family="monospace" font-size="6">Cluster + Regime↑</text>
     <rect x="177" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
@@ -10011,7 +10027,7 @@ function loadPremiumPage() {
     <text x="12" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">MSFT · CEO · 3yr gap</text>
     <text x="12" y="132" fill="#4a6580" font-family="monospace" font-size="6">First open-market buy on record</text>
     <rect x="177" y="102" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="185" y="113" fill="#f59e0b" font-family="monospace" font-size="6" letter-spacing="0.5">📅 EVENT PROXIMITY</text>
+    <text x="185" y="113" fill="#8a5e00" font-family="monospace" font-size="6" letter-spacing="0.5">📅 EVENT PROXIMITY</text>
     <text x="185" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">AMZN · Earnings in 12 days</text>
     <text x="185" y="132" fill="#4a6580" font-family="monospace" font-size="6">Insider buying before catalyst</text>
     <rect x="4" y="146" width="332" height="25" rx="3" fill="#0d1421" stroke="rgba(0,212,255,0.2)" stroke-width="0.5"/>
@@ -10032,10 +10048,10 @@ function loadPremiumPage() {
     <rect x="142" y="14" width="70" height="13" rx="2" fill="transparent" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="148" y="23" fill="#4a6580" font-family="monospace" font-size="6.5">🗓 THIS MONTH</text>
     ${[
-      ['NVDA','⚡ CLUSTER BUY','3 insiders bought within 5 days','#f59e0b','HIGH'],
+      ['NVDA','⚡ CLUSTER BUY','3 insiders bought within 5 days','#8a5e00','HIGH'],
       ['META','🎯 FIRST BUY','CEO first open-market purchase','#22c55e','HIGH'],
       ['AAPL','📈 CONVICTION','Score 9.2 — size vs salary outlier','#00d4ff','MED'],
-      ['MSFT','⚡ CLUSTER BUY','4 insiders · $18.4M combined','#f59e0b','HIGH'],
+      ['MSFT','⚡ CLUSTER BUY','4 insiders · $18.4M combined','#8a5e00','HIGH'],
       ['AMZN','🔄 REPEAT BUYER','3rd consecutive quarter buying','#8b5cf6','MED'],
       ['TSLA','💰 LARGE TRADE','$28M single purchase — top 1%','#22c55e','HIGH'],
     ].map(([t,sig,desc,c,lvl],i)=>`
@@ -10044,8 +10060,8 @@ function loadPremiumPage() {
     <text x="10" y="${44+i*23}" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">${t}</text>
     <text x="40" y="${40+i*23}" fill="${c}" font-family="monospace" font-size="7">${sig}</text>
     <text x="40" y="${49+i*23}" fill="#4a6580" font-family="monospace" font-size="6">${desc}</text>
-    <rect x="${304}" y="${34+i*23}" width="${lvl==='HIGH'?28:24}" height="10" rx="1" fill="${lvl==='HIGH'?'rgba(245,158,11,0.15)':'rgba(0,212,255,0.10)'}"/>
-    <text x="${307}" y="${42+i*23}" fill="${lvl==='HIGH'?'#f59e0b':'#00d4ff'}" font-family="monospace" font-size="6">${lvl}</text>`).join('')}
+    <rect x="${304}" y="${34+i*23}" width="${lvl==='HIGH'?28:24}" height="10" rx="1" fill="${lvl==='HIGH'?'rgba(138,94,0,0.15)':'rgba(0,212,255,0.10)'}"/>
+    <text x="${307}" y="${42+i*23}" fill="${lvl==='HIGH'?'#8a5e00':'#00d4ff'}" font-family="monospace" font-size="6">${lvl}</text>`).join('')}
   </svg>`;
 
   // SECTORS: horizontal bar chart per sector
@@ -10055,7 +10071,7 @@ function loadPremiumPage() {
     <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">SECTORS — BUY FLOW · LAST 30D</text>
     ${[
       ['Technology','$142M','#00d4ff',0.88],['Healthcare','$41M','#22c55e',0.62],
-      ['Financials','$38M','#8b5cf6',0.58],['Energy','$27M','#f59e0b',0.44],
+      ['Financials','$38M','#8b5cf6',0.58],['Energy','$27M','#8a5e00',0.44],
       ['Consumer','$19M','#06b6d4',0.32],['Industrials','$14M','#6366f1',0.25],
       ['Real Estate','$9M','#ec4899',0.18],['Materials','$6M','#14b8a6',0.12],
     ].map(([s,v,c,ratio],i)=>{
@@ -10123,10 +10139,10 @@ function loadPremiumPage() {
     <text x="330" y="160" fill="#00d4ff" font-family="monospace" font-size="7" text-anchor="end">$12.8M</text>
     <rect x="4" y="184" width="332" height="34" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="14" y="197" fill="#e0e6ed" font-family="monospace" font-size="8" font-weight="700">Jamie Dimon</text>
-    <rect x="120" y="189" width="50" height="9" rx="1" fill="rgba(245,158,11,0.10)" stroke="rgba(245,158,11,0.3)" stroke-width="0.5"/>
-    <text x="124" y="196" fill="#f59e0b" font-family="monospace" font-size="6">ACTIVE 90D</text>
+    <rect x="120" y="189" width="50" height="9" rx="1" fill="rgba(138,94,0,0.10)" stroke="rgba(138,94,0,0.3)" stroke-width="0.5"/>
+    <text x="124" y="196" fill="#8a5e00" font-family="monospace" font-size="6">ACTIVE 90D</text>
     <text x="14" y="210" fill="#4a6580" font-family="monospace" font-size="6">Chairman &amp; CEO · JPM</text>
-    <text x="330" y="197" fill="#f59e0b" font-family="monospace" font-size="7" text-anchor="end">$5.5M</text>
+    <text x="330" y="197" fill="#8a5e00" font-family="monospace" font-size="7" text-anchor="end">$5.5M</text>
   </svg>`;
 
   // EMAIL ALERTS mockup SVG
