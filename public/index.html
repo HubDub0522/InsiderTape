@@ -2428,7 +2428,7 @@ function renderStockLanding(lists) {
       <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
     </div>
-    ${!hasAny ? '<div style="text-align:center;padding:60px 20px;color:var(--muted)"><div style="font-size:32px;margin-bottom:12px">🔍</div><div style="font-size:13px;font-weight:500;color:var(--text)">Search a ticker or insider name above</div><div style="font-size:12px;color:var(--muted);margin-top:6px">Try NVDA, AAPL, Zuckerberg, or Nancy Pelosi</div></div>' : ''}
+    ${!hasAny ? '<div style="text-align:center;padding:60px 20px"><div style="font-size:32px;margin-bottom:12px">⏳</div><div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:8px">Activity data is loading...</div><button onclick="_stockListsCache=null;loadStockLanding()" style="padding:8px 20px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">Refresh tiles</button></div>' : ''}
     ${section('Recent Activity', 'Insider moves · Last 14 days', '⚡', activeCards)}
     ${section('Top Insider Buying', 'Last 30 days · by dollar value', '💰', hotBuyCards)}
     ${section('Heavy Selling', 'Watch list · Last 30 days', '🔴', sellCards)}
@@ -2590,8 +2590,8 @@ async function loadStockView(ticker, opts={}) {
             </div>
           </div>
         </div>
-        <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#0d1b2e;"></div>
-        <div id="pressureWrapper" style="width:100%;background:#0d1b2e;border:1px solid var(--border);border-top:1px solid #1e2a3d;border-radius:0 0 6px 6px;overflow:hidden;">
+        <div id="chartContainer" class="chart-container-sized" style="position:relative;width:100%;border-radius:6px 6px 0 0;overflow:hidden;border:1px solid var(--border);border-bottom:none;background:#132440;"></div>
+        <div id="pressureWrapper" style="width:100%;background:#132440;border:1px solid var(--border);border-top:1px solid #1e2a3d;border-radius:0 0 6px 6px;overflow:hidden;">
           <div id="pressureContainer" style="width:100%;height:120px;" class="pressure-container"></div>
         </div>
         <div id="tradeMarkerList" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
@@ -2731,7 +2731,7 @@ async function buildChart(priceData, trades, govData=[]) {
     attributionLogo: false,
     width: w,
     height: h,
-    layout:{background:{type:'solid',color:'#0d1b2e'},textColor:'#6e8aa0'},
+    layout:{background:{type:'solid',color:'#132440'},textColor:'#6e8aa0'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
     rightPriceScale:{borderColor:'#1e2d3d',autoScale:true,scaleMargins:{top:0.08,bottom:0.18}},timeScale:{borderColor:'#1e2d3d',timeVisible:true},
@@ -3060,7 +3060,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
     attributionLogo: false,
     width: pcW,
     height: pcH,
-    layout:{background:{type:'solid',color:'#0d1b2e'},textColor:'#6e8aa0'},
+    layout:{background:{type:'solid',color:'#132440'},textColor:'#6e8aa0'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d22'}},
     rightPriceScale:{borderColor:'#1e2d3d',scaleMargins:{top:0.15,bottom:0.15}},
     timeScale:{borderColor:'#1e2d3d',visible:false},
@@ -4540,6 +4540,7 @@ async function loadInsiderRatioChart() {
 }
 
 function renderSentimentChart(el, insider, spx, thresholds, isPrem=false) {
+  const CHART_BG = '#132440';
   const W = 800;
   const H_SPX   = 200;
   const H_IND   = 130;
@@ -4674,8 +4675,8 @@ function renderSentimentChart(el, insider, spx, thresholds, isPrem=false) {
         </div>
       </div>
 
-      <div style="position:relative;overflow:hidden" id="sentimentChartWrap">
-        <svg id="sentimentSvg" viewBox="0 0 ${W} ${H_TOTAL}" style="width:100%;display:block;overflow:visible">
+      <div style="position:relative;overflow:hidden;background:#132440;border-radius:0 0 8px 8px" id="sentimentChartWrap">
+        <svg id="sentimentSvg" viewBox="0 0 ${W} ${H_TOTAL}" style="width:100%;display:block;overflow:visible;background:#132440;border-radius:0 0 6px 6px">
           <defs>
             <linearGradient id="spxGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.12"/>
