@@ -71,7 +71,7 @@
     --buy-dim:   #38c872;
     --sell:      #b03030;
     --sell-dim:  #d94040;
-    --option:    #7a5200;
+    --option:    #9a6e00;
     --header-h:  64px;
   }
 
@@ -253,7 +253,7 @@
   .chip.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
   .chip.buy-chip.active  { border-color: var(--buy);  color: var(--buy);  background: rgba(0,255,136,0.08); }
   .chip.sell-chip.active { border-color: var(--sell); color: var(--sell); background: rgba(255,68,102,0.08); }
-  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(138,94,0,0.08); }
+  .chip.opt-chip.active  { border-color: var(--option); color: var(--option); background: rgba(154,110,0,0.08); }
   .filter-range { display: flex; flex-direction: column; gap: 8px; }
   .filter-range select, .filter-range input[type=number] { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 7px 10px; color: var(--text); font-size: 12px; outline: none; width: 100%; }
   .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
@@ -284,7 +284,7 @@
   .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
   .badge-buy  { background: rgba(0,255,136,0.15); color: var(--buy); border: 1px solid rgba(0,255,136,0.3); }
   .badge-sell { background: rgba(255,68,102,0.15); color: var(--sell); border: 1px solid rgba(255,68,102,0.3); }
-  .badge-option { background: rgba(138,94,0,0.15); color: var(--option); border: 1px solid rgba(138,94,0,0.3); }
+  .badge-option { background: rgba(154,110,0,0.15); color: var(--option); border: 1px solid rgba(154,110,0,0.3); }
   .val-positive { color: var(--buy); font-weight: 500; }
   .val-negative { color: var(--sell); font-weight: 500; }
   .val-neutral  { color: var(--option); font-weight: 500; }
@@ -1076,13 +1076,13 @@ function insiderRoleBadge(title) {
   const u = title.toUpperCase();
   // C-suite / senior officers — highest signal value
   if (/\b(CEO|C\.E\.O|CHIEF EXECUTIVE)\b/.test(u))
-    return '<span title="CEO — highest signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">CEO</span>';
+    return '<span title="CEO — highest signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(180,140,0,0.14);border:1px solid rgba(180,140,0,0.5);border-radius:3px;font-size:9px;color:#b8940a;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">CEO</span>';
   if (/\b(CFO|C\.F\.O|CHIEF FINANCIAL)\b/.test(u))
-    return '<span title="CFO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">CFO</span>';
+    return '<span title="CFO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(180,140,0,0.14);border:1px solid rgba(180,140,0,0.5);border-radius:3px;font-size:9px;color:#b8940a;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">CFO</span>';
   if (/\b(COO|C\.O\.O|CHIEF OPERATING)\b/.test(u))
-    return '<span title="COO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">COO</span>';
+    return '<span title="COO — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(180,140,0,0.14);border:1px solid rgba(180,140,0,0.5);border-radius:3px;font-size:9px;color:#b8940a;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">COO</span>';
   if (/\b(CHAIRMAN|FOUNDER|PRESIDENT)\b/.test(u) && !/VICE PRESIDENT|VP/.test(u))
-    return '<span title="Senior executive — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(255,215,0,0.12);border:1px solid rgba(255,215,0,0.35);border-radius:3px;font-size:9px;color:#ffd700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">EXEC</span>';
+    return '<span title="Senior executive — high signal role" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(180,140,0,0.14);border:1px solid rgba(180,140,0,0.5);border-radius:3px;font-size:9px;color:#b8940a;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">EXEC</span>';
   // Directors — moderate signal, noted but not highlighted
   if (/\bDIRECTOR\b/.test(u))
     return '<span title="Director — moderate signal (non-executive)" style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(100,120,160,0.1);border:1px solid rgba(100,120,160,0.25);border-radius:3px;font-size:9px;color:#8899aa;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;cursor:default">DIR</span>';
@@ -1682,8 +1682,8 @@ function renderConvictionCards(trades) {
   if (!top.length) return '<div style="color:var(--muted);font-size:12px;padding:16px">No high-conviction trades found. Try expanding the time period.</div>';
   return top.map(c => {
     const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)';
-    const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.08)' : c.score >= 60 ? 'rgba(0,212,255,0.08)' : 'rgba(138,94,0,0.08)';
-    const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.25)' : c.score >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(138,94,0,0.2)';
+    const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.08)' : c.score >= 60 ? 'rgba(0,212,255,0.08)' : 'rgba(154,110,0,0.08)';
+    const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.25)' : c.score >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(154,110,0,0.2)';
     return `<div class="conviction-card" onclick="openTickerFromScreener('${c.ticker}')">
       <div class="conviction-card-header">
         <div><div class="conviction-ticker">${c.ticker}</div><div class="conviction-company">${c.company}</div></div>
@@ -1786,7 +1786,7 @@ function renderScreener() {
       <td><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
       <td class="ticker-cell" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
       <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Inter\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(138,94,0,0.1);border:1px solid rgba(138,94,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
+      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(154,110,0,0.1);border:1px solid rgba(154,110,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
       <td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtShares(t.qty)}</td>
       <td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
       <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
@@ -1929,7 +1929,7 @@ function proxFilter(type) {
     t.classList.remove('prox-active');
     // Reset borders
     if (t.id === 'proxTile-abnormal') t.style.borderColor = 'rgba(255,68,102,0.2)';
-    else if (t.id === 'proxTile-imminent') t.style.borderColor = 'rgba(138,94,0,0.2)';
+    else if (t.id === 'proxTile-imminent') t.style.borderColor = 'rgba(154,110,0,0.2)';
     else if (t.id === 'proxTile-repeat') t.style.borderColor = 'rgba(0,212,255,0.18)';
     else t.style.borderColor = 'var(--border)';
   });
@@ -1937,7 +1937,7 @@ function proxFilter(type) {
   if (activeTile) {
     activeTile.classList.add('prox-active');
     if (type === 'abnormal') activeTile.style.borderColor = 'rgba(255,68,102,0.6)';
-    else if (type === 'imminent') activeTile.style.borderColor = 'rgba(138,94,0,0.6)';
+    else if (type === 'imminent') activeTile.style.borderColor = 'rgba(154,110,0,0.6)';
     else if (type === 'repeat') activeTile.style.borderColor = 'rgba(0,212,255,0.5)';
     else activeTile.style.borderColor = 'var(--accent)';
   }
@@ -1985,15 +1985,15 @@ function proxFilter(type) {
 
   const renderCard = r => {
     const scoreColor  = r.score >= 75 ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : r.score >= 35 ? 'var(--accent)' : 'var(--muted)';
-    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(138,94,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
-    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(138,94,0,0.07)' : 'rgba(0,212,255,0.05)';
+    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(154,110,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
+    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(154,110,0,0.07)' : 'rgba(0,212,255,0.05)';
     const daysBarWidth = Math.max(5, Math.min(95, Math.round((1 - r.daysTo / PROXIMITY_WINDOW) * 100)));
     const evtIcon = typeIcon[r.nextEvent?.type] || '📅';
     const evtDate = r.nextEvent?.date || '—';
     const evtLabel = r.nextEvent?.label || 'Upcoming Event';
     const badges = [];
     if (r.isAbnormal) badges.push(`<span style="font-size:9px;background:rgba(255,68,102,0.15);color:var(--sell);border:1px solid rgba(255,68,102,0.35);border-radius:3px;padding:2px 7px;font-weight:700">⚠ ABNORMAL</span>`);
-    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(138,94,0,0.1);color:var(--option);border:1px solid rgba(138,94,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT</span>`);
+    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(154,110,0,0.1);color:var(--option);border:1px solid rgba(154,110,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT</span>`);
     return `<div onclick="openTickerFromScreener('${r.ticker}')" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
       <div style="height:3px;background:rgba(255,255,255,0.05)"><div style="height:100%;width:${r.score}%;background:${scoreColor};opacity:0.75"></div></div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:13px 16px 8px;gap:10px">
@@ -2108,8 +2108,8 @@ function _renderProximityResults(body, backBtn, results) {
 
   const renderCard = r => {
     const scoreColor  = r.score >= 75 ? 'var(--sell)' : r.score >= 55 ? 'var(--option)' : r.score >= 35 ? 'var(--accent)' : 'var(--muted)';
-    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(138,94,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
-    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(138,94,0,0.07)' : 'rgba(0,212,255,0.05)';
+    const scoreBorder = r.score >= 75 ? 'rgba(255,68,102,0.32)' : r.score >= 55 ? 'rgba(154,110,0,0.28)' : r.score >= 35 ? 'rgba(0,212,255,0.22)' : 'var(--border)';
+    const scoreBg     = r.score >= 75 ? 'rgba(255,68,102,0.07)' : r.score >= 55 ? 'rgba(154,110,0,0.07)' : 'rgba(0,212,255,0.05)';
 
     // Days-to bar
     const daysBarWidth = Math.max(5, Math.min(95, Math.round((1 - r.daysTo / PROXIMITY_WINDOW) * 100)));
@@ -2143,7 +2143,7 @@ function _renderProximityResults(body, backBtn, results) {
     // Signal badges
     const badges = [];
     if (r.isAbnormal) badges.push(`<span style="font-size:9px;background:rgba(255,68,102,0.15);color:var(--sell);border:1px solid rgba(255,68,102,0.35);border-radius:3px;padding:2px 7px;font-weight:700">⚠ ABNORMAL TIMING</span>`);
-    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(138,94,0,0.1);color:var(--option);border:1px solid rgba(138,94,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT PATTERN</span>`);
+    if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(154,110,0,0.1);color:var(--option);border:1px solid rgba(154,110,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT PATTERN</span>`);
 
     return `
     <div onclick="openTickerFromScreener('${r.ticker}')"
@@ -2233,7 +2233,7 @@ function _renderProximityResults(body, backBtn, results) {
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Abnormal flags</div>
         ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">C-suite ≤30d</div>'}
       </div>
-      <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(138,94,0,0.06);border:1px solid rgba(138,94,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(138,94,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(138,94,0,0.2)'">
+      <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(154,110,0,0.06);border:1px solid rgba(154,110,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(154,110,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(154,110,0,0.2)'">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=21).length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Within 21 days</div>
         ${results.filter(r=>r.daysTo<=21).length ? '<div style="font-size:9px;color:var(--option);margin-top:4px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">≤21d to earnings</div>'}
@@ -2922,7 +2922,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       // Min radius: 4 (mobile) or 5 (desktop) — Max radius: 18 (mobile) or 24 (desktop)
       const rMin=_mob?6:8, rMax=_mob?28:38;
       const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, g.value) / maxVal);
-      const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(138,94,0,';
+      const color=isBuy?'rgba(0,255,136,':isSell?'rgba(255,68,102,':'rgba(154,110,0,';
       ctx.beginPath(); ctx.arc(ts,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=color+'0.08)'; ctx.fill();
       ctx.beginPath(); ctx.arc(ts,yCoord,r,0,Math.PI*2); ctx.fillStyle=color+'0.20)'; ctx.strokeStyle=color+'0.85)'; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
       state._circles.push({x:ts,y:yCoord,r,group:g});
@@ -3444,8 +3444,8 @@ function renderTradeMarkerList(trades) {
   const sorted=[...trades].sort((a,b)=>new Date(b.trade||b.filing)-new Date(a.trade||a.filing));
   el.innerHTML=sorted.slice(0,15).map(t=>{
     const tc=tradeClass(t.type),color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--option)';
-    const border=tc==='buy'?'rgba(0,255,136,0.3)':tc==='sell'?'rgba(255,68,102,0.3)':'rgba(138,94,0,0.3)';
-    const bg=tc==='buy'?'rgba(0,255,136,0.07)':tc==='sell'?'rgba(255,68,102,0.07)':'rgba(138,94,0,0.07)';
+    const border=tc==='buy'?'rgba(0,255,136,0.3)':tc==='sell'?'rgba(255,68,102,0.3)':'rgba(154,110,0,0.3)';
+    const bg=tc==='buy'?'rgba(0,255,136,0.07)':tc==='sell'?'rgba(255,68,102,0.07)':'rgba(154,110,0,0.07)';
     return `<div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:${bg};border:1px solid ${border};border-radius:4px;cursor:pointer" onclick="openInsiderProfile('${escName(t.insider)}','${escName(t.title)}')">
       <span style="color:${color};font-size:10px;font-weight:700">${tc==='buy'?'▲':'▼'} ${tradeLabel(t.type)}</span>
       <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted)">${fmtDate(t.trade||t.filing)}</span>
@@ -3516,7 +3516,7 @@ function renderSidebarTrades(trades, govData=[]) {
   }
   el.innerHTML = all.map(c => c.html).join('');
 }
-function renderSidebarSummary(trades) {
+function renderSidebarSummary(trades, govData=[]) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
   const buys=trades.filter(t=>t.type==='P'),sells=trades.filter(t=>t.type==='S'||t.type==='S-'),opts=trades.filter(t=>t.type==='A');
   const buyVal=buys.reduce((s,t)=>s+t.value,0),sellVal=sells.reduce((s,t)=>s+t.value,0);
@@ -3528,17 +3528,35 @@ function renderSidebarSummary(trades) {
     insiderMap[k].netVal+=t.type==='P'?t.value:-t.value;
   });
   const topInsiders=Object.values(insiderMap).sort((a,b)=>Math.abs(b.netVal)-Math.abs(a.netVal)).slice(0,5);
+  // Gov activity for this ticker
+  const AMOUNT_MID_S={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+  const recentGov = govData.filter(g => {
+    const d = new Date((g.transaction_date||'')+'T12:00:00Z');
+    return (Date.now() - d.getTime()) < 90*24*60*60*1000;
+  });
+  const govBuys = recentGov.filter(g=>g.transaction_type==='P');
+  const govSells = recentGov.filter(g=>g.transaction_type==='S');
+  const govBuyVal = govBuys.reduce((s,g)=>s+(AMOUNT_MID_S[g.amount_range]||8000),0);
+  const govSellVal = govSells.reduce((s,g)=>s+(AMOUNT_MID_S[g.amount_range]||8000),0);
   el.innerHTML=`
     <div style="margin-bottom:16px">
       <div class="trade-num-label" style="margin-bottom:8px">ACTIVITY BREAKDOWN</div>
       <div style="display:grid;gap:6px">
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(0,255,136,0.07);border-radius:4px;border:1px solid rgba(0,255,136,0.2)"><span style="color:var(--buy);font-size:12px">▲ Buys (${buys.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--buy)">${fmt(buyVal)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(255,68,102,0.07);border-radius:4px;border:1px solid rgba(255,68,102,0.2)"><span style="color:var(--sell);font-size:12px">▼ Sells (${sells.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--sell)">${fmt(sellVal)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(138,94,0,0.07);border-radius:4px;border:1px solid rgba(138,94,0,0.2)"><span style="color:var(--option);font-size:12px">◆ Other (${opts.length+trades.length-buys.length-sells.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:8px;background:rgba(154,110,0,0.07);border-radius:4px;border:1px solid rgba(154,110,0,0.2)"><span style="color:var(--option);font-size:12px">◆ Other (${opts.length+trades.length-buys.length-sells.length})</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--option)">${fmt(trades.filter(t=>t.type!=='P'&&t.type!=='S'&&t.type!=='S-').reduce((s,t)=>s+t.value,0))}</span></div>
       </div>
     </div>
     <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
-    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
+    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}
+    ${recentGov.length ? `
+    <div class="trade-num-label" style="margin-bottom:8px;margin-top:16px">🏛 GOV OFFICIAL ACTIVITY · 90D</div>
+    <div style="display:grid;gap:6px;margin-bottom:12px">
+      ${govBuys.length ? `<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(36,120,204,0.07);border-radius:4px;border:1px solid rgba(36,120,204,0.2)"><span style="color:var(--accent);font-size:12px">▲ Gov Buys (${govBuys.length})</span><span style="font-size:12px;font-variant-numeric:tabular-nums;color:var(--accent)">~${fmt(govBuyVal)}</span></div>` : ''}
+      ${govSells.length ? `<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(180,0,180,0.06);border-radius:4px;border:1px solid rgba(180,0,180,0.2)"><span style="color:#cc44cc;font-size:12px">▼ Gov Sells (${govSells.length})</span><span style="font-size:12px;font-variant-numeric:tabular-nums;color:#cc44cc">~${fmt(govSellVal)}</span></div>` : ''}
+    </div>
+    ${recentGov.slice(0,4).map(g=>`<div style="padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-left:2px solid ${g.transaction_type==='P'?'var(--accent)':'#cc44cc'};border-radius:0 5px 5px 0;margin-bottom:5px;cursor:pointer" class="gov-profile-link" data-member="${escName(g.member)}"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:600;color:${g.transaction_type==='P'?'var(--accent)':'#cc44cc'}">${g.member}</span><span style="font-size:8px;padding:1px 4px;border-radius:2px;background:rgba(36,120,204,0.1);color:var(--accent);font-weight:600">GOV</span></div><div style="font-size:10px;color:var(--muted);margin-top:2px">${g.chamber==='H'?'U.S. House':'U.S. Senate'} · ${fmtDate(g.transaction_date)}</div><div style="font-size:11px;margin-top:3px;font-variant-numeric:tabular-nums;color:${g.transaction_type==='P'?'var(--accent)':'#cc44cc'}">${g.transaction_type==='P'?'Buy':'Sale'} · ${g.amount_range||'—'}</div></div>`).join('')}
+    ` : ''}`;
 }
 function renderStockTradesTable(trades, govData=[]) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
@@ -3845,7 +3863,7 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades, opts={})
   const tierColor={ELITE:'var(--buy)',STRONG:'var(--accent)',AVERAGE:'var(--option)',WEAK:'var(--sell)'}[tier];
   const followRec=accuracyScore>=75?{label:'FOLLOW CLOSELY',color:'var(--buy)',bg:'rgba(0,255,136,.1)',border:'rgba(0,255,136,.3)'}
     :accuracyScore>=55?{label:'MONITOR',color:'var(--accent)',bg:'rgba(0,212,255,.08)',border:'rgba(0,212,255,.25)'}
-    :accuracyScore>=35?{label:'LOW PRIORITY',color:'var(--option)',bg:'rgba(138,94,0,.08)',border:'rgba(138,94,0,.25)'}
+    :accuracyScore>=35?{label:'LOW PRIORITY',color:'var(--option)',bg:'rgba(154,110,0,.08)',border:'rgba(154,110,0,.25)'}
     :{label:'IGNORE',color:'var(--sell)',bg:'rgba(255,68,102,.08)',border:'rgba(255,68,102,.25)'};
 
   // ── TIMING QUALITY: analyse where in the price range each buy landed ──
@@ -4143,8 +4161,8 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
   const timingBlock = timing ? (() => {
     const ta = timing.timingAlpha;
     const taColor  = ta >= 80 ? 'var(--buy)' : ta >= 60 ? 'var(--accent)' : ta >= 40 ? 'var(--option)' : 'var(--sell)';
-    const taBg     = ta >= 80 ? 'rgba(0,255,136,0.08)'  : ta >= 60 ? 'rgba(0,212,255,0.07)'  : ta >= 40 ? 'rgba(138,94,0,0.06)'  : 'rgba(255,68,102,0.06)';
-    const taBorder = ta >= 80 ? 'rgba(0,255,136,0.3)'   : ta >= 60 ? 'rgba(0,212,255,0.25)'  : ta >= 40 ? 'rgba(138,94,0,0.2)'   : 'rgba(255,68,102,0.2)';
+    const taBg     = ta >= 80 ? 'rgba(0,255,136,0.08)'  : ta >= 60 ? 'rgba(0,212,255,0.07)'  : ta >= 40 ? 'rgba(154,110,0,0.06)'  : 'rgba(255,68,102,0.06)';
+    const taBorder = ta >= 80 ? 'rgba(0,255,136,0.3)'   : ta >= 60 ? 'rgba(0,212,255,0.25)'  : ta >= 40 ? 'rgba(154,110,0,0.2)'   : 'rgba(255,68,102,0.2)';
 
     const rs = v => v === null ? '—' : (v >= 0 ? '+' : '') + v + '%';
     const rc = v => v === null ? 'var(--muted)' : v >= 0 ? 'var(--buy)' : 'var(--sell)';
@@ -4383,35 +4401,56 @@ function insiderLanding(opts={}) {
 async function loadInsiderDashboard() {
   const dash=document.getElementById('insiderDashboard'); if(!dash)return;
   try {
-    const resp=await apiFetch('/api/screener?days=30');
+    const [resp, govResp] = await Promise.all([
+      apiFetch('/api/screener?days=30'),
+      apiFetch('/api/gov-recent?days=30').catch(()=>[]),
+    ]);
     let recent = Array.isArray(resp) ? resp : (resp.trades || []);
-    // If no recent data, try a wider window
     if(!recent.length) {
       const wide=await apiFetch('/api/screener?days=365');
       recent = Array.isArray(wide) ? wide : (wide.trades || []);
     }
     if(!recent.length){dash.innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><div>No data yet — sync may still be running</div></div>';return;}
-    const buyMap={},sellMap={},countMap={};
-    recent.forEach(t=>{const k=t.insider;if(!k)return;countMap[k]=(countMap[k]||0)+1;if(t.type==='P')buyMap[k]=(buyMap[k]||0)+(t.value||0);if(t.type==='S'||t.type==='S-')sellMap[k]=(sellMap[k]||0)+(t.value||0);});
+
+    // Normalize gov trades to match Form 4 shape for unified ranking
+    const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+    const govTrades = Array.isArray(govResp) ? govResp.map(g=>({
+      insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
+      ticker: g.ticker, type: g.transaction_type==='P'?'P':'S',
+      value: AMOUNT_MID[g.amount_range]||8000,
+      trade: g.transaction_date, _isGov: true,
+    })) : [];
+
+    // Merge for unified rankings
+    const allTrades = [...recent, ...govTrades];
+    const buyMap={},sellMap={};
+    allTrades.forEach(t=>{
+      const k=t.insider; if(!k)return;
+      if(t.type==='P') buyMap[k]=(buyMap[k]||0)+(t.value||0);
+      if(t.type==='S'||t.type==='S-') sellMap[k]=(sellMap[k]||0)+(t.value||0);
+    });
     const topBuyers=Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const topSellers=Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    const bigBuys=[...recent].filter(t=>t.type==='P').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
-    const bigSells=[...recent].filter(t=>t.type==='S'||t.type==='S-').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+    const bigBuys=[...allTrades].filter(t=>t.type==='P').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+    const bigSells=[...allTrades].filter(t=>t.type==='S'||t.type==='S-').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+    // Track which names are gov for badge display
+    const govNames = new Set(govTrades.map(g=>g.insider));
     const largestGateHtml = auth.isPremium ? `` : `
       <div onclick="showPremiumOverlay('Largest Trades — biggest single insider moves')" style="position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(8,11,15,0.75);cursor:pointer;backdrop-filter:blur(2px)">
         <span style="font-size:18px">🔒</span>
         <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--accent);letter-spacing:1px">PREMIUM FEATURE</span>
       </div>`;
-    const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:${color}">${fmt(t.value)}</span></div>`;
+    const govBadgeSm = '<span style="font-size:8px;padding:1px 4px;border-radius:2px;background:rgba(36,120,204,0.12);color:var(--accent);font-weight:600;margin-left:4px">GOV</span>';
+    const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}${t._isGov?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:${color}">${t._isGov?'~':''}\${fmt(t.value)}</span></div>`;
     dash.innerHTML=`
       <div class="insider-dash-grid">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--buy);font-size:14px">▲</span><span style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span></div>
-          <div>${topBuyers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:Inter,monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--buy)">${fmt(val)}</span></div>`).join('')}</div>
+          <div>${topBuyers.map(([name,val],i)=>`<div onclick="${govNames.has(name)?`openGovProfile('${escName(name)}')`:`openInsiderProfileFull('${escName(name)}','')`}" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}${govNames.has(name)?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--buy)">${fmt(val)}</span></div>`).join('')}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--sell);font-size:14px">▼</span><span style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span></div>
-          <div>${topSellers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background=''"><span style="font-family:Inter,monospace;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
+          <div>${topSellers.map(([name,val],i)=>`<div onclick="${govNames.has(name)?`openGovProfile('${escName(name)}')`:`openInsiderProfileFull('${escName(name)}','')`}" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}${govNames.has(name)?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
           ${largestGateHtml}
@@ -4654,7 +4693,7 @@ function renderSentimentChart(el, insider, spx, thresholds) {
 // loadNotableLeaderboard removed — not called anywhere (v1.8)
 
 function buildLeaderboardRow(r, i, type) {
-  const tierColor = s => s >= 80 ? '#ffd700' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
+  const tierColor = s => s >= 80 ? '#b8940a' : s >= 65 ? 'var(--buy)' : s >= 50 ? 'var(--accent)' : 'var(--option)';
   const tierLabel = s => s >= 80 ? 'ELITE' : s >= 65 ? 'SHARP' : s >= 50 ? 'SOLID' : 'NOTABLE';
   const rc = v => v == null ? 'var(--muted)' : v >= 5 ? 'var(--buy)' : v >= 0 ? 'var(--accent)' : 'var(--sell)';
   const rs = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
@@ -4685,7 +4724,7 @@ function buildLeaderboardRow(r, i, type) {
             <div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">AVG 90D</div>
             <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:${rc(r.avgRet90)}">${rs(r.avgRet90)}</div>
           </div>
-          <div style="background:rgba(${color==='#ffd700'?'255,215,0':color==='var(--buy)'?'0,255,136':color==='var(--accent)'?'0,212,255':'255,170,0'},0.08);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:64px">
+          <div style="background:rgba(${color==='#b8940a'?'255,215,0':color==='var(--buy)'?'0,255,136':color==='var(--accent)'?'0,212,255':'255,170,0'},0.08);border:1px solid ${color}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:64px">
             <div style="font-family:Inter,sans-serif;font-size:20px;color:${color};line-height:1">${sc}</div>
             <div style="font-size:8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:${color};margin-top:1px">${tierLabel(sc)}</div>
           </div>
@@ -5328,9 +5367,9 @@ function renderAnalysisDashboard() {
         sub: r.topFactors[0] || '',
         color: r.score >= 80 ? 'var(--buy)' : r.score >= 60 ? 'var(--accent)' : 'var(--option)',
       })),
-      accentColor: '#ffd700',
-      accentBg: 'rgba(255,215,0,0.06)',
-      accentBorder: 'rgba(255,215,0,0.25)',
+      accentColor: '#b8940a',
+      accentBg: 'rgba(180,140,0,0.06)',
+      accentBorder: 'rgba(180,140,0,0.25)',
     },
     {
       id: 'clusters',
@@ -5380,9 +5419,9 @@ function renderAnalysisDashboard() {
         sub: `${r.winRate}% win · ${r.tradeCount} trades`,
         color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
       })),
-      accentColor: '#ffd700',
-      accentBg: 'rgba(255,215,0,0.05)',
-      accentBorder: 'rgba(255,215,0,0.22)',
+      accentColor: '#b8940a',
+      accentBg: 'rgba(180,140,0,0.05)',
+      accentBorder: 'rgba(180,140,0,0.22)',
     },
     {
       id: 'timingleaders',
@@ -5511,7 +5550,7 @@ function renderAnalysisDashboard() {
       ticker: r.ticker,
       label: `Score ${r.score}`,
       sub: r.regimeLabel + ' · ' + r.insider.split(' ').slice(-1)[0],
-      color: r.regimeType === 'SELL_SPIKE' ? 'var(--sell)' : r.regimeType === 'SELLER_FLIPS_BUY' ? 'var(--buy)' : r.regimeType === 'BUY_ACCELERATION' ? '#ffd700' : 'var(--accent)',
+      color: r.regimeType === 'SELL_SPIKE' ? 'var(--sell)' : r.regimeType === 'SELLER_FLIPS_BUY' ? 'var(--buy)' : r.regimeType === 'BUY_ACCELERATION' ? '#b8940a' : 'var(--accent)',
     })),
     accentColor: '#64b5f6',
     accentBg: 'rgba(100,181,246,0.06)',
@@ -5812,19 +5851,19 @@ function renderRegimeShiftSubpage() {
 
     const typeColors = {
       SELLER_FLIPS_BUY: 'var(--buy)',
-      BUY_ACCELERATION: '#ffd700',
+      BUY_ACCELERATION: '#b8940a',
       DORMANT_ACTIVATES: 'var(--accent)',
       SELL_SPIKE: 'var(--sell)',
     };
     const typeBg = {
       SELLER_FLIPS_BUY: 'rgba(0,255,136,0.06)',
-      BUY_ACCELERATION: 'rgba(255,215,0,0.06)',
+      BUY_ACCELERATION: 'rgba(180,140,0,0.06)',
       DORMANT_ACTIVATES: 'rgba(0,212,255,0.06)',
       SELL_SPIKE: 'rgba(255,68,102,0.06)',
     };
     const typeBorder = {
       SELLER_FLIPS_BUY: 'rgba(0,255,136,0.25)',
-      BUY_ACCELERATION: 'rgba(255,215,0,0.25)',
+      BUY_ACCELERATION: 'rgba(180,140,0,0.25)',
       DORMANT_ACTIVATES: 'rgba(0,212,255,0.25)',
       SELL_SPIKE: 'rgba(255,68,102,0.25)',
     };
@@ -5836,7 +5875,7 @@ function renderRegimeShiftSubpage() {
           const color  = typeColors[r.regimeType]  || 'var(--accent)';
           const bg     = typeBg[r.regimeType]      || 'rgba(0,212,255,0.06)';
           const border = typeBorder[r.regimeType]  || 'rgba(0,212,255,0.25)';
-          const scoreColor = r.score >= 70 ? 'var(--buy)' : r.score >= 60 ? '#ffd700' : 'var(--accent)';
+          const scoreColor = r.score >= 70 ? 'var(--buy)' : r.score >= 60 ? '#b8940a' : 'var(--accent)';
           return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:16px 20px;cursor:pointer;transition:border-color .15s"
                        onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='${border}'"
                        onclick="openStock('${r.ticker}')">
@@ -5873,9 +5912,9 @@ function renderGovScoresList(ranked) {
   return ranked.map((r, i) => {
     const sc = r.activityScore;
     const scColor  = sc>=75?'var(--buy)':sc>=55?'#00d4ff':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.08)':'rgba(138,94,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.25)':'rgba(138,94,0,0.18)';
-    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
+    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.08)':'rgba(154,110,0,0.06)';
+    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.25)':'rgba(154,110,0,0.18)';
+    const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s" class="gov-profile-link" data-member="' + escName(r.name) + '"'
       + ' data-hc="' + scBorder + '" onmouseover="this.style.borderColor=this.dataset.hc" onmouseout="this.style.borderColor=\'var(--border)\'">' 
       + '<div style="font-family:Inter,sans-serif;font-size:20px;color:' + rankColor + ';min-width:28px;text-align:center">#' + (i+1) + '</div>'
@@ -5930,9 +5969,9 @@ function renderTopScoresList(ranked) {
   return ranked.map((r, i) => {
     const sc = r.accuracyScore;
     const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(138,94,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(138,94,0,0.18)';
-    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
+    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(154,110,0,0.06)';
+    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(154,110,0,0.18)';
+    const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
                  onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}',{serverScore:${sc},serverScoreType:'accuracy'})">
@@ -5959,9 +5998,9 @@ function renderTimingLeadersList(ranked) {
   return ranked.map((r, i) => {
     const ta = r.timingAlpha;
     const taColor  = ta>=80?'var(--buy)':ta>=60?'var(--accent)':ta>=40?'var(--option)':'var(--muted)';
-    const taBg     = ta>=80?'rgba(0,255,136,0.08)':ta>=60?'rgba(0,212,255,0.07)':'rgba(138,94,0,0.06)';
-    const taBorder = ta>=80?'rgba(0,255,136,0.28)':ta>=60?'rgba(0,212,255,0.22)':'rgba(138,94,0,0.18)';
-    const rankColor = i===0?'#ffd700':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
+    const taBg     = ta>=80?'rgba(0,255,136,0.08)':ta>=60?'rgba(0,212,255,0.07)':'rgba(154,110,0,0.06)';
+    const taBorder = ta>=80?'rgba(0,255,136,0.28)':ta>=60?'rgba(0,212,255,0.22)':'rgba(154,110,0,0.18)';
+    const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${taBorder}'" onmouseout="this.style.borderColor='var(--border)'"
                  onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}',{serverScore:${ta},serverScoreType:'timing'})">
@@ -6268,8 +6307,8 @@ function scoreOpportunityRanker(rows) {
     const grade = score >= 85 ? 'A+' : score >= 75 ? 'A' : score >= 65 ? 'B+' :
                   score >= 55 ? 'B'  : score >= 45 ? 'C+': score >= 35 ? 'C' : 'D';
     const scoreColor  = score >= 75 ? 'var(--buy)'    : score >= 55 ? 'var(--accent)' : score >= 40 ? 'var(--option)' : 'var(--muted)';
-    const scoreBg     = score >= 75 ? 'rgba(0,255,136,0.08)'  : score >= 55 ? 'rgba(0,212,255,0.07)'  : 'rgba(138,94,0,0.06)';
-    const scoreBorder = score >= 75 ? 'rgba(0,255,136,0.3)'   : score >= 55 ? 'rgba(0,212,255,0.25)'  : 'rgba(138,94,0,0.2)';
+    const scoreBg     = score >= 75 ? 'rgba(0,255,136,0.08)'  : score >= 55 ? 'rgba(0,212,255,0.07)'  : 'rgba(154,110,0,0.06)';
+    const scoreBorder = score >= 75 ? 'rgba(0,255,136,0.3)'   : score >= 55 ? 'rgba(0,212,255,0.25)'  : 'rgba(154,110,0,0.2)';
 
     // Cross-tool badges for card display
     const crossToolBadges = [
@@ -6309,7 +6348,7 @@ function renderRankerResults(ranked) {
 
 function renderRankerCard(r, idx) {
   const rank = idx + 1;
-  const rankColor = rank === 1 ? '#ffd700' : rank === 2 ? '#c0c0c0' : rank === 3 ? '#cd7f32' : 'var(--muted)';
+  const rankColor = rank === 1 ? '#b8940a' : rank === 2 ? '#c0c0c0' : rank === 3 ? '#cd7f32' : 'var(--muted)';
   const barW = r.score;
 
   const priceBlock = r._last ? `
@@ -6341,7 +6380,7 @@ function renderRankerCard(r, idx) {
           <!-- Factor pills -->
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px">
             ${r.buyer_count >= 2 ? `<span style="background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--buy)">${r.buyer_count} BUYERS</span>` : ''}
-            ${r.has_exec_buyer ? `<span style="background:rgba(138,94,0,0.08);border:1px solid rgba(138,94,0,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--option)">EXEC</span>` : ''}
+            ${r.has_exec_buyer ? `<span style="background:rgba(154,110,0,0.08);border:1px solid rgba(154,110,0,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--option)">EXEC</span>` : ''}
             ${r.sell_count === 0 ? `<span style="background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.15);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--buy)">NO SELLS</span>` : `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--sell)">${r.seller_count} SELLING</span>`}
             ${r._pctFromLow != null && r._pctFromLow <= 15 ? `<span style="background:rgba(0,212,255,0.07);border:1px solid rgba(0,212,255,0.2);border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:var(--accent)">NEAR LOW</span>` : ''}
             ${(r.crossToolBadges||[]).map(([lbl,c,bg]) => `<span style="background:${bg};border:1px solid ${c}44;border-radius:3px;padding:1px 7px;font-size:9px;font-family:Inter,monospace;color:${c}">${lbl}</span>`).join('')}
@@ -6600,7 +6639,7 @@ function detectExitWarnings(trades, priceHighs={}) {
     // Severity label
     let severity, severityColor, severityBg, severityBorder;
     if (score >= 75)      { severity='HIGH ALERT';  severityColor='var(--sell)';   severityBg='rgba(255,68,102,0.1)';   severityBorder='rgba(255,68,102,0.35)'; }
-    else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(138,94,0,0.08)';   severityBorder='rgba(138,94,0,0.3)'; }
+    else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(154,110,0,0.08)';   severityBorder='rgba(154,110,0,0.3)'; }
     else                  { severity='WATCH';       severityColor='var(--muted)';  severityBg='rgba(201,216,232,0.05)'; severityBorder='rgba(201,216,232,0.2)'; }
 
     const govSellerNames = [...new Set(tickerSells.filter(t=>t._isGov).map(t=>t.insider))];
@@ -6639,7 +6678,7 @@ function renderExitWarningCard(w) {
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <span style="background:rgba(255,68,102,0.1);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--sell)">${w.sellerCount} SELLERS</span>
-          ${w.execSellers > 0 ? `<span style="background:rgba(138,94,0,0.08);border:1px solid rgba(138,94,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${w.execSellers} EXEC${w.execSellers>1?'S':''}</span>` : ''}
+          ${w.execSellers > 0 ? `<span style="background:rgba(154,110,0,0.08);border:1px solid rgba(154,110,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${w.execSellers} EXEC${w.execSellers>1?'S':''}</span>` : ''}
           ${w.latestSell ? `<span style="font-size:10px;color:var(--muted)">${fmtDate(w.latestSell.trade||w.latestSell.filing)}</span>` : ''}
         </div>
       </div>
@@ -6802,7 +6841,7 @@ function buildFirstBuySignal(r) {
   let tier, tierColor, tierBg, tierBorder;
   if (gapYears >= 5)       { tier='EXTREME';   tierColor='var(--buy)';    tierBg='rgba(0,255,136,0.08)';  tierBorder='rgba(0,255,136,0.3)'; }
   else if (gapYears >= 3)  { tier='VERY HIGH'; tierColor='var(--accent)'; tierBg='rgba(0,212,255,0.07)';  tierBorder='rgba(0,212,255,0.25)'; }
-  else if (gapYears >= 1)  { tier='HIGH';      tierColor='var(--option)'; tierBg='rgba(138,94,0,0.07)';  tierBorder='rgba(138,94,0,0.25)'; }
+  else if (gapYears >= 1)  { tier='HIGH';      tierColor='var(--option)'; tierBg='rgba(154,110,0,0.07)';  tierBorder='rgba(154,110,0,0.25)'; }
   else                     { tier='NOTABLE';   tierColor='var(--text)';   tierBg='rgba(201,216,232,0.04)';tierBorder='rgba(201,216,232,0.15)'; }
 
   return {
@@ -7144,8 +7183,8 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
 
 function renderClusterCard(c) {
   const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : c.score >= 40 ? 'var(--option)' : 'var(--sell)';
-  const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.06)' : c.score >= 60 ? 'rgba(0,212,255,0.06)' : c.score >= 40 ? 'rgba(138,94,0,0.06)' : 'rgba(255,68,102,0.06)';
-  const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.3)' : c.score >= 60 ? 'rgba(0,212,255,0.25)' : c.score >= 40 ? 'rgba(138,94,0,0.25)' : 'rgba(255,68,102,0.25)';
+  const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.06)' : c.score >= 60 ? 'rgba(0,212,255,0.06)' : c.score >= 40 ? 'rgba(154,110,0,0.06)' : 'rgba(255,68,102,0.06)';
+  const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.3)' : c.score >= 60 ? 'rgba(0,212,255,0.25)' : c.score >= 40 ? 'rgba(154,110,0,0.25)' : 'rgba(255,68,102,0.25)';
   const strengthLabel = c.isStockPlan ? 'STOCK PLAN / ESPP' : c.score >= 80 ? 'STRONG CLUSTER' : c.score >= 60 ? 'MODERATE CLUSTER' : c.score >= 40 ? 'WEAK CLUSTER' : 'NOISE';
   const barW = c.score;
 
@@ -7165,7 +7204,7 @@ function renderClusterCard(c) {
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <span style="background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--buy)">${c.insiderCount} INSIDERS</span>
             <span style="background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent)">${c.daySpan <= 1 ? 'SAME DAY' : c.daySpan + '-DAY WINDOW'}</span>
-            ${c.execCount > 0 ? `<span style="background:rgba(138,94,0,0.08);border:1px solid rgba(138,94,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
+            ${c.execCount > 0 ? `<span style="background:rgba(154,110,0,0.08);border:1px solid rgba(154,110,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
             ${c.govNames && c.govNames.length ? `<span style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:#00d4ff">🏛 ${c.govNames.length} GOV</span>` : ''}
             ${c.concurrentSells > 0 ? `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--sell)">⚠ ${c.concurrentSells} SELL${c.concurrentSells>1?'S':''}</span>` : ''}
           </div>
@@ -7544,7 +7583,7 @@ function renderSectorSubpage(s, data) {
     const barPct = allTickers[0]?.buy_val > 0
       ? Math.round(t.buy_val / allTickers[0].buy_val * 100)
       : 0;
-    const rankColor = i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : 'var(--muted)';
+    const rankColor = i === 0 ? '#b8940a' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : 'var(--muted)';
     return `
       <div onclick="openTickerFromScreener('${t.ticker}')"
            style="display:grid;grid-template-columns:28px 60px 1fr 80px 60px;align-items:center;gap:12px;
@@ -7736,7 +7775,7 @@ let _compareLoading  = new Set();
 
 const COMPARE_COLORS = ['var(--accent)', 'var(--buy)', 'var(--option)', 'var(--sell)'];
 const COMPARE_COLORS_HEX = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4466'];
-const COMPARE_COLORS_RGBA10 = ['rgba(0,212,255,0.1)', 'rgba(0,255,136,0.1)', 'rgba(138,94,0,0.1)', 'rgba(255,68,102,0.1)'];
+const COMPARE_COLORS_RGBA10 = ['rgba(0,212,255,0.1)', 'rgba(0,255,136,0.1)', 'rgba(154,110,0,0.1)', 'rgba(255,68,102,0.1)'];
 
 function loadComparePage() {
   if (!auth.isPremium) {
@@ -8583,6 +8622,7 @@ const MONITOR_TYPES = [
   { key: 'FIRST BUY',       label: '🚨 FIRST BUY'  },
   { key: 'EXIT WARNING',    label: '⚠️ EXIT'        },
   { key: 'EVENT PROXIMITY', label: '🎯 PROXIMITY'   },
+  { key: 'GOV TRADE',       label: '🏛 GOV'         },
 ];
 
 // Returns true if US markets are currently open (9:30–16:00 ET, Mon–Fri)
@@ -8833,19 +8873,34 @@ async function runMonitorWindow(tab, body) {
       if (needsSignalFetch) {
         fetches.push(apiFetch('/api/screener?days=90'));
         fetches.push(apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []));
+        fetches.push(apiFetch('/api/gov-recent?days=90').catch(() => []));
       } else {
+        fetches.push(Promise.resolve(null));
         fetches.push(Promise.resolve(null));
         fetches.push(Promise.resolve(null));
       }
       fetches.push(needsSentimentFetch ? apiFetch('/api/monitor-sentiment').catch(() => null) : Promise.resolve(_monitorCache['_sentiment']));
 
-      const [resp, fb, sent] = await Promise.all(fetches);
+      const [resp, fb, govResp, sent] = await Promise.all(fetches);
 
       if (resp !== null) {
         allTrades     = Array.isArray(resp) ? resp : (resp.trades || []);
         firstBuysFull = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
+        // Build gov signals
+        const AMOUNT_MID_M={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+        const govSignals = (Array.isArray(govResp) ? govResp : []).map(g => ({
+          type: 'GOV TRADE', ticker: g.ticker, date: g.transaction_date,
+          insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
+          value: AMOUNT_MID_M[g.amount_range]||8000,
+          tradeType: g.transaction_type==='P'?'buy':'sell',
+          amountRange: g.amount_range||'',
+          score: g.transaction_type==='P'?60:50,
+          narrative: (g.transaction_type==='P'?'Congressional buy: ':'Congressional sale: ') + g.member + ' disclosed a ' + (g.amount_range||'') + ' ' + (g.transaction_type==='P'?'purchase':'sale') + ' in ' + g.ticker + ' via STOCK Act filing.',
+          _isGov: true,
+        }));
         _monitorCache['_allTrades']     = allTrades;
         _monitorCache['_firstBuysFull'] = firstBuysFull;
+        _monitorCache['_govSignals']    = govSignals;
       } else {
         allTrades     = _monitorCache['_allTrades'];
         firstBuysFull = _monitorCache['_firstBuysFull'] || [];
@@ -8892,7 +8947,8 @@ async function runMonitorWindow(tab, body) {
       displayCutStr = etLocalISO(new Date(Date.UTC(now.getFullYear(), qStartMonth, 1)));
     }
 
-    const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, displayCutStr);
+    const govSignals = (_monitorCache['_govSignals'] || []).filter(g => g.date >= displayCutStr);
+    const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, displayCutStr, govSignals);
     _monitorCache[tab] = alerts;
     _monitorCache[tab + '_trades']  = allTrades;
     _monitorCache[tab + '_cutStr']  = displayCutStr;
@@ -8966,7 +9022,7 @@ function buildSignalNarrative(alert) {
   }
 }
 
-function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
+function buildMonitorAlerts(trades, firstBuys, proximity, cutStr, govSignals=[]) {
   const alerts = [];
 
   // ── 1. Cluster Buys ──────────────────────────────────────────
@@ -8993,7 +9049,7 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
       if (!latestDate || latestDate < cutStr) return;
       alerts.push({
         ticker: c.ticker, company: c.company || c.ticker,
-        type: 'CONVICTION', icon: '⚡', color: '#ffd700',
+        type: 'CONVICTION', icon: '⚡', color: '#b8940a',
         headline: `High conviction buy · Score ${c.score}`,
         detail: (c.reasons||[]).slice(0,2).join(' · '),
         score: c.score, date: latestDate,
@@ -9048,6 +9104,8 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
     });
   });
 
+  // Inject gov signals into alert stream
+  govSignals.forEach(g => alerts.push(g));
   alerts.sort((a,b) => (b.score-a.score) || (b.date||'').localeCompare(a.date||''));
 
   const tickerCount = {}, seen = new Set();
@@ -9116,7 +9174,7 @@ function renderSentimentGauge(s) {
           <!-- Low zone (0-20%, typical/below norm) -->
           <path d="${arcPath(0,20)}" fill="none" stroke="rgba(255,68,102,0.4)" stroke-width="12" stroke-linecap="round"/>
           <!-- Normal zone (20-40%) -->
-          <path d="${arcPath(20,40)}" fill="none" stroke="rgba(138,94,0,0.4)" stroke-width="12" stroke-linecap="round"/>
+          <path d="${arcPath(20,40)}" fill="none" stroke="rgba(154,110,0,0.4)" stroke-width="12" stroke-linecap="round"/>
           <!-- Elevated zone (40-100%) -->
           <path d="${arcPath(40,100)}" fill="none" stroke="rgba(0,255,136,0.4)" stroke-width="12" stroke-linecap="round"/>
           <!-- Filled arc -->
@@ -9126,7 +9184,7 @@ function renderSentimentGauge(s) {
           <circle cx="${cx}" cy="${cy}" r="4" fill="${s.ratioColor}"/>
           <!-- Zone labels -->
           <text x="8" y="98" fill="rgba(255,68,102,0.6)" font-family="monospace" font-size="6">LOW</text>
-          <text x="84" y="98" fill="rgba(138,94,0,0.6)" font-family="monospace" font-size="6">NORM</text>
+          <text x="84" y="98" fill="rgba(154,110,0,0.6)" font-family="monospace" font-size="6">NORM</text>
           <text x="163" y="98" fill="rgba(0,255,136,0.6)" font-family="monospace" font-size="6">HIGH</text>
           <!-- Center: ratio value -->
           <text x="${cx}" y="${cy-10}" fill="${s.ratioColor}" font-family="monospace" font-size="20" font-weight="700" text-anchor="middle">${s.ratio}</text>
@@ -9233,8 +9291,8 @@ function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
     ${groups.map(([ticker, group]) => {
       const topScore   = Math.max(...group.alerts.map(a=>a.score));
       const scoreColor = topScore>=80?'var(--buy)':topScore>=60?'var(--accent)':'var(--option)';
-      const scoreBg    = topScore>=80?'rgba(0,255,136,0.08)':topScore>=60?'rgba(0,212,255,0.07)':'rgba(138,94,0,0.06)';
-      const scoreBorder= topScore>=80?'rgba(0,255,136,0.25)':topScore>=60?'rgba(0,212,255,0.2)':'rgba(138,94,0,0.18)';
+      const scoreBg    = topScore>=80?'rgba(0,255,136,0.08)':topScore>=60?'rgba(0,212,255,0.07)':'rgba(154,110,0,0.06)';
+      const scoreBorder= topScore>=80?'rgba(0,255,136,0.25)':topScore>=60?'rgba(0,212,255,0.2)':'rgba(154,110,0,0.18)';
       return `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden;transition:border-color .15s"
            onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
@@ -9854,8 +9912,9 @@ function switchSidebarTab(tab, el) {
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
   const trades = state.tickerTrades || [];
-  if (tab === 'summary') renderSidebarSummary(trades);
-  else renderSidebarTrades(trades);
+  const govData = state.govData || [];
+  if (tab === 'summary') renderSidebarSummary(trades, govData);
+  else renderSidebarTrades(trades, govData);
 }
 
 function renderSidebarGated(trades, govData=[]) {
@@ -10007,7 +10066,7 @@ function loadPremiumPage() {
     <rect width="340" height="12" fill="#0d1421"/>
     <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">ANALYSIS TOOLS — 30 DAY SCAN</text>
     <rect x="4" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="12" y="25" fill="#8a5e00" font-family="monospace" font-size="6" letter-spacing="0.5">⚡ OPPORTUNITY RANKER</text>
+    <text x="12" y="25" fill="#9a6e00" font-family="monospace" font-size="6" letter-spacing="0.5">⚡ OPPORTUNITY RANKER</text>
     <text x="12" y="35" fill="#c0ccd8" font-family="monospace" font-size="6">NVDA · Score 94</text>
     <text x="12" y="44" fill="#4a6580" font-family="monospace" font-size="6">Cluster + Regime↑</text>
     <rect x="177" y="14" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
@@ -10027,7 +10086,7 @@ function loadPremiumPage() {
     <text x="12" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">MSFT · CEO · 3yr gap</text>
     <text x="12" y="132" fill="#4a6580" font-family="monospace" font-size="6">First open-market buy on record</text>
     <rect x="177" y="102" width="159" height="38" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
-    <text x="185" y="113" fill="#8a5e00" font-family="monospace" font-size="6" letter-spacing="0.5">📅 EVENT PROXIMITY</text>
+    <text x="185" y="113" fill="#9a6e00" font-family="monospace" font-size="6" letter-spacing="0.5">📅 EVENT PROXIMITY</text>
     <text x="185" y="123" fill="#c0ccd8" font-family="monospace" font-size="6">AMZN · Earnings in 12 days</text>
     <text x="185" y="132" fill="#4a6580" font-family="monospace" font-size="6">Insider buying before catalyst</text>
     <rect x="4" y="146" width="332" height="25" rx="3" fill="#0d1421" stroke="rgba(0,212,255,0.2)" stroke-width="0.5"/>
@@ -10048,10 +10107,10 @@ function loadPremiumPage() {
     <rect x="142" y="14" width="70" height="13" rx="2" fill="transparent" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="148" y="23" fill="#4a6580" font-family="monospace" font-size="6.5">🗓 THIS MONTH</text>
     ${[
-      ['NVDA','⚡ CLUSTER BUY','3 insiders bought within 5 days','#8a5e00','HIGH'],
+      ['NVDA','⚡ CLUSTER BUY','3 insiders bought within 5 days','#9a6e00','HIGH'],
       ['META','🎯 FIRST BUY','CEO first open-market purchase','#22c55e','HIGH'],
       ['AAPL','📈 CONVICTION','Score 9.2 — size vs salary outlier','#00d4ff','MED'],
-      ['MSFT','⚡ CLUSTER BUY','4 insiders · $18.4M combined','#8a5e00','HIGH'],
+      ['MSFT','⚡ CLUSTER BUY','4 insiders · $18.4M combined','#9a6e00','HIGH'],
       ['AMZN','🔄 REPEAT BUYER','3rd consecutive quarter buying','#8b5cf6','MED'],
       ['TSLA','💰 LARGE TRADE','$28M single purchase — top 1%','#22c55e','HIGH'],
     ].map(([t,sig,desc,c,lvl],i)=>`
@@ -10060,8 +10119,8 @@ function loadPremiumPage() {
     <text x="10" y="${44+i*23}" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">${t}</text>
     <text x="40" y="${40+i*23}" fill="${c}" font-family="monospace" font-size="7">${sig}</text>
     <text x="40" y="${49+i*23}" fill="#4a6580" font-family="monospace" font-size="6">${desc}</text>
-    <rect x="${304}" y="${34+i*23}" width="${lvl==='HIGH'?28:24}" height="10" rx="1" fill="${lvl==='HIGH'?'rgba(138,94,0,0.15)':'rgba(0,212,255,0.10)'}"/>
-    <text x="${307}" y="${42+i*23}" fill="${lvl==='HIGH'?'#8a5e00':'#00d4ff'}" font-family="monospace" font-size="6">${lvl}</text>`).join('')}
+    <rect x="${304}" y="${34+i*23}" width="${lvl==='HIGH'?28:24}" height="10" rx="1" fill="${lvl==='HIGH'?'rgba(154,110,0,0.15)':'rgba(0,212,255,0.10)'}"/>
+    <text x="${307}" y="${42+i*23}" fill="${lvl==='HIGH'?'#9a6e00':'#00d4ff'}" font-family="monospace" font-size="6">${lvl}</text>`).join('')}
   </svg>`;
 
   // SECTORS: horizontal bar chart per sector
@@ -10071,7 +10130,7 @@ function loadPremiumPage() {
     <text x="12" y="9" fill="#4a6580" font-family="monospace" font-size="6" letter-spacing="1">SECTORS — BUY FLOW · LAST 30D</text>
     ${[
       ['Technology','$142M','#00d4ff',0.88],['Healthcare','$41M','#22c55e',0.62],
-      ['Financials','$38M','#8b5cf6',0.58],['Energy','$27M','#8a5e00',0.44],
+      ['Financials','$38M','#8b5cf6',0.58],['Energy','$27M','#9a6e00',0.44],
       ['Consumer','$19M','#06b6d4',0.32],['Industrials','$14M','#6366f1',0.25],
       ['Real Estate','$9M','#ec4899',0.18],['Materials','$6M','#14b8a6',0.12],
     ].map(([s,v,c,ratio],i)=>{
@@ -10139,10 +10198,10 @@ function loadPremiumPage() {
     <text x="330" y="160" fill="#00d4ff" font-family="monospace" font-size="7" text-anchor="end">$12.8M</text>
     <rect x="4" y="184" width="332" height="34" rx="3" fill="#0d1421" stroke="#1e2d3d" stroke-width="0.5"/>
     <text x="14" y="197" fill="#e0e6ed" font-family="monospace" font-size="8" font-weight="700">Jamie Dimon</text>
-    <rect x="120" y="189" width="50" height="9" rx="1" fill="rgba(138,94,0,0.10)" stroke="rgba(138,94,0,0.3)" stroke-width="0.5"/>
-    <text x="124" y="196" fill="#8a5e00" font-family="monospace" font-size="6">ACTIVE 90D</text>
+    <rect x="120" y="189" width="50" height="9" rx="1" fill="rgba(154,110,0,0.10)" stroke="rgba(154,110,0,0.3)" stroke-width="0.5"/>
+    <text x="124" y="196" fill="#9a6e00" font-family="monospace" font-size="6">ACTIVE 90D</text>
     <text x="14" y="210" fill="#4a6580" font-family="monospace" font-size="6">Chairman &amp; CEO · JPM</text>
-    <text x="330" y="197" fill="#8a5e00" font-family="monospace" font-size="7" text-anchor="end">$5.5M</text>
+    <text x="330" y="197" fill="#9a6e00" font-family="monospace" font-size="7" text-anchor="end">$5.5M</text>
   </svg>`;
 
   // EMAIL ALERTS mockup SVG
