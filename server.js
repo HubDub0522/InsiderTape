@@ -2762,8 +2762,8 @@ async function preComputeScoreboard() {
           AND transaction_date >= date('now', '-1825 days')
           AND ticker != '--' AND ticker != ''
         GROUP BY member
-        HAVING buy_count >= 3
-        ORDER BY trade_count DESC LIMIT 50
+        HAVING trade_count >= 3
+        ORDER BY trade_count DESC LIMIT 200
       `).all();
 
       // Collect all net values first so we can normalise across all members
@@ -2788,10 +2788,13 @@ async function preComputeScoreboard() {
           });
         }
       });
-      // Rank by profitPerTrade — top earner = 100, rest scale proportionally
-      const maxPpt = Math.max(...govIntermediate.map(g => g.profitProxy), 1);
+      // Rank by profitPerTrade — highest = 100, lowest = 1, linear scale across all members
+      const maxPpt = Math.max(...govIntermediate.map(g => g.profitProxy));
+      const minPpt = Math.min(...govIntermediate.map(g => g.profitProxy));
+      const pptRange = maxPpt - minPpt || 1;
       govIntermediate.forEach(g => {
-        const netScore = Math.min(100, Math.max(1, Math.round((g.profitProxy / maxPpt) * 100)));
+        // Linear: highest ppt → 100, lowest → 1
+        const netScore = Math.min(100, Math.max(1, Math.round(((g.profitProxy - minPpt) / pptRange) * 99) + 1));
         govRanked.push({ ...g, activityScore: netScore, profitPerTrade: g.profitProxy });
       });
       govRanked.sort((a,b) => b.profitPerTrade - a.profitPerTrade);
@@ -2807,7 +2810,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 6; // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 7; // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
