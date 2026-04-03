@@ -2970,7 +2970,11 @@ app.get('/api/admin/scoreboard-refresh', (req, res) => {
   _scoreboardCache = null;
   _scoreboardCacheTime = 0;
   preComputeScoreboard()
-    .then(() => res.json({ ok: true, gov: (_scoreboardCache?.gov||[]).slice(0,5).map(g=>({name:g.name,score:g.activityScore,ppt:g.profitPerTrade})) }))
+    .then(() => {
+      const all = (_scoreboardCache?.gov||[]).map(g=>({name:g.name,score:g.activityScore,ppt:Math.round(g.profitPerTrade)}));
+      const pelosi = all.find(g=>g.name.toLowerCase().includes('pelosi'));
+      res.json({ ok: true, total: all.length, pelosi, top10: all.slice(0,10) });
+    })
     .catch(e => res.status(500).json({ error: e.message }));
 });
 
