@@ -2748,45 +2748,44 @@ async function preComputeScoreboard() {
     // Cannot use price-based forward return scoring (no exact price in STOCK Act filings)
     let govRanked = [];
     try {
-      const AMOUNT_MID = {'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
+      // Use low bound of range directly in SQL — no GROUP_CONCAT truncation risk
+      // Low bound extracted via CAST(REPLACE(REPLACE(amount_range,'$',''),',','') AS INTEGER)
       const govRows = db.prepare(`
         SELECT member, chamber,
           COUNT(*) AS trade_count,
           SUM(CASE WHEN transaction_type='P' THEN 1 ELSE 0 END) AS buy_count,
           SUM(CASE WHEN transaction_type='S' THEN 1 ELSE 0 END) AS sell_count,
+          SUM(CASE WHEN transaction_type='P' THEN
+            CAST(REPLACE(REPLACE(REPLACE(amount_range,'$',''),',',''),' ','') AS INTEGER) / 1
+            ELSE 0 END) AS buy_val_raw,
+          SUM(CASE WHEN transaction_type='S' THEN
+            CAST(REPLACE(REPLACE(REPLACE(amount_range,'$',''),',',''),' ','') AS INTEGER) / 1
+            ELSE 0 END) AS sell_val_raw,
           GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
-          GROUP_CONCAT(amount_range || '|' || transaction_type, ';;') AS amounts,
           MAX(transaction_date) AS latest_trade
         FROM gov_trades
         WHERE transaction_type IN ('P','S')
           AND transaction_date >= date('now', '-1825 days')
           AND ticker != '--' AND ticker != ''
+          AND amount_range IS NOT NULL AND amount_range != ''
         GROUP BY member
         HAVING trade_count >= 3
         ORDER BY trade_count DESC LIMIT 200
       `).all();
 
-      // Collect all net values first so we can normalise across all members
       const govIntermediate = [];
       govRows.forEach(r => {
-        const amounts = (r.amounts||'').split(';;').map(s => {
-          const [range, type] = s.split('|');
-          return { val: AMOUNT_MID[range] || 8000, type };
-        });
-        const buyVal  = amounts.filter(a=>a.type==='P').reduce((s,a)=>s+a.val,0);
-        const sellVal = amounts.filter(a=>a.type==='S').reduce((s,a)=>s+a.val,0);
+        const buyVal  = r.buy_val_raw  || 0;
+        const sellVal = r.sell_val_raw || 0;
         const tickers = [...new Set((r.tickers_csv||'').split(',').filter(Boolean))];
-        // profitProxy = (sellVal - buyVal) / totalTrades — est. profit extracted per trade
         const profitProxy = r.trade_count > 0 ? (sellVal - buyVal) / r.trade_count : 0;
-        if (r.trade_count >= 2) {
-          govIntermediate.push({
-            name: r.member, chamber: r.chamber==='H'?'U.S. House':'U.S. Senate',
-            profitProxy, buyVal, sellVal,
-            tradeCount: r.trade_count, buyCount: r.buy_count, sellCount: r.sell_count,
-            tickers: tickers.slice(0,3).join(', '),
-            latestTrade: r.latest_trade,
-          });
-        }
+        govIntermediate.push({
+          name: r.member, chamber: r.chamber==='H'?'U.S. House':'U.S. Senate',
+          profitProxy, buyVal, sellVal,
+          tradeCount: r.trade_count, buyCount: r.buy_count, sellCount: r.sell_count,
+          tickers: tickers.slice(0,3).join(', '),
+          latestTrade: r.latest_trade,
+        });
       });
       // Rank by profitPerTrade — highest = 100, lowest = 1, linear scale across all members
       const maxPpt = Math.max(...govIntermediate.map(g => g.profitProxy));
@@ -2810,7 +2809,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 7; // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 8; // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
