@@ -2799,7 +2799,7 @@ async function preComputeScoreboard() {
       govRanked.sort((a,b) => b.activityScore - a.activityScore);
     } catch(e) { slog('gov scoreboard err: ' + e.message); }
 
-    const result = { accuracy: accuracyResults, timing: timingResults, gov: govRanked };
+    const result = { accuracy: accuracyResults, timing: timingResults, gov: govRanked, _formulaVersion: SCOREBOARD_FORMULA_VERSION };
     _scoreboardCache     = result;
     _scoreboardCacheTime = Date.now();
     slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
@@ -2809,10 +2809,15 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
+const SCOREBOARD_FORMULA_VERSION = 3; // bump when scoring formula changes
+
 app.get('/api/scoreboard', (req, res) => {
-  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL) {
+  if (_scoreboardCache && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL
+      && _scoreboardCache._formulaVersion === SCOREBOARD_FORMULA_VERSION) {
     return res.json(_scoreboardCache);
   }
+  // Cache miss or stale formula version — recompute
+  _scoreboardCache = null;
   if (!_scoreboardCache && Date.now() - _bootTime < STARTUP_GRACE_MS) {
     return res.json({ computing: true, accuracy: [], timing: [] });
   }
@@ -2962,6 +2967,15 @@ function requireAdminSecret(req, res) {
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 // ── F13 admin endpoints ───────────────────────────────────────────────────────
 
+
+app.get('/api/admin/scoreboard-refresh', (req, res) => {
+  if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({error:'forbidden'});
+  _scoreboardCache = null;
+  _scoreboardCacheTime = 0;
+  preComputeScoreboard()
+    .then(() => res.json({ ok: true, gov: (_scoreboardCache?.gov||[]).slice(0,5).map(g=>({name:g.name,score:g.activityScore,ppt:g.profitPerTrade})) }))
+    .catch(e => res.status(500).json({ error: e.message }));
+});
 
 app.get('/api/admin/unban', (req, res) => {
   if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({ error: 'Forbidden' });
