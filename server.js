@@ -2890,7 +2890,7 @@ setTimeout(() => {
       });
     }).on('error', () => {});
   } catch(e) {}
-}, 30000);
+}, 120000);
 
 setTimeout(() => {
   // Pre-warm monitor data so Monitor page loads instantly
@@ -3368,7 +3368,8 @@ app.get('/api/stock-lists', (req, res) => {
   try {
     // Quick diagnostic: what's the most recent trade_date in the DB?
     const latestTrade = db.prepare("SELECT MAX(trade_date) AS d, COUNT(*) AS n FROM trades WHERE trade_date >= date('now','-30 days')").get();
-    slog('stock-lists: latest_trade=' + latestTrade.d + ' trades_30d=' + latestTrade.n);
+    const latestAll = db.prepare("SELECT MAX(trade_date) AS d, COUNT(*) AS n FROM trades").get();
+    slog('stock-lists: latest_30d=' + latestTrade.d + ' count_30d=' + latestTrade.n + ' | latest_all=' + latestAll.d + ' total=' + latestAll.n);
 
     // Most-active tickers: unique insiders, buy + sell counts, last 14 days
     const mostActive = db.prepare(`
