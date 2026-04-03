@@ -6126,7 +6126,7 @@ function renderTopScoresList(ranked) {
     name: g.name, title: g.chamber, tickers: g.tickers,
     accuracyScore: g.activityScore, tier: 'GOV',
     winRate: null, avgRet90: null, tradeCount: g.tradeCount,
-    buyVal: g.buyVal, sellVal: g.sellVal, profitProxy: g.profitProxy,
+    buyVal: g.buyVal, sellVal: g.sellVal, profitPerTrade: g.profitPerTrade || g.profitProxy,
     _isGov: true,
   }));
   const merged = [...(ranked||[]), ...govNormalized].sort((a,b) => b.accuracyScore - a.accuracyScore);
