@@ -3379,10 +3379,9 @@ app.get('/api/stock-lists', (req, res) => {
       WHERE trade_date >= date('now','-14 days')
       AND trade_date <= date('now')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL','--')
       GROUP BY ticker
       HAVING (buys >= 1 OR sells >= 1)
-        AND (buy_val >= 10000 OR sell_val >= 10000)
+        AND (buy_val >= 1000 OR sell_val >= 1000)
       ORDER BY (buy_val + sell_val) DESC
       LIMIT 24
     `).all();
