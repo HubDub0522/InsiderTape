@@ -242,7 +242,7 @@
 
   .filter-panel {
     background: var(--bg2); border-right: 1px solid var(--border);
-    padding: 20px 16px; position: sticky; top: var(--header-h);
+    padding: 8px 16px 20px; position: sticky; top: var(--header-h);
     height: calc(100vh - var(--header-h)); overflow-y: auto;
   }
   .filter-section { margin-bottom: 24px; }
@@ -260,7 +260,7 @@
   .apply-btn { width: 100%; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; padding: 10px; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; transition: background .2s; margin-top: 8px; }
   .apply-btn:hover { background: #33ddff; }
 
-  .screener-content { padding: 12px 20px 20px; min-height: 60vh; }
+  .screener-content { padding: 6px 20px 20px; min-height: 60vh; }
   .screener-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   .screener-title { font-family: 'Inter', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--text); }
   .screener-meta { font-family: 'Inter', sans-serif; font-size: 11px; color: var(--muted); }
@@ -650,7 +650,7 @@
     /* Make sure no inner div busts the viewport */
     .view > div { max-width: 100vw; }
     /* Padding reduction on padded containers */
-    [style*="padding:12px 20px 24px"] { padding: 16px 12px !important; }
+    [style*="padding:6px 20px 24px"] { padding: 16px 12px !important; }
     [style*="padding: 24px 20px"] { padding: 16px 12px !important; }
     /* Ranker cards */
     [style*="grid-template-columns:1fr 320px"] { grid-template-columns: 1fr !important; }
@@ -957,7 +957,7 @@
 
 <div id="view-stock" class="view">
   <div id="stockContent">
-    <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       <div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div>
     </div>
   </div>
@@ -2040,7 +2040,7 @@ function renderProximitySubpage() {
 
   if (_proximityCache) { _renderProximityResults(body, backBtn, _proximityCache); return; }
   if (_proximityRunning) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${backBtn}
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:6px">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:32px">Scanning insider buys against predicted event windows</div>
@@ -2058,7 +2058,7 @@ function renderProximitySubpage() {
 
   _proximityRunning = true;
 
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:6px">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:32px">Scanning insider buys against predicted event windows</div>
@@ -2082,7 +2082,7 @@ function renderProximitySubpage() {
     _renderProximityResults(body, backBtn, _proximityCache);
   }).catch(e => {
     _proximityRunning = false;
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">${backBtn}
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">${backBtn}
       <div style="color:var(--sell);font-size:13px;padding:30px 0">Error: ${e.message}</div>
     </div>`;
   });
@@ -2090,7 +2090,7 @@ function renderProximitySubpage() {
 
 function _renderProximityResults(body, backBtn, results) {
   if (!results.length) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${backBtn}
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;margin-bottom:20px">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
       <div style="color:var(--muted);font-size:13px;text-align:center;padding:40px 0">
@@ -2221,7 +2221,7 @@ function _renderProximityResults(body, backBtn, results) {
       </div>
     </div>` : '';
 
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
@@ -2288,7 +2288,7 @@ async function loadStockLanding() {
     return;
   }
 
-  content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px"><div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div></div>`;
+  content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px"><div class="loading-state" style="height:260px"><div class="spinner"></div><span>Loading market activity…</span></div></div>`;
 
   try {
     _stockListsCache = await apiFetch('/api/stock-lists');
@@ -2432,7 +2432,7 @@ function renderStockLanding(lists) {
       if (c2 && c2.innerHTML.includes('RETRY')) loadStockLanding();
     }, 5000);
   }
-  content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     <div style="margin-bottom:28px">
       <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
@@ -4434,7 +4434,7 @@ function insiderLanding(opts={}) {
     updateTitle('insider');
   }
   body.innerHTML=`
-    <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin-bottom:28px">
         <div style="font-family:Inter,sans-serif;font-size:20px;letter-spacing:2px;color:var(--text);margin-bottom:12px">SEARCH INSIDER</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -4903,7 +4903,7 @@ function openLeaderboardFull(type) {
   const rows = list.map((r, i) => buildLeaderboardRow(r, i, type)).join('');
 
   body.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
         <button onclick="insiderLanding()" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:8px 14px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;cursor:pointer;transition:all .15s"
                 onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
@@ -4934,7 +4934,7 @@ async function runInsiderSearch() {
   const input=document.getElementById('insiderSearchInput'); const q=(input?.value||'').trim(); if(!q)return;
   const body=document.getElementById('insiderViewBody');
   body.innerHTML=`
-    <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;gap:10px;align-items:center">
         <div style="position:relative;flex:1"><input id="insiderSearchInput" type="text" value="${q.replace(/"/g,'&quot;')}" placeholder="Search by name" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 14px;color:var(--text);font-size:13px;outline:none" onkeydown="if(event.key==='Enter')runInsiderSearch()"/><div id="insiderSuggest" style="position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;z-index:50;display:none;max-height:200px;overflow-y:auto;"></div></div>
         <button onclick="runInsiderSearch()" style="background:var(--accent);color:var(--bg);border:none;border-radius:6px;padding:9px 18px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;cursor:pointer">SEARCH</button>
@@ -5011,7 +5011,7 @@ async function openGovProfile(name) {
     const chamber=trades[0]?.chamber==='H'?'U.S. House of Representatives':'U.S. Senate';
     const initials=name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
 
-    body.innerHTML = '<div id="insiderContent" style="max-width:900px;margin:0 auto;padding:12px 20px 24px">'
+    body.innerHTML = '<div id="insiderContent" style="max-width:900px;margin:0 auto;padding:6px 20px 24px">'
       + '<button class="back-btn" onclick="insiderLanding()" style="margin-bottom:20px">← Back</button>'
       + '<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">'
       + '<div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(0,212,255,0.3),rgba(0,212,255,0.1));border:1px solid rgba(0,212,255,0.4);display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;font-size:20px;color:#00d4ff">' + initials + '</div>'
@@ -5185,7 +5185,7 @@ async function loadAnalysisPage(subpage) {
   if (!body) return;
 
   // Always fetch fresh gov data + form4 together on every analysis load
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
   try {
     const fetchForm4 = _analysisData
       ? Promise.resolve(_analysisData.filter(t => !t._isGov))
@@ -5671,7 +5671,7 @@ function renderAnalysisDashboard() {
 
   try {
     body.innerHTML = `
-  <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     <div style="margin-bottom:28px">
       <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">ANALYSIS</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
@@ -5747,7 +5747,7 @@ function renderAnalysisSubpage(id) {
 
   else if (id === 'conviction') {
     const convHtml = renderConvictionCards(trades);
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${backBtn}
       <div style="margin-bottom:20px">
         <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ HIGH CONVICTION TRADES</div>
@@ -5763,7 +5763,7 @@ function renderAnalysisSubpage(id) {
 
   else if (id === 'clusters') {
     const clusterHtml = renderClusterEngine(trades);
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${backBtn}
       <div style="margin-bottom:12px">
         <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔬 CLUSTER BUY DETECTION ENGINE</div>
@@ -5868,7 +5868,7 @@ function renderGovTileSubpage(id) {
         ).join('') + '</div>'
       : '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No gov cluster buys found in the last 90 days.</div>';
 
-    body.innerHTML = '<div style="max-width:900px;margin:0 auto;padding:12px 20px 24px">'
+    body.innerHTML = '<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">'
       + backBtn
       + '<div style="margin-bottom:20px"><div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🏛 ' + title + '</div>'
       + '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + subtitle + '</div></div>'
@@ -5897,7 +5897,7 @@ function renderGovTileSubpage(id) {
     </div>`;
   }).join('');
 
-  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:20px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${icon} ${title}</div>
@@ -5914,7 +5914,7 @@ function renderRegimeShiftSubpage() {
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
 
   // Show loading state while long trades fetch if needed
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">📡 REGIME SHIFT DETECTOR</div>
@@ -6172,7 +6172,7 @@ function renderTopScoresSubpage() {
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
   if (_insiderScoreCache === null) computeLeaderboardScores();
   const loading = _insiderScoreCache === null;
-  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">🥇 TOP INSIDER ACCURACY SCORES</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by win rate, avg forward return & consistency · Click to open scorecard</div>
@@ -6204,7 +6204,7 @@ function renderTimingLeadersSubpage() {
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
   if (_timingAlphaCache === null) computeLeaderboardScores();
   const loading = _timingAlphaCache === null;
-  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">⏱ BEST TIMING INSIDERS</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by Timing Alpha Score — who buys near 12-month lows and achieves the best forward returns</div>
@@ -6236,7 +6236,7 @@ async function renderRankerSubpage() {
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
 
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🏆 INSIDER OPPORTUNITY RANKER</div>
@@ -6587,7 +6587,7 @@ async function renderExitWarningSubpage() {
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
 
   // Show loading while fetching price highs
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading price context…</span></div></div>`;
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading price context…</span></div></div>`;
 
   // Fetch 52-week highs — use short timeout so it never blocks the render
   const sellTickers = [...new Set(trades.filter(t => t.type === 'S' || t.type === 'S-').map(t => t.ticker))];
@@ -6604,7 +6604,7 @@ async function renderExitWarningSubpage() {
   window._exitWarningPriceHighs = priceHighs;
   const warnings = detectExitWarnings(trades, priceHighs);
 
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔴 INSIDER EXIT WARNING SYSTEM</div>
@@ -6908,7 +6908,7 @@ async function renderFirstBuySubpage() {
     parseInt(document.getElementById('fbLookback')?.value || '90'),
   ];
 
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🚨 FIRST BUY IN YEARS</div>
@@ -7460,7 +7460,7 @@ async function loadSectorsPage() {
   }
 
   body.innerHTML = `
-    <div style="max-width:1300px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1300px;margin:0 auto;padding:6px 20px 24px">
       <div class="loading-state"><div class="spinner"></div><span>Loading sector data…</span></div>
     </div>`;
 
@@ -7511,7 +7511,7 @@ function renderSectorsPage(data) {
   const maxBuy = Math.max(...sectors.map(s => s.buy_val), 1);
 
   body.innerHTML = `
-    <div style="max-width:1300px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1300px;margin:0 auto;padding:6px 20px 24px">
 
       <!-- Header -->
       <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:28px">
@@ -7784,7 +7784,7 @@ function renderSectorSubpage(s, data) {
     ">${label}</button>`;
 
   body.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
 
       <!-- Back button + time tabs -->
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px">
@@ -7956,7 +7956,7 @@ function renderComparePage() {
   ">${label}</button>`.trim();
 
   body.innerHTML = `
-    <div style="max-width:1400px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1400px;margin:0 auto;padding:6px 20px 24px">
 
       <!-- Header -->
       <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:28px">
@@ -8380,7 +8380,7 @@ function renderWatchlistLoading(list) {
   const body = document.getElementById('watchlistViewBody');
   if (!body) return;
   body.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${watchlistHeader()}
       <div class="loading-state"><div class="spinner"></div><span>Loading ${list.length} ticker${list.length!==1?'s':''}…</span></div>
     </div>`;
@@ -8417,7 +8417,7 @@ function renderWatchlistPage(data, followedData={}) {
 
   if (list.length === 0 && followed.length === 0) {
     body.innerHTML = `
-      <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+      <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
         ${watchlistHeader()}
         <div style="text-align:center;padding:80px 20px;color:var(--muted)">
           <div style="font-size:40px;margin-bottom:16px">📌</div>
@@ -8713,7 +8713,7 @@ function renderWatchlistPage(data, followedData={}) {
     </div>`;
 
   body.innerHTML = `
-    <div style="max-width:1200px;margin:0 auto;padding:12px 20px 24px">
+    <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${watchlistHeader()}
       ${followedSection}
       ${tickerSection}
@@ -8907,7 +8907,7 @@ function renderMonitorShell(body) {
     ? `<button onclick="clearMonitorFilters()" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;font-family:Inter,monospace;font-size:9px;border:1px solid var(--sell);border-radius:4px;cursor:pointer;background:rgba(255,68,102,0.08);color:var(--sell)">✕ CLEAR</button>`
     : '';
   body.innerHTML = `
-  <div style="max-width:1100px;margin:0 auto;padding:12px 20px 24px">
+  <div style="max-width:1100px;margin:0 auto;padding:6px 20px 24px">
     <div style="margin-bottom:20px">
       <div style="display:flex;align-items:center;gap:12px"><div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">MONITOR</div></div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Signal alerts from all Analysis tools · Sorted by strength</div>
@@ -9867,7 +9867,7 @@ function showBlurGate(bodyId, title, desc, featureName) {
   el.dataset.blurGated = '1';
   el.innerHTML = `
     <!-- blurred skeleton content -->
-    <div style="filter:blur(4px);pointer-events:none;user-select:none;opacity:0.4;padding:12px 20px 24px">
+    <div style="filter:blur(4px);pointer-events:none;user-select:none;opacity:0.4;padding:6px 20px 24px">
       <div style="max-width:1200px;margin:0 auto">
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px" class="mob-3col-grid">
           ${[1,2,3].map(n=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px">
