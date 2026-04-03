@@ -2788,12 +2788,12 @@ async function preComputeScoreboard() {
           });
         }
       });
-      // Normalise profitProxy to 0–100 across the group
-      const maxProfit = Math.max(...govIntermediate.map(g => g.profitProxy), 1);
-      const minProfit = Math.min(...govIntermediate.map(g => g.profitProxy), 0);
-      const range = maxProfit - minProfit || 1;
+      // Absolute score — same formula as profile page so scores match everywhere
+      // score = 50 + clamp((profitPerTrade / $100k) * 50, -50, +50)
+      // $100k profit/trade → 100, $0/trade → 50, -$100k/trade → 0
       govIntermediate.forEach(g => {
-        const netScore = Math.min(100, Math.max(1, Math.round((g.profitProxy - minProfit) / range * 99) + 1));
+        const rawScore = 50 + Math.min(50, Math.max(-50, g.profitProxy / 100000 * 50));
+        const netScore = Math.min(100, Math.max(1, Math.round(rawScore)));
         govRanked.push({ ...g, activityScore: netScore, profitPerTrade: g.profitProxy });
       });
       govRanked.sort((a,b) => b.activityScore - a.activityScore);
