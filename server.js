@@ -1346,13 +1346,14 @@ app.get('/api/gov-member', (req, res) => {
   const member = (req.query.member || '').trim();
   if (!member) return res.json([]);
   try {
-    // Try exact match first
+    // Try exact match first — same 5-year window as scoreboard so values match
     let rows = db.prepare(`
       SELECT member, chamber, ticker, transaction_type, transaction_date,
              disclosure_date, amount_range, owner, filing_url
       FROM gov_trades
       WHERE member = ?
         AND transaction_type IN ('P','S')
+        AND transaction_date >= date('now', '-1825 days')
       ORDER BY transaction_date DESC
       LIMIT 500
     `).all(member);
@@ -1364,6 +1365,7 @@ app.get('/api/gov-member', (req, res) => {
         FROM gov_trades
         WHERE member LIKE ?
           AND transaction_type IN ('P','S')
+          AND transaction_date >= date('now', '-1825 days')
         ORDER BY transaction_date DESC
         LIMIT 500
       `).all('%' + member.split(' ').slice(-1)[0] + '%');
@@ -2809,7 +2811,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 8; // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 9; // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
