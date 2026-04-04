@@ -2789,13 +2789,15 @@ async function preComputeScoreboard() {
           latestTrade: r.latest_trade,
         });
       });
-      // Rank by profitPerTrade — highest = 100, lowest = 1, linear scale across all members
+      // Rank by profitPerTrade using sqrt scale — compresses outliers, spreads mid-range
+      // Shift all values so minimum = 0 first, then sqrt-scale relative to max
       const maxPpt = Math.max(...govIntermediate.map(g => g.profitProxy));
       const minPpt = Math.min(...govIntermediate.map(g => g.profitProxy));
-      const pptRange = maxPpt - minPpt || 1;
+      const shift = minPpt < 0 ? -minPpt : 0; // shift so all values >= 0
+      const sqrtMax = Math.sqrt(maxPpt + shift) || 1;
       govIntermediate.forEach(g => {
-        // Linear: highest ppt → 100, lowest → 1
-        const netScore = Math.min(100, Math.max(1, Math.round(((g.profitProxy - minPpt) / pptRange) * 99) + 1));
+        const shifted = g.profitProxy + shift;
+        const netScore = Math.min(100, Math.max(1, Math.round((Math.sqrt(shifted) / sqrtMax) * 99) + 1));
         govRanked.push({ ...g, activityScore: netScore, profitPerTrade: g.profitProxy });
       });
       govRanked.sort((a,b) => b.profitPerTrade - a.profitPerTrade);
@@ -2811,7 +2813,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 9; // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 10; // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
