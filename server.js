@@ -1919,6 +1919,21 @@ app.get('/api/sectors', (req, res) => {
 // ─── DEBUG ENDPOINT — shows DB stats for diagnosing data issues ───────────
 app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
 
+app.get('/api/admin/check-trades', (req, res) => {
+  if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({error:'forbidden'});
+  const tickers = (req.query.tickers || 'FRMI,LXU,MLTXB,ACT,INGM,WDAY,BATL,ADCT,PHR,CGCT,ECAT,FMAC,AFL,HSY,VVOS,NFJ,FSTR').split(',').map(t=>t.trim()).filter(Boolean);
+  const since = req.query.since || '2026-03-25';
+  try {
+    const results = tickers.map(ticker => {
+      const rows = db.prepare(`SELECT ticker, insider, title, trade_date, filing_date, type, qty, price, value FROM trades WHERE ticker=? AND trade_date >= ? ORDER BY trade_date DESC LIMIT 5`).all(ticker, since);
+      return { ticker, count: rows.length, trades: rows };
+    });
+    const missing = results.filter(r => r.count === 0).map(r => r.ticker);
+    const found   = results.filter(r => r.count > 0);
+    res.json({ missing, found, since });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug', (req, res) => {
   try {
     const total = db.prepare('SELECT COUNT(*) AS n FROM trades').get().n;
