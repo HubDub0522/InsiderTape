@@ -6040,6 +6040,9 @@ function renderRegimeResults(results) {
       el.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No regime shifts match this filter.</div>';
       return;
     }
+    const typeColors  = { SELLER_FLIPS_BUY:'var(--buy)', BUY_ACCELERATION:'#b8940a', DORMANT_ACTIVATES:'var(--accent)', SELL_SPIKE:'var(--sell)' };
+    const typeBg      = { SELLER_FLIPS_BUY:'rgba(0,255,136,0.06)', BUY_ACCELERATION:'rgba(184,148,10,0.06)', DORMANT_ACTIVATES:'rgba(0,212,255,0.06)', SELL_SPIKE:'rgba(255,80,80,0.06)' };
+    const typeBorder  = { SELLER_FLIPS_BUY:'rgba(0,255,136,0.25)', BUY_ACCELERATION:'rgba(184,148,10,0.25)', DORMANT_ACTIVATES:'rgba(0,212,255,0.25)', SELL_SPIKE:'rgba(255,80,80,0.25)' };
     el.innerHTML = `
       <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);margin-bottom:12px">${results.length} REGIME SHIFT${results.length!==1?'S':''} DETECTED · SORTED BY SCORE</div>
       <div style="display:flex;flex-direction:column;gap:12px">
