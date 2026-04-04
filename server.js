@@ -3018,17 +3018,24 @@ app.get('/api/admin/grant-premium', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   const email = (req.query.email || '').trim().toLowerCase();
   if (!email) return res.status(400).json({ error: 'email param required' });
+  const days = Math.max(1, parseInt(req.query.days || '365'));
   try {
-    const user = db.prepare('SELECT id, email FROM users WHERE LOWER(email) = ?').get(email);
-    if (!user) return res.status(404).json({ error: 'User not found: ' + email });
+    let user = db.prepare('SELECT id, email FROM users WHERE LOWER(email) = ?').get(email);
+    let created = false;
+    if (!user) {
+      if (!req.query.create) return res.status(404).json({ error: 'User not found: ' + email + '. Add &create=1 to create the account automatically.' });
+      db.prepare('INSERT INTO users (email) VALUES (?)').run(email);
+      user = db.prepare('SELECT id, email FROM users WHERE LOWER(email) = ?').get(email);
+      created = true;
+    }
+    const periodEnd = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString();
     const existing = db.prepare('SELECT * FROM subscriptions WHERE user_id = ?').get(user.id);
-    const periodEnd = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
     if (existing) {
       db.prepare(`UPDATE subscriptions SET status='active', current_period_end=?, updated_at=datetime('now') WHERE user_id=?`).run(periodEnd, user.id);
     } else {
-      db.prepare(`INSERT INTO subscriptions (user_id, plan, status, current_period_end, updated_at) VALUES (?, 'monthly', 'active', ?, datetime('now'))`).run(user.id, periodEnd);
+      db.prepare(`INSERT INTO subscriptions (user_id, plan, status, current_period_end, updated_at) VALUES (?, 'gifted', 'active', ?, datetime('now'))`).run(user.id, periodEnd);
     }
-    res.json({ ok: true, message: `Premium granted to ${user.email} until ${periodEnd}` });
+    res.json({ ok: true, account_created: created, message: `Premium granted to ${user.email} for ${days} days (until ${periodEnd})` });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
