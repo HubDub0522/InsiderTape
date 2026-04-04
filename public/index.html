@@ -6053,7 +6053,7 @@ function renderRegimeResults(results) {
           const scoreColor = r.score >= 70 ? 'var(--buy)' : r.score >= 60 ? '#b8940a' : 'var(--accent)';
           return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:16px 20px;cursor:pointer;transition:border-color .15s"
                        onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='${border}'"
-                       onclick="openStock('${r.ticker}')">
+                       onclick="openTickerFromScreener('${r.ticker}')">
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
               <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
