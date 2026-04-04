@@ -5439,10 +5439,9 @@ function renderAnalysisDashboard() {
   const _convData    = buildConvictionData(trades);
   const _clusterData = detectAdvancedClusters(trades);
   const _regimeData  = buildRegimeShiftData(longTrades, trades);
-  // Only cache if we have meaningful long data — subpage will rebuild if not
-  if ((longTrades||[]).length > (trades||[]).length) {
-    window._cachedRegimeData = _regimeData;
-  }
+  // Always cache — if long data isn't loaded yet the subpage will rebuild with fresh long data,
+  // but we still want the tile results to be immediately available if the user clicks through
+  window._cachedRegimeData = _regimeData;
 
   const convTop3    = _convData.slice(0, 3);
   // Boost cluster scores when gov officials are also buying the same ticker
@@ -5976,16 +5975,26 @@ function renderRegimeShiftSubpage() {
     return;
   }
 
+  // Snapshot _analysisData now — it may be null inside the async callback
+  const snapshotTrades = _analysisData ? _analysisData.slice() : [];
+
   // Also try building from already-loaded data without waiting
-  if (_analysisDataLong && _analysisData) {
+  if (_analysisDataLong && snapshotTrades.length > 0) {
     try {
-      const quickResults = buildRegimeShiftData(_analysisDataLong, _analysisData);
-      if (quickResults.length > 0) {
-        window._cachedRegimeData = quickResults;
-        window._regimeResults = quickResults;
+      const quickResults = buildRegimeShiftData(_analysisDataLong, snapshotTrades);
+      // Always use quick results if we have long data — even if empty, it's the correct answer
+      window._cachedRegimeData = quickResults;
+      window._regimeResults = quickResults;
+      if (!quickResults.length) {
+        const el = document.getElementById('regimeShiftResults');
+        if (el) el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
+          No regime shifts detected in the last 30 days.<br>
+          <span style="font-size:11px">Signals require meaningful baseline history — try again after more data loads.</span>
+        </div>`;
+      } else {
         renderRegimeResults(quickResults);
-        return;
       }
+      return;
     } catch(e) { console.warn('regime quick build failed:', e); }
   }
 
@@ -5993,7 +6002,8 @@ function renderRegimeShiftSubpage() {
   ensureAnalysisDataLong(longTrades => {
     const el = document.getElementById('regimeShiftResults');
     if (!el) return; // user navigated away
-    const trades = _analysisData || [];
+    // Use the snapshotted trades — _analysisData may have changed or be null by now
+    const trades = snapshotTrades.length > 0 ? snapshotTrades : (_analysisData || []);
     const results = buildRegimeShiftData(longTrades, trades);
     window._cachedRegimeData = results;
     window._regimeResults = results;
