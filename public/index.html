@@ -3792,7 +3792,14 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
                     <td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
                     <td class="${tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
                     <td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--muted)">${fmtShares(t.owned)}</td>
-                    <td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--muted)">${fmtDate(t.filing)}</td>
+                    <td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${t.accession
+                      ? `<a href="https://www.sec.gov/Archives/edgar/data/${parseInt(t.accession.split('-')[0])}/${t.accession.replace(/-/g,'')}/${t.accession}-index.htm"
+                           target="_blank" rel="noopener" onclick="event.stopPropagation()"
+                           style="color:var(--accent);text-decoration:none"
+                           onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'"
+                           >${fmtDate(t.filing)} ↗</a>`
+                      : `<span style="color:var(--muted)">${fmtDate(t.filing)}</span>`
+                    }</td>
                   </tr>`).join('')}
               </tbody>
             </table>
