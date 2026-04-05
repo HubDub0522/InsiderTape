@@ -2932,10 +2932,12 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         return acc;
       },{})
     ) : [];
-    // Use ALL marker groups (unfiltered) + gov for consistent sizing across filter changes
+    // Separate maxVals so Form 4 and gov diamonds each scale within their own range.
+    // Gov STOCK Act filings are capped at ~$15M (range descriptions), while Form 4
+    // trades can be hundreds of millions — a shared maxVal makes all gov diamonds tiny.
     const allGroupVals = (state._allMarkerGroups||state.markerGroups).map(g=>g.value);
-    // Floor of $2M ensures small trades never get scaled to max size on quiet charts
-    const maxVal=Math.max(...allGroupVals,...govGroupedVals,1000000);
+    const maxVal    = Math.max(...allGroupVals, 1000000);      // Form 4 circles scale to this
+    const maxValGov = Math.max(...govGroupedVals, 1000000);    // Gov diamonds scale to this separately
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
@@ -2971,7 +2973,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         const _mob=window.innerWidth<=640;
         const rMin=_mob?6:8, rMax=_mob?28:38;
         const val = g.value || 0;
-        const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, val) / maxVal);
+        const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, val) / maxValGov);
         const isBuy = g.tc === 'buy';
         const baseColor = isBuy ? 'rgba(0,212,255,' : 'rgba(255,0,255,';
         ctx.beginPath(); ctx.arc(xCoord,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=baseColor+'0.08)'; ctx.fill();
