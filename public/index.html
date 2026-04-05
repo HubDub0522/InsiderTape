@@ -1135,7 +1135,8 @@ function switchView(view, btn, opts={}) {
   document.getElementById('view-' + view).classList.add('active');
   if (btn) btn.classList.add('active');
   else {
-    const idx = {screener:0, stock:1, insider:2, analysis:3, monitor:4, sectors:5, compare:6, watchlist:7}[view];
+    // Only main nav tabs get highlighted — member-area sub-views only activate the dropdown btn
+    const idx = {screener:0, stock:1, insider:2}[view];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
   }
   if (view === 'insider') {
@@ -4417,6 +4418,20 @@ function buildCSSTimeline(trades) {
 }
 
 function goBack() {
+  // If we're inside an analysis subpage, go back to the analysis dashboard
+  // rather than browser history (which can exit the SPA or go to wrong page)
+  const analysisBody = document.getElementById('analysisViewBody');
+  if (analysisBody && analysisBody.offsetParent !== null) {
+    // analysisViewBody is visible — we're in a subpage, go back to dashboard
+    renderAnalysisDashboard();
+    return;
+  }
+  // For insider profile subpages, go back to insider landing
+  const insiderContent = document.getElementById('insiderContent');
+  if (insiderContent && insiderContent.offsetParent !== null && insiderContent.hasChildNodes()) {
+    insiderLanding();
+    return;
+  }
   history.back();
 }
 
