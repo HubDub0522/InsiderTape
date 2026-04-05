@@ -2857,6 +2857,78 @@ app.get('/api/scoreboard', (req, res) => {
   return res.json({ computing: true, accuracy: [], timing: [] });
 });
 
+// ── INSIDER SCORE — scores a single insider using the same logic as the profile
+// Returns winRate, avgRet90, avgRet30, tradeCount, accuracyScore, tier
+// Uses all trades with no date cutoff — same data the profile page sees
+app.get('/api/insider-score', async (req, res) => {
+  const name = (req.query.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const rows = db.prepare(`
+      SELECT ticker, trade_date AS trade, TRIM(type) AS type,
+             COALESCE(price, 0) AS price, COALESCE(value, 0) AS value
+      FROM trades
+      WHERE UPPER(insider) = UPPER(?)
+        AND TRIM(type) = 'P'
+        AND price > 0
+        AND trade_date >= date('now', '-1825 days')
+      ORDER BY trade_date DESC LIMIT 500
+    `).all(name);
+
+    if (!rows.length) return res.json({ error: 'no trades' });
+
+    const tickers = [...new Set(rows.map(r => r.ticker))];
+    const priceEntries = await Promise.allSettled(
+      tickers.map(async sym => [sym, await fetchPriceBars(sym)])
+    );
+    const pc = Object.fromEntries(
+      priceEntries.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
+    );
+
+    const CAP = 100;
+    const cap = r => Math.max(-CAP, Math.min(CAP, r));
+
+    const scored = rows.map(t => {
+      const bars = pc[t.ticker] || [];
+      if (!bars.length) return null;
+      const buyDate = t.trade.slice(0, 10);
+      const buyPrice = t.price > 0 ? t.price : (bars.find(b => b.time >= buyDate)?.close || 0);
+      if (!buyPrice) return null;
+      const fwd = days => {
+        const fd = new Date(buyDate + 'T12:00:00Z');
+        fd.setUTCDate(fd.getUTCDate() + days);
+        const bar = bars.find(b => b.time >= fd.toISOString().slice(0, 10));
+        return bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+      };
+      return { ticker: t.ticker, tradeDate: buyDate, buyPrice, ret30: fwd(30), ret90: fwd(90) };
+    }).filter(Boolean);
+
+    const completed = scored.filter(s => s.ret90 !== null);
+    if (completed.length < 5) return res.json({ error: 'insufficient data', completed: completed.length });
+
+    const rets90  = completed.map(s => cap(s.ret90));
+    const rets30  = completed.filter(s => s.ret30 !== null).map(s => cap(s.ret30));
+    const winRate = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
+    const avgRet90 = +(rets90.reduce((a,b)=>a+b,0) / rets90.length).toFixed(1);
+    const avgRet30 = rets30.length ? +(rets30.reduce((a,b)=>a+b,0) / rets30.length).toFixed(1) : null;
+    const avgMag  = +(rets90.map(Math.abs).reduce((a,b)=>a+b,0) / rets90.length).toFixed(1);
+    const sortedR = [...rets90].sort((a,b)=>a-b);
+    const median  = sortedR[Math.floor(sortedR.length/2)];
+    const consist = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag,1) + 1) * 50)));
+
+    // Timing bonus: avg 30d return quality
+    const timingAvg30 = rets30.length ? rets30.reduce((a,b)=>a+b,0)/rets30.length : 0;
+    const timingBonus = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 8) / 16 * 20)));
+    const baseScore = winRate*0.40 + Math.min(35, Math.max(0, avgRet90/20*35)) + consist*0.15 + Math.min(10, completed.length*1.2);
+    const accuracyScore = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
+    const tier = accuracyScore>=75?'ELITE':accuracyScore>=55?'STRONG':accuracyScore>=35?'AVERAGE':'WEAK';
+    const tickers3 = tickers.slice(0, 3).join(', ');
+
+    res.json({ name, winRate, avgRet90, avgRet30, tradeCount: completed.length,
+               accuracyScore, tier, tickers: tickers3 });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── 13F WORKER ───────────────────────────────────────────────────────────────
 
 
