@@ -5022,8 +5022,9 @@ async function openGovProfile(name) {
     const chamber=trades[0]?.chamber==='H'?'U.S. House of Representatives':'U.S. Senate';
     const initials=name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
 
-    // Compute profitPerTrade using low bound (matches server)
-    const profitPerTrade = trades.length > 0 ? (sellVal - buyVal) / trades.length : 0;
+    // Compute profitPerTrade: net proceeds per sell transaction
+    // Divide by sells.length not trades.length — buys don't dilute the figure
+    const profitPerTrade = sells.length > 0 ? (sellVal - buyVal) / sells.length : 0;
     // Score comes from server cache — normalised relative to all gov officials
     // Strip honorifics for matching
     const cleanName = n => n.replace(/\b(Mr|Ms|Mrs|Dr|Jr|Sr|II|III)\.?\s*/gi,'').trim();
