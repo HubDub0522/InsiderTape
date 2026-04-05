@@ -2720,10 +2720,12 @@ async function preComputeScoreboard() {
         const sortedR  = [...rets90].sort((a, b) => a - b);
         const median   = sortedR[Math.floor(sortedR.length / 2)];
         const consist  = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag, 1) + 1) * 50)));
-        const accScore = Math.round(Math.min(100, Math.max(0,
-          winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35))
-          + consist * 0.15 + Math.min(10, completed.length * 1.2)
-        )));
+        // Timing bonus: same as client formula
+        const timingBonusRets30 = completed.filter(s => s.ret30 !== null).map(s => Math.max(-100, Math.min(100, s.ret30)));
+        const timingAvg30 = timingBonusRets30.length ? timingBonusRets30.reduce((a,b)=>a+b,0)/timingBonusRets30.length : 0;
+        const timingBonus = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 8) / 16 * 20)));
+        const baseScore = winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35)) + consist * 0.15 + Math.min(10, completed.length * 1.2);
+        const accScore = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
         const tier     = accScore >= 75 ? 'ELITE' : accScore >= 55 ? 'STRONG' : accScore >= 35 ? 'AVERAGE' : 'WEAK';
         const tickers3 = [...new Set(rawTrades.map(t => t.ticker))].slice(0, 3).join(', ');
 
@@ -2840,7 +2842,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 12; // bumped: removed -95d SQL cutoff, let ret90!=null filter naturally // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 13; // aligned with client formula (timing blend) // bumped: removed -95d SQL cutoff, let ret90!=null filter naturally // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
@@ -4419,6 +4421,94 @@ app.get('/api/price-highs', (req, res) => {
     result[sym] = { high52: +high52.toFixed(2), low52: +low52.toFixed(2), current: +current.toFixed(2), pctFromHigh: +pctFromHigh.toFixed(3) };
   });
   res.json(result);
+});
+
+// ── ROBOTS.TXT ───────────────────────────────────────────────────────────────
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain');
+  res.send([
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /api/',
+    'Disallow: /members/',
+    'Crawl-delay: 1',
+    '',
+    'Sitemap: https://insidertape.com/sitemap.xml',
+  ].join('\n'));
+});
+
+// ── SITEMAP.XML ───────────────────────────────────────────────────────────────
+// Static pages + article pages + top tickers (refreshed from DB at startup)
+let _sitemapCache = null;
+let _sitemapCacheTime = 0;
+const SITEMAP_TTL = 24 * 3600 * 1000; // 24 hours
+
+function buildSitemap() {
+  const now = new Date().toISOString().slice(0, 10);
+  const base = 'https://insidertape.com';
+
+  const staticPages = [
+    { url: '/',           priority: '1.0', freq: 'daily'   },
+    { url: '/screener',   priority: '0.9', freq: 'daily'   },
+    { url: '/stock',      priority: '0.8', freq: 'daily'   },
+    { url: '/insider',    priority: '0.8', freq: 'daily'   },
+    { url: '/articles/',  priority: '0.7', freq: 'weekly'  },
+  ];
+
+  // Article pages
+  const articleSlugs = [
+    'cluster-buying-example',
+    'congressional-vs-insider-trading',
+    'how-to-find-stocks-with-insider-buying',
+    'how-to-read-sec-form-4',
+    'how-to-track-congressional-trades',
+    'how-to-use-insider-data',
+    'insider-buying-vs-analyst-upgrades',
+    'legal-vs-illegal-insider-trading',
+    'what-is-cluster-buying',
+    'what-is-the-stock-act',
+  ];
+  const articlePages = articleSlugs.map(s => ({
+    url: `/articles/${s}`, priority: '0.6', freq: 'monthly'
+  }));
+
+  // Top 200 most-traded tickers from DB
+  let tickerPages = [];
+  try {
+    const tickers = db.prepare(`
+      SELECT ticker FROM trades
+      WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND trade_date >= date('now', '-1825 days')
+      GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 200
+    `).all();
+    tickerPages = tickers.map(r => ({
+      url: `/stock/${r.ticker}`, priority: '0.5', freq: 'daily'
+    }));
+  } catch(e) { slog('sitemap ticker query failed: ' + e.message); }
+
+  const allPages = [...staticPages, ...articlePages, ...tickerPages];
+  const urls = allPages.map(p => `
+  <url>
+    <loc>${base}${p.url}</loc>
+    <lastmod>${now}</lastmod>
+    <changefreq>${p.freq}</changefreq>
+    <priority>${p.priority}</priority>
+  </url>`).join('');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}
+</urlset>`;
+}
+
+app.get('/sitemap.xml', (req, res) => {
+  if (_sitemapCache && Date.now() - _sitemapCacheTime < SITEMAP_TTL) {
+    res.type('application/xml');
+    return res.send(_sitemapCache);
+  }
+  _sitemapCache = buildSitemap();
+  _sitemapCacheTime = Date.now();
+  res.type('application/xml');
+  res.send(_sitemapCache);
 });
 
 app.get('*', (req, res) => {
