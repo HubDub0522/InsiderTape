@@ -6149,44 +6149,6 @@ async function computeLeaderboardScores() {
     _timingAlphaCache  = data.timing   || [];
     _govScoreCache     = data.gov      || [];
 
-    // Re-score each insider using the accurate per-profile endpoint.
-    // This uses all trades with no date filter — same data as the profile page —
-    // so win rates match exactly what you see when clicking through.
-    // We do this in small batches to avoid hammering the server.
-    if (_insiderScoreCache.length) {
-      const rescore = async () => {
-        const BATCH = 5;
-        for (let i = 0; i < _insiderScoreCache.length; i += BATCH) {
-          const batch = _insiderScoreCache.slice(i, i + BATCH);
-          await Promise.allSettled(batch.map(async r => {
-            try {
-              const fresh = await apiFetch('/api/insider-score?name=' + encodeURIComponent(r.name));
-              if (fresh && fresh.accuracyScore != null) {
-                r.accuracyScore = fresh.accuracyScore;
-                r.winRate       = fresh.winRate;
-                r.avgRet90      = fresh.avgRet90;
-                r.avgRet30      = fresh.avgRet30;
-                r.tradeCount    = fresh.tradeCount;
-                r.tier          = fresh.tier;
-              }
-            } catch(e) {} // keep original if rescore fails
-          }));
-          if (i + BATCH < _insiderScoreCache.length) await new Promise(r => setTimeout(r, 200));
-        }
-        // Re-sort after rescoring
-        _insiderScoreCache.sort((a,b) => b.accuracyScore - a.accuracyScore);
-        // Refresh the subpage list if open (don't call renderAnalysisDashboard —
-        // that would blow away whatever subpage the user is on)
-        const tsc = document.getElementById('topScoresContent');
-        if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-        // Also refresh the analysis dashboard tile top3 if the grid is visible
-        const body = document.getElementById('analysisViewBody');
-        if (body && body.querySelector('.analysis-tool-grid')) {
-          renderAnalysisDashboard();
-        }
-      };
-      rescore().catch(() => {});
-    }
   } catch(e) {
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
