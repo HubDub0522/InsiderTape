@@ -561,8 +561,9 @@
     #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 18%; }
     /* Insider col — HIDDEN on mobile, shown in dropdown */
     #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { display: none !important; }
-    /* Type col */
+    /* Type col — ensure badge text is visible */
     #screenerTable th:nth-child(5), #screenerTable td:nth-child(5) { width: 22%; }
+    #screenerTable td:nth-child(5) .badge { font-size: 9px !important; padding: 2px 5px !important; display: inline-block !important; }
     /* Shares + Price cols — hidden */
     #screenerTable th:nth-child(6), #screenerTable td:nth-child(6),
     #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { display: none !important; }
@@ -2913,14 +2914,13 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
   state._allMarkerGroups=state.markerGroups; // unfiltered — for consistent diamond sizing
   // Build initial gov marker groups from full govData (all types visible on load)
   state._govMarkerGroups = govData ? (() => {
-    const AMOUNT_MID_I={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
     const gg = {};
     govData.forEach(g => {
       const tc = g.transaction_type==='P'?'buy':'sell';
       const k = (g.transaction_date||'')+'|'+tc+'|'+g.member;
       if(!gg[k]) gg[k]={date:g.transaction_date,tc,trades:[{insider:g.member,amount_range:g.amount_range}],value:0,_isGov:true};
       else gg[k].trades.push({insider:g.member,amount_range:g.amount_range});
-      gg[k].value += AMOUNT_MID_I[g.amount_range]||8000;
+      gg[k].value += parseAmountRange(g.amount_range)||1001;
     });
     return Object.values(gg);
   })() : [];
@@ -3325,7 +3325,6 @@ function getChartFilteredTrades() {
   // Gov trades — only include if 'all' or 'gov' role filter active (and premium)
   // Also respect the buy/sell type filter
   if (auth.isPremium && (chartActiveRoles.has('all') || chartActiveRoles.has('gov'))) {
-    const AMOUNT_MID_G={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
     const govAsTrades = (state.govData||[])
       .filter(g => {
         // Respect buy/sell type filter
@@ -3337,7 +3336,7 @@ function getChartFilteredTrades() {
         insider: g.member, title: g.chamber === 'H' ? 'U.S. House' : 'U.S. Senate',
         trade: g.transaction_date, filing: g.transaction_date,
         type: g.transaction_type,
-        value: AMOUNT_MID_G[g.amount_range] || 8000,
+        value: parseAmountRange(g.amount_range) || 1001,
         qty: 0, price: 0, owned: 0,
         ticker: g.ticker, company: '', accession: '',
         amount_range: g.amount_range,
