@@ -470,16 +470,29 @@
       align-items: center; position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     }
     .logo { font-size: 18px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
+    /* Nav: all tabs on ONE line, no wrapping — shrink text to fit */
     .nav-tabs {
       order: 2; width: 100%; margin-left: 0; gap: 2px;
-      flex-wrap: wrap; justify-content: flex-start;
+      flex-wrap: nowrap; justify-content: flex-start;
       overflow: visible; max-width: 100%;
     }
-    .nav-tab { padding: 4px 8px; font-size: 9px; white-space: nowrap; flex-shrink: 0; }
+    .nav-tab {
+      padding: 4px 5px; font-size: 8px; white-space: nowrap;
+      flex-shrink: 1; min-width: 0; letter-spacing: 0;
+    }
+    /* Members Area button same size as other tabs */
+    .nav-dropdown-btn {
+      padding: 4px 5px !important; font-size: 8px !important;
+      white-space: nowrap; letter-spacing: 0;
+      border: 1px solid var(--border) !important;
+    }
+    .nav-dropdown-btn svg { width: 8px; height: 8px; }
+    /* Dropdown menu appears below the nav row, not overlapping filter bar */
+    .nav-dropdown-menu { top: calc(100% + 2px); min-width: 120px; z-index: 400; }
     #authHeaderBtn { order: 1; margin-left: auto; flex-shrink: 0; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
     #authHeaderBtn { order: 1; flex-shrink: 0; }
-    main { padding-top: 155px; }
+    main { padding-top: 100px; }
 
     /* ── Global: no horizontal overflow ── */
     main > .view { overflow-x: clip; }
@@ -535,23 +548,37 @@
     /* Mobile screener: show Date(1) Ticker(2) Insider(3) Type(4) Value(7)
        hide-mobile class already hides Shares(5) Price(6) Owned(8)
        Remove the bad nth-child overrides that were hiding Type and Value */
+    /* Screener table mobile — show ONLY: ► · Date · Ticker · Type · Value
+       Col order: 1=► 2=Date 3=Ticker 4=Insider 5=Type 6=Shares 7=Price 8=Value
+       Insider (col 4) moved into dropdown on mobile */
     #screenerTable { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
     #screenerTable td, #screenerTable th { padding: 6px 3px; font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    /* Column widths for the 5 visible columns: Date · Ticker · Insider · Type · Value */
-    #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 17%; }
-    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 13%; padding-left: 8px; }
-    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 30%; }
-    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { width: 14%; }
-    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 25%; }
-    /* Hide the "filed:" secondary line and SEC link inside date cell */
-    #screenerBody td:nth-child(1) span:nth-child(2),
-    #screenerBody td:nth-child(1) a { display: none !important; }
-    /* Stop table-wrap from enabling horizontal scroll */
+    /* ► col */
+    #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 20px; padding: 6px 2px; }
+    /* Date col */
+    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 22%; }
+    /* Ticker col */
+    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 18%; }
+    /* Insider col — HIDDEN on mobile, shown in dropdown */
+    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { display: none !important; }
+    /* Type col */
+    #screenerTable th:nth-child(5), #screenerTable td:nth-child(5) { width: 22%; }
+    /* Shares + Price cols — hidden */
+    #screenerTable th:nth-child(6), #screenerTable td:nth-child(6),
+    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { display: none !important; }
+    /* Value col */
+    #screenerTable th:nth-child(8), #screenerTable td:nth-child(8) { width: auto; text-align: right; padding-right: 6px; }
+    /* Hide the filed: secondary date line */
+    #screenerBody td:nth-child(2) span:nth-child(2) { display: none !important; }
+    /* SEC link in dropdown — large tap target */
+    #screenerBody .scr-detail-sec a { display: inline-block !important; padding: 8px 0; font-size: 13px; }
+    /* Insider cell in dropdown — spans full width, large tap target */
+    #screenerBody .scr-mob-insider { grid-column: 1 / -1; padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+    #screenerBody .scr-mob-insider .insider-name-link { font-size: 14px !important; }
+    /* Detail grid: 2 cols */
+    #screenerBody .scr-detail-grid { grid-template-columns: 1fr 1fr !important; gap: 10px 12px !important; padding: 12px !important; }
+    /* Stop horizontal scroll */
     .screener-content .table-wrap { overflow-x: hidden !important; }
-    table { min-width: 0; width: 100%; }
-    td, th { padding: 8px 6px; font-size: 11px; word-break: break-word; }
-    table { min-width: 0; width: 100%; }
-    td, th { padding: 8px 6px; font-size: 11px; word-break: break-word; }
 
     /* ── Stock View ── */
     .pressure-container { height: 80px !important; }
@@ -1783,7 +1810,8 @@ function renderScreener() {
       : '';
     const scrTypeColor = t.type==='P' ? 'var(--buy)' : (t.type==='S'||t.type==='S-') ? 'var(--sell)' : 'var(--muted)';
     const scrCell = (label, val, color) => `<div><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">${label}</div><div style="font-size:12px;color:${color||'var(--text)'};font-variant-numeric:tabular-nums">${val}</div></div>`;
-    const detailRow = `<tr id="${srid}d" style="display:none"><td colspan="8" style="padding:0"><div style="background:rgba(36,120,204,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">${scrCell('Company', t.company||'—')}${scrCell('Trade Type', tradeLabel(t.type), scrTypeColor)}${scrCell('Price per Share', '$'+(t.price||0).toFixed(2))}${scrCell('Total Value', fmt(t.value||0), scrTypeColor)}${scrCell('Trade Date', fmtDate(t.trade||t.filing))}${scrCell('Filing Date', fmtDate(t.filing))}${scrCell('Owned After', fmtShares(t.owned)+insiderOwnershipPct(t))}<div><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">SEC Filing</div><div style="font-size:12px">${secUrl ? `<a href="${secUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-size:11px;font-weight:500;text-decoration:none">View on SEC ↗</a>` : '<span style="color:var(--muted)">—</span>'}</div></div></div></td></tr>`;
+    const insiderDetailCell = `<div class="scr-mob-insider"><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Insider</div><div style="font-size:12px"><span class="insider-name-link" onclick="event.stopPropagation();openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')" style="color:var(--accent);cursor:pointer">${t.insider||'—'}</span>${t.title?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${t.title}</div>`:''}</div></div>`;
+    const detailRow = `<tr id="${srid}d" style="display:none"><td colspan="8" style="padding:0"><div class="scr-detail-grid" style="background:rgba(36,120,204,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">${insiderDetailCell}${scrCell('Company', t.company||'—')}${scrCell('Trade Type', tradeLabel(t.type), scrTypeColor)}${scrCell('Price per Share', '$'+(t.price||0).toFixed(2))}${scrCell('Total Value', fmt(t.value||0), scrTypeColor)}${scrCell('Trade Date', fmtDate(t.trade||t.filing))}${scrCell('Filing Date', fmtDate(t.filing))}${scrCell('Owned After', fmtShares(t.owned)+insiderOwnershipPct(t))}<div class="scr-detail-sec"><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">SEC Filing</div><div style="font-size:12px">${secUrl ? `<a href="${secUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-size:11px;font-weight:500;text-decoration:none">View on SEC ↗</a>` : '<span style="color:var(--muted)">—</span>'}</div></div></div></td></tr>`;
     return `
     <tr id="${srid}" style="cursor:pointer" onclick="(function(){if(event.target.closest('.insider-name-link')||event.target.closest('a'))return;var d=document.getElementById('${srid}d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#${srid} .sra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();})()">
       <td style="width:28px;text-align:center"><span class="sra" style="display:inline-block;color:var(--muted);font-size:10px;transition:transform .15s">&#9658;</span></td>
