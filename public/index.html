@@ -6173,11 +6173,17 @@ async function computeLeaderboardScores() {
           }));
           if (i + BATCH < _insiderScoreCache.length) await new Promise(r => setTimeout(r, 200));
         }
-        // Re-sort after rescoring and refresh UI if visible
+        // Re-sort after rescoring
         _insiderScoreCache.sort((a,b) => b.accuracyScore - a.accuracyScore);
+        // Refresh the subpage list if open (don't call renderAnalysisDashboard —
+        // that would blow away whatever subpage the user is on)
         const tsc = document.getElementById('topScoresContent');
         if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-        renderAnalysisDashboard();
+        // Also refresh the analysis dashboard tile top3 if the grid is visible
+        const body = document.getElementById('analysisViewBody');
+        if (body && body.querySelector('.analysis-tool-grid')) {
+          renderAnalysisDashboard();
+        }
       };
       rescore().catch(() => {});
     }
