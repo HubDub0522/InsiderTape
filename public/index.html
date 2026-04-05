@@ -4417,12 +4417,22 @@ function buildCSSTimeline(trades) {
   return `<div style="position:relative;width:100%;height:100%;padding:0 8px;">${centreLine}${yearMarkers}${dots}<div style="position:absolute;left:8px;top:4px;font-size:9px;color:#00ff88;font-family:Inter,monospace">▲ BUYS</div><div style="position:absolute;left:8px;bottom:18px;font-size:9px;color:#ff4466;font-family:Inter,monospace">▼ SELLS</div></div>`;
 }
 
+// Tracks where the user navigated FROM when opening an insider profile
+// so the back button can return to the correct place
+let _insiderBackDest = null; // null = insider landing, 'topscores' = top scores subpage, 'timing' = timing subpage
+
 function goBack() {
+  // If a specific back destination was set (e.g. opened from analysis subpage)
+  if (_insiderBackDest) {
+    const dest = _insiderBackDest;
+    _insiderBackDest = null;
+    if (dest === 'topscores') { switchView('analysis', null); renderTopScoresSubpage(); return; }
+    if (dest === 'timing')    { switchView('analysis', null); renderTimingLeadersSubpage(); return; }
+    if (dest === 'analysis')  { switchView('analysis', null); renderAnalysisDashboard(); return; }
+  }
   // If we're inside an analysis subpage, go back to the analysis dashboard
-  // rather than browser history (which can exit the SPA or go to wrong page)
   const analysisBody = document.getElementById('analysisViewBody');
   if (analysisBody && analysisBody.offsetParent !== null) {
-    // analysisViewBody is visible — we're in a subpage, go back to dashboard
     renderAnalysisDashboard();
     return;
   }
@@ -6159,7 +6169,7 @@ function renderForm4ScoresList(ranked) {
     const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title||'')}',{serverScore:${sc},serverScoreType:'accuracy'})">
+                 onclick="_insiderBackDest='topscores';openInsiderProfile('${escName(r.name)}','${escName(r.title||'')}',{serverScore:${sc},serverScoreType:'accuracy'})">
       <div style="font-family:Inter,sans-serif;font-size:16px;color:${rankColor};min-width:24px;text-align:center">#${i+1}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
@@ -6220,7 +6230,7 @@ function renderTimingLeadersList(ranked) {
     const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${taBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openInsiderProfile('${escName(r.name)}','${escName(r.title)}',{serverScore:${ta},serverScoreType:'timing'})">
+                 onclick="_insiderBackDest='timing';openInsiderProfile('${escName(r.name)}','${escName(r.title)}',{serverScore:${ta},serverScoreType:'timing'})">
       <div style="font-family:Inter,sans-serif;font-size:20px;color:${rankColor};min-width:28px;text-align:center">#${i+1}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
