@@ -5792,8 +5792,11 @@ function renderAnalysisTile(tool) {
   </div>`;
 }
 
-function renderAnalysisSubpage(id) {
+function renderAnalysisSubpage(id, opts={}) {
   window.scrollTo(0, 0);
+  if (!opts.fromPopstate) {
+    history.pushState({view:'analysis', subpage:id}, '', '/analysis/' + id);
+  }
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
 
@@ -5966,8 +5969,9 @@ function renderGovTileSubpage(id) {
   </div>`;
 }
 
-function renderRegimeShiftSubpage() {
+function renderRegimeShiftSubpage(opts={}) {
   window.scrollTo(0, 0);
+  if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'regimeshift'}, '', '/analysis/regimeshift');
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
 
@@ -6252,8 +6256,9 @@ function renderTimingLeadersList(ranked) {
   }).join('');
 }
 
-function renderTopScoresSubpage() {
+function renderTopScoresSubpage(opts={}) {
   window.scrollTo(0, 0);
+  if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'topscores'}, '', '/analysis/topscores');
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
   if (_insiderScoreCache === null) computeLeaderboardScores();
@@ -6300,8 +6305,9 @@ function renderTopScoresSubpage() {
   }
 }
 
-function renderTimingLeadersSubpage() {
+function renderTimingLeadersSubpage(opts={}) {
   window.scrollTo(0, 0);
+  if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'timing'}, '', '/analysis/timing');
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
   if (_timingAlphaCache === null) computeLeaderboardScores();
@@ -6332,8 +6338,9 @@ function renderTimingLeadersSubpage() {
 
 // ── INSIDER OPPORTUNITY RANKER ────────────────────────────────────
 
-async function renderRankerSubpage() {
+async function renderRankerSubpage(opts={}) {
   window.scrollTo(0, 0);
+  if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'ranker'}, '', '/analysis/ranker');
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
 
@@ -9696,6 +9703,14 @@ window.addEventListener('popstate', e => {
     const body = document.getElementById('insiderViewBody');
     body.dataset.showing = 'dashboard';
     insiderLanding({fromPopstate: true});
+  } else if (s.view === 'analysis' && s.subpage) {
+    switchView('analysis', null, {fromPopstate: true});
+    const sp = s.subpage;
+    if      (sp === 'topscores')  renderTopScoresSubpage({fromPopstate:true});
+    else if (sp === 'timing')     renderTimingLeadersSubpage({fromPopstate:true});
+    else if (sp === 'regimeshift')renderRegimeShiftSubpage({fromPopstate:true});
+    else if (sp === 'ranker')     renderRankerSubpage({fromPopstate:true});
+    else                          renderAnalysisSubpage(sp, {fromPopstate:true});
   } else {
     switchView(s.view || 'screener', null, {fromPopstate: true});
   }
@@ -9727,7 +9742,17 @@ function routeFromPath(path, fromPopstate) {
     return;
   }
   if (path.startsWith('/insider'))  { switchView('insider',   null, {fromPopstate}); return; }
-  if (path.startsWith('/analysis')) { switchView('analysis',  null, {fromPopstate}); return; }
+  if (path.startsWith('/analysis/')) {
+    switchView('analysis', null, {fromPopstate});
+    const sp = path.split('/analysis/')[1].split('/')[0];
+    if      (sp === 'topscores')   renderTopScoresSubpage({fromPopstate:true});
+    else if (sp === 'timing')      renderTimingLeadersSubpage({fromPopstate:true});
+    else if (sp === 'regimeshift') renderRegimeShiftSubpage({fromPopstate:true});
+    else if (sp === 'ranker')      renderRankerSubpage({fromPopstate:true});
+    else                           renderAnalysisSubpage(sp, {fromPopstate:true});
+    return;
+  }
+  if (path.startsWith('/analysis')) { switchView('analysis', null, {fromPopstate}); return; }
   if (path.startsWith('/monitor'))  { switchView('monitor',   null, {fromPopstate}); return; }
   if (path.startsWith('/sectors'))  { switchView('sectors',   null, {fromPopstate}); return; }
   if (path.startsWith('/compare'))  { switchView('compare',   null, {fromPopstate}); return; }
