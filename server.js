@@ -1082,13 +1082,32 @@ let _searchIndex = []; // [{ticker, company, n}] sorted by trade count desc
 function buildSearchIndex() {
   try {
     const rows = db.prepare(`
-      SELECT ticker, MAX(company) AS company, COUNT(*) AS n
+      SELECT ticker,
+        -- Use the shortest company name for this ticker — options/derivative rows
+        -- tend to have multi-line garbage appended; shortest clean name wins
+        MIN(CASE WHEN company NOT LIKE '%Option%'
+                  AND company NOT LIKE '%Strike%'
+                  AND company NOT LIKE '%Expires%'
+                  AND INSTR(company, CHAR(10)) = 0
+                  AND LENGTH(company) > 2
+             THEN company END) AS company,
+        COUNT(*) AS n
       FROM trades
-      WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
+        -- exclude rows where company looks like an options contract description
+        AND company NOT LIKE '%Option Type%'
+        AND company NOT LIKE '%Strike price%'
       GROUP BY ticker ORDER BY n DESC
     `).all();
-    _searchIndex = rows;
-    slog(`Search index built: ${rows.length} tickers`);
+    // Post-filter: drop any that still slipped through with newlines or options keywords
+    _searchIndex = rows.filter(r => {
+      if (!r.company) return true; // ticker-only is fine
+      if (r.company.includes('\n') || r.company.includes('\r')) return false;
+      if (/option|strike|expires|put|call/i.test(r.company) && r.company.length > 40) return false;
+      return true;
+    });
+    slog(`Search index built: ${_searchIndex.length} tickers`);
   } catch(e) { slog('buildSearchIndex error: ' + e.message); }
 }
 
@@ -1117,7 +1136,12 @@ app.get('/api/search', (req, res) => {
     `).all('%' + upper + '%') : [];
 
     res.json({
-      tickers: allTickers.map(r => ({ ticker: r.ticker, company: r.company || r.ticker })),
+      tickers: allTickers.map(r => {
+        // Sanitize company name — strip anything after a newline (options junk)
+        let co = (r.company || r.ticker).split(/[\n\r]/)[0].trim();
+        if (co.length > 60) co = co.slice(0, 60) + '…';
+        return { ticker: r.ticker, company: co };
+      }),
       insiders: insiderRows.map(r => ({ name: r.insider, title: r.title || '' })),
     });
 
