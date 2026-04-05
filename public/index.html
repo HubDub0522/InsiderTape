@@ -3912,7 +3912,12 @@ async function computeAndRenderScore(insiderName, buyTrades, allTrades, opts={})
   const avgMag=avg(rets90.map(Math.abs)), bestTrade=Math.max(...rets90), worstTrade=Math.min(...rets90);
   const consistency=rets90.length>1?Math.max(0,100-stddev(rets90)*2):50;
   const winScore=winRate, retScore=Math.min(35,Math.max(0,avgRet90/20*35)), consScore=consistency*0.15, sampleBonus=Math.min(10,completed.length*1.2);
-  const clientScore=Math.round(Math.min(100,Math.max(0,winScore*0.40+retScore+consScore+sampleBonus)));
+  const baseScore = winScore*0.40 + retScore + consScore + sampleBonus;
+  // Timing bonus: avg 30d return quality, 20% of final score
+  const timingBonusRets30 = completed.filter(s=>s.ret30!==null).map(s=>Math.max(-100,Math.min(100,s.ret30)));
+  const timingAvg30Client = timingBonusRets30.length ? timingBonusRets30.reduce((a,b)=>a+b,0)/timingBonusRets30.length : 0;
+  const timingBonusClient = Math.round(Math.min(20, Math.max(0, (timingAvg30Client + 8) / 16 * 20)));
+  const clientScore=Math.round(Math.min(100,Math.max(0, baseScore * 0.80 + timingBonusClient)));
   // Use server-computed score when available — server only scores trades with settled 90-day returns
   // (trades >95 days old), so it's more accurate than the client which includes recent open trades.
   // The leaderboard ranking is always based on this server score, so the profile must match.
@@ -4062,46 +4067,40 @@ function computeTimingQuality(scored, priceCache, allTrades) {
   const avgPos = +(buyResults.reduce((a,b)=>a+b.posInYrRange,0)/n).toFixed(2);
 
   // ── Timing Alpha Score (0–100) ────────────────────────────────────
-  // Four components, each 0–25:
-  // 1. Buy-near-low rate: 50% base → 25pts, scales linearly, 0% → 0pts
-  const compLow   = Math.round(Math.min(25, (nearLowPct / 100) * 50));
-  // 2. Avg position in range: lower = better. 0.3 or below → 25pts, 0.7+ → 0pts
-  const compPos   = Math.round(Math.min(25, Math.max(0, (0.7 - avgPos) / 0.4 * 25)));
-  // 3. Forward return quality: avg90 at +10% → 25pts, 0% → 12pts, negative → 0
-  const compFwd   = avgRet90 !== null
-    ? Math.round(Math.min(25, Math.max(0, (avgRet90 / 10) * 25)))
-    : 12; // no data: neutral
-  // 4. Sell discipline (only if sells available): nearHighSellPct
-  const compSell  = nearHighSellPct !== null
-    ? Math.round(Math.min(25, (nearHighSellPct / 100) * 40))
-    : 12; // no sells: neutral
+  // Based on avg 30d return after buy (60%) + 30d win rate (40%)
+  // "Did the stock go up in the 30 days after they bought?"
+  const rets30arr = buyResults.filter(r => r.ret30 !== null).map(r => r.ret30);
+  const avg30dRet = rets30arr.length
+    ? +(rets30arr.reduce((a,b)=>a+b,0) / rets30arr.length).toFixed(1) : null;
+  const win30Rate = rets30arr.length
+    ? Math.round(rets30arr.filter(r=>r>0).length / rets30arr.length * 100) : null;
 
-  const timingAlpha = Math.min(100, Math.max(0, compLow + compPos + compFwd + compSell));
+  // 60pts from avg30d: +8% → 60, 0% → 30, -8% → 0 (linear, clamped)
+  const comp30Ret = avg30dRet !== null
+    ? Math.round(Math.min(60, Math.max(0, (avg30dRet + 8) / 16 * 60))) : 30;
+  // 40pts from 30d win rate: 70%+ → 40, 50% → 20, 30%- → 0
+  const comp30Win = win30Rate !== null
+    ? Math.round(Math.min(40, Math.max(0, (win30Rate - 30) / 40 * 40))) : 20;
+  const timingAlpha = Math.min(100, Math.max(0, comp30Ret + comp30Win));
 
   // ── Verdict ───────────────────────────────────────────────────────
   let verdict, verdictColor, verdictDetail;
   if (timingAlpha >= 80) {
-    if (nearLowPct >= 50) {
-      verdict = 'This insider buys near bottoms';
-      verdictColor = 'var(--buy)';
-      verdictDetail = `${nearLowPct}% of buys fall within 20% of the 12-month low — elite accumulation timing`;
-    } else {
-      verdict = 'Elite timing — strong forward returns';
-      verdictColor = 'var(--buy)';
-      verdictDetail = avgRet90 !== null ? `Avg +${avgRet90}% at 90 days — highly predictive buying` : 'Consistent early entry before major moves';
-    }
+    verdict = 'Buys trigger immediate upward moves';
+    verdictColor = 'var(--buy)';
+    verdictDetail = avg30dRet !== null ? `Avg +${avg30dRet}% in the 30 days after buying — stocks move up quickly after their trades` : 'Strong short-term price reaction after buys';
   } else if (timingAlpha >= 60) {
-    verdict = 'Above-average timing discipline';
+    verdict = 'Above-average short-term reaction';
     verdictColor = 'var(--accent)';
-    verdictDetail = nearLowPct >= 35 ? `${nearLowPct}% of buys near 12-month lows — discernible bottom-picking tendency` : 'Buys generally in the lower half of annual range';
+    verdictDetail = avg30dRet !== null ? `Avg ${avg30dRet >= 0 ? '+' : ''}${avg30dRet}% in 30 days after buying — better than market average` : 'Stocks tend to rise after their buys';
   } else if (timingAlpha >= 40) {
-    verdict = 'Moderate timing — mixed signals';
+    verdict = 'Mixed short-term price reaction';
     verdictColor = 'var(--option)';
-    verdictDetail = `Avg entry at ${Math.round(avgPos*100)}th percentile of 12-month range`;
+    verdictDetail = avg30dRet !== null ? `Avg ${avg30dRet >= 0 ? '+' : ''}${avg30dRet}% in 30 days — inconsistent short-term follow-through` : 'No clear pattern after buys';
   } else {
-    verdict = 'Poor timing — tends to buy high';
+    verdict = 'Buys often followed by weakness';
     verdictColor = 'var(--sell)';
-    verdictDetail = `${100-nearLowPct}% of buys are in the upper portion of the annual range`;
+    verdictDetail = avg30dRet !== null ? `Avg ${avg30dRet}% in 30 days after buying — stocks tend to fall after their trades` : 'Stocks tend to decline after their buys';
   }
 
   // Legacy fields kept for AI prompt compatibility
@@ -4113,10 +4112,11 @@ function computeTimingQuality(scored, priceCache, allTrades) {
     // New fields
     timingAlpha,
     nearLowPct, nearHighSellPct,
+    avg30dRet, win30Rate,
     avgRet30, avgRet90, avgRet180,
     win30, win90, win180,
     avgPos,
-    compLow, compPos, compFwd, compSell,
+    comp30Ret, comp30Win,
     // Legacy
     nearHighPct, inTrendPct, inConsolidationPct,
     verdict, verdictColor, verdictDetail,
@@ -4169,15 +4169,12 @@ function buildScorecardInsights(stats, timing, scored) {
     insights.push({ type: 'bad', icon: '📉', text: `Average ${avgRet90.toFixed(1)}% at 90 days — stocks have drifted lower following their purchases historically.` });
   }
 
-  // Timing quality
-  if (timing) {
-    if (timing.nearLowPct >= 60) {
-      insights.push({ type: 'good', icon: '⏱️', text: `${timing.nearLowPct}% of buys landed in the lower half of the 12-month range — they tend to buy weakness, not chase strength.` });
-    } else if (timing.nearLowPct <= 30) {
-      insights.push({ type: 'bad', icon: '⏱️', text: `Only ${timing.nearLowPct}% of buys near annual lows — they tend to buy after the stock has already moved.` });
-    }
-    if (timing.timingAlpha >= 70) {
-      insights.push({ type: 'good', icon: '🔬', text: `Timing Alpha ${timing.timingAlpha}/100 — among the best at identifying entry points before meaningful moves.` });
+  // Timing quality — based on avg 30d return after buys
+  if (timing && timing.avg30dRet !== undefined) {
+    if (timing.timingAlpha >= 70 && timing.avg30dRet !== null && timing.avg30dRet > 0) {
+      insights.push({ type: 'good', icon: '⚡', text: `Strong timing signal — avg +${timing.avg30dRet}% in the 30 days after buying (${timing.win30Rate}% of buys profitable at 30d).` });
+    } else if (timing.timingAlpha < 40 && timing.avg30dRet !== null && timing.avg30dRet < 0) {
+      insights.push({ type: 'bad', icon: '⚡', text: `Weak timing — stocks average ${timing.avg30dRet}% in the 30 days after their buys. Not a reliable short-term signal.` });
     }
   }
 
@@ -4807,8 +4804,8 @@ function buildLeaderboardRow(r, i, type) {
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
           <div style="text-align:center;min-width:52px">
-            <div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">NEAR LOW</div>
-            <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--buy)">${r.nearLowPct}%</div>
+            <div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">AVG 30D</div>
+            <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:${r.avgRet30>=0?'var(--buy)':'var(--sell)'}">${r.avgRet30!==null?(r.avgRet30>=0?'+':'')+r.avgRet30+'%':'—'}</div>
           </div>
           <div style="background:rgba(0,255,136,0.06);border:1px solid ${timingColor}44;border-radius:6px;padding:4px 10px;text-align:center;min-width:58px">
             <div style="font-family:Inter,sans-serif;font-size:20px;color:${timingColor};line-height:1">${ta}</div>
@@ -5552,14 +5549,14 @@ function renderAnalysisDashboard() {
       id: 'timingleaders',
       icon: '⏱',
       name: 'Best Timing Insiders',
-      desc: 'Ranks insiders by Timing Alpha Score over the last 5 years — who consistently buys near 12-month lows, sells near highs, and achieves the best forward returns after each trade.',
+      desc: 'Ranks insiders by Timing Alpha Score — who consistently buys before short-term upward moves. Based on avg 30-day return and win rate after each open-market buy.',
       count: _timingAlphaCache ? _timingAlphaCache.length : '…',
       countLabel: 'insiders ranked',
       loading: _timingAlphaCache === null,
       top3: (_timingAlphaCache || []).slice(0,3).map(r => ({
         ticker: r.name.split(' ')[0],
         label: `Alpha ${r.timingAlpha}`,
-        sub: `${r.nearLowPct}% buys near low`,
+        sub: r.avgRet30 !== null ? `${r.avgRet30 >= 0 ? '+' : ''}${r.avgRet30}% avg 30d` : `${r.win30Rate ?? '—'}% 30d win rate`,
         color: r.timingAlpha >= 80 ? 'var(--buy)' : r.timingAlpha >= 60 ? 'var(--accent)' : 'var(--option)',
       })),
       accentColor: 'var(--accent)',
@@ -6201,7 +6198,8 @@ function renderTimingLeadersList(ranked) {
         <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.title||'—'} · ${r.tickers}</div>
         <div style="font-size:11px;color:${taColor};margin-top:4px;font-style:italic">${r.verdict}</div>
         <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
-          <span style="font-size:10px;color:var(--buy)">${r.nearLowPct}% buys near 12M low</span>
+          ${r.avgRet30!==null?`<span style="font-size:10px;color:${r.avgRet30>=0?'var(--buy)':'var(--sell)'}">${r.avgRet30>=0?'+':''}${r.avgRet30}% avg 30d</span>`:''}
+          ${r.win30Rate!==null?`<span style="font-size:10px;color:var(--muted)">${r.win30Rate}% win rate at 30d</span>`:''}
           ${r.avgRet90!==null?`<span style="font-size:10px;color:${r.avgRet90>=0?'var(--buy)':'var(--sell)'}">${r.avgRet90>=0?'+':''}${r.avgRet90}% avg 90d</span>`:''}
         </div>
       </div>
