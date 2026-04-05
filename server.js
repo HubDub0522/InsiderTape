@@ -2702,7 +2702,7 @@ async function preComputeScoreboard() {
         }).filter(Boolean);
 
         const completed = scored.filter(s => s.ret90 !== null);
-        if (completed.length < 3) return;
+        if (completed.length < 5) return; // min 5 scored trades for a statistically meaningful win rate
 
         // Cap returns at ±500% to eliminate reverse-split artifacts
         // (e.g. Ault Global has done multiple reverse splits causing 7000%+ fake returns)
