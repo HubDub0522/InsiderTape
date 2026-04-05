@@ -2632,7 +2632,7 @@ async function preComputeScoreboard() {
   _scoreboardRunning = true;
   try {
     slog('Pre-computing scoreboard...');
-    const minBuys = 3, limit = 150;
+    const minBuys = 3, limit = 500;
     const rows = db.prepare(`
       SELECT
         insider, MAX(title) AS title, COUNT(*) AS buy_count,
@@ -2652,16 +2652,26 @@ async function preComputeScoreboard() {
 
     if (!rows.length) { slog('Scoreboard pre-compute: no qualifying rows'); return; }
 
+    // Fetch price bars for ALL unique tickers across all candidates — no cap.
+    // Batch in groups of 50 to avoid hammering the price API simultaneously.
     const allTickers = [...new Set(
       rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )].slice(0, 80);
+    )];
+    slog(`Scoreboard: scoring ${rows.length} insiders across ${allTickers.length} tickers`);
 
-    const priceEntries = await Promise.allSettled(
-      allTickers.map(async sym => [sym, await fetchPriceBars(sym)])
-    );
-    const priceCache = Object.fromEntries(
-      priceEntries.filter(r => r.status === 'fulfilled' && r.value[1]).map(r => r.value)
-    );
+    const priceCache = {};
+    const BATCH = 50;
+    for (let i = 0; i < allTickers.length; i += BATCH) {
+      const batch = allTickers.slice(i, i + BATCH);
+      const results = await Promise.allSettled(
+        batch.map(async sym => [sym, await fetchPriceBars(sym)])
+      );
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value[1]) priceCache[r.value[0]] = r.value[1];
+      });
+      // Small pause between batches to avoid rate-limiting the price API
+      if (i + BATCH < allTickers.length) await new Promise(r => setTimeout(r, 300));
+    }
 
     const accuracyResults = [], timingResults = [];
 
