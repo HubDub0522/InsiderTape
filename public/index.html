@@ -3744,7 +3744,6 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
           <div class="insider-stat"><div class="insider-stat-label">Total Trades</div><div class="insider-stat-val" style="color:var(--text)">${trades.length}</div></div>
           <div class="insider-stat"><div class="insider-stat-label">Total Bought</div><div class="insider-stat-val" style="color:var(--buy)">${fmt(buyVal)}</div></div>
           <div class="insider-stat"><div class="insider-stat-label">Total Sold</div><div class="insider-stat-val" style="color:var(--sell)">${fmt(sellVal)}</div></div>
-          <div class="insider-stat"><div class="insider-stat-label">Net Position</div><div class="insider-stat-val" style="color:${netVal>=0?'var(--buy)':'var(--sell)'}">${netVal>=0?'+':''}${fmt(netVal)}</div></div>
           <div class="insider-stat"><div class="insider-stat-label">Active Since</div><div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div></div>
         </div>
         ${auth.isPremium ? `
@@ -4340,7 +4339,7 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
       </div>
       <div class="score-summary">
         <div class="score-tier-label" style="color:${tierColor}">${tier} INSIDER</div>
-        <div class="score-summary-text">${ai?.summary || `${stats.tradeCount} completed trades scored · ${stats.winRate}% win rate · avg ${stats.avgRet90>=0?'+':''}${stats.avgRet90}% at 90 days`}</div>
+        <div class="score-summary-text">${ai?.summary || `${stats.tradeCount} buy${stats.tradeCount!==1?'s':''} with settled 90-day returns · ${stats.winRate}% win rate · avg ${stats.avgRet90>=0?'+':''}${stats.avgRet90}% at 90 days`}</div>
         <div class="score-follow-badge" style="color:${followRec.color};background:${followRec.bg};border-color:${followRec.border}">${followRec.label}</div>
       </div>
     </div>
@@ -4356,7 +4355,6 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
       <div class="timing-bar-label"><span>Poor timing</span><span style="color:${edgeColor}">${edgeSign}${stats.timingEdge}% edge vs market</span><span>Elite timing</span></div>
       <div class="timing-bar-track"><div class="timing-bar-fill" style="width:${timingBarW}%;background:${timingBarColor}"></div></div>
     </div>
-    ${timingBlock}
     ${insightHtml ? `<div class="scorer-insights" style="margin-bottom:18px">${insightHtml}</div>` : ''}
     <div class="scorer-trade-rows">
       <div style="font-family:Inter,sans-serif;font-size:9px;letter-spacing:0.5px;font-weight:600;text-transform:uppercase;color:var(--muted);text-transform:uppercase;margin-bottom:8px">FORWARD RETURNS BY TRADE (actual price data)${(()=>{const closed=scored.filter(s=>s.isClosed).length,open=scored.filter(s=>s.isPending||(!s.isClosed&&s.ret90!==null)).length;return closed?`<span style="margin-left:10px;color:var(--buy)">✓ ${closed} closed</span>`:'';})()}${stats.pendingCount>0?`<span style="margin-left:10px;color:var(--option)">⏳ ${stats.pendingCount} open</span>`:''}</div>
