@@ -2683,8 +2683,6 @@ async function preComputeScoreboard() {
           return { ticker, trade: trade_date, price: parseFloat(priceStr) || 0, value: parseFloat(valueStr) || 0 };
         }).filter(t => t.ticker && t.trade);
 
-        if (rawTrades.length < 4) return;
-
         const scored = rawTrades.map(t => {
           const bars = priceCache[t.ticker] || [];
           if (!bars.length) return null;
