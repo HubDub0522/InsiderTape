@@ -2864,18 +2864,18 @@ app.get('/api/insider-score', async (req, res) => {
   const name = (req.query.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
+    // Match exactly how /api/insider?exact=1 works — no date filter, same data as profile
     const rows = db.prepare(`
       SELECT ticker, trade_date AS trade, TRIM(type) AS type,
              COALESCE(price, 0) AS price, COALESCE(value, 0) AS value
       FROM trades
-      WHERE UPPER(insider) = UPPER(?)
+      WHERE UPPER(insider) LIKE UPPER(?)
         AND TRIM(type) = 'P'
         AND price > 0
-        AND trade_date >= date('now', '-1825 days')
       ORDER BY trade_date DESC LIMIT 500
     `).all(name);
 
-    if (!rows.length) return res.json({ error: 'no trades' });
+    if (!rows.length) return res.json({ error: 'no trades', name });
 
     const tickers = [...new Set(rows.map(r => r.ticker))];
     const priceEntries = await Promise.allSettled(
