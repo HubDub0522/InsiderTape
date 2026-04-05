@@ -2796,7 +2796,7 @@ async function preComputeScoreboard() {
         const buyVal  = r.buy_val_raw  || 0;
         const sellVal = r.sell_val_raw || 0;
         const tickers = [...new Set((r.tickers_csv||'').split(',').filter(Boolean))];
-        const profitProxy = r.trade_count > 0 ? (sellVal - buyVal) / r.trade_count : 0;
+        const profitProxy = r.sell_count > 0 ? (sellVal - buyVal) / r.sell_count : 0;
         govIntermediate.push({
           name: r.member, chamber: r.chamber==='H'?'U.S. House':'U.S. Senate',
           profitProxy, buyVal, sellVal,
