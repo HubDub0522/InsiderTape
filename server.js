@@ -2643,7 +2643,6 @@ async function preComputeScoreboard() {
       WHERE TRIM(type) = 'P'
         AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
         AND trade_date >= date('now', '-1825 days')
-        AND trade_date <= date('now', '-95 days')
         AND insider NOT IN ('AULT MILTON C III', 'Ault Milton C III', 'Ault Milton', 'STALLINGS ROBERT W', 'Stallings Robert W', 'STALLINGS ROBERT')
       GROUP BY insider
       HAVING buy_count >= ? AND span_days >= 30
@@ -2703,6 +2702,9 @@ async function preComputeScoreboard() {
 
         const completed = scored.filter(s => s.ret90 !== null);
         if (completed.length < 5) return; // min 5 scored trades for a statistically meaningful win rate
+        // Reject if we only scored < 40% of raw trades — ticker cache miss means
+        // the winning subset may be unrepresentative, causing inflated win rates
+        if (completed.length / rawTrades.length < 0.40) return;
 
         // Cap returns at ±500% to eliminate reverse-split artifacts
         // (e.g. Ault Global has done multiple reverse splits causing 7000%+ fake returns)
@@ -2838,7 +2840,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 10; // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 12; // bumped: removed -95d SQL cutoff, let ret90!=null filter naturally // bump when scoring formula changes
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
