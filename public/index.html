@@ -2936,8 +2936,10 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     // Gov STOCK Act filings are capped at ~$15M (range descriptions), while Form 4
     // trades can be hundreds of millions — a shared maxVal makes all gov diamonds tiny.
     const allGroupVals = (state._allMarkerGroups||state.markerGroups).map(g=>g.value);
-    const maxVal    = Math.max(...allGroupVals, 1000000);      // Form 4 circles scale to this
-    const maxValGov = Math.max(...govGroupedVals, 1000000);    // Gov diamonds scale to this separately
+    const maxVal    = Math.max(...allGroupVals, 1000000);
+    // Use the actual rendered gov groups (per-member) for maxValGov, not the differently-grouped govGroupedVals
+    const govRenderVals = (state._govMarkerGroups||[]).map(g=>g.value);
+    const maxValGov = Math.max(...govRenderVals, 1000000);
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
