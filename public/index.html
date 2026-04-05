@@ -550,30 +550,31 @@
        Remove the bad nth-child overrides that were hiding Type and Value */
     /* Screener table mobile — show ONLY: ► · Date · Ticker · Type · Value
        Col order: 1=► 2=Date 3=Ticker 4=Insider 5=Type 6=Shares 7=Price 8=Value
-       Insider (col 4) moved into dropdown on mobile */
+       IMPORTANT: use width:0 not display:none for hidden cols — display:none on
+       a <td> in a fixed-layout table leaves ghost space that collapses visible cols */
     #screenerTable { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
     #screenerTable td, #screenerTable th { padding: 6px 3px; font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     /* ► col */
     #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 20px; padding: 6px 2px; }
     /* Date col */
-    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 22%; }
+    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 23%; }
     /* Ticker col */
-    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 18%; }
-    /* Insider col — HIDDEN on mobile, shown in dropdown */
-    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { display: none !important; }
-    /* Type col — ensure badge text is visible */
-    #screenerTable th:nth-child(5), #screenerTable td:nth-child(5) { width: 22%; }
+    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 16%; }
+    /* Insider col — zero width, hidden */
+    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { width: 0 !important; padding: 0 !important; overflow: hidden !important; border: none !important; }
+    /* Type col */
+    #screenerTable th:nth-child(5), #screenerTable td:nth-child(5) { width: 28%; }
     #screenerTable td:nth-child(5) .badge { font-size: 9px !important; padding: 2px 5px !important; display: inline-block !important; }
-    /* Shares + Price cols — hidden */
+    /* Shares + Price cols — zero width hidden */
     #screenerTable th:nth-child(6), #screenerTable td:nth-child(6),
-    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { display: none !important; }
-    /* Value col */
-    #screenerTable th:nth-child(8), #screenerTable td:nth-child(8) { width: auto; text-align: right; padding-right: 6px; }
+    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 0 !important; padding: 0 !important; overflow: hidden !important; border: none !important; }
+    /* Value col — remaining space, right-aligned */
+    #screenerTable th:nth-child(8), #screenerTable td:nth-child(8) { width: 33%; text-align: right; padding-right: 6px; }
     /* Hide the filed: secondary date line */
     #screenerBody td:nth-child(2) span:nth-child(2) { display: none !important; }
     /* SEC link in dropdown — large tap target */
     #screenerBody .scr-detail-sec a { display: inline-block !important; padding: 8px 0; font-size: 13px; }
-    /* Insider cell in dropdown — spans full width, large tap target */
+    /* Insider cell in dropdown — spans full width */
     #screenerBody .scr-mob-insider { grid-column: 1 / -1; padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
     #screenerBody .scr-mob-insider .insider-name-link { font-size: 14px !important; }
     /* Detail grid: 2 cols */
