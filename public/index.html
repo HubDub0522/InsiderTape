@@ -4862,7 +4862,7 @@ function renderLeaderboardTiles(el, data, opts={}) {
           <span style="font-size:18px;color:var(--muted)">›</span>
         </div>
         <div style="background:rgba(0,255,136,0.03);padding:8px 16px;border-bottom:1px solid var(--border);font-size:10px;color:var(--muted)">
-          % of buys within 20% of 12-month low, weighted by subsequent forward returns.
+          % of buys followed by short-term price gains — avg 30-day return & win rate after each open-market buy.
         </div>
         ${timPreview}
         ${viewAllBtn('timing', timing.length)}
@@ -6252,10 +6252,9 @@ function renderTimingLeadersSubpage() {
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">⏱ BEST TIMING INSIDERS</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by Timing Alpha Score — who buys near 12-month lows and achieves the best forward returns</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Ranked by Timing Alpha Score — whose buys are most reliably followed by short-term price gains</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:660px">
-      <span style="color:var(--text)">Timing Alpha</span> measures: % of buys within 20% of 12-month low,
-      entry position in annual range, and forward return quality.
+      <span style="color:var(--text)">Timing Alpha</span> measures avg 30-day return and win rate after each open-market buy — did the stock go up shortly after they bought? Only insiders with 3+ scored buys are ranked.
       ${loading ? '<span style="color:var(--option)"> ⏳ Loading…</span>' : `<span style="color:var(--muted)">${_timingAlphaCache.length} insiders ranked</span>`}
     </div>
     <div id="timingLeadersContent" style="display:flex;flex-direction:column;gap:8px">
