@@ -6216,30 +6216,37 @@ async function computeLeaderboardScores() {
       setTimeout(computeLeaderboardScores, 15000);
       return;
     }
-    // Gov and timing still come from server precompute
     _govScoreCache    = data.gov     || [];
     _timingAlphaCache = data.timing  || [];
 
-    // Accuracy scores: use server list for candidate names only,
-    // then score each one client-side using the same pipeline as the profile.
-    // This guarantees leaderboard win rates match exactly what the scorecard shows.
     const candidates = data.accuracy || [];
-    _insiderScoreCache = [];
+    // Keep null until first batch arrives so the subpage shows a loading spinner
+    _insiderScoreCache = null;
+    const accumulated = [];
+    const seenNames   = new Set();
 
-    // Score in batches of 3 — each needs price fetches, keep concurrency low
     const BATCH = 3;
     for (let i = 0; i < candidates.length; i += BATCH) {
-      const batch = candidates.slice(i, i + BATCH);
+      const batch = candidates.slice(i, i + BATCH).filter(c => !seenNames.has(c.name));
+      if (!batch.length) continue;
       const results = await Promise.allSettled(batch.map(c => scoreInsiderLikeProfile(c.name)));
-      results.forEach(r => { if (r.status === 'fulfilled' && r.value) _insiderScoreCache.push(r.value); });
-      _insiderScoreCache.sort((a, b) => b.accuracyScore - a.accuracyScore);
-      // Update UI progressively
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled' && r.value) {
+          seenNames.add(batch[idx].name);
+          accumulated.push(r.value);
+        }
+      });
+      accumulated.sort((a, b) => b.accuracyScore - a.accuracyScore);
+      _insiderScoreCache = [...accumulated]; // publish snapshot after each batch
+      // Update subpage list if open
       const tsc = document.getElementById('topScoresContent');
       if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-      const body = document.getElementById('analysisViewBody');
-      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+      // Update dashboard tile if visible
+      const analysisBody = document.getElementById('analysisViewBody');
+      if (analysisBody && analysisBody.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
       if (i + BATCH < candidates.length) await new Promise(r => setTimeout(r, 150));
     }
+    if (!_insiderScoreCache) _insiderScoreCache = []; // ensure never stays null
   } catch(e) {
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
