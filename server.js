@@ -2722,61 +2722,38 @@ async function preComputeScoreboard() {
             tradeCount: completed.length, tickers: tickers3 });
         }
 
-        // Timing alpha — measures quality of entry price relative to 12M range
-        let nearLowCount = 0, ret90sum = 0, ret180sum = 0, retN = 0;
-        scored.forEach(s => {
-          const bars = priceCache[s.ticker] || [];
-          if (!bars.length || !s.buyPrice) return;
-          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
-          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
-          const yr1Bars = bars.filter(b =>
-            b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate
-          );
-          if (yr1Bars.length < 20) return;
-          const yr1Lo = Math.min(...yr1Bars.map(b => b.low || b.close));
-          if ((s.buyPrice - yr1Lo) / yr1Lo * 100 <= 20) nearLowCount++;
-          if (s.ret90  !== null) { ret90sum  += Math.max(-100, Math.min(100, s.ret90));  retN++; }
-          if (s.ret180 !== null)   ret180sum += Math.max(-100, Math.min(100, s.ret180));
-        });
+        // Timing alpha — did the stock move up shortly after they bought?
+        // Score = avg 30d return quality (60%) + 30d win rate (40%)
+        const timingRets30 = completed.filter(s => s.ret30 !== null)
+          .map(s => Math.max(-100, Math.min(100, s.ret30)));
+        const avgFwd30  = timingRets30.length
+          ? +(timingRets30.reduce((a,b)=>a+b,0) / timingRets30.length).toFixed(1) : null;
+        const avgFwd90  = completed.filter(s=>s.ret90!==null).length
+          ? +(completed.filter(s=>s.ret90!==null).reduce((a,s)=>a+Math.max(-100,Math.min(100,s.ret90)),0)
+              / completed.filter(s=>s.ret90!==null).length).toFixed(1) : null;
+        const avgFwd180 = completed.filter(s=>s.ret180!==null).length
+          ? +(completed.filter(s=>s.ret180!==null).reduce((a,s)=>a+Math.max(-100,Math.min(100,s.ret180)),0)
+              / completed.filter(s=>s.ret180!==null).length).toFixed(1) : null;
+        const win30Rate = timingRets30.length
+          ? Math.round(timingRets30.filter(r=>r>0).length / timingRets30.length * 100) : null;
 
-        const n         = scored.length;
-        const nearLowPct = n > 0 ? Math.round(nearLowCount / n * 100) : 0;
-        const avgFwd90  = retN > 0 ? +(ret90sum  / retN).toFixed(1) : null;
-        const avgFwd180 = retN > 0 ? +(ret180sum / retN).toFixed(1) : null;
-
-        // Compute avg position in annual range
-        const avgPos = scored.reduce((acc, s) => {
-          const bars = priceCache[s.ticker] || [];
-          if (!bars.length || !s.buyPrice) return acc;
-          const yr1Start = new Date(s.tradeDate + 'T12:00:00Z');
-          yr1Start.setUTCFullYear(yr1Start.getUTCFullYear() - 1);
-          const yr1Bars = bars.filter(b =>
-            b.time >= yr1Start.toISOString().slice(0, 10) && b.time <= s.tradeDate
-          );
-          if (yr1Bars.length < 20) return acc;
-          const yr1Lo = Math.min(...yr1Bars.map(b => b.low  || b.close));
-          const yr1Hi = Math.max(...yr1Bars.map(b => b.high || b.close));
-          const rng = yr1Hi - yr1Lo;
-          return rng > 0.01 ? { sum: acc.sum + (s.buyPrice - yr1Lo) / rng, n: acc.n + 1 } : acc;
-        }, { sum: 0, n: 0 });
-        const avgPosVal = avgPos.n > 0 ? avgPos.sum / avgPos.n : 0.5;
-
-        const compLow  = Math.round(Math.min(25, (nearLowPct / 100) * 50));
-        const compPos  = Math.round(Math.min(25, Math.max(0, (0.7 - avgPosVal) / 0.4 * 25)));
-        const compFwd  = avgFwd90 !== null ? Math.round(Math.min(25, Math.max(0, avgFwd90 / 10 * 25))) : 12;
-        const compSell = 12;
-        const timingAlpha = Math.min(100, Math.max(0, compLow + compPos + compFwd + compSell));
+        // 60% from avg30d: +8% → 60pts, 0% → 30pts, -8% → 0
+        const comp30Ret = avgFwd30 !== null
+          ? Math.round(Math.min(60, Math.max(0, (avgFwd30 + 8) / 16 * 60))) : 30;
+        // 40% from 30d win rate: 70%+ → 40pts, 50% → 20pts, 30%- → 0
+        const comp30Win = win30Rate !== null
+          ? Math.round(Math.min(40, Math.max(0, (win30Rate - 30) / 40 * 40))) : 20;
+        const timingAlpha = Math.min(100, Math.max(0, comp30Ret + comp30Win));
 
         let verdict;
-        if      (timingAlpha >= 80 && nearLowPct >= 50) verdict = 'Buys near bottoms';
-        else if (timingAlpha >= 80)                     verdict = 'Elite forward returns';
-        else if (timingAlpha >= 60)                     verdict = 'Above-average timing';
-        else if (timingAlpha >= 40)                     verdict = 'Mixed timing signals';
-        else                                            verdict = 'Tends to buy high';
+        if      (timingAlpha >= 80) verdict = 'Buys trigger immediate upward moves';
+        else if (timingAlpha >= 60) verdict = 'Above-average short-term reaction';
+        else if (timingAlpha >= 40) verdict = 'Mixed short-term price reaction';
+        else                        verdict = 'Buys often followed by weakness';
 
-        if (timingAlpha >= 35) {
+        if (timingAlpha >= 35 && timingRets30.length >= 3) {
           timingResults.push({ name: leader.insider, title: leader.title || '',
-            timingAlpha, nearLowPct, avgRet90: avgFwd90, avgRet180: avgFwd180,
+            timingAlpha, avgRet30: avgFwd30, win30Rate, avgRet90: avgFwd90,
             verdict, tradeCount: completed.length, tickers: tickers3 });
         }
       } catch(e) { slog('scoreboard insider err: ' + e.message); }
