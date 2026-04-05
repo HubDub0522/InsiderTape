@@ -2632,7 +2632,7 @@ async function preComputeScoreboard() {
   _scoreboardRunning = true;
   try {
     slog('Pre-computing scoreboard...');
-    const minBuys = 3, limit = 500;
+    const minBuys = 3, limit = 300;
     const rows = db.prepare(`
       SELECT
         insider, MAX(title) AS title, COUNT(*) AS buy_count,
@@ -2652,12 +2652,13 @@ async function preComputeScoreboard() {
 
     if (!rows.length) { slog('Scoreboard pre-compute: no qualifying rows'); return; }
 
-    // Fetch price bars for ALL unique tickers across all candidates — no cap.
-    // Batch in groups of 50 to avoid hammering the price API simultaneously.
-    const allTickers = [...new Set(
-      rows.flatMap(r => (r.tickers_csv || '').split(',').filter(Boolean))
-    )];
-    slog(`Scoreboard: scoring ${rows.length} insiders across ${allTickers.length} tickers`);
+    // Cap tickers fetched to avoid OOM — insiders whose tickers fall outside
+    // the cap will have fewer scored trades but won't crash the server.
+    // Sorted by frequency so the most-traded tickers get price data first.
+    const tickerFreq = {};
+    rows.forEach(r => (r.tickers_csv||'').split(',').filter(Boolean).forEach(t => tickerFreq[t] = (tickerFreq[t]||0) + 1));
+    const allTickers = Object.entries(tickerFreq).sort((a,b)=>b[1]-a[1]).map(e=>e[0]).slice(0, 150);
+    slog(`Scoreboard: scoring ${rows.length} insiders, fetching ${allTickers.length} tickers`);
 
     const priceCache = {};
     const BATCH = 50;
