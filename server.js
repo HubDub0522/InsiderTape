@@ -155,6 +155,8 @@ app.use((req, res, next) => {
 const _bannedIPs  = new Set();  // permanent session bans
 const _strikeMap  = new Map();  // ip → { strikes, bannedUntil }
 const _bruteStore = new Map();  // ip → { count, firstAt } for auth endpoints
+const _priceMissCache = {};     // tickers with no price data — skip refetch for 12hrs
+const MISS_TTL = 12 * 60 * 60 * 1000;
 
 function getIP(req) {
   return (req.headers['x-forwarded-for']?.split(',')[0].trim()
