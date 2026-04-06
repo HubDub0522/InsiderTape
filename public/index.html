@@ -576,14 +576,27 @@
     /* ── Stock View ── */
     .pressure-container { height: 80px !important; }
     .stock-layout { grid-template-columns: 1fr !important; width: 100%; overflow: visible; }
-    /* Stock landing: 3 cards per row, compact sizing */
+    /* Stock landing: 3 equal columns, no content-based sizing */
     #stockContent { padding: 8px !important; }
-    #stockContent [style*="grid-template-columns"] { grid-template-columns: repeat(3,1fr) !important; gap: 6px !important; }
-    #stockContent [style*="padding:12px 14px"] { padding: 8px !important; }
-    #stockContent [style*="font-size:17px"] { font-size: 13px !important; }
-    #stockContent [style*="font-size:10px;color:var(--muted);margin-bottom:10px"] { font-size: 9px !important; margin-bottom: 6px !important; }
+    #stockContent [style*="grid-template-columns"] {
+      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      gap: 6px !important;
+    }
+    /* Each card: constrain width, clip overflow so nothing bleeds off screen */
+    #stockContent [style*="padding:12px 14px"] {
+      padding: 7px 6px !important;
+      min-width: 0 !important;
+      overflow: hidden !important;
+      box-sizing: border-box !important;
+    }
+    #stockContent [style*="font-size:17px"] { font-size: 12px !important; letter-spacing: 0 !important; }
+    #stockContent [style*="font-size:10px;color:var(--muted);margin-bottom:10px"] {
+      font-size: 8px !important; margin-bottom: 4px !important;
+      overflow: hidden !important; text-overflow: ellipsis !important;
+    }
     #stockContent [style*="font-size:13px;font-weight:600"] { font-size: 11px !important; }
     #stockContent [style*="font-size:9px;color:var(--muted);margin-top:1px"] { font-size: 8px !important; }
+    #stockContent [style*="display:flex;gap:12px"] { gap: 4px !important; }
     .stock-header-bar { flex-direction: column; gap: 10px; padding: 12px; }
     .stock-ticker-big { font-size: 30px; }
     .stock-price { font-size: 20px; }
