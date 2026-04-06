@@ -1474,6 +1474,8 @@ function restoreFilters() {
       }
     } catch(_) { state.tickerFilter = new Set(); }
     if (saved.sortCol) { state.sortCol = saved.sortCol; state.sortDir = saved.sortDir ?? -1; }
+    // Always ensure date sort is descending — ascending would bury recent trades
+    if (state.sortCol === 'trade' && state.sortDir === 1) state.sortDir = -1;
   } catch(_) {}
 }
 
@@ -1778,7 +1780,7 @@ function renderScreener() {
   const tbody = document.getElementById('screenerBody');
   if (!page.length) { tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
   const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);
-  try { tbody.innerHTML = page.map((t,_rowIdx) => { try {
+  try { tbody.innerHTML = page.map(t => {
     if (t._isGov) {
       // Gov official row
       const isBuy = t.type === 'P';
@@ -1824,7 +1826,7 @@ function renderScreener() {
     const detailRow = `<tr id="${srid}d" style="display:none"><td colspan="8" style="padding:0"><div class="scr-detail-grid" style="background:rgba(36,120,204,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">${insiderDetailCell}${scrCell('Company', t.company||'—')}${scrCell('Trade Type', tradeLabel(t.type), scrTypeColor)}${scrCell('Price per Share', '$'+(t.price||0).toFixed(2))}${scrCell('Total Value', fmt(t.value||0), scrTypeColor)}${scrCell('Trade Date', fmtDate(t.trade||t.filing))}${scrCell('Filing Date', fmtDate(t.filing))}${scrCell('Owned After', fmtShares(t.owned)+insiderOwnershipPct(t))}<div class="scr-detail-sec"><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">SEC Filing</div><div style="font-size:12px">${secUrl ? `<a href="${secUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-size:11px;font-weight:500;text-decoration:none">View on SEC ↗</a>` : '<span style="color:var(--muted)">—</span>'}</div></div></div></td></tr>`;
     return `
     <tr id="${srid}" style="cursor:pointer" onclick="(function(){if(event.target.closest('.insider-name-link')||event.target.closest('a'))return;var d=document.getElementById('${srid}d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#${srid} .sra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();})()">
-      <td style="width:28px;text-align:center"><span class="sra" style="display:inline-flex;align-items:center;transition:transform .15s"><svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="#8fb0c8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2l4 3-4 3"/></svg></span></td>
+      <td style="width:28px;text-align:center"><span class="sra" style="display:inline-block;color:#8fb0c8;font-size:14px;line-height:1;transition:transform .15s;font-family:sans-serif">&#8250;</span></td>
       <td class="scr-col-date"><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
       <td class="ticker-cell scr-col-ticker" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
       <td class="scr-col-insider" onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Inter\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
@@ -1833,8 +1835,7 @@ function renderScreener() {
       <td class="hide-mobile scr-col-price" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
       <td class="scr-col-value ${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
     </tr>${detailRow}`;
-    } catch(_rowErr) { console.error('Row render error:', _rowIdx, t?.ticker, t?.insider, _rowErr); return `<tr><td colspan="9" style="color:var(--sell);padding:8px">Row error: ${_rowErr.message} (${t?.ticker} ${t?.insider})</td></tr>`; }
-  }).join(''); } catch(e) { console.error('Screener render error:', e); tbody.innerHTML = `<tr><td colspan="9" style="padding:12px;color:var(--sell)">Render error: ${e.message}</td></tr>`; }
+  }).join(''); } catch(e) { console.error('Screener render error:', e); }
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
   const cur = state.currentPage;
@@ -3779,7 +3780,7 @@ function renderStockTradesTable(trades, govData=[]) {
     const toggleFn = "var d=document.getElementById('" + rid + "d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#" + rid + " .ra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();";
     return { date: t.trade||t.filing||'', html:
       '<tr id="' + rid + '" style="cursor:pointer" onclick="(function(){if(event.target.closest(\'.insider-profile-link\')||event.target.closest(\'a\'))return;' + toggleFn + '})()">'
-      + '<td style="width:28px;text-align:center"><span class="ra" style="display:inline-flex;align-items:center;transition:transform .15s"><svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="#8fb0c8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2l4 3-4 3"/></svg></span></td>'
+      + '<td style="width:28px;text-align:center"><span class="ra" style="display:inline-block;color:#8fb0c8;font-size:14px;line-height:1;transition:transform .15s;font-family:sans-serif">&#8250;</span></td>'
       + '<td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">' + fmtDate(t.trade||t.filing) + '</td>'
       + '<td><span class="insider-name-link insider-profile-link" data-iname="' + escName(t.insider||'') + '" data-ititle="' + escName(t.title||'') + '">' + (t.insider||'—') + '</span>'
       + '<span style="display:block;font-size:10px;color:var(--muted);margin-top:1px">' + (t.title||'') + '</span>'
