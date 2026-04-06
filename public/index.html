@@ -3074,30 +3074,24 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
   // ── Support & Resistance overlay ─────────────────────────────────────────
   function drawSRLevels(ctx) {
     if (!_srEnabled || !priceData || priceData.length < 20) return;
-    const visRange = (() => { try { return chart.timeScale().getVisibleLogicalRange(); } catch(e) { return null; } })();
-    const lo = visRange ? Math.max(0, Math.floor(visRange.from)) : 0;
-    const hi = visRange ? Math.min(priceData.length - 1, Math.ceil(visRange.to)) : priceData.length - 1;
-    const bars = priceData.slice(lo, hi + 1);
-    if (bars.length < 10) return;
 
-    // Smaller radius so closely-spaced tests are each detected as pivots
-    const radius = Math.max(2, Math.floor(bars.length / 50));
+    // Always use last 252 bars (1Y) for S/R — consistent across all timeframes
+    const srBars = priceData.slice(-252);
+    if (srBars.length < 20) return;
 
-    // Collect ALL pivot highs and lows — a broken resistance becomes support
-    // so we merge both into one pool and cluster together
+    const radius = Math.max(2, Math.floor(srBars.length / 50));
     const allPivots = [];
-    for (let i = radius; i < bars.length - radius; i++) {
+    for (let i = radius; i < srBars.length - radius; i++) {
       let isHigh = true, isLow = true;
       for (let j = i - radius; j <= i + radius; j++) {
         if (j === i) continue;
-        if (bars[j].high >= bars[i].high) isHigh = false;
-        if (bars[j].low  <= bars[i].low)  isLow  = false;
+        if (srBars[j].high >= srBars[i].high) isHigh = false;
+        if (srBars[j].low  <= srBars[i].low)  isLow  = false;
       }
-      if (isHigh) allPivots.push(bars[i].high);
-      if (isLow)  allPivots.push(bars[i].low);
+      if (isHigh) allPivots.push(srBars[i].high);
+      if (isLow)  allPivots.push(srBars[i].low);
     }
 
-    // Wider tolerance (3%) so nearby tests cluster into one zone
     function cluster(vals, tol = 0.03) {
       if (!vals.length) return [];
       const sorted = [...vals].sort((a, b) => a - b);
@@ -5762,7 +5756,7 @@ function renderAnalysisDashboard() {
       loading: !_srSignalsCache,
       top3: (_srSignalsCache?.breakouts||[]).slice(0,3).map(r => ({
         ticker: r.ticker,
-        label: `$${r.level} resistance · ${r.timeframe||'6M'}`,
+        label: `$${r.level} resistance`,
         sub: `${r.pctAbove}% above · ${r.buyCount} buyer${r.buyCount>1?'s':''}${r.hasGov?' · 🏛 gov':''}`,
         color: 'var(--buy)',
       })),
@@ -5780,7 +5774,7 @@ function renderAnalysisDashboard() {
       loading: !_srSignalsCache,
       top3: (_srSignalsCache?.breakdowns||[]).slice(0,3).map(r => ({
         ticker: r.ticker,
-        label: `$${r.level} support · ${r.timeframe||'6M'}`,
+        label: `$${r.level} support`,
         sub: `${r.pctBelow}% below · ${r.sellCount} seller${r.sellCount>1?'s':''}${r.hasGov?' · 🏛 gov':''}`,
         color: 'var(--sell)',
       })),
@@ -6106,16 +6100,12 @@ function renderSRSignalsSubpage(id, opts={}) {
     const nameShort = (r.topInsider||'').split(' ').slice(-1)[0];
     const strengthLabel = r.strength >= 6 ? 'STRONG' : r.strength >= 4 ? 'MODERATE' : 'DEVELOPING';
     const strengthColor = r.strength >= 6 ? 'var(--buy)' : r.strength >= 4 ? 'var(--option)' : 'var(--muted)';
-    const tfDays = {'3M':90,'6M':180,'1Y':365,'2Y':730};
-    const chartDays = tfDays[r.timeframe||'6M'] || 180;
-    const tfLabel = r.timeframe || '6M';
-    return `<div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:${chartDays},srEnabled:true})" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .15s"
+    return `<div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:true})" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .15s"
       onmouseenter="this.style.borderColor='var(--border2)'" onmouseleave="this.style.borderColor='var(--border)'">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-family:Inter,sans-serif;font-size:20px;letter-spacing:1px;color:var(--accent)">${r.ticker}</span>
-          <span style="font-size:9px;font-weight:700;color:var(--accent);border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.08);border-radius:3px;padding:1px 6px;letter-spacing:0.5px">${tfLabel}</span>
-          <span style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px">${r.company||''}</span>
+          <span style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${r.company||''}</span>
         </div>
         <span style="font-size:9px;font-weight:700;letter-spacing:1px;color:${strengthColor};border:1px solid ${strengthColor}33;background:${strengthColor}11;border-radius:3px;padding:2px 7px">${strengthLabel}</span>
       </div>
