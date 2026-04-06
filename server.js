@@ -232,6 +232,7 @@ setInterval(() => {
   for (const [k, v] of _rlStore)   { if (now > v.resetAt)    _rlStore.delete(k); }
   for (const [k, v] of _strikeMap) { if (now > v.bannedUntil && v.strikes < 5) _strikeMap.delete(k); }
   for (const [k, v] of _bruteStore){ if (now - v.firstAt > 3600000) _bruteStore.delete(k); }
+  for (const sym of Object.keys(_priceMissCache)) { if (now - _priceMissCache[sym] > MISS_TTL) delete _priceMissCache[sym]; }
 }, 5 * 60 * 1000);
 
 // ── Main protection middleware (runs on every request) ──────────
