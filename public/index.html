@@ -3075,12 +3075,17 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
   function drawSRLevels(ctx) {
     if (!_srEnabled || !priceData || priceData.length < 20) return;
 
-    // Always use last 252 bars (1Y) for S/R — consistent across all timeframes
+    // Always 1Y bars — consistent levels on every timeframe view
     const srBars = priceData.slice(-252);
-    if (srBars.length < 20) return;
+    if (srBars.length < 30) return;
 
-    const radius = Math.max(2, Math.floor(srBars.length / 50));
-    const allPivots = [];
+    // Larger radius = fewer, more significant pivots (roughly 1 per month)
+    const radius = Math.max(8, Math.floor(srBars.length / 20));
+    // Min bars between touches — enforces these are separate visits to a level
+    const minSep = Math.floor(srBars.length / 15); // ~17 bars (~3 weeks)
+
+    // Collect pivots with their bar index so we can enforce time separation
+    const pivots = []; // { price, idx }
     for (let i = radius; i < srBars.length - radius; i++) {
       let isHigh = true, isLow = true;
       for (let j = i - radius; j <= i + radius; j++) {
@@ -3088,27 +3093,45 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         if (srBars[j].high >= srBars[i].high) isHigh = false;
         if (srBars[j].low  <= srBars[i].low)  isLow  = false;
       }
-      if (isHigh) allPivots.push(srBars[i].high);
-      if (isLow)  allPivots.push(srBars[i].low);
+      if (isHigh) pivots.push({ price: srBars[i].high, idx: i });
+      if (isLow)  pivots.push({ price: srBars[i].low,  idx: i });
     }
 
-    function cluster(vals, tol = 0.03) {
-      if (!vals.length) return [];
-      const sorted = [...vals].sort((a, b) => a - b);
+    // Cluster by price proximity (1.5% tolerance — tighter than before)
+    // then count only touches that are separated by minSep bars
+    function clusterWithSep(pivots, tol = 0.015) {
+      if (!pivots.length) return [];
+      const sorted = [...pivots].sort((a, b) => a.price - b.price);
       const zones = [];
       let grp = [sorted[0]];
       for (let i = 1; i < sorted.length; i++) {
-        if ((sorted[i] - grp[0]) / grp[0] <= tol) { grp.push(sorted[i]); }
-        else { zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length }); grp = [sorted[i]]; }
+        if ((sorted[i].price - grp[0].price) / grp[0].price <= tol) {
+          grp.push(sorted[i]);
+        } else {
+          zones.push(grp);
+          grp = [sorted[i]];
+        }
       }
-      zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
-      return zones.filter(z => z.strength >= 3);
+      zones.push(grp);
+
+      return zones.map(grp => {
+        // Sort touches by bar index, count only those separated by minSep
+        const byIdx = [...grp].sort((a, b) => a.idx - b.idx);
+        const separated = [byIdx[0]];
+        for (let i = 1; i < byIdx.length; i++) {
+          if (byIdx[i].idx - separated[separated.length - 1].idx >= minSep) {
+            separated.push(byIdx[i]);
+          }
+        }
+        const avg = separated.reduce((s, p) => s + p.price, 0) / separated.length;
+        return { level: avg, strength: separated.length };
+      }).filter(z => z.strength >= 3); // require 3 well-separated touches
     }
 
     function drawLine(level, color, strength) {
       const y = series.priceToCoordinate(level);
       if (y == null || y < 0 || y > canvas.height) return;
-      const alpha = Math.min(0.9, 0.45 + strength * 0.08);
+      const alpha = Math.min(0.9, 0.5 + (strength - 3) * 0.1);
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.setLineDash([7, 4]);
@@ -3121,7 +3144,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       ctx.restore();
     }
 
-    cluster(allPivots).forEach(z => drawLine(z.level, '#ffffff', z.strength));
+    clusterWithSep(pivots).forEach(z => drawLine(z.level, '#ffffff', z.strength));
   }
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
   setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
