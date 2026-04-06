@@ -3024,6 +3024,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       });
     }
 
+    // Draw S/R overlay last so it sits on top
+    drawSRLevels(ctx);
   }  // end drawCircles
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
