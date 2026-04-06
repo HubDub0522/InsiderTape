@@ -2637,6 +2637,7 @@ async function loadStockView(ticker, opts={}) {
                 </svg>
               </button>
               <button id="chartTypeLine" onclick="setChartType('line')" class="tf-btn ct-btn" title="Line chart" style="padding:4px 10px;font-size:13px">📈</button>
+              <button id="srToggleBtn" onclick="toggleSR(this)" class="tf-btn ct-btn" title="Support &amp; Resistance" style="padding:4px 8px;font-size:10px;font-family:Inter,sans-serif;font-weight:600;letter-spacing:0.3px">S/R</button>
             </div>
           </div>
         </div>
@@ -2734,7 +2735,8 @@ async function loadStockView(ticker, opts={}) {
 // Recalculate chart height on resize (CHART_H is const so we use a function)
 function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
 const CHART_H = getChartH();
-let _chartType = 'candle'; // 'candle' | 'line'
+let _chartType = 'candle';
+let _srEnabled = false; // 'candle' | 'line'
 async function buildChart(priceData, trades, govData=[]) {
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
@@ -2871,6 +2873,12 @@ async function buildChart(priceData, trades, govData=[]) {
     if (cv && container.clientWidth > 0) cv.width = container.clientWidth;
     if (state.drawCircles) setTimeout(state.drawCircles, 50);
   }).observe(container);
+}
+
+function toggleSR(btn) {
+  _srEnabled = !_srEnabled;
+  btn.classList.toggle('active', _srEnabled);
+  if (state.drawCircles) state.drawCircles();
 }
 
 function setChartType(type) {
@@ -3028,6 +3036,61 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     drawSRLevels(ctx);
   }  // end drawCircles
 
+
+  // ── Support & Resistance overlay ─────────────────────────────────────────
+  function drawSRLevels(ctx) {
+    if (!_srEnabled || !priceData || priceData.length < 20) return;
+    const visRange = (() => { try { return chart.timeScale().getVisibleLogicalRange(); } catch(e) { return null; } })();
+    const lo = visRange ? Math.max(0, Math.floor(visRange.from)) : 0;
+    const hi = visRange ? Math.min(priceData.length - 1, Math.ceil(visRange.to)) : priceData.length - 1;
+    const bars = priceData.slice(lo, hi + 1);
+    if (bars.length < 10) return;
+
+    const radius = Math.max(3, Math.floor(bars.length / 30));
+    const pivotHighs = [], pivotLows = [];
+    for (let i = radius; i < bars.length - radius; i++) {
+      let isHigh = true, isLow = true;
+      for (let j = i - radius; j <= i + radius; j++) {
+        if (j === i) continue;
+        if (bars[j].high >= bars[i].high) isHigh = false;
+        if (bars[j].low  <= bars[i].low)  isLow  = false;
+      }
+      if (isHigh) pivotHighs.push(bars[i].high);
+      if (isLow)  pivotLows.push(bars[i].low);
+    }
+
+    function cluster(vals, tol = 0.013) {
+      if (!vals.length) return [];
+      const sorted = [...vals].sort((a, b) => a - b);
+      const zones = [];
+      let grp = [sorted[0]];
+      for (let i = 1; i < sorted.length; i++) {
+        if ((sorted[i] - grp[0]) / grp[0] <= tol) { grp.push(sorted[i]); }
+        else { zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length }); grp = [sorted[i]]; }
+      }
+      zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
+      return zones.filter(z => z.strength >= 2);
+    }
+
+    function drawLine(level, color, strength) {
+      const y = series.priceToCoordinate(level);
+      if (y == null || y < 0 || y > canvas.height) return;
+      const alpha = Math.min(0.85, 0.4 + strength * 0.1);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.setLineDash([7, 4]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+      ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '700 9px Inter, monospace';
+      ctx.fillStyle = color; ctx.textAlign = 'right';
+      ctx.fillText('$' + level.toFixed(2), canvas.width - 4, y - 4);
+      ctx.restore();
+    }
+
+    cluster(pivotHighs).forEach(z => drawLine(z.level, '#ff4466', z.strength));
+    cluster(pivotLows).forEach(z  => drawLine(z.level, '#00ff88', z.strength));
+  }
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
   setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
   canvas.style.pointerEvents='auto';
