@@ -1042,7 +1042,7 @@
 const state = {
   screenerData: [], currentPage: 1, pageSize: 25,
   sortCol: 'trade', sortDir: -1,
-  activeTypes: new Set(['P','S','S-']),
+  activeTypes: new Set(['P','S']),
   activeRole: 'all', minVal: 100000, days: 7,
   tickerFilter: new Set(),
   currentTicker: null, tickerTrades: [],
@@ -1450,8 +1450,6 @@ function restoreFilters() {
     }
     if (saved.activeTypes?.length) {
       state.activeTypes = new Set(saved.activeTypes);
-      // Migrate: if S is active, S- should be too
-      if (state.activeTypes.has('S')) state.activeTypes.add('S-');
       document.querySelectorAll('[data-type]').forEach(el => {
         el.classList.toggle('active', state.activeTypes.has(el.dataset.type));
       });
@@ -1483,13 +1481,8 @@ function restoreFilters() {
 function toggleChip(el) {
   el.classList.toggle('active');
   const type = el.dataset.type;
-  if (el.classList.contains('active')) {
-    state.activeTypes.add(type);
-    if (type === 'S') state.activeTypes.add('S-'); // plan sales move with sells
-  } else {
-    state.activeTypes.delete(type);
-    if (type === 'S') state.activeTypes.delete('S-');
-  }
+  if (el.classList.contains('active')) state.activeTypes.add(type);
+  else state.activeTypes.delete(type);
   // SC13BUY/SC13SELL are handled at render time — they filter _isSc13 rows by type
   saveFilters();
 }
@@ -1566,6 +1559,10 @@ async function loadScreener() {
       setTimeout(loadScreener, 8000); return;
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
+    // Temporary diagnostic — logs AAPL trades from API response to console
+    const aaplTrades = trades.filter(t => t.ticker === 'AAPL');
+    if (aaplTrades.length) console.log('[Screener] AAPL trades from API:', JSON.stringify(aaplTrades.map(t=>({date:t.trade,type:t.type,value:t.value,insider:t.insider}))));
+    else console.log('[Screener] No AAPL trades in API response for days=' + days);
 
     // Merge gov trades: free users get 7 days, premium get full window
     const govDays = 90; // gov trades use 90d window (transaction_date)
