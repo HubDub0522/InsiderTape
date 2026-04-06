@@ -3048,8 +3048,12 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     const bars = priceData.slice(lo, hi + 1);
     if (bars.length < 10) return;
 
-    const radius = Math.max(3, Math.floor(bars.length / 30));
-    const pivotHighs = [], pivotLows = [];
+    // Smaller radius so closely-spaced tests are each detected as pivots
+    const radius = Math.max(2, Math.floor(bars.length / 50));
+
+    // Collect ALL pivot highs and lows — a broken resistance becomes support
+    // so we merge both into one pool and cluster together
+    const allPivots = [];
     for (let i = radius; i < bars.length - radius; i++) {
       let isHigh = true, isLow = true;
       for (let j = i - radius; j <= i + radius; j++) {
@@ -3057,11 +3061,12 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         if (bars[j].high >= bars[i].high) isHigh = false;
         if (bars[j].low  <= bars[i].low)  isLow  = false;
       }
-      if (isHigh) pivotHighs.push(bars[i].high);
-      if (isLow)  pivotLows.push(bars[i].low);
+      if (isHigh) allPivots.push(bars[i].high);
+      if (isLow)  allPivots.push(bars[i].low);
     }
 
-    function cluster(vals, tol = 0.013) {
+    // Wider tolerance (3%) so nearby tests cluster into one zone
+    function cluster(vals, tol = 0.03) {
       if (!vals.length) return [];
       const sorted = [...vals].sort((a, b) => a - b);
       const zones = [];
@@ -3077,7 +3082,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     function drawLine(level, color, strength) {
       const y = series.priceToCoordinate(level);
       if (y == null || y < 0 || y > canvas.height) return;
-      const alpha = Math.min(0.85, 0.4 + strength * 0.1);
+      const alpha = Math.min(0.9, 0.45 + strength * 0.08);
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.setLineDash([7, 4]);
@@ -3090,8 +3095,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       ctx.restore();
     }
 
-    cluster(pivotHighs).forEach(z => drawLine(z.level, '#ffffff', z.strength));
-    cluster(pivotLows).forEach(z  => drawLine(z.level, '#ffffff', z.strength));
+    cluster(allPivots).forEach(z => drawLine(z.level, '#ffffff', z.strength));
   }
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
   setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
