@@ -576,6 +576,14 @@
     /* ── Stock View ── */
     .pressure-container { height: 80px !important; }
     .stock-layout { grid-template-columns: 1fr !important; width: 100%; overflow: visible; }
+    /* Stock landing: 3 cards per row, compact sizing */
+    #stockContent { padding: 8px !important; }
+    #stockContent [style*="grid-template-columns"] { grid-template-columns: repeat(3,1fr) !important; gap: 6px !important; }
+    #stockContent [style*="padding:12px 14px"] { padding: 8px !important; }
+    #stockContent [style*="font-size:17px"] { font-size: 13px !important; }
+    #stockContent [style*="font-size:10px;color:var(--muted);margin-bottom:10px"] { font-size: 9px !important; margin-bottom: 6px !important; }
+    #stockContent [style*="font-size:13px;font-weight:600"] { font-size: 11px !important; }
+    #stockContent [style*="font-size:9px;color:var(--muted);margin-top:1px"] { font-size: 8px !important; }
     .stock-header-bar { flex-direction: column; gap: 10px; padding: 12px; }
     .stock-ticker-big { font-size: 30px; }
     .stock-price { font-size: 20px; }
@@ -2338,7 +2346,8 @@ function renderStockLanding(lists) {
   const headerStyle  = `display:flex;align-items:baseline;gap:10px;margin-bottom:14px`;
   const titleStyle   = `font-family:Inter,sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)`;
   const subtitleStyle= `font-size:11px;color:var(--muted)`;
-  const gridStyle    = `display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px`;
+  const gridStyle    = `display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px` +
+    (window.innerWidth <= 640 ? ';grid-template-columns:repeat(3,1fr)' : '');
 
   function stockCard(ticker, company, badges=[], stats=[], onClick='') {
     const badgeHtml = badges.map(([label, color, bg]) =>
