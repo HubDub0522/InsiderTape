@@ -1274,29 +1274,32 @@ app.get('/api/sr-signals', async (req, res) => {
 
         for (const tf of timeframes) {
           if (tickerSignal) break;
-          const tfBars = bars.slice(-(tf.sliceBars + tf.lookbackBars));
-          const srBars = tfBars.slice(0, tf.sliceBars); // historical bars for S/R calc
-          const radius = Math.max(2, Math.floor(srBars.length / 50));
-          const levels = computeSRLevels(srBars, radius);
+          // Use the full timeframe window for S/R calculation
+          const tfBars = bars.slice(-tf.sliceBars);
+          const radius = Math.max(2, Math.floor(tfBars.length / 50));
+          const levels = computeSRLevels(tfBars, radius);
           if (!levels.length) continue;
 
-          // Look back N bars to see if we recently crossed a level
-          const prevClose = tfBars[tfBars.length - tf.lookbackBars - 1]?.close;
+          // Compare close from lookbackBars ago vs today's close
+          const prevBar = bars[bars.length - tf.lookbackBars - 1];
+          const prevClose = prevBar?.close;
           if (!prevClose) continue;
 
           for (const zone of levels) {
             const lvl = zone.level;
-            const margin = lvl * 0.02; // 2% margin
+            const margin = lvl * 0.025; // 2.5% margin — generous to catch recent crosses
 
-            // BREAKOUT: was below level N bars ago, now above it
-            if (prevClose < lvl && latestClose > lvl - margin * 0.5 &&
+            // BREAKOUT: was below level lookback bars ago, now at or above it
+            if (prevClose < lvl - margin * 0.3 &&
+                latestClose >= lvl - margin &&
                 recentBuys.length >= 1) {
               tickerSignal = { type: 'breakout', zone, lvl, prevClose, tf: tf.key };
               break;
             }
 
-            // BREAKDOWN: was above level N bars ago, now below it
-            if (prevClose > lvl && latestClose < lvl + margin * 0.5 &&
+            // BREAKDOWN: was above level lookback bars ago, now at or below it
+            if (prevClose > lvl + margin * 0.3 &&
+                latestClose <= lvl + margin &&
                 recentSells.length >= 1) {
               tickerSignal = { type: 'breakdown', zone, lvl, prevClose, tf: tf.key };
               break;
