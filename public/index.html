@@ -5770,6 +5770,26 @@ function renderAnalysisDashboard() {
       accentBorder: 'rgba(0,212,255,0.2)',
     },
     {
+      id: 'conviction',
+      icon: '⚡',
+      name: 'High Conviction Trades',
+      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size. Surfaces insiders making their biggest, most deliberate bets.',
+      count: _convData.length,
+      countLabel: 'signals detected',
+      loading: false,
+      top3: convTop3.map(c => ({
+        ticker: c.ticker,
+        label: `Score ${c.score}`,
+        sub: c.reasons[0] || '',
+        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
+      })),
+      accentColor: 'var(--buy)',
+      accentBg: 'rgba(0,255,136,0.06)',
+      accentBorder: 'rgba(0,255,136,0.2)',
+    },
+  ];
+    },
+    {
       id: 'srbreakout',
       icon: '📈',
       name: 'Breakout + Insider Buy',
@@ -5804,26 +5824,6 @@ function renderAnalysisDashboard() {
       accentColor: 'var(--sell)',
       accentBg: 'rgba(255,68,102,0.06)',
       accentBorder: 'rgba(255,68,102,0.25)',
-    },
-    {
-      id: 'conviction',
-      icon: '⚡',
-      name: 'High Conviction Trades',
-      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size. Surfaces insiders making their biggest, most deliberate bets.',
-      count: _convData.length,
-      countLabel: 'signals detected',
-      loading: false,
-      top3: convTop3.map(c => ({
-        ticker: c.ticker,
-        label: `Score ${c.score}`,
-        sub: c.reasons[0] || '',
-        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
-      })),
-      accentColor: 'var(--buy)',
-      accentBg: 'rgba(0,255,136,0.06)',
-      accentBorder: 'rgba(0,255,136,0.2)',
-    },
-  ];
 
   // Gov Official tiles (from _analysisGovData)
   const _govTiles = buildGovTiles(_analysisGovData || []);
