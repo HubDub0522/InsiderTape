@@ -1559,10 +1559,6 @@ async function loadScreener() {
       setTimeout(loadScreener, 8000); return;
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
-    // Temporary diagnostic — logs AAPL trades from API response to console
-    const aaplTrades = trades.filter(t => t.ticker === 'AAPL');
-    if (aaplTrades.length) console.log('[Screener] AAPL trades from API:', JSON.stringify(aaplTrades.map(t=>({date:t.trade,type:t.type,value:t.value,insider:t.insider}))));
-    else console.log('[Screener] No AAPL trades in API response for days=' + days);
 
     // Merge gov trades: free users get 7 days, premium get full window
     const govDays = 90; // gov trades use 90d window (transaction_date)
@@ -1598,7 +1594,9 @@ async function loadScreener() {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
     }
+    console.log('[Screener] activeTypes:', [...state.activeTypes], 'trades before filter:', trades.length);
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
+    console.log('[Screener] trades after type filter:', trades.length);
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
@@ -1837,7 +1835,7 @@ function renderScreener() {
       <td class="hide-mobile scr-col-price" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
       <td class="scr-col-value ${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
     </tr>${detailRow}`;
-  }).join(''); } catch(e) { console.error('Screener render error:', e); }
+  }).join(''); } catch(e) { console.error('Screener render error:', e); tbody.innerHTML = `<tr><td colspan="9" style="padding:12px;color:var(--sell)">Render error: ${e.message}</td></tr>`; }
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
   const cur = state.currentPage;
