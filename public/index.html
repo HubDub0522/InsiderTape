@@ -3074,64 +3074,43 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
   // ── Support & Resistance overlay ─────────────────────────────────────────
   function drawSRLevels(ctx) {
     if (!_srEnabled || !priceData || priceData.length < 20) return;
+    const visRange = (() => { try { return chart.timeScale().getVisibleLogicalRange(); } catch(e) { return null; } })();
+    const lo = visRange ? Math.max(0, Math.floor(visRange.from)) : 0;
+    const hi = visRange ? Math.min(priceData.length - 1, Math.ceil(visRange.to)) : priceData.length - 1;
+    const bars = priceData.slice(lo, hi + 1);
+    if (bars.length < 10) return;
 
-    // Always 1Y bars — consistent levels on every timeframe view
-    const srBars = priceData.slice(-252);
-    if (srBars.length < 30) return;
+    const radius = Math.max(3, Math.floor(bars.length / 30));
 
-    // Larger radius = fewer, more significant pivots (roughly 1 per month)
-    const radius = Math.max(8, Math.floor(srBars.length / 20));
-    // Min bars between touches — enforces these are separate visits to a level
-    const minSep = Math.floor(srBars.length / 15); // ~17 bars (~3 weeks)
-
-    // Collect pivots with their bar index so we can enforce time separation
-    const pivots = []; // { price, idx }
-    for (let i = radius; i < srBars.length - radius; i++) {
-      let isHigh = true, isLow = true;
-      for (let j = i - radius; j <= i + radius; j++) {
-        if (j === i) continue;
-        if (srBars[j].high >= srBars[i].high) isHigh = false;
-        if (srBars[j].low  <= srBars[i].low)  isLow  = false;
-      }
-      if (isHigh) pivots.push({ price: srBars[i].high, idx: i });
-      if (isLow)  pivots.push({ price: srBars[i].low,  idx: i });
-    }
-
-    // Cluster by price proximity (1.5% tolerance — tighter than before)
-    // then count only touches that are separated by minSep bars
-    function clusterWithSep(pivots, tol = 0.015) {
-      if (!pivots.length) return [];
-      const sorted = [...pivots].sort((a, b) => a.price - b.price);
+    function cluster(vals, tol = 0.013) {
+      if (!vals.length) return [];
+      const sorted = [...vals].sort((a, b) => a - b);
       const zones = [];
       let grp = [sorted[0]];
       for (let i = 1; i < sorted.length; i++) {
-        if ((sorted[i].price - grp[0].price) / grp[0].price <= tol) {
-          grp.push(sorted[i]);
-        } else {
-          zones.push(grp);
-          grp = [sorted[i]];
-        }
+        if ((sorted[i] - grp[0]) / grp[0] <= tol) { grp.push(sorted[i]); }
+        else { zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length }); grp = [sorted[i]]; }
       }
-      zones.push(grp);
+      zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
+      return zones.filter(z => z.strength >= 3);
+    }
 
-      return zones.map(grp => {
-        // Sort touches by bar index, count only those separated by minSep
-        const byIdx = [...grp].sort((a, b) => a.idx - b.idx);
-        const separated = [byIdx[0]];
-        for (let i = 1; i < byIdx.length; i++) {
-          if (byIdx[i].idx - separated[separated.length - 1].idx >= minSep) {
-            separated.push(byIdx[i]);
-          }
-        }
-        const avg = separated.reduce((s, p) => s + p.price, 0) / separated.length;
-        return { level: avg, strength: separated.length };
-      }).filter(z => z.strength >= 3); // require 3 well-separated touches
+    const pivotHighs = [], pivotLows = [];
+    for (let i = radius; i < bars.length - radius; i++) {
+      let isHigh = true, isLow = true;
+      for (let j = i - radius; j <= i + radius; j++) {
+        if (j === i) continue;
+        if (bars[j].high >= bars[i].high) isHigh = false;
+        if (bars[j].low  <= bars[i].low)  isLow  = false;
+      }
+      if (isHigh) pivotHighs.push(bars[i].high);
+      if (isLow)  pivotLows.push(bars[i].low);
     }
 
     function drawLine(level, color, strength) {
       const y = series.priceToCoordinate(level);
       if (y == null || y < 0 || y > canvas.height) return;
-      const alpha = Math.min(0.9, 0.5 + (strength - 3) * 0.1);
+      const alpha = Math.min(0.85, 0.4 + strength * 0.1);
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.setLineDash([7, 4]);
@@ -3144,7 +3123,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       ctx.restore();
     }
 
-    clusterWithSep(pivots).forEach(z => drawLine(z.level, '#ffffff', z.strength));
+    cluster(pivotHighs).forEach(z => drawLine(z.level, '#ff4466', z.strength));
+    cluster(pivotLows).forEach(z  => drawLine(z.level, '#00ff88', z.strength));
   }
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
   setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
@@ -5648,15 +5628,6 @@ function renderAnalysisDashboard() {
   const clusterTop3 = clusterDataBoosted.slice(0, 3);
   const firstBuyTop3 = _firstBuyCache ? _firstBuyCache.slice(0, 3) : [];
 
-  // Kick off SR signals fetch if not cached
-  if (!_srSignalsCache) {
-    apiFetch('/api/sr-signals').then(data => {
-      _srSignalsCache = data;
-      const body = document.getElementById('analysisViewBody');
-      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch(() => { _srSignalsCache = { breakouts: [], breakdowns: [] }; });
-  }
-
   // Kick off API fetch for first-buy tile data if not cached yet
   if (!_firstBuyCache) {
     apiFetch('/api/firstbuys?mingap=730&lookback=90&limit=50').then(rows => {
@@ -5786,42 +5757,6 @@ function renderAnalysisDashboard() {
       accentColor: 'var(--buy)',
       accentBg: 'rgba(0,255,136,0.06)',
       accentBorder: 'rgba(0,255,136,0.2)',
-    },
-    {
-      id: 'srbreakout',
-      icon: '📈',
-      name: 'Breakout + Insider Buy',
-      desc: 'Tickers where price has recently broken above a key resistance level (3+ touches) with concurrent insider open-market buying — price action and insider conviction aligned.',
-      count: _srSignalsCache ? (_srSignalsCache.breakouts||[]).length : '…',
-      countLabel: 'breakout signals',
-      loading: !_srSignalsCache,
-      top3: (_srSignalsCache?.breakouts||[]).slice(0,3).map(r => ({
-        ticker: r.ticker,
-        label: `$${r.level} resistance`,
-        sub: `${r.pctAbove}% above · ${r.buyCount} buyer${r.buyCount>1?'s':''}${r.hasGov?' · 🏛 gov':''}`,
-        color: 'var(--buy)',
-      })),
-      accentColor: 'var(--buy)',
-      accentBg: 'rgba(0,255,136,0.06)',
-      accentBorder: 'rgba(0,255,136,0.25)',
-    },
-    {
-      id: 'srbreakdown',
-      icon: '📉',
-      name: 'Breakdown + Insider Sell',
-      desc: 'Tickers where price has recently broken below a key support level (3+ touches) with concurrent insider open-market selling — a confluence of technical breakdown and insider distribution.',
-      count: _srSignalsCache ? (_srSignalsCache.breakdowns||[]).length : '…',
-      countLabel: 'breakdown signals',
-      loading: !_srSignalsCache,
-      top3: (_srSignalsCache?.breakdowns||[]).slice(0,3).map(r => ({
-        ticker: r.ticker,
-        label: `$${r.level} support`,
-        sub: `${r.pctBelow}% below · ${r.sellCount} seller${r.sellCount>1?'s':''}${r.hasGov?' · 🏛 gov':''}`,
-        color: 'var(--sell)',
-      })),
-      accentColor: 'var(--sell)',
-      accentBg: 'rgba(255,68,102,0.06)',
-      accentBorder: 'rgba(255,68,102,0.25)',
     },
   ];
 
@@ -6080,84 +6015,6 @@ function renderAnalysisSubpage(id, opts={}) {
     renderGovTileSubpage(id);
   }
 
-  else if (id === 'srbreakout' || id === 'srbreakdown') {
-    renderSRSignalsSubpage(id);
-  }
-
-}
-
-
-function renderSRSignalsSubpage(id, opts={}) {
-  window.scrollTo(0, 0);
-  const body = document.getElementById('analysisViewBody');
-  if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:id}, '', '/analysis/' + id);
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
-
-  const isBreakout = id === 'srbreakout';
-  const title    = isBreakout ? '📈 BREAKOUT + INSIDER BUY' : '📉 BREAKDOWN + INSIDER SELL';
-  const subtitle = isBreakout
-    ? 'Price broke above a key resistance level (3+ touches) with recent insider open-market buying'
-    : 'Price broke below a key support level (3+ touches) with recent insider open-market selling';
-  const accentColor = isBreakout ? 'var(--buy)' : 'var(--sell)';
-
-  if (!_srSignalsCache) {
-    body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
-      ${backBtn}
-      <div class="loading-state"><div class="spinner"></div><span>Scanning S/R levels across tickers…</span></div>
-    </div>`;
-    apiFetch('/api/sr-signals').then(data => {
-      _srSignalsCache = data;
-      renderSRSignalsSubpage(id);
-    }).catch(() => { _srSignalsCache = { breakouts: [], breakdowns: [] }; renderSRSignalsSubpage(id); });
-    return;
-  }
-
-  const signals = isBreakout ? (_srSignalsCache.breakouts||[]) : (_srSignalsCache.breakdowns||[]);
-
-  const rows = signals.map(r => {
-    const dir   = isBreakout ? `+${r.pctAbove}% above` : `-${r.pctBelow}% below`;
-    const govBadge = r.hasGov ? ' <span style="font-size:9px;padding:1px 5px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.35);border-radius:3px;color:#00d4ff;font-family:Inter,monospace">🏛 GOV</span>' : '';
-    const insiderLine = isBreakout
-      ? `${r.buyCount} buyer${r.buyCount>1?'s':''} · ${fmt(r.buyVal)}${govBadge}`
-      : `${r.sellCount} seller${r.sellCount>1?'s':''} · ${fmt(r.sellVal)}${govBadge}`;
-    const nameShort = (r.topInsider||'').split(' ').slice(-1)[0];
-    const strengthLabel = r.strength >= 6 ? 'STRONG' : r.strength >= 4 ? 'MODERATE' : 'DEVELOPING';
-    const strengthColor = r.strength >= 6 ? 'var(--buy)' : r.strength >= 4 ? 'var(--option)' : 'var(--muted)';
-    return `<div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:true})" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .15s"
-      onmouseenter="this.style.borderColor='var(--border2)'" onmouseleave="this.style.borderColor='var(--border)'">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-family:Inter,sans-serif;font-size:20px;letter-spacing:1px;color:var(--accent)">${r.ticker}</span>
-          <span style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px">${r.company||''}</span>
-        </div>
-        <span style="font-size:9px;font-weight:700;letter-spacing:1px;color:${strengthColor};border:1px solid ${strengthColor}33;background:${strengthColor}11;border-radius:3px;padding:2px 7px">${strengthLabel}</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-        <div><div style="font-size:9px;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">${isBreakout?'Resistance':'Support'} Level</div>
-          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:${accentColor}">$${r.level}</div></div>
-        <div><div style="font-size:9px;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Current Price</div>
-          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:var(--text)">$${r.latestClose}</div></div>
-        <div><div style="font-size:9px;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Distance</div>
-          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:${accentColor}">${dir}</div></div>
-      </div>
-      <div style="border-top:1px solid var(--border);padding-top:8px;display:flex;align-items:center;justify-content:space-between">
-        <div style="font-size:11px;color:${accentColor}">${insiderLine}</div>
-        <div style="font-size:10px;color:var(--muted)">${nameShort} · ${fmtDate(r.latestTradeDate)}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
-    ${backBtn}
-    <div style="margin-bottom:20px">
-      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${title}</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">${subtitle}</div>
-    </div>
-    ${!signals.length
-      ? `<div class="empty-state"><div class="empty-icon">🔍</div><div>No ${isBreakout?'breakout':'breakdown'} signals found right now. Check back after the next market session.</div></div>`
-      : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">${rows}</div>`
-    }
-  </div>`;
 }
 
 
