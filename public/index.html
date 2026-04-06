@@ -492,9 +492,10 @@
     #authHeaderBtn { order: 1; margin-left: auto; flex-shrink: 0; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
     #authHeaderBtn { order: 1; flex-shrink: 0; }
-    main { padding-top: 110px; }
-    /* Small padding so filter bar isn't covered by fixed header */
-    #mobFilterToggle { margin-top: 4px; }
+    main { padding-top: 120px; }
+    /* Padding so filter toggle isn't covered by fixed header */
+    #mobFilterToggle { margin-top: 10px; }
+    .screener-layout { padding-top: 8px; }
 
     /* ── Global: no horizontal overflow ── */
     main > .view { overflow-x: clip; }
@@ -662,8 +663,7 @@
     #screenerBody .role-badge { display: none !important; }
     #screenerBody .insider-name-link { font-size: 11px; }
     /* Truncate long insider names */
-    #screenerBody td:nth-child(3) { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #screenerBody td:nth-child(1) { white-space: nowrap; }
+    .scr-col-ticker { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* ── Inline style overrides for JS-rendered content ── */
     /* Make sure no inner div busts the viewport */
@@ -757,11 +757,8 @@
     .stock-layout { grid-template-columns: 1fr; }
     .insider-sidebar { display: none; }
 
-    /* Screener: hide less critical columns */
-    #screenerBody td:nth-child(5),
-    #screenerBody th:nth-child(5),
-    #screenerBody td:nth-child(6),
-    #screenerBody th:nth-child(6) { display: none; }
+    /* Screener: hide Shares and Price on medium screens using classes */
+    .scr-col-shares, .scr-col-price { display: none; }
 
     /* Analysis cards: 2 columns instead of 3+ */
     .analysis-tool-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important; }
