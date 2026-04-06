@@ -560,7 +560,17 @@ async function processBatch(filings, label) {
   const checkSeen   = db.prepare('SELECT 1 FROM seen_filings WHERE accession=? LIMIT 1');
   const markSeen    = db.prepare('INSERT OR IGNORE INTO seen_filings (accession) VALUES (?)');
 
-  const newFilings = filings.filter(f => !checkTrades.get(f.accession) && !checkSeen.get(f.accession));
+  // For recent filings (last 10 days), only skip if already in trades DB.
+  // Don't use seen_filings to block recent ones — a filing may have failed to parse
+  // on first attempt and should be retried until it lands in the DB.
+  const tenDaysAgo = new Date(); tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+  const tenDaysAgoStr = tenDaysAgo.toISOString().slice(0, 10);
+  const newFilings = filings.filter(f => {
+    if (checkTrades.get(f.accession)) return false; // already in DB, skip
+    const isRecent = (f.filingDate || '') >= tenDaysAgoStr;
+    if (isRecent) return true; // always retry recent filings not yet in DB
+    return !checkSeen.get(f.accession); // older: respect seen_filings cache
+  });
   const skipped = filings.length - newFilings.length;
   if (skipped > 0) log(`${label}: skipping ${skipped} already-processed, fetching ${newFilings.length} new`);
   if (!newFilings.length) { log(`${label}: nothing new to process`); return 0; }
@@ -754,14 +764,17 @@ async function main() {
     run();
   }
 
-  // Noon ET poll (16:00 UTC)
-  scheduleDailyAt(16, 0, 'Noon ET RSS poll', runRSSPoll);
+  // 10:00am ET poll — mid-morning session (14:00 UTC)
+  scheduleDailyAt(14, 0, '10am ET RSS poll', runRSSPoll);
+
+  // 1:00pm ET poll — midday session (17:00 UTC)
+  scheduleDailyAt(17, 0, '1pm ET RSS poll', runRSSPoll);
 
   // 4:15pm ET poll — 15min after market close (20:15 UTC)
   scheduleDailyAt(20, 15, '4:15pm ET RSS poll', runRSSPoll);
 
   // 3:00am ET overnight backfill (07:00 UTC) — runs every day incl. weekends
-  scheduleDailyAt(7, 0, '3am ET overnight backfill', () => runBackfill(2));
+  scheduleDailyAt(7, 0, '3am ET overnight backfill', () => runBackfill(7));
 
   // Initial poll 2 minutes after startup so site is fully responsive first
   log('Initial RSS poll delayed 2min to allow site to load...');
