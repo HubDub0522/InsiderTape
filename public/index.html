@@ -470,29 +470,31 @@
       align-items: center; position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     }
     .logo { font-size: 18px; letter-spacing: 1px; order: 0; flex-shrink: 0; }
-    /* Nav: all tabs on ONE line, no wrapping — shrink text to fit */
+    /* Nav: all tabs on ONE line, no wrapping */
     .nav-tabs {
       order: 2; width: 100%; margin-left: 0; gap: 2px;
       flex-wrap: nowrap; justify-content: flex-start;
       overflow: visible; max-width: 100%;
     }
     .nav-tab {
-      padding: 4px 5px; font-size: 8px; white-space: nowrap;
+      padding: 4px 6px; font-size: 10px; white-space: nowrap;
       flex-shrink: 1; min-width: 0; letter-spacing: 0;
     }
     /* Members Area button same size as other tabs */
     .nav-dropdown-btn {
-      padding: 4px 5px !important; font-size: 8px !important;
+      padding: 4px 6px !important; font-size: 10px !important;
       white-space: nowrap; letter-spacing: 0;
       border: 1px solid var(--border) !important;
     }
     .nav-dropdown-btn svg { width: 8px; height: 8px; }
-    /* Dropdown menu appears below the nav row, not overlapping filter bar */
+    /* Dropdown menu appears below nav row, above filter bar */
     .nav-dropdown-menu { top: calc(100% + 2px); min-width: 120px; z-index: 400; }
     #authHeaderBtn { order: 1; margin-left: auto; flex-shrink: 0; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
     #authHeaderBtn { order: 1; flex-shrink: 0; }
-    main { padding-top: 100px; }
+    main { padding-top: 110px; }
+    /* Small padding so filter bar isn't covered by fixed header */
+    #mobFilterToggle { margin-top: 4px; }
 
     /* ── Global: no horizontal overflow ── */
     main > .view { overflow-x: clip; }
@@ -548,33 +550,21 @@
     /* Mobile screener: show Date(1) Ticker(2) Insider(3) Type(4) Value(7)
        hide-mobile class already hides Shares(5) Price(6) Owned(8)
        Remove the bad nth-child overrides that were hiding Type and Value */
-    /* Screener table mobile — show ONLY: ► · Date · Ticker · Type · Value
-       Col order: 1=► 2=Date 3=Ticker 4=Insider 5=Type 6=Shares 7=Price 8=Value
-       IMPORTANT: use width:0 not display:none for hidden cols — display:none on
-       a <td> in a fixed-layout table leaves ghost space that collapses visible cols */
-    #screenerTable { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
-    #screenerTable td, #screenerTable th { padding: 6px 3px; font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    /* ► col */
-    #screenerTable th:nth-child(1), #screenerTable td:nth-child(1) { width: 20px; padding: 6px 2px; }
-    /* Date col */
-    #screenerTable th:nth-child(2), #screenerTable td:nth-child(2) { width: 23%; }
-    /* Ticker col */
-    #screenerTable th:nth-child(3), #screenerTable td:nth-child(3) { width: 16%; }
-    /* Insider col — zero width, hidden */
-    #screenerTable th:nth-child(4), #screenerTable td:nth-child(4) { width: 0 !important; padding: 0 !important; overflow: hidden !important; border: none !important; }
-    /* Type col */
-    #screenerTable th:nth-child(5), #screenerTable td:nth-child(5) { width: 28%; }
-    #screenerTable td:nth-child(5) .badge { font-size: 9px !important; padding: 2px 5px !important; display: inline-block !important; }
-    /* Shares + Price cols — zero width hidden */
-    #screenerTable th:nth-child(6), #screenerTable td:nth-child(6),
-    #screenerTable th:nth-child(7), #screenerTable td:nth-child(7) { width: 0 !important; padding: 0 !important; overflow: hidden !important; border: none !important; }
-    /* Value col — remaining space, right-aligned */
-    #screenerTable th:nth-child(8), #screenerTable td:nth-child(8) { width: 33%; text-align: right; padding-right: 6px; }
-    /* Hide the filed: secondary date line */
-    #screenerBody td:nth-child(2) span:nth-child(2) { display: none !important; }
-    /* SEC link in dropdown — large tap target */
+    /* Screener table mobile — class-based targeting (no nth-child fragility)
+       Show: ► · Date · Ticker · Type · Value   Hide: Insider · Shares · Price */
+    #screenerTable { min-width: 0 !important; width: 100% !important; table-layout: auto !important; }
+    #screenerTable td, #screenerTable th { padding: 6px 4px; font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .scr-col-date   { width: 22%; }
+    .scr-col-ticker { width: 15%; }
+    .scr-col-insider { display: none !important; }
+    .scr-col-type   { width: 25%; }
+    .scr-col-type .badge { font-size: 9px !important; padding: 2px 5px !important; display: inline-block !important; }
+    .scr-col-value  { width: 24%; text-align: right; padding-right: 6px; }
+    /* Hide filed: line in date cell */
+    .scr-col-date span:nth-child(2) { display: none !important; }
+    /* SEC link in dropdown */
     #screenerBody .scr-detail-sec a { display: inline-block !important; padding: 8px 0; font-size: 13px; }
-    /* Insider cell in dropdown — spans full width */
+    /* Insider in dropdown — full width */
     #screenerBody .scr-mob-insider { grid-column: 1 / -1; padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
     #screenerBody .scr-mob-insider .insider-name-link { font-size: 14px !important; }
     /* Detail grid: 2 cols */
@@ -964,13 +954,13 @@
           <thead>
             <tr>
               <th style="width:28px"></th>
-              <th onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
-              <th onclick="sortTable('ticker')">TICKER <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('insider')">INSIDER <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('type')">TYPE <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('shares')" class="hide-mobile">SHARES <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('price')" class="hide-mobile" title="Price per share as reported on SEC Form 4 — reflects the actual execution price on the transaction date, not the current market price"><span style="border-bottom:1px dashed var(--muted);cursor:help">PRICE</span> <span class="sort-arrow">↕</span></th>
-              <th onclick="sortTable('value')">VALUE <span class="sort-arrow">↕</span></th>
+              <th class="scr-col-date" onclick="sortTable('trade')" class="sorted">TRADE DATE <span class="sort-arrow">↓</span></th>
+              <th class="scr-col-ticker" onclick="sortTable('ticker')">TICKER <span class="sort-arrow">↕</span></th>
+              <th class="scr-col-insider" onclick="sortTable('insider')">INSIDER <span class="sort-arrow">↕</span></th>
+              <th class="scr-col-type" onclick="sortTable('type')">TYPE <span class="sort-arrow">↕</span></th>
+              <th class="scr-col-shares hide-mobile" onclick="sortTable('shares')">SHARES <span class="sort-arrow">↕</span></th>
+              <th class="scr-col-price hide-mobile" onclick="sortTable('price')" title="Price per share as reported on SEC Form 4 — reflects the actual execution price on the transaction date, not the current market price"><span style="border-bottom:1px dashed var(--muted);cursor:help">PRICE</span> <span class="sort-arrow">↕</span></th>
+              <th class="scr-col-value" onclick="sortTable('value')">VALUE <span class="sort-arrow">↕</span></th>
               <th style="width:28px"></th>
             </tr>
           </thead>
@@ -1817,13 +1807,13 @@ function renderScreener() {
     return `
     <tr id="${srid}" style="cursor:pointer" onclick="(function(){if(event.target.closest('.insider-name-link')||event.target.closest('a'))return;var d=document.getElementById('${srid}d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#${srid} .sra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();})()">
       <td style="width:28px;text-align:center"><span class="sra" style="display:inline-block;color:var(--muted);font-size:10px;transition:transform .15s">&#9658;</span></td>
-      <td><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
-      <td class="ticker-cell" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
-      <td onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Inter\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
-      <td><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(154,110,0,0.1);border:1px solid rgba(154,110,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
-      <td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtShares(t.qty)}</td>
-      <td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
-      <td class="${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
+      <td class="scr-col-date"><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
+      <td class="ticker-cell scr-col-ticker" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
+      <td class="scr-col-insider" onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Inter\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
+      <td class="scr-col-type"><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(154,110,0,0.1);border:1px solid rgba(154,110,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
+      <td class="hide-mobile scr-col-shares" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtShares(t.qty)}</td>
+      <td class="hide-mobile scr-col-price" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
+      <td class="scr-col-value ${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
     </tr>${detailRow}`;
   }).join(''); } catch(e) { console.error('Screener render error:', e); }
   const pg = document.getElementById('pagination');
