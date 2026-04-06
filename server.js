@@ -1168,9 +1168,10 @@ let _srSignalsCacheTime = 0;
 const SR_SIGNALS_TTL = 30 * 60 * 1000; // 30 min cache
 
 function computeSRLevels(bars) {
-  const radius = Math.max(8, Math.floor(bars.length / 20));
-  const minSep = Math.floor(bars.length / 15); // ~3 weeks separation between touches
-  const tol    = 0.015; // 1.5% price tolerance for clustering
+  // MUST match chart overlay parameters exactly so signals line up with drawn levels
+  const radius = Math.max(8, Math.floor(bars.length / 20)); // ~12 bars on 1Y
+  const minSep = Math.floor(bars.length / 15);              // ~16 bars between touches
+  const tol    = 0.015;                                     // 1.5% price tolerance
 
   const pivots = [];
   for (let i = radius; i < bars.length - radius; i++) {
@@ -1206,7 +1207,7 @@ function computeSRLevels(bars) {
     }
     const avg = sep.reduce((s, p) => s + p.price, 0) / sep.length;
     return { level: avg, strength: sep.length };
-  }).filter(z => z.strength >= 3);
+  }).filter(z => z.strength >= 3); // 3 touches — matches chart overlay exactly
 }
 
 app.get('/api/sr-signals', async (req, res) => {
@@ -1287,8 +1288,9 @@ app.get('/api/sr-signals', async (req, res) => {
         const levels = computeSRLevels(srBars);
         if (!levels.length) continue;
 
-        // "Recent" = 20 trading days ago (~1 month) — did we cross a level since then?
-        const prevClose = bars[bars.length - 21]?.close;
+        // Look back up to 45 trading days (~2 months) for a recent cross
+        // This ensures we catch breakouts that happened a few weeks ago and are holding
+        const prevClose = bars[bars.length - 46]?.close;
         if (!prevClose) continue;
 
         for (const zone of levels) {
