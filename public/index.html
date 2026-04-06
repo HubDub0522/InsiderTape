@@ -1594,9 +1594,7 @@ async function loadScreener() {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
     }
-    console.log('[Screener] activeTypes:', [...state.activeTypes], 'trades before filter:', trades.length);
     if (state.activeTypes.size > 0) trades = trades.filter(t => state.activeTypes.has(t.type));
-    console.log('[Screener] trades after type filter:', trades.length);
     if (state.minVal > 0) trades = trades.filter(t => t.value >= state.minVal);
     if (state.activeRole && state.activeRole !== 'all') {
       trades = trades.filter(t => {
@@ -1780,7 +1778,7 @@ function renderScreener() {
   const tbody = document.getElementById('screenerBody');
   if (!page.length) { tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
   const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);
-  try { tbody.innerHTML = page.map(t => {
+  try { tbody.innerHTML = page.map((t,_rowIdx) => { try {
     if (t._isGov) {
       // Gov official row
       const isBuy = t.type === 'P';
@@ -1835,6 +1833,7 @@ function renderScreener() {
       <td class="hide-mobile scr-col-price" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
       <td class="scr-col-value ${t.type==='P'?'val-positive':t.type==='S'||t.type==='S-'?'val-negative':'val-neutral'}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmt(t.value)}</td>
     </tr>${detailRow}`;
+    } catch(_rowErr) { console.error('Row render error:', _rowIdx, t?.ticker, t?.insider, _rowErr); return `<tr><td colspan="9" style="color:var(--sell);padding:8px">Row error: ${_rowErr.message} (${t?.ticker} ${t?.insider})</td></tr>`; }
   }).join(''); } catch(e) { console.error('Screener render error:', e); tbody.innerHTML = `<tr><td colspan="9" style="padding:12px;color:var(--sell)">Render error: ${e.message}</td></tr>`; }
   const pg = document.getElementById('pagination');
   if (pages<=1){pg.innerHTML='';return;}
