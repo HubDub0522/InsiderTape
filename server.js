@@ -1221,7 +1221,7 @@ app.get('/api/sr-signals', async (req, res) => {
         SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
         MAX(trade_date) AS latest_date
       FROM trades
-      WHERE trade_date >= date('now','-30 days')
+      WHERE trade_date >= date('now','-14 days')
         AND TRIM(type) IN ('P','S','S-')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       GROUP BY ticker
@@ -2653,16 +2653,23 @@ function predictNextEarnings(ticker, buyDate) {
   const cached = _earningsCache[ticker];
   const src = (cached?.date) ? cached : estimateNextEarnings(buyDate);
   if (!src?.date) return null;
+  const today  = new Date();
   const buyDt  = new Date(buyDate + 'T12:00:00Z');
   const evtDt  = new Date(src.date + 'T12:00:00Z');
-  const daysTo = Math.round((evtDt - buyDt) / 86400000);
-  if (daysTo <= 0 || daysTo > 120) return null;
+  // daysTo from TODAY — earnings must still be in the future
+  const daysToFromToday = Math.round((evtDt - today) / 86400000);
+  // daysTo from BUY DATE — used for scoring proximity of the buy signal
+  const daysFromBuy = Math.round((evtDt - buyDt) / 86400000);
+  // Event must be upcoming (from today) and the buy must have been within 90 days before it
+  if (daysToFromToday < 0 || daysToFromToday > 120) return null;
+  if (daysFromBuy < 0 || daysFromBuy > 180) return null;
   return {
     date: src.date,
     type: 'QUARTERLY',
     label: src.confirmed ? '✓ Confirmed Earnings' : 'Est. Earnings',
     predicted: !src.confirmed,
     confirmed: src.confirmed || false,
+    daysToFromToday,
   };
 }
 
@@ -2719,9 +2726,10 @@ async function preComputeProximity() {
         const event = predictNextEarnings(row.ticker, row.buyDate);
         if (!event) return;
 
-        const buyDt  = new Date(row.buyDate + 'T12:00:00Z');
-        const evtDt  = new Date(event.date + 'T12:00:00Z');
-        const daysTo = Math.round((evtDt - buyDt) / 86400000);
+        // daysTo = days from TODAY to the event (must be upcoming)
+        const daysTo = event.daysToFromToday !== undefined
+          ? event.daysToFromToday
+          : Math.round((new Date(event.date + 'T12:00:00Z') - new Date()) / 86400000);
 
         if (daysTo < 0 || daysTo > 120) return;
 
