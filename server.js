@@ -1243,8 +1243,30 @@ app.get('/api/sr-signals', async (req, res) => {
           LIMIT 20
         `).all(row.ticker);
 
-        const recentBuys  = insiderTrades.filter(t => t.type === 'P');
-        const recentSells = insiderTrades.filter(t => t.type === 'S' || t.type === 'S-');
+        // Also include gov officials trading the same ticker
+        const govTrades = db.prepare(`
+          SELECT member AS insider, chamber AS title, transaction_type AS type,
+                 amount_range, transaction_date AS trade_date
+          FROM gov_trades
+          WHERE ticker = ?
+            AND transaction_date >= date('now','-30 days')
+            AND transaction_type IN ('P','S')
+          ORDER BY transaction_date DESC
+          LIMIT 20
+        `).all(row.ticker);
+
+        // Parse gov amount ranges into values
+        const parseAmt = s => {
+          if (!s) return 0;
+          const n = s.replace(/[$,]/g,'').match(/\d+/g);
+          return n ? parseInt(n[0]) : 0;
+        };
+        const govWithVal = govTrades.map(g => ({ ...g, value: parseAmt(g.amount_range) }));
+
+        const allBuys  = [...insiderTrades.filter(t => t.type === 'P'), ...govWithVal.filter(g => g.type === 'P')];
+        const allSells = [...insiderTrades.filter(t => t.type === 'S' || t.type === 'S-'), ...govWithVal.filter(g => g.type === 'S')];
+        const recentBuys  = allBuys;
+        const recentSells = allSells;
         const buyVal  = recentBuys.reduce((s,t)  => s + (t.value||0), 0);
         const sellVal = recentSells.reduce((s,t) => s + (t.value||0), 0);
 
@@ -1269,6 +1291,7 @@ app.get('/api/sr-signals', async (req, res) => {
               topInsider: recentBuys[0]?.insider || '',
               topTitle: recentBuys[0]?.title || '',
               latestTradeDate: recentBuys[0]?.trade_date || '',
+              hasGov: govWithVal.some(g => g.type === 'P'),
             });
             break; // one signal per ticker
           }
@@ -1290,6 +1313,7 @@ app.get('/api/sr-signals', async (req, res) => {
               topInsider: recentSells[0]?.insider || '',
               topTitle: recentSells[0]?.title || '',
               latestTradeDate: recentSells[0]?.trade_date || '',
+              hasGov: govWithVal.some(g => g.type === 'S'),
             });
             break; // one signal per ticker
           }
