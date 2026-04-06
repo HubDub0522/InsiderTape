@@ -1473,9 +1473,9 @@ function restoreFilters() {
         renderTickerFilterTags();
       }
     } catch(_) { state.tickerFilter = new Set(); }
-    if (saved.sortCol) { state.sortCol = saved.sortCol; state.sortDir = saved.sortDir ?? -1; }
-    // Always ensure date sort is descending — ascending would bury recent trades
-    if (state.sortCol === 'trade' && state.sortDir === 1) state.sortDir = -1;
+    // Restore sort col but always default to date descending — never trust saved sort direction
+    if (saved.sortCol) state.sortCol = saved.sortCol;
+    state.sortDir = -1; // always descending on load
   } catch(_) {}
 }
 
