@@ -200,7 +200,7 @@ const HONEYPOT_PATHS = [
 // ── Rate limit store ────────────────────────────────────────────
 const _rlStore = new Map();
 const HEAVY_PATHS = [
-  '/api/drift', '/api/proximity', '/api/scoreboard', '/api/firstbuys',
+  '/api/drift', '/api/proximity', '/api/scoreboard', '/api/firstbuys', '/api/sr-signals',
   '/api/insider-sentiment', '/api/insider-ratio',
 ];
 
@@ -682,7 +682,7 @@ app.get('/api/screener', (req, res) => {
     const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
     // Scale limit by window so every range returns a meaningfully different dataset.
     // 7d → 1000, 30d → 2000, 90d → 5000, 365d → 15000
-    const defaultLimit = days <= 7 ? 1000 : days <= 30 ? 2000 : days <= 90 ? 5000 : 15000;
+    const defaultLimit = days <= 7 ? 5000 : days <= 30 ? 10000 : days <= 90 ? 20000 : 50000;
     const limit = Math.min(parseInt(req.query.limit || String(defaultLimit)), 20000);
 
         let rows = db.prepare(`
@@ -697,9 +697,8 @@ app.get('/api/screener', (req, res) => {
         AND TRIM(type) IN ('P','S','S-')
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
-        AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
       GROUP BY ticker, insider, trade_date, type
-      ORDER BY trade_date DESC, filing_date DESC
+      ORDER BY trade_date DESC, value DESC
       LIMIT ?
     `).all(days, limit);
 
@@ -719,9 +718,8 @@ app.get('/api/screener', (req, res) => {
             AND TRIM(type) IN ('P','S','S-')
             AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
             AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
-            AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
           GROUP BY ticker, insider, trade_date, type
-          ORDER BY trade_date DESC, filing_date DESC
+          ORDER BY trade_date DESC, value DESC
           LIMIT ?
         `).all(maxDate, days, limit);
       }
@@ -1156,6 +1154,160 @@ app.get('/api/search', (req, res) => {
 // Uses window functions to find insiders whose most recent buy on a ticker
 // came after a long gap since their previous buy on that same ticker.
 const _firstBuysCache = new Map(); // key=mingap|lookback|limit → {d, t}
+
+
+// ── S/R BREAKOUT/BREAKDOWN SIGNALS ──────────────────────────────────────────
+// Same pivot+cluster algorithm as the chart overlay, run server-side.
+// Finds tickers where recent close crossed a key S/R level AND there is
+// recent insider activity confirming the move.
+let _srSignalsCache = null;
+let _srSignalsCacheTime = 0;
+const SR_SIGNALS_TTL = 30 * 60 * 1000; // 30 min cache
+
+function computeSRLevels(bars, radius, tol = 0.03) {
+  const allPivots = [];
+  for (let i = radius; i < bars.length - radius; i++) {
+    let isHigh = true, isLow = true;
+    for (let j = i - radius; j <= i + radius; j++) {
+      if (j === i) continue;
+      if (bars[j].high >= bars[i].high) isHigh = false;
+      if (bars[j].low  <= bars[i].low)  isLow  = false;
+    }
+    if (isHigh) allPivots.push(bars[i].high);
+    if (isLow)  allPivots.push(bars[i].low);
+  }
+  if (!allPivots.length) return [];
+  const sorted = [...allPivots].sort((a, b) => a - b);
+  const zones = [];
+  let grp = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    if ((sorted[i] - grp[0]) / grp[0] <= tol) {
+      grp.push(sorted[i]);
+    } else {
+      zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
+      grp = [sorted[i]];
+    }
+  }
+  zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
+  return zones.filter(z => z.strength >= 3);
+}
+
+app.get('/api/sr-signals', async (req, res) => {
+  if (_srSignalsCache && Date.now() - _srSignalsCacheTime < SR_SIGNALS_TTL) {
+    return res.json(_srSignalsCache);
+  }
+  try {
+    // Get top tickers by recent activity
+    const tickers = db.prepare(`
+      SELECT ticker, MAX(company) AS company,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+        MAX(trade_date) AS latest_date
+      FROM trades
+      WHERE trade_date >= date('now','-30 days')
+        AND TRIM(type) IN ('P','S','S-')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      GROUP BY ticker
+      HAVING (buy_val >= 50000 OR sell_val >= 50000)
+      ORDER BY (buy_val + sell_val) DESC
+      LIMIT 150
+    `).all();
+
+    const breakouts  = []; // broke above resistance + insider buys
+    const breakdowns = []; // broke below support + insider sells
+
+    for (const row of tickers) {
+      try {
+        const bars = getPC(row.ticker);
+        if (!bars || bars.length < 60) continue;
+
+        // Use last 6 months of bars for S/R calculation (matches 6M chart view)
+        const sixMo = bars.slice(-130);
+        const radius = Math.max(2, Math.floor(sixMo.length / 50));
+        const levels = computeSRLevels(sixMo, radius);
+        if (!levels.length) continue;
+
+        const recent = bars.slice(-5);  // last 5 bars
+        const prevClose = bars[bars.length - 6]?.close; // close before recent window
+        const latestClose = bars[bars.length - 1]?.close;
+        if (!prevClose || !latestClose) continue;
+
+        // Get insider trades in last 30 days for this ticker
+        const insiderTrades = db.prepare(`
+          SELECT insider, title, TRIM(type) AS type, value, trade_date, qty, price
+          FROM trades
+          WHERE ticker = ?
+            AND trade_date >= date('now','-30 days')
+            AND TRIM(type) IN ('P','S','S-')
+          ORDER BY trade_date DESC
+          LIMIT 20
+        `).all(row.ticker);
+
+        const recentBuys  = insiderTrades.filter(t => t.type === 'P');
+        const recentSells = insiderTrades.filter(t => t.type === 'S' || t.type === 'S-');
+        const buyVal  = recentBuys.reduce((s,t)  => s + (t.value||0), 0);
+        const sellVal = recentSells.reduce((s,t) => s + (t.value||0), 0);
+
+        for (const zone of levels) {
+          const lvl = zone.level;
+          const margin = lvl * 0.015; // 1.5% margin for "near" the level
+
+          // BREAKOUT: previous close was below level, recent close is above
+          const wasBelow = prevClose < lvl - margin;
+          const nowAbove = latestClose > lvl + margin * 0.3;
+          if (wasBelow && nowAbove && recentBuys.length >= 1 && buyVal >= 50000) {
+            breakouts.push({
+              ticker: row.ticker,
+              company: row.company,
+              level: +lvl.toFixed(2),
+              strength: zone.strength,
+              latestClose: +latestClose.toFixed(2),
+              prevClose: +prevClose.toFixed(2),
+              pctAbove: +(((latestClose - lvl) / lvl) * 100).toFixed(1),
+              buyVal,
+              buyCount: recentBuys.length,
+              topInsider: recentBuys[0]?.insider || '',
+              topTitle: recentBuys[0]?.title || '',
+              latestTradeDate: recentBuys[0]?.trade_date || '',
+            });
+            break; // one signal per ticker
+          }
+
+          // BREAKDOWN: previous close was above level, recent close is below
+          const wasAbove = prevClose > lvl + margin;
+          const nowBelow = latestClose < lvl - margin * 0.3;
+          if (wasAbove && nowBelow && recentSells.length >= 1 && sellVal >= 50000) {
+            breakdowns.push({
+              ticker: row.ticker,
+              company: row.company,
+              level: +lvl.toFixed(2),
+              strength: zone.strength,
+              latestClose: +latestClose.toFixed(2),
+              prevClose: +prevClose.toFixed(2),
+              pctBelow: +(((lvl - latestClose) / lvl) * 100).toFixed(1),
+              sellVal,
+              sellCount: recentSells.length,
+              topInsider: recentSells[0]?.insider || '',
+              topTitle: recentSells[0]?.title || '',
+              latestTradeDate: recentSells[0]?.trade_date || '',
+            });
+            break; // one signal per ticker
+          }
+        }
+      } catch(e) { /* skip this ticker */ }
+    }
+
+    // Sort by strength of level × insider conviction
+    breakouts.sort((a,b)  => (b.strength * Math.log1p(b.buyVal))  - (a.strength * Math.log1p(a.buyVal)));
+    breakdowns.sort((a,b) => (b.strength * Math.log1p(b.sellVal)) - (a.strength * Math.log1p(a.sellVal)));
+
+    _srSignalsCache = { breakouts, breakdowns };
+    _srSignalsCacheTime = Date.now();
+    res.json(_srSignalsCache);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.get('/api/firstbuys', (req, res) => {
   try {
@@ -3071,6 +3223,21 @@ function requireAdminSecret(req, res) {
 // POST /api/admin/sync — trigger a full historical sync (4 quarters)
 // ── F13 admin endpoints ───────────────────────────────────────────────────────
 
+
+app.get('/api/admin/backfill', async (req, res) => {
+  if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({error:'forbidden'});
+  const days = Math.min(parseInt(req.query.days||'7'), 30);
+  res.json({ ok: true, message: `Triggering backfill for last ${days} days...` });
+  try {
+    const { runBackfill } = require('./daily-worker');
+    if (typeof runBackfill === 'function') {
+      runBackfill(days).catch(e => slog('Admin backfill error: ' + e.message));
+    } else {
+      // daily-worker doesn't export — trigger via the runDaily function
+      runDaily(days);
+    }
+  } catch(e) { slog('Admin backfill trigger error: ' + e.message); }
+});
 
 app.get('/api/admin/scoreboard-refresh', (req, res) => {
   if (req.query.secret !== process.env.ADMIN_SECRET) return res.status(403).json({error:'forbidden'});
