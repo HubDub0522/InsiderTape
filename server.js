@@ -1225,13 +1225,7 @@ app.get('/api/sr-signals', async (req, res) => {
         const latestClose = bars[bars.length - 1]?.close;
         if (!latestClose) continue;
 
-        // Scan multiple timeframes — record which one triggered so the chart opens correctly
-        const timeframes = [
-          { key: '3M', sliceBars: 65,  lookbackBars: 10 },
-          { key: '6M', sliceBars: 130, lookbackBars: 15 },
-          { key: '1Y', sliceBars: 252, lookbackBars: 20 },
-          { key: '2Y', sliceBars: 504, lookbackBars: 30 },
-        ].filter(tf => bars.length >= tf.sliceBars + tf.lookbackBars);
+        // Always use 1Y bars for S/R — same levels regardless of timeframe
 
         // Get insider trades in last 30 days for this ticker
         const insiderTrades = db.prepare(`
@@ -1271,79 +1265,64 @@ app.get('/api/sr-signals', async (req, res) => {
         const buyVal  = recentBuys.reduce((s,t)  => s + (t.value||0), 0);
         const sellVal = recentSells.reduce((s,t) => s + (t.value||0), 0);
 
-        let tickerSignal = null;
+        // 1Y bars for S/R calc
+        const srBars = bars.slice(-252);
+        if (srBars.length < 20) continue;
+        const radius = Math.max(2, Math.floor(srBars.length / 50));
+        const levels = computeSRLevels(srBars, radius);
+        if (!levels.length) continue;
 
-        for (const tf of timeframes) {
-          if (tickerSignal) break;
-          // Use the full timeframe window for S/R calculation
-          const tfBars = bars.slice(-tf.sliceBars);
-          const radius = Math.max(2, Math.floor(tfBars.length / 50));
-          const levels = computeSRLevels(tfBars, radius);
-          if (!levels.length) continue;
+        // "Recent" = 20 trading days ago (~1 month) — did we cross a level since then?
+        const prevClose = bars[bars.length - 21]?.close;
+        if (!prevClose) continue;
 
-          // Compare close from lookbackBars ago vs today's close
-          const prevBar = bars[bars.length - tf.lookbackBars - 1];
-          const prevClose = prevBar?.close;
-          if (!prevClose) continue;
+        for (const zone of levels) {
+          const lvl = zone.level;
+          const margin = lvl * 0.025;
 
-          for (const zone of levels) {
-            const lvl = zone.level;
-            const margin = lvl * 0.025; // 2.5% margin — generous to catch recent crosses
-
-            // BREAKOUT: was below level lookback bars ago, now at or above it
-            if (prevClose < lvl - margin * 0.3 &&
-                latestClose >= lvl - margin &&
-                recentBuys.length >= 1) {
-              tickerSignal = { type: 'breakout', zone, lvl, prevClose, tf: tf.key };
-              break;
-            }
-
-            // BREAKDOWN: was above level lookback bars ago, now at or below it
-            if (prevClose > lvl + margin * 0.3 &&
-                latestClose <= lvl + margin &&
-                recentSells.length >= 1) {
-              tickerSignal = { type: 'breakdown', zone, lvl, prevClose, tf: tf.key };
-              break;
-            }
+          // BREAKOUT: was below level 20 bars ago AND still above it today
+          if (prevClose < lvl &&
+              latestClose > lvl &&        // still above — not a fake-out
+              recentBuys.length >= 1) {
+            breakouts.push({
+              ticker: row.ticker,
+              company: row.company,
+              level: +lvl.toFixed(2),
+              strength: zone.strength,
+              latestClose: +latestClose.toFixed(2),
+              prevClose: +prevClose.toFixed(2),
+              pctAbove: +(((latestClose - lvl) / lvl) * 100).toFixed(1),
+              buyVal,
+              buyCount: recentBuys.length,
+              topInsider: recentBuys[0]?.insider || '',
+              topTitle: recentBuys[0]?.title || '',
+              latestTradeDate: recentBuys[0]?.trade_date || '',
+              hasGov: govWithVal.some(g => g.type === 'P'),
+            });
+            break; // one signal per ticker
           }
-        }
 
-        if (!tickerSignal) continue;
-
-        if (tickerSignal.type === 'breakout') {
-          breakouts.push({
-            ticker: row.ticker,
-            company: row.company,
-            level: +tickerSignal.lvl.toFixed(2),
-            strength: tickerSignal.zone.strength,
-            timeframe: tickerSignal.tf,
-            latestClose: +latestClose.toFixed(2),
-            prevClose: +tickerSignal.prevClose.toFixed(2),
-            pctAbove: +(((latestClose - tickerSignal.lvl) / tickerSignal.lvl) * 100).toFixed(1),
-            buyVal,
-            buyCount: recentBuys.length,
-            topInsider: recentBuys[0]?.insider || '',
-            topTitle: recentBuys[0]?.title || '',
-            latestTradeDate: recentBuys[0]?.trade_date || '',
-            hasGov: govWithVal.some(g => g.type === 'P'),
-          });
-        } else {
-          breakdowns.push({
-            ticker: row.ticker,
-            company: row.company,
-            level: +tickerSignal.lvl.toFixed(2),
-            strength: tickerSignal.zone.strength,
-            timeframe: tickerSignal.tf,
-            latestClose: +latestClose.toFixed(2),
-            prevClose: +tickerSignal.prevClose.toFixed(2),
-            pctBelow: +(((tickerSignal.lvl - latestClose) / tickerSignal.lvl) * 100).toFixed(1),
-            sellVal,
-            sellCount: recentSells.length,
-            topInsider: recentSells[0]?.insider || '',
-            topTitle: recentSells[0]?.title || '',
-            latestTradeDate: recentSells[0]?.trade_date || '',
-            hasGov: govWithVal.some(g => g.type === 'S'),
-          });
+          // BREAKDOWN: was above level 20 bars ago AND still below it today
+          if (prevClose > lvl &&
+              latestClose < lvl &&        // still below — confirmed breakdown
+              recentSells.length >= 1) {
+            breakdowns.push({
+              ticker: row.ticker,
+              company: row.company,
+              level: +lvl.toFixed(2),
+              strength: zone.strength,
+              latestClose: +latestClose.toFixed(2),
+              prevClose: +prevClose.toFixed(2),
+              pctBelow: +(((lvl - latestClose) / lvl) * 100).toFixed(1),
+              sellVal,
+              sellCount: recentSells.length,
+              topInsider: recentSells[0]?.insider || '',
+              topTitle: recentSells[0]?.title || '',
+              latestTradeDate: recentSells[0]?.trade_date || '',
+              hasGov: govWithVal.some(g => g.type === 'S'),
+            });
+            break; // one signal per ticker
+          }
         }
       } catch(e) { /* skip this ticker */ }
     }
