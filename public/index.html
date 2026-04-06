@@ -4739,98 +4739,6 @@ function renderSentimentChart(el, insider, spx, thresholds, isPrem=false) {
              : lastVal <= p25 ? {label:'DEPRESSED',     color:'#22c55e'}
              :                  {label:'NEUTRAL',       color:'#4a6580'};
 
-  // ── Divergence detection ────────────────────────────────────────────────────
-  // Classic RSI-style divergence ON THE INDICATOR ITSELF:
-  // Bearish: indicator makes lower high while S&P makes higher high
-  // Bullish: indicator makes higher low while S&P makes lower low
-  // Lines are drawn on the INDICATOR panel only, connecting the two pivots
-
-  function findPivots(vals, radius=3) {
-    const peaks = [], troughs = [];
-    for (let i = radius; i < vals.length - radius; i++) {
-      if (vals[i] == null) continue;
-      let isPeak = true, isTrough = true;
-      for (let j = i - radius; j <= i + radius; j++) {
-        if (j === i || vals[j] == null) continue;
-        if (vals[j] >= vals[i]) isPeak = false;
-        if (vals[j] <= vals[i]) isTrough = false;
-      }
-      if (isPeak)   peaks.push(i);
-      if (isTrough) troughs.push(i);
-    }
-    return { peaks, troughs };
-  }
-
-  const spxValsForDiv = dates.map(d => spxMap[d] ? spxMap[d].close : null);
-  const indValsForDiv = insider.map(d => d.smoothedBuyPct);
-  const { peaks: indPeaks, troughs: indTroughs } = findPivots(indValsForDiv, 3);
-
-  const divergences = [];
-
-  // Bearish: consecutive indicator peaks — second peak LOWER than first
-  // but S&P is HIGHER at the same time → insiders getting less bullish at higher prices
-  for (let a = 0; a < indPeaks.length - 1; a++) {
-    const iA = indPeaks[a];
-    const iB = indPeaks[a + 1];
-    if (iB - iA < 3) continue; // at least 3 months apart
-    const indA = indValsForDiv[iA], indB = indValsForDiv[iB];
-    const spxA = spxValsForDiv[iA],  spxB = spxValsForDiv[iB];
-    if (spxA == null || spxB == null) continue;
-    // Indicator lower high + S&P higher = bearish divergence
-    if (indB < indA * 0.96 && spxB >= spxA * 0.98) {
-      divergences.push({ type: 'bearish', iA, iB,
-        indA: [xCoord(iA), yInd(indA)], indB: [xCoord(iB), yInd(indB)],
-        spxA: [xCoord(iA), ySpx(spxA)], spxB: [xCoord(iB), ySpx(spxB)] });
-    }
-  }
-
-  // Bullish: consecutive indicator troughs — second trough HIGHER than first
-  // but S&P is LOWER at the same time → insiders getting more bullish at lower prices
-  for (let a = 0; a < indTroughs.length - 1; a++) {
-    const iA = indTroughs[a];
-    const iB = indTroughs[a + 1];
-    if (iB - iA < 3) continue;
-    const indA = indValsForDiv[iA], indB = indValsForDiv[iB];
-    const spxA = spxValsForDiv[iA],  spxB = spxValsForDiv[iB];
-    if (spxA == null || spxB == null) continue;
-    // Indicator higher low + S&P lower = bullish divergence
-    if (indB > indA * 1.04 && spxB <= spxA * 1.02) {
-      divergences.push({ type: 'bullish', iA, iB,
-        indA: [xCoord(iA), yInd(indA)], indB: [xCoord(iB), yInd(indB)],
-        spxA: [xCoord(iA), ySpx(spxA)], spxB: [xCoord(iB), ySpx(spxB)] });
-    }
-  }
-
-  // Draw: line on indicator panel + matching line on S&P panel + dots + label
-  const divergenceSvg = divergences.map(d => {
-    const col = d.type === 'bearish' ? '#ff4466' : '#00ff88';
-    const r   = 3.5;
-
-    // Indicator panel line
-    const indLine = `<line x1="${d.indA[0].toFixed(1)}" y1="${d.indA[1].toFixed(1)}"
-      x2="${d.indB[0].toFixed(1)}" y2="${d.indB[1].toFixed(1)}"
-      stroke="${col}" stroke-width="2" stroke-dasharray="5,3" opacity="0.85"/>`;
-    // S&P panel line (shows where in price these divergence pivots land)
-    const spxLine = `<line x1="${d.spxA[0].toFixed(1)}" y1="${d.spxA[1].toFixed(1)}"
-      x2="${d.spxB[0].toFixed(1)}" y2="${d.spxB[1].toFixed(1)}"
-      stroke="${col}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>`;
-    // Dots on both panels
-    const dots = [
-      `<circle cx="${d.indA[0].toFixed(1)}" cy="${d.indA[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.85"/>`,
-      `<circle cx="${d.indB[0].toFixed(1)}" cy="${d.indB[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.85"/>`,
-      `<circle cx="${d.spxA[0].toFixed(1)}" cy="${d.spxA[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.6"/>`,
-      `<circle cx="${d.spxB[0].toFixed(1)}" cy="${d.spxB[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.6"/>`,
-    ].join('');
-    // Label above the indicator line midpoint
-    const midX = ((d.indA[0] + d.indB[0]) / 2).toFixed(1);
-    const midY = (Math.min(d.indA[1], d.indB[1]) - 8).toFixed(1);
-    const label = d.type === 'bearish' ? 'BEAR DIV' : 'BULL DIV';
-    const lbl = `<text x="${midX}" y="${midY}" fill="${col}" font-family="monospace"
-      font-size="7" text-anchor="middle" opacity="0.9" letter-spacing="0.5">${label}</text>`;
-
-    return indLine + spxLine + dots + lbl;
-  }).join('');
-
   el.innerHTML = `
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap">
@@ -4865,7 +4773,6 @@ function renderSentimentChart(el, insider, spx, thresholds, isPrem=false) {
           <text x="${PAD.left}" y="${indTop - 6}" fill="#8fb0c8" font-family="monospace" font-size="8" letter-spacing="1.5">INSIDER BUY %</text>
           ${isPrem ? threshLines + medianLine + bars : ''}
           ${xLabels}
-          ${isPrem ? divergenceSvg : ''}
         </svg>
 
         ${!isPrem ? `
