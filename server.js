@@ -1165,8 +1165,12 @@ let _srSignalsCache = null;
 let _srSignalsCacheTime = 0;
 const SR_SIGNALS_TTL = 30 * 60 * 1000; // 30 min cache
 
-function computeSRLevels(bars, radius, tol = 0.03) {
-  const allPivots = [];
+function computeSRLevels(bars) {
+  const radius = Math.max(8, Math.floor(bars.length / 20));
+  const minSep = Math.floor(bars.length / 15); // ~3 weeks separation between touches
+  const tol    = 0.015; // 1.5% price tolerance for clustering
+
+  const pivots = [];
   for (let i = radius; i < bars.length - radius; i++) {
     let isHigh = true, isLow = true;
     for (let j = i - radius; j <= i + radius; j++) {
@@ -1174,23 +1178,33 @@ function computeSRLevels(bars, radius, tol = 0.03) {
       if (bars[j].high >= bars[i].high) isHigh = false;
       if (bars[j].low  <= bars[i].low)  isLow  = false;
     }
-    if (isHigh) allPivots.push(bars[i].high);
-    if (isLow)  allPivots.push(bars[i].low);
+    if (isHigh) pivots.push({ price: bars[i].high, idx: i });
+    if (isLow)  pivots.push({ price: bars[i].low,  idx: i });
   }
-  if (!allPivots.length) return [];
-  const sorted = [...allPivots].sort((a, b) => a - b);
-  const zones = [];
+  if (!pivots.length) return [];
+
+  const sorted = [...pivots].sort((a, b) => a.price - b.price);
+  const rawZones = [];
   let grp = [sorted[0]];
   for (let i = 1; i < sorted.length; i++) {
-    if ((sorted[i] - grp[0]) / grp[0] <= tol) {
+    if ((sorted[i].price - grp[0].price) / grp[0].price <= tol) {
       grp.push(sorted[i]);
     } else {
-      zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
+      rawZones.push(grp);
       grp = [sorted[i]];
     }
   }
-  zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
-  return zones.filter(z => z.strength >= 3);
+  rawZones.push(grp);
+
+  return rawZones.map(grp => {
+    const byIdx = [...grp].sort((a, b) => a.idx - b.idx);
+    const sep = [byIdx[0]];
+    for (let i = 1; i < byIdx.length; i++) {
+      if (byIdx[i].idx - sep[sep.length - 1].idx >= minSep) sep.push(byIdx[i]);
+    }
+    const avg = sep.reduce((s, p) => s + p.price, 0) / sep.length;
+    return { level: avg, strength: sep.length };
+  }).filter(z => z.strength >= 3);
 }
 
 app.get('/api/sr-signals', async (req, res) => {
@@ -1267,9 +1281,8 @@ app.get('/api/sr-signals', async (req, res) => {
 
         // 1Y bars for S/R calc
         const srBars = bars.slice(-252);
-        if (srBars.length < 20) continue;
-        const radius = Math.max(2, Math.floor(srBars.length / 50));
-        const levels = computeSRLevels(srBars, radius);
+        if (srBars.length < 30) continue;
+        const levels = computeSRLevels(srBars);
         if (!levels.length) continue;
 
         // "Recent" = 20 trading days ago (~1 month) — did we cross a level since then?
