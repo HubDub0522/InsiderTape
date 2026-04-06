@@ -2697,6 +2697,21 @@ async function loadStockView(ticker, opts={}) {
     if (cc) cc.innerHTML = ''; // clear spinner
     await buildChart(priceData, insiderData, state.govData || []);
 
+    // Apply requested range and S/R state — runs after buildChart's own setTimeout(60ms)
+    if (opts.rangeDays || opts.srEnabled) {
+      const _initDays = opts.rangeDays || 365;
+      const _initSR   = !!opts.srEnabled;
+      setTimeout(() => {
+        const _btn = Array.from(document.querySelectorAll('.tf-btn:not(.cf-btn):not(.ct-btn)')).find(b => {
+          const map = {'1M':30,'3M':90,'6M':180,'1Y':365,'2Y':730,'3Y':1095,'5Y':1825,'10Y':3650,'MAX':9999};
+          return map[b.textContent.trim()] === _initDays;
+        }) || document.querySelector('.tf-btn.active:not(.cf-btn)');
+        if (_btn) setRange(_initDays, _btn);
+        if (_initSR && !_srEnabled) { const b = document.getElementById('srToggleBtn'); if (b) toggleSR(b); }
+        else if (!_initSR && _srEnabled) { const b = document.getElementById('srToggleBtn'); if (b) toggleSR(b); }
+      }, 200);
+    }
+
     // Update stat bar and price header with real price data
     const last    = priceData[priceData.length-1];
     const prev    = priceData[priceData.length-2];
