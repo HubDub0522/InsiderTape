@@ -3069,7 +3069,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
         else { zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length }); grp = [sorted[i]]; }
       }
       zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
-      return zones.filter(z => z.strength >= 2);
+      return zones.filter(z => z.strength >= 3);
     }
 
     function drawLine(level, color, strength) {
