@@ -6069,9 +6069,10 @@ function renderSRSignalsSubpage(id, opts={}) {
 
   const rows = signals.map(r => {
     const dir   = isBreakout ? `+${r.pctAbove}% above` : `-${r.pctBelow}% below`;
+    const govBadge = r.hasGov ? ' <span style="font-size:9px;padding:1px 5px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.35);border-radius:3px;color:#00d4ff;font-family:Inter,monospace">🏛 GOV</span>' : '';
     const insiderLine = isBreakout
-      ? `${r.buyCount} insider buy${r.buyCount>1?'s':''} · ${fmt(r.buyVal)}`
-      : `${r.sellCount} insider sell${r.sellCount>1?'s':''} · ${fmt(r.sellVal)}`;
+      ? `${r.buyCount} buyer${r.buyCount>1?'s':''} · ${fmt(r.buyVal)}${govBadge}`
+      : `${r.sellCount} seller${r.sellCount>1?'s':''} · ${fmt(r.sellVal)}${govBadge}`;
     const nameShort = (r.topInsider||'').split(' ').slice(-1)[0];
     const strengthLabel = r.strength >= 6 ? 'STRONG' : r.strength >= 4 ? 'MODERATE' : 'DEVELOPING';
     const strengthColor = r.strength >= 6 ? 'var(--buy)' : r.strength >= 4 ? 'var(--option)' : 'var(--muted)';
