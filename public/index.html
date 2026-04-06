@@ -1727,7 +1727,7 @@ function renderConvictionCards(trades) {
     const scoreColor  = c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)';
     const scoreBg     = c.score >= 80 ? 'rgba(0,255,136,0.08)' : c.score >= 60 ? 'rgba(0,212,255,0.08)' : 'rgba(154,110,0,0.08)';
     const scoreBorder = c.score >= 80 ? 'rgba(0,255,136,0.25)' : c.score >= 60 ? 'rgba(0,212,255,0.2)' : 'rgba(154,110,0,0.2)';
-    return `<div class="conviction-card" onclick="openTickerFromScreener('${c.ticker}')">
+    return `<div class="conviction-card" onclick="openTickerFromScreener('${c.ticker}',{rangeDays:365,srEnabled:false})">
       <div class="conviction-card-header">
         <div><div class="conviction-ticker">${c.ticker}</div><div class="conviction-company">${c.company}</div></div>
         <div class="conviction-score-badge" style="background:${scoreBg};border-color:${scoreBorder}">
@@ -1867,12 +1867,12 @@ function sortTable(col) {
   });
   renderScreener();
 }
-function openTickerFromScreener(ticker) {
+function openTickerFromScreener(ticker, opts={}) {
   window.scrollTo(0, 0);
   _suppressSuggest = true;
   document.getElementById('tickerInput').value = ticker;
   setTimeout(() => { _suppressSuggest = false; }, 300);
-  loadStockView(ticker);
+  loadStockView(ticker, opts);
 }
 
 
@@ -2040,7 +2040,7 @@ function proxFilter(type) {
     const badges = [];
     if (r.isAbnormal) badges.push(`<span style="font-size:9px;background:rgba(255,68,102,0.15);color:var(--sell);border:1px solid rgba(255,68,102,0.35);border-radius:3px;padding:2px 7px;font-weight:700">⚠ ABNORMAL</span>`);
     if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(154,110,0,0.1);color:var(--option);border:1px solid rgba(154,110,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT</span>`);
-    return `<div onclick="openTickerFromScreener('${r.ticker}')" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
+    return `<div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
       <div style="height:3px;background:rgba(255,255,255,0.05)"><div style="height:100%;width:${r.score}%;background:${scoreColor};opacity:0.75"></div></div>
       <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:13px 16px 8px;gap:10px">
         <div style="flex:1;min-width:0">
@@ -2192,7 +2192,7 @@ function _renderProximityResults(body, backBtn, results) {
     if (r.repeatPattern) badges.push(`<span style="font-size:9px;background:rgba(154,110,0,0.1);color:var(--option);border:1px solid rgba(154,110,0,0.25);border-radius:3px;padding:2px 7px">🔁 REPEAT PATTERN</span>`);
 
     return `
-    <div onclick="openTickerFromScreener('${r.ticker}')"
+    <div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})"
          style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
          onmouseover="this.style.borderColor='${scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'">
 
@@ -2868,8 +2868,23 @@ async function buildChart(priceData, trades, govData=[]) {
     });
   });
 
-  // Initialise stat bar to match the active 1Y range button
-  setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
+  // Initialise stat bar — use opts.rangeDays if provided, else default 1Y
+  const _initDays = opts.rangeDays || 365;
+  const _initSR   = opts.srEnabled || false;
+  setTimeout(() => {
+    const _btn = Array.from(document.querySelectorAll('.tf-btn:not(.cf-btn):not(.ct-btn)')).find(b => {
+      const map = {'1M':30,'3M':90,'6M':180,'1Y':365,'2Y':730,'3Y':1095,'5Y':1825,'10Y':3650,'MAX':9999};
+      return map[b.textContent.trim()] === _initDays;
+    }) || document.querySelector('.tf-btn.active:not(.cf-btn)');
+    setRange(_initDays, _btn);
+    if (_initSR && !_srEnabled) {
+      const srBtn = document.getElementById('srToggleBtn');
+      if (srBtn) toggleSR(srBtn);
+    } else if (!_initSR && _srEnabled) {
+      const srBtn = document.getElementById('srToggleBtn');
+      if (srBtn) toggleSR(srBtn);
+    }
+  }, 80);
   // LightweightCharts handles its own resizing via autoSize
   // Sync our marker canvas width and redraw when container size changes
   new ResizeObserver(() => {
@@ -4502,7 +4517,7 @@ function buildScorerHTML(stats, tier, tierColor, followRec, timingEdge, scored, 
         }
         return `<div class="scorer-trade-row" style="${isPend?'opacity:.6':''}">
           <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted)">${s.tradeDate.slice(5)}</span>
-          <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent);font-size:11px;cursor:pointer" onclick="openTickerFromScreener('${s.ticker}')">${s.ticker}</span>
+          <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent);font-size:11px;cursor:pointer" onclick="openTickerFromScreener('${s.ticker}',{rangeDays:365,srEnabled:false})">${s.ticker}</span>
           <span style="font-size:11px;color:var(--muted)">@$${(s.buyPrice||0).toFixed(2)}</span>
           <span class="r30" style="color:${rc(s.ret30)}">${rs(s.ret30)}</span>
           <span class="r60" style="color:${rc(s.ret60)}">${rs(s.ret60)}</span>
@@ -6079,7 +6094,7 @@ function renderSRSignalsSubpage(id, opts={}) {
     const tfDays = {'3M':90,'6M':180,'1Y':365,'2Y':730};
     const chartDays = tfDays[r.timeframe||'6M'] || 180;
     const tfLabel = r.timeframe || '6M';
-    return `<div onclick="openTickerFromScreener('${r.ticker}');setTimeout(()=>{const btn=Array.from(document.querySelectorAll('.tf-btn')).find(b=>b.textContent==='${tfLabel}');if(btn)setRange(${chartDays},btn);},700);" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .15s"
+    return `<div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:${chartDays},srEnabled:true})" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;transition:border-color .15s"
       onmouseenter="this.style.borderColor='var(--border2)'" onmouseleave="this.style.borderColor='var(--border)'">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="display:flex;align-items:center;gap:8px">
@@ -6329,7 +6344,7 @@ function renderRegimeResults(results) {
           const scoreColor = r.score >= 70 ? 'var(--buy)' : r.score >= 60 ? '#b8940a' : 'var(--accent)';
           return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:16px 20px;cursor:pointer;transition:border-color .15s"
                        onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='${border}'"
-                       onclick="openTickerFromScreener('${r.ticker}')">
+                       onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})">
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
               <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
@@ -6964,7 +6979,7 @@ function renderRankerCard(r, idx) {
   return `
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
        onmouseover="this.style.borderColor='${r.scoreBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${r.ticker}')">
+       onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})">
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);gap:12px">
@@ -7267,7 +7282,7 @@ function renderExitWarningCard(w) {
   return `
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
        onmouseover="this.style.borderColor='${w.severityBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${w.ticker}')">
+       onclick="openTickerFromScreener('${w.ticker}',{rangeDays:365,srEnabled:false})">
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
@@ -7509,7 +7524,7 @@ function renderFirstBuyCard(s) {
   return `
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
        onmouseover="this.style.borderColor='${s.tierBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${s.ticker}')">
+       onclick="openTickerFromScreener('${s.ticker}',{rangeDays:365,srEnabled:false})">
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
@@ -7793,7 +7808,7 @@ function renderClusterCard(c) {
   return `
   <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
        onmouseover="this.style.borderColor='var(--border2)'" onmouseout="this.style.borderColor='var(--border)'"
-       onclick="openTickerFromScreener('${c.ticker}')">
+       onclick="openTickerFromScreener('${c.ticker}',{rangeDays:365,srEnabled:false})">
 
     <!-- Card header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
