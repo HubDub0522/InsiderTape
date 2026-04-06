@@ -4739,6 +4739,96 @@ function renderSentimentChart(el, insider, spx, thresholds, isPrem=false) {
              : lastVal <= p25 ? {label:'DEPRESSED',     color:'#22c55e'}
              :                  {label:'NEUTRAL',       color:'#4a6580'};
 
+  // ── Divergence detection ────────────────────────────────────────────────────
+  // Find local peaks/troughs on S&P, check if insider buy% diverges
+  // A divergence is meaningful only if the two pivot points are 3+ months apart
+  function findPivots(vals, radius=3) {
+    const peaks = [], troughs = [];
+    for (let i = radius; i < vals.length - radius; i++) {
+      if (vals[i] === null) continue;
+      let isPeak = true, isTrough = true;
+      for (let j = i - radius; j <= i + radius; j++) {
+        if (j === i || vals[j] === null) continue;
+        if (vals[j] >= vals[i]) isPeak = false;
+        if (vals[j] <= vals[i]) isTrough = false;
+      }
+      if (isPeak)   peaks.push(i);
+      if (isTrough) troughs.push(i);
+    }
+    return { peaks, troughs };
+  }
+
+  const spxForDiv  = dates.map(d => spxMap[d] ? spxMap[d].close : null);
+  const indForDiv  = insider.map(d => d.smoothedBuyPct);
+  const { peaks: spxPeaks, troughs: spxTroughs } = findPivots(spxForDiv, 4);
+  const { peaks: indPeaks, troughs: indTroughs }  = findPivots(indForDiv, 4);
+
+  const divergences = [];
+
+  // Bearish divergence: consecutive S&P peaks where spx[B] > spx[A] but ind[B] < ind[A]
+  for (let a = 0; a < spxPeaks.length - 1; a++) {
+    for (let b = a + 1; b < spxPeaks.length; b++) {
+      const iA = spxPeaks[a], iB = spxPeaks[b];
+      if (iB - iA < 4) continue; // need at least 4 months apart
+      const spxA = spxForDiv[iA], spxB = spxForDiv[iB];
+      // Find nearest insider peak to each SPX peak
+      const nearIndA = indPeaks.reduce((best, ip) => Math.abs(ip-iA) < Math.abs(best-iA) ? ip : best, indPeaks[0]);
+      const nearIndB = indPeaks.reduce((best, ip) => Math.abs(ip-iB) < Math.abs(best-iB) ? ip : best, indPeaks[0]);
+      if (!nearIndA || !nearIndB || nearIndA === nearIndB) continue;
+      const indA = indForDiv[nearIndA], indB = indForDiv[nearIndB];
+      if (spxB > spxA * 1.02 && indB < indA * 0.97) {
+        divergences.push({ type: 'bearish',
+          spxA: [xCoord(iA), ySpx(spxA)], spxB: [xCoord(iB), ySpx(spxB)],
+          indA: [xCoord(nearIndA), yInd(indA)], indB: [xCoord(nearIndB), yInd(indB)],
+          labelA: dates[iA].slice(0,7), labelB: dates[iB].slice(0,7) });
+        break; // one bearish div per peak pair
+      }
+    }
+  }
+
+  // Bullish divergence: consecutive S&P troughs where spx[B] < spx[A] but ind[B] > ind[A]
+  for (let a = 0; a < spxTroughs.length - 1; a++) {
+    for (let b = a + 1; b < spxTroughs.length; b++) {
+      const iA = spxTroughs[a], iB = spxTroughs[b];
+      if (iB - iA < 4) continue;
+      const spxA = spxForDiv[iA], spxB = spxForDiv[iB];
+      const nearIndA = indTroughs.reduce((best, ip) => Math.abs(ip-iA) < Math.abs(best-iA) ? ip : best, indTroughs[0] ?? iA);
+      const nearIndB = indTroughs.reduce((best, ip) => Math.abs(ip-iB) < Math.abs(best-iB) ? ip : best, indTroughs[0] ?? iB);
+      if (!nearIndA || !nearIndB || nearIndA === nearIndB) continue;
+      const indA = indForDiv[nearIndA], indB = indForDiv[nearIndB];
+      if (spxB < spxA * 0.98 && indB > indA * 1.03) {
+        divergences.push({ type: 'bullish',
+          spxA: [xCoord(iA), ySpx(spxA)], spxB: [xCoord(iB), ySpx(spxB)],
+          indA: [xCoord(nearIndA), yInd(indA)], indB: [xCoord(nearIndB), yInd(indB)],
+          labelA: dates[iA].slice(0,7), labelB: dates[iB].slice(0,7) });
+        break;
+      }
+    }
+  }
+
+  // Build SVG elements for each divergence
+  const divergenceSvg = divergences.map(d => {
+    const col  = d.type === 'bearish' ? '#ff4466' : '#00ff88';
+    const dash = '5,3';
+    const r    = 4;
+    // Lines connecting the two pivots on each panel
+    const spxLine  = `<line x1="${d.spxA[0].toFixed(1)}" y1="${d.spxA[1].toFixed(1)}" x2="${d.spxB[0].toFixed(1)}" y2="${d.spxB[1].toFixed(1)}" stroke="${col}" stroke-width="1.5" stroke-dasharray="${dash}" opacity="0.8"/>`;
+    const indLine  = `<line x1="${d.indA[0].toFixed(1)}" y1="${d.indA[1].toFixed(1)}" x2="${d.indB[0].toFixed(1)}" y2="${d.indB[1].toFixed(1)}" stroke="${col}" stroke-width="1.5" stroke-dasharray="${dash}" opacity="0.8"/>`;
+    // Dots at pivot points
+    const dots = [
+      `<circle cx="${d.spxA[0].toFixed(1)}" cy="${d.spxA[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.7"/>`,
+      `<circle cx="${d.spxB[0].toFixed(1)}" cy="${d.spxB[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.7"/>`,
+      `<circle cx="${d.indA[0].toFixed(1)}" cy="${d.indA[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.7"/>`,
+      `<circle cx="${d.indB[0].toFixed(1)}" cy="${d.indB[1].toFixed(1)}" r="${r}" fill="${col}" opacity="0.7"/>`,
+    ].join('');
+    // Label on the SPX panel
+    const label = d.type === 'bearish' ? '⚠ BEARISH DIV' : '✓ BULLISH DIV';
+    const midX  = ((d.spxA[0] + d.spxB[0]) / 2).toFixed(1);
+    const midY  = (Math.min(d.spxA[1], d.spxB[1]) - 10).toFixed(1);
+    const lbl   = `<text x="${midX}" y="${midY}" fill="${col}" font-family="monospace" font-size="7.5" text-anchor="middle" opacity="0.9" letter-spacing="0.5">${label}</text>`;
+    return spxLine + indLine + dots + lbl;
+  }).join('');
+
   el.innerHTML = `
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px 24px">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap">
@@ -4773,6 +4863,7 @@ function renderSentimentChart(el, insider, spx, thresholds, isPrem=false) {
           <text x="${PAD.left}" y="${indTop - 6}" fill="#8fb0c8" font-family="monospace" font-size="8" letter-spacing="1.5">INSIDER BUY %</text>
           ${isPrem ? threshLines + medianLine + bars : ''}
           ${xLabels}
+          ${isPrem ? divergenceSvg : ''}
         </svg>
 
         ${!isPrem ? `
