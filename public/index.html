@@ -3088,8 +3088,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       ctx.restore();
     }
 
-    cluster(pivotHighs).forEach(z => drawLine(z.level, '#ff4466', z.strength));
-    cluster(pivotLows).forEach(z  => drawLine(z.level, '#00ff88', z.strength));
+    cluster(pivotHighs).forEach(z => drawLine(z.level, '#ffffff', z.strength));
+    cluster(pivotLows).forEach(z  => drawLine(z.level, '#ffffff', z.strength));
   }
   chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setTimeout(drawCircles,10));
   setTimeout(drawCircles, 30); state.drawCircles=drawCircles;
