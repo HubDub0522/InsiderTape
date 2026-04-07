@@ -2815,6 +2815,14 @@ async function preComputeScoreboard() {
     accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
     timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
 
+    // Debug: log top 5 accuracy results with their actual win rates
+    slog('Scoreboard top5 accuracy: ' + accuracyResults.slice(0,5).map(r=>
+      `${r.name.split(' ').slice(-1)[0]}:${r.accuracyScore}(wr=${r.winRate}%,tr=${r.tradeCount})`
+    ).join(', '));
+    slog('Scoreboard top5 timing: ' + timingResults.slice(0,5).map(r=>
+      `${r.name.split(' ').slice(-1)[0]}:${r.timingAlpha}(wr30=${r.win30Rate}%,tr=${r.tradeCount})`
+    ).join(', '));
+
     // Gov official rankings — scored by total disclosed value, trade count, and ticker diversity
     // Cannot use price-based forward return scoring (no exact price in STOCK Act filings)
     let govRanked = [];
