@@ -6370,33 +6370,9 @@ async function computeLeaderboardScores() {
     _govScoreCache    = data.gov     || [];
     _timingAlphaCache = data.timing  || [];
 
-    const candidates = data.accuracy || [];
-    // Keep null until first batch arrives so the subpage shows a loading spinner
-    _insiderScoreCache = null;
-    const accumulated = [];
-    const seenNames   = new Set();
+    // Server already computed all scores — use them directly, no extra API calls needed
+    _insiderScoreCache = (data.accuracy || []).filter(r => r.accuracyScore >= 35);
 
-    // Score one at a time with a longer pause to avoid rate-limiting other endpoints
-    for (let i = 0; i < candidates.length; i++) {
-      const c = candidates[i];
-      if (seenNames.has(c.name)) continue;
-      const result = await scoreInsiderLikeProfile(c.name);
-      if (result) {
-        seenNames.add(c.name);
-        accumulated.push(result);
-        accumulated.sort((a, b) => b.accuracyScore - a.accuracyScore);
-        _insiderScoreCache = [...accumulated];
-        // Update subpage list if open
-        const tsc = document.getElementById('topScoresContent');
-        if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-        // Update dashboard tile if visible
-        const analysisBody = document.getElementById('analysisViewBody');
-        if (analysisBody && analysisBody.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-      }
-      // Pause between each insider — keeps rate limiter happy for other endpoints
-      if (i < candidates.length - 1) await new Promise(r => setTimeout(r, 500));
-    }
-    if (!_insiderScoreCache) _insiderScoreCache = []; // ensure never stays null
   } catch(e) {
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
@@ -9766,17 +9742,17 @@ function renderSentimentGauge(s) {
 
       <!-- Stats grid -->
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px" class="mob-3col-grid">
-        <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:1px;margin-bottom:6px">BUY TRANSACTIONS</div>
           <div style="font-size:16px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--buy);font-weight:700">${s.buyCount}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px">${fmt(s.buyVal)} · ${s.uniqueBuyers} insiders</div>
         </div>
-        <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:1px;margin-bottom:6px">SELL TRANSACTIONS</div>
           <div style="font-size:16px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--sell);font-weight:700">${s.sellCount}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px">${fmt(s.sellVal)} · ${s.uniqueSellers} insiders</div>
         </div>
-        <div style="background:#080b0f;border:1px solid var(--border);border-radius:8px;padding:12px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:1px;margin-bottom:6px">NET DOLLAR FLOW</div>
           <div style="font-size:16px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:${s.netFlow>=0?'var(--buy)':'var(--sell)'};font-weight:700">${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px">Net: ${s.netFlow>=0?'+':''}${fmt(s.netFlow)}</div>
