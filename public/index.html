@@ -1462,11 +1462,10 @@ function restoreFilters() {
         el.classList.toggle('active', el.dataset.role === saved.activeRole);
       });
     }
-    if (saved.minVal !== undefined && saved.minVal !== null) {
-      state.minVal = saved.minVal;
-      const mv = document.getElementById('minVal');
-      if (mv) mv.value = saved.minVal;
-    }
+    // Always reset minVal to 0 (Any amount) — ignore saved value
+    state.minVal = 0;
+    const _mv = document.getElementById('minVal');
+    if (_mv) _mv.value = 0;
     try {
       if (saved.tickerFilter?.length) {
         state.tickerFilter = new Set(saved.tickerFilter);
