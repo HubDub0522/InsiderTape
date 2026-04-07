@@ -917,9 +917,9 @@
         <span class="filter-label">Min Transaction Value</span>
         <div class="filter-range">
           <select id="minVal">
-            <option value="0">Any amount</option>
+            <option value="0" selected>Any amount</option>
             <option value="50000">$50,000+</option>
-            <option value="100000" selected>$100,000+</option>
+            <option value="100000">$100,000+</option>
             <option value="500000">$500,000+</option>
             <option value="1000000">$1,000,000+</option>
             <option value="5000000">$5,000,000+</option>
@@ -1045,7 +1045,7 @@ const state = {
   screenerData: [], currentPage: 1, pageSize: 25,
   sortCol: 'trade', sortDir: -1,
   activeTypes: new Set(['P','S']),
-  activeRole: 'all', minVal: 100000, days: 7,
+  activeRole: 'all', minVal: 0, days: 7,
   tickerFilter: new Set(),
   currentTicker: null, tickerTrades: [],
   chart: null, candleSeries: null, markers: [],
@@ -1462,7 +1462,7 @@ function restoreFilters() {
         el.classList.toggle('active', el.dataset.role === saved.activeRole);
       });
     }
-    if (saved.minVal) {
+    if (saved.minVal !== undefined && saved.minVal !== null) {
       state.minVal = saved.minVal;
       const mv = document.getElementById('minVal');
       if (mv) mv.value = saved.minVal;
