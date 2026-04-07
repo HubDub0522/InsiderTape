@@ -6297,11 +6297,13 @@ async function scoreInsiderLikeProfile(name) {
 
     const tickers = [...new Set(buys.map(t => t.ticker))];
     const priceCache = {};
-    await Promise.all(tickers.map(sym =>
-      apiFetch('/api/price?symbol=' + encodeURIComponent(sym))
-        .then(bars => { priceCache[sym] = bars || []; })
-        .catch(() => { priceCache[sym] = []; })
-    ));
+    // Sequential price fetches — avoid hammering the rate limiter
+    for (const sym of tickers) {
+      try {
+        const bars = await apiFetch('/api/price?symbol=' + encodeURIComponent(sym));
+        priceCache[sym] = bars || [];
+      } catch(_) { priceCache[sym] = []; }
+    }
 
     const today = lastTradingDate();
     function priceOn(sym, dateStr) {
@@ -6374,26 +6376,25 @@ async function computeLeaderboardScores() {
     const accumulated = [];
     const seenNames   = new Set();
 
-    const BATCH = 3;
-    for (let i = 0; i < candidates.length; i += BATCH) {
-      const batch = candidates.slice(i, i + BATCH).filter(c => !seenNames.has(c.name));
-      if (!batch.length) continue;
-      const results = await Promise.allSettled(batch.map(c => scoreInsiderLikeProfile(c.name)));
-      results.forEach((r, idx) => {
-        if (r.status === 'fulfilled' && r.value) {
-          seenNames.add(batch[idx].name);
-          accumulated.push(r.value);
-        }
-      });
-      accumulated.sort((a, b) => b.accuracyScore - a.accuracyScore);
-      _insiderScoreCache = [...accumulated]; // publish snapshot after each batch
-      // Update subpage list if open
-      const tsc = document.getElementById('topScoresContent');
-      if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-      // Update dashboard tile if visible
-      const analysisBody = document.getElementById('analysisViewBody');
-      if (analysisBody && analysisBody.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-      if (i + BATCH < candidates.length) await new Promise(r => setTimeout(r, 150));
+    // Score one at a time with a longer pause to avoid rate-limiting other endpoints
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      if (seenNames.has(c.name)) continue;
+      const result = await scoreInsiderLikeProfile(c.name);
+      if (result) {
+        seenNames.add(c.name);
+        accumulated.push(result);
+        accumulated.sort((a, b) => b.accuracyScore - a.accuracyScore);
+        _insiderScoreCache = [...accumulated];
+        // Update subpage list if open
+        const tsc = document.getElementById('topScoresContent');
+        if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
+        // Update dashboard tile if visible
+        const analysisBody = document.getElementById('analysisViewBody');
+        if (analysisBody && analysisBody.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+      }
+      // Pause between each insider — keeps rate limiter happy for other endpoints
+      if (i < candidates.length - 1) await new Promise(r => setTimeout(r, 500));
     }
     if (!_insiderScoreCache) _insiderScoreCache = []; // ensure never stays null
   } catch(e) {
