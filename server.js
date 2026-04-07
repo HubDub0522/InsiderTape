@@ -2665,6 +2665,8 @@ async function preComputeScoreboard() {
     // Cap tickers fetched to avoid OOM — insiders whose tickers fall outside
     // the cap will have fewer scored trades but won't crash the server.
     // Sorted by frequency so the most-traded tickers get price data first.
+    // Also exclude acquired/delisted tickers — their last price is the acquisition
+    // premium, making every trade look like a win (fake 100% win rates).
     const tickerFreq = {};
     rows.forEach(r => (r.tickers_csv||'').split(',').filter(Boolean).forEach(t => tickerFreq[t] = (tickerFreq[t]||0) + 1));
     const allTickers = Object.entries(tickerFreq).sort((a,b)=>b[1]-a[1]).map(e=>e[0]).slice(0, 150);
@@ -2684,6 +2686,17 @@ async function preComputeScoreboard() {
       if (i + BATCH < allTickers.length) await new Promise(r => setTimeout(r, 300));
     }
 
+    // Mark dead tickers (acquired/delisted) — last bar older than 90 days
+    // These produce fake 100% win rates because the final price was the acquisition premium
+    const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+    const deadTickers = new Set();
+    for (const [sym, bars] of Object.entries(priceCache)) {
+      if (!bars || !bars.length) continue;
+      const lastBar = bars[bars.length - 1].time;
+      if (lastBar < cutoff90) deadTickers.add(sym);
+    }
+    if (deadTickers.size > 0) slog(`Scoreboard: excluding ${deadTickers.size} dead tickers: ${[...deadTickers].slice(0,10).join(', ')}`);
+
     const accuracyResults = [], timingResults = [];
 
     rows.forEach(leader => {
@@ -2694,6 +2707,7 @@ async function preComputeScoreboard() {
         }).filter(t => t.ticker && t.trade);
 
         const scored = rawTrades.map(t => {
+          if (deadTickers.has(t.ticker)) return null; // skip acquired/delisted tickers
           const bars = priceCache[t.ticker] || [];
           if (!bars.length) return null;
           const buyDate  = t.trade.slice(0, 10);
@@ -2868,7 +2882,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 15; // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 16; // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
