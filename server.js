@@ -2652,7 +2652,8 @@ async function preComputeScoreboard() {
       FROM trades
       WHERE TRIM(type) = 'P'
         AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
-        AND trade_date >= date('now', '-1825 days')
+        AND trade_date >= date('now', '-730 days')
+        AND trade_date <= date('now', '-90 days')
         AND insider NOT IN ('AULT MILTON C III', 'Ault Milton C III', 'Ault Milton', 'STALLINGS ROBERT W', 'Stallings Robert W', 'STALLINGS ROBERT')
       GROUP BY insider
       HAVING buy_count >= ? AND span_days >= 30
@@ -2852,7 +2853,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 13; // aligned with client formula (timing blend) // bumped: removed -95d SQL cutoff, let ret90!=null filter naturally // bump when scoring formula changes
+const SCOREBOARD_FORMULA_VERSION = 14; // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
