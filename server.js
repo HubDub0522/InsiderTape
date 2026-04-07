@@ -701,7 +701,7 @@ app.get('/api/screener', (req, res) => {
         AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
       GROUP BY ticker, insider, trade_date, type
-      ORDER BY trade_date DESC, value DESC
+      ORDER BY trade_date DESC
       LIMIT ?
     `).all(days, limit);
 
@@ -722,7 +722,7 @@ app.get('/api/screener', (req, res) => {
             AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
             AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
           GROUP BY ticker, insider, trade_date, type
-          ORDER BY trade_date DESC, value DESC
+          ORDER BY trade_date DESC
           LIMIT ?
         `).all(maxDate, days, limit);
       }
