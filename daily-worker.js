@@ -560,16 +560,13 @@ async function processBatch(filings, label) {
   const checkSeen   = db.prepare('SELECT 1 FROM seen_filings WHERE accession=? LIMIT 1');
   const markSeen    = db.prepare('INSERT OR IGNORE INTO seen_filings (accession) VALUES (?)');
 
-  // For recent filings (last 10 days), only skip if already in trades DB.
-  // Don't use seen_filings to block recent ones — a filing may have failed to parse
-  // on first attempt and should be retried until it lands in the DB.
-  const tenDaysAgo = new Date(); tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
-  const tenDaysAgoStr = tenDaysAgo.toISOString().slice(0, 10);
+  // Skip if already in trades DB or already seen (processed, even if it yielded 0 trades).
+  // seen_filings covers ALL attempted filings — zero-trade filings (options, gifts, etc.)
+  // are the majority and should NOT be retried every poll.
   const newFilings = filings.filter(f => {
-    if (checkTrades.get(f.accession)) return false; // already in DB, skip
-    const isRecent = (f.filingDate || '') >= tenDaysAgoStr;
-    if (isRecent) return true; // always retry recent filings not yet in DB
-    return !checkSeen.get(f.accession); // older: respect seen_filings cache
+    if (checkTrades.get(f.accession)) return false; // already has trades in DB
+    if (checkSeen.get(f.accession))   return false; // already attempted (0 trades or parsed ok)
+    return true; // never seen — attempt it
   });
   const skipped = filings.length - newFilings.length;
   if (skipped > 0) log(`${label}: skipping ${skipped} already-processed, fetching ${newFilings.length} new`);
@@ -592,7 +589,10 @@ async function processBatch(filings, label) {
         inserted += isAmendment ? doInsertAmendment(r.value) : doInsert(r.value);
       } else if (r.status === 'rejected') {
         failed++;
+        // Don't mark failed filings as seen — they'll be retried next poll
+        // But cap retries: if it's been seen failing, it'll stay un-marked and retry naturally
       }
+      // Zero-trade filings (options, gifts, etc.) are marked seen below — no retry needed
     }
     if ((i + CONCURRENCY) % 60 === 0)
       log(`  ${i + CONCURRENCY}/${newFilings.length} — inserted:${inserted} failed:${failed}`);
