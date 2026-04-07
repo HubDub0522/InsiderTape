@@ -2652,11 +2652,11 @@ async function preComputeScoreboard() {
       FROM trades
       WHERE TRIM(type) = 'P'
         AND insider IS NOT NULL AND ticker IS NOT NULL AND price > 0
-        AND trade_date >= date('now', '-730 days')
+        AND trade_date >= date('now', '-1825 days')
         AND trade_date <= date('now', '-90 days')
         AND insider NOT IN ('AULT MILTON C III', 'Ault Milton C III', 'Ault Milton', 'STALLINGS ROBERT W', 'Stallings Robert W', 'STALLINGS ROBERT')
       GROUP BY insider
-      HAVING buy_count >= ? AND span_days >= 30
+      HAVING buy_count >= ? AND span_days >= 60
       ORDER BY buy_count DESC, span_days DESC LIMIT ?
     `).all(minBuys, limit);
 
@@ -2741,10 +2741,10 @@ async function preComputeScoreboard() {
         }).filter(Boolean);
 
         const completed = scored.filter(s => s.ret90 !== null);
-        if (completed.length < 5) return; // min 5 scored trades for a statistically meaningful win rate
-        // Reject if we only scored < 40% of raw trades — ticker cache miss means
-        // the winning subset may be unrepresentative, causing inflated win rates
-        if (completed.length / rawTrades.length < 0.60) return; // 60% coverage required to avoid survivorship bias
+        if (completed.length < 8) return; // min 8 scored trades required
+        // Require 60% coverage — if too many trades have no price data, results are biased
+        // This naturally excludes insiders whose trades are mostly on dead/delisted tickers
+        if (completed.length / rawTrades.length < 0.60) return;
 
         // Cap returns at ±500% to eliminate reverse-split artifacts
         // (e.g. Ault Global has done multiple reverse splits causing 7000%+ fake returns)
@@ -2772,7 +2772,7 @@ async function preComputeScoreboard() {
         if (accScore >= 35) {  // only include insiders with a meaningful accuracy score
           accuracyResults.push({ name: leader.insider, title: leader.title || '',
             accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
-            tradeCount: completed.length, tickers: tickers3 });
+            tradeCount: completed.length, tickers: tickers3, _rawCount: rawTrades.length });
         }
 
         // Timing alpha — did the stock move up shortly after they bought?
@@ -2815,9 +2815,9 @@ async function preComputeScoreboard() {
     accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
     timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
 
-    // Debug: log top 5 accuracy results with their actual win rates
+    // Debug: log top 5 accuracy results with coverage info
     slog('Scoreboard top5 accuracy: ' + accuracyResults.slice(0,5).map(r=>
-      `${r.name.split(' ').slice(-1)[0]}:${r.accuracyScore}(wr=${r.winRate}%,tr=${r.tradeCount})`
+      `${r.name.split(' ').slice(-1)[0]}:${r.accuracyScore}(wr=${r.winRate}%,tr=${r.tradeCount},raw=${r._rawCount||'?'})`
     ).join(', '));
     slog('Scoreboard top5 timing: ' + timingResults.slice(0,5).map(r=>
       `${r.name.split(' ').slice(-1)[0]}:${r.timingAlpha}(wr30=${r.win30Rate}%,tr=${r.tradeCount})`
@@ -2890,7 +2890,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 16; // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 17; // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
