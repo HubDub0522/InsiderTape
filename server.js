@@ -2700,12 +2700,27 @@ async function preComputeScoreboard() {
           const entryBar = bars.find(b => b.time >= buyDate);
           const buyPrice = t.price > 0 ? t.price : (entryBar?.close || 0);
           if (!buyPrice || buyPrice <= 0) return null;
+          // Build a date→close map for O(1) lookups
+          const barMap = {};
+          bars.forEach(b => { barMap[b.time] = b.close; });
+          // priceOn: look up to 5 calendar days forward from target date (matches profile page)
+          const priceOn = targetDate => {
+            for (let d = 0; d <= 5; d++) {
+              const dt = new Date(targetDate + 'T12:00:00Z');
+              dt.setUTCDate(dt.getUTCDate() + d);
+              const s = dt.toISOString().slice(0, 10);
+              if (barMap[s] != null) return barMap[s];
+            }
+            return null;
+          };
+          const addDays = (ds, n) => {
+            const d = new Date(ds + 'T12:00:00Z');
+            d.setUTCDate(d.getUTCDate() + n);
+            return d.toISOString().slice(0, 10);
+          };
           const fwd = days => {
-            const fd = new Date(buyDate + 'T12:00:00Z');
-            fd.setUTCDate(fd.getUTCDate() + days);
-            const fs  = fd.toISOString().slice(0, 10);
-            const bar = bars.find(b => b.time >= fs);
-            return bar ? +((bar.close - buyPrice) / buyPrice * 100).toFixed(2) : null;
+            const p = priceOn(addDays(buyDate, days));
+            return p != null ? +((p - buyPrice) / buyPrice * 100).toFixed(2) : null;
           };
           return { ticker: t.ticker, tradeDate: buyDate, buyPrice,
             ret30: fwd(30), ret90: fwd(90), ret180: fwd(180) };
@@ -2715,7 +2730,7 @@ async function preComputeScoreboard() {
         if (completed.length < 5) return; // min 5 scored trades for a statistically meaningful win rate
         // Reject if we only scored < 40% of raw trades — ticker cache miss means
         // the winning subset may be unrepresentative, causing inflated win rates
-        if (completed.length / rawTrades.length < 0.40) return;
+        if (completed.length / rawTrades.length < 0.60) return; // 60% coverage required to avoid survivorship bias
 
         // Cap returns at ±500% to eliminate reverse-split artifacts
         // (e.g. Ault Global has done multiple reverse splits causing 7000%+ fake returns)
@@ -2853,7 +2868,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 14; // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 15; // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
