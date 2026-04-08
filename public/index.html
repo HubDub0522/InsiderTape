@@ -2882,23 +2882,8 @@ async function buildChart(priceData, trades, govData=[]) {
     });
   });
 
-  // Initialise stat bar — use opts.rangeDays if provided, else default 1Y
-  const _initDays = opts.rangeDays || 365;
-  const _initSR   = opts.srEnabled || false;
-  setTimeout(() => {
-    const _btn = Array.from(document.querySelectorAll('.tf-btn:not(.cf-btn):not(.ct-btn)')).find(b => {
-      const map = {'1M':30,'3M':90,'6M':180,'1Y':365,'2Y':730,'3Y':1095,'5Y':1825,'10Y':3650,'MAX':9999};
-      return map[b.textContent.trim()] === _initDays;
-    }) || document.querySelector('.tf-btn.active:not(.cf-btn)');
-    setRange(_initDays, _btn);
-    if (_initSR && !_srEnabled) {
-      const srBtn = document.getElementById('srToggleBtn');
-      if (srBtn) toggleSR(srBtn);
-    } else if (!_initSR && _srEnabled) {
-      const srBtn = document.getElementById('srToggleBtn');
-      if (srBtn) toggleSR(srBtn);
-    }
-  }, 80);
+  // Initialise stat bar to 1Y default
+  setTimeout(() => setRange(365, document.querySelector('.tf-btn.active:not(.cf-btn)')), 60);
   // LightweightCharts handles its own resizing via autoSize
   // Sync our marker canvas width and redraw when container size changes
   new ResizeObserver(() => {
