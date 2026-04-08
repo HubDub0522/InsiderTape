@@ -2724,143 +2724,31 @@ async function preComputeScoreboard() {
   if (_scoreboardRunning) return;
   _scoreboardRunning = true;
   try {
-    slog('Pre-computing scoreboard...');
-
-    // Step 1: Get insiders who have been RECENTLY ACTIVE (bought in last 90 days)
-    // These are the insiders "trading in the market today" — not a fixed top-N
-    // Recently active = bought in last 30 days with meaningful size (>$10K)
-    // This keeps the pool tight and relevant — typically 50-100 insiders
-    const recentBuyers = db.prepare(`
-      SELECT insider, MAX(title) AS title, COUNT(*) AS recent_buys, SUM(value) AS recent_val
+    // Fast SQL only — no price fetching, no scoring
+    // Client scores each insider from their profile, one at a time
+    const candidates = db.prepare(`
+      SELECT insider AS name, MAX(title) AS title, COUNT(*) AS buy_count,
+        GROUP_CONCAT(DISTINCT ticker) AS tickers_csv,
+        MAX(trade_date) AS last_trade
       FROM trades
       WHERE TRIM(type) = 'P'
-        AND insider IS NOT NULL AND price > 0
-        AND value >= 10000
+        AND insider IS NOT NULL AND price > 0 AND value >= 10000
         AND trade_date >= date('now', '-30 days')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND insider NOT IN ('AULT MILTON C III','Ault Milton C III','STALLINGS ROBERT W','Stallings Robert W')
       GROUP BY insider
-      ORDER BY recent_val DESC
-    `).all();
+      ORDER BY MAX(value) DESC
+    `).all().map(r => ({
+      name: r.name,
+      title: r.title || '',
+      tickers: (r.tickers_csv || '').split(',').slice(0, 3).join(', '),
+      recentBuys: r.buy_count,
+      lastTrade: r.last_trade,
+    }));
 
-    slog(`Scoreboard: ${recentBuyers.length} recently active insiders`);
+    slog(`Scoreboard: ${candidates.length} recently active insiders (client will score)`);
 
-    // Step 2: For each, get their FULL buy history using a single GROUP_CONCAT query
-    // This avoids N individual DB queries — one query per insider instead
-    const CAP = 100;
-    const capR = r => Math.max(-CAP, Math.min(CAP, r));
-    const today = new Date().toISOString().slice(0, 10);
-
-    function addDays(ds, n) {
-      const d = new Date(ds + 'T12:00:00Z');
-      d.setUTCDate(d.getUTCDate() + n);
-      return d.toISOString().slice(0, 10);
-    }
-    function priceOn(bars, dateStr) {
-      // Look up to 5 calendar days forward — matches profile page exactly
-      for (let d = 0; d <= 5; d++) {
-        const dt = new Date(dateStr + 'T12:00:00Z');
-        dt.setUTCDate(dt.getUTCDate() + d);
-        const s = dt.toISOString().slice(0, 10);
-        const bar = bars.find(b => b.time === s);
-        if (bar) return bar.close;
-      }
-      return null;
-    }
-
-    // Dead ticker check — last bar > 90 days old means acquired/delisted
-    const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-    function isDead(sym) {
-      const bars = getPC(sym);
-      if (!bars || !bars.length) return false;
-      return bars[bars.length - 1].time < cutoff90;
-    }
-
-    const getHistory = db.prepare(`
-      SELECT ticker, trade_date AS trade, COALESCE(price, 0) AS price
-      FROM trades
-      WHERE UPPER(insider) = UPPER(?)
-        AND TRIM(type) = 'P' AND price > 0
-        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-      ORDER BY trade_date DESC LIMIT 500
-    `);
-
-    const accuracyResults = [], timingResults = [];
-
-    for (const leader of recentBuyers) {
-      // Yield after every insider so Express stays responsive
-      await new Promise(r => setImmediate(r));
-      try {
-        const rows = getHistory.all(leader.insider);
-
-        // Score only settled trades (90+ days old) using already-warmed price cache
-        const scored = rows
-          .filter(t => today >= addDays(t.trade.slice(0, 10), 90))
-          .map(t => {
-            if (isDead(t.ticker)) return null;
-            const bars = getPC(t.ticker);
-            if (!bars || !bars.length) return null;
-            const buyDate = t.trade.slice(0, 10);
-            const base = t.price;
-            if (!base || base <= 0) return null;
-            const p90 = priceOn(bars, addDays(buyDate, 90));
-            const p30 = priceOn(bars, addDays(buyDate, 30));
-            if (!p90) return null;
-            return {
-              ticker: t.ticker, tradeDate: buyDate,
-              ret90: (p90 - base) / base * 100,
-              ret30: p30 ? (p30 - base) / base * 100 : null,
-            };
-          }).filter(Boolean);
-
-        // Need at least 8 scored trades, and must cover 60% of settled history
-        const settledCount = rows.filter(t => today >= addDays(t.trade.slice(0,10), 90)).length;
-        if (scored.length < 8) continue;
-        if (settledCount > 0 && scored.length / settledCount < 0.60) continue;
-
-        const rets90 = scored.map(s => capR(s.ret90));
-        const rets30 = scored.filter(s => s.ret30 !== null).map(s => capR(s.ret30));
-        const winRate   = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
-        const avgRet90  = +(rets90.reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
-        const avgRet30  = rets30.length ? +(rets30.reduce((a, b) => a + b, 0) / rets30.length).toFixed(1) : null;
-        const avgMag    = +(rets90.map(Math.abs).reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
-        const sortedR   = [...rets90].sort((a, b) => a - b);
-        const median    = sortedR[Math.floor(sortedR.length / 2)];
-        const consist   = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag, 1) + 1) * 50)));
-        const timingAvg30  = avgRet30 || 0;
-        const timingBonus  = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 8) / 16 * 20)));
-        const baseScore    = winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35)) + consist * 0.15 + Math.min(10, scored.length * 1.2);
-        const accScore     = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
-        if (accScore < 35) continue;
-
-        const tier    = accScore >= 75 ? 'ELITE' : accScore >= 55 ? 'STRONG' : 'AVERAGE';
-        const tickers3 = [...new Set(rows.map(t => t.ticker))].slice(0, 3).join(', ');
-
-        accuracyResults.push({ name: leader.insider, title: leader.title || '',
-          accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
-          tradeCount: scored.length, tickers: tickers3 });
-
-        // Timing alpha
-        const win30Rate  = rets30.length ? Math.round(rets30.filter(r => r > 0).length / rets30.length * 100) : null;
-        const comp30Ret  = avgRet30 !== null ? Math.round(Math.min(60, Math.max(0, (avgRet30 + 20) / 60 * 60))) : 30;
-        const comp30Win  = win30Rate !== null ? Math.round(Math.min(40, Math.max(0, (win30Rate - 50) / 50 * 40))) : 20;
-        const timingAlpha = Math.min(100, Math.max(0, comp30Ret + comp30Win));
-        if (timingAlpha >= 35 && rets30.length >= 3) {
-          const verdict = timingAlpha >= 80 ? 'Buys trigger immediate upward moves'
-                        : timingAlpha >= 60 ? 'Above-average short-term reaction'
-                        : timingAlpha >= 40 ? 'Mixed short-term price reaction'
-                        : 'Buys often followed by weakness';
-          timingResults.push({ name: leader.insider, title: leader.title || '',
-            timingAlpha, avgRet30, win30Rate, avgRet90, verdict,
-            tradeCount: scored.length, tickers: tickers3 });
-        }
-      } catch (e) { /* skip individual insider errors silently */ }
-    }
-
-    accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
-    timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
-
-    // Gov official rankings — percentile ranked by buy volume
+    // Gov official rankings
     let govRanked = [];
     try {
       const govRows = db.prepare(`
@@ -2881,29 +2769,28 @@ async function preComputeScoreboard() {
       const maxTck = Math.max(1, ...govRows.map(r => r.ticker_count || 0));
       govRanked = govRows.map(r => ({
         name: r.member, chamber: r.chamber,
-        activityScore: Math.round((r.buy_vol / maxVol) * 50 + (r.buy_count / maxCnt) * 30 + (r.ticker_count / maxTck) * 20),
+        activityScore: Math.round((r.buy_vol/maxVol)*50 + (r.buy_count/maxCnt)*30 + (r.ticker_count/maxTck)*20),
         buyCount: r.buy_count, sellCount: r.sell_count,
-        profitPerTrade: Math.round((r.buy_vol || 0) / Math.max(1, r.buy_count)),
-      })).sort((a, b) => b.activityScore - a.activityScore);
-    } catch (e) { slog('Gov ranking err: ' + e.message); }
-
-    slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
-    slog('Top5 accuracy: ' + accuracyResults.slice(0, 5).map(r =>
-      `${r.name.split(' ').pop()}:${r.accuracyScore}(wr=${r.winRate}%,tr=${r.tradeCount})`).join(', '));
+        profitPerTrade: Math.round((r.buy_vol||0) / Math.max(1, r.buy_count)),
+      })).sort((a,b) => b.activityScore - a.activityScore);
+    } catch(e) { slog('Gov ranking err: ' + e.message); }
 
     _scoreboardCache = {
-      accuracy: accuracyResults, timing: timingResults, gov: govRanked,
+      accuracy: candidates,  // candidates for client to score — not pre-scored
+      timing: [],            // client computes timing too
+      gov: govRanked,
       _formulaVersion: SCOREBOARD_FORMULA_VERSION,
     };
     _scoreboardCacheTime = Date.now();
-  } catch (e) { slog('preComputeScoreboard error: ' + e.message); }
+    slog('Scoreboard candidates cached.');
+  } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
   finally { _scoreboardRunning = false; }
 }
 
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 28; // 30-day window + $10K min to keep pool manageable // recently-active insiders only; getPC cache; proper priceOn 5-day window // removed from startup; capped at 50; yields after every insider // uses existing _priceCache, no startup fetch // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 29; // server returns candidates only; client scores from profiles // 30-day window + $10K min to keep pool manageable // recently-active insiders only; getPC cache; proper priceOn 5-day window // removed from startup; capped at 50; yields after every insider // uses existing _priceCache, no startup fetch // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
