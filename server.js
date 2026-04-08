@@ -2971,7 +2971,7 @@ app.get('/api/insider-score', async (req, res) => {
 
 // ── STARTUP PRECOMPUTES ──────────────────────────────────────────────────────
 // Start daily ingestion immediately on boot (handles market-hours check internally)
-runDaily(3);
+setTimeout(() => runDaily(3), 45000); // delay 45s — let server finish buildSearchIndex before daily worker opens DB
 
 // ── Congressional trades (STOCK Act PTRs) ────────────────────────────────────
 // Congress worker — fetches House + Senate trades from FMP API
