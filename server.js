@@ -2757,15 +2757,19 @@ async function preComputeScoreboard() {
           };
         }).filter(Boolean);
 
-        // Only count trades with settled 90d data — same as profile page
-        const completed = scored.filter(s => s.ret90 !== null && !s.isPending);
-        const totalScorable = scored.filter(s => !s.isPending).length;
+        // Trades with no price data at all (ticker not in cache, or dead) are NOT in scored[]
+        // They must be counted as missing for the coverage check
+        const missingPriceData = rawTrades.filter(t =>
+          !deadTickers.has(t.ticker) && !(priceCache[t.ticker]?.length)
+        ).length;
+        const effectiveTotal = rawTrades.length; // ALL raw trades, including missing ones
 
-        // Require at least 8 completed trades AND 60% coverage of ALL raw trades
-        // Must compare against rawTrades.length — comparing against totalScorable
-        // misses the case where many trades have no price data at all (dead tickers)
+        const completed = scored.filter(s => s.ret90 !== null && !s.isPending);
+
+        // Require 8+ completed AND 70% of ALL raw trades scoreable
+        // This catches survivorship bias where missing-data trades are the losers
         if (completed.length < 8) continue;
-        if (completed.length / rawTrades.length < 0.60) continue;
+        if (completed.length / effectiveTotal < 0.70) continue;
 
         const rets90 = completed.map(s => capR(s.ret90));
         const rets30 = completed.filter(s => s.ret30 !== null).map(s => capR(s.ret30));
@@ -2847,14 +2851,21 @@ async function preComputeScoreboard() {
         ORDER BY buy_vol DESC
         LIMIT 100
       `).all();
-      govRanked = govRows.map(r => {
-        const activityScore = Math.min(100, Math.round(
-          (r.buy_count * 8) + (r.ticker_count * 5) + Math.min(30, r.buy_vol / 50000)
-        ));
-        return { name: r.member, chamber: r.chamber, activityScore,
-          buyCount: r.buy_count, sellCount: r.sell_count,
-          profitPerTrade: Math.round(r.buy_vol / Math.max(1, r.buy_count)) };
-      }).sort((a,b) => b.activityScore - a.activityScore);
+      if (govRows.length) {
+        // Percentile-rank so scores spread 0-100 across the actual population
+        const maxVol = Math.max(...govRows.map(r => r.buy_vol || 0));
+        const maxCount = Math.max(...govRows.map(r => r.buy_count || 0));
+        const maxTickers = Math.max(...govRows.map(r => r.ticker_count || 0));
+        govRanked = govRows.map(r => {
+          const volScore    = maxVol    > 0 ? (r.buy_vol      / maxVol)    * 50 : 0;
+          const countScore  = maxCount  > 0 ? (r.buy_count    / maxCount)  * 30 : 0;
+          const tickerScore = maxTickers> 0 ? (r.ticker_count / maxTickers)* 20 : 0;
+          const activityScore = Math.round(volScore + countScore + tickerScore);
+          return { name: r.member, chamber: r.chamber, activityScore,
+            buyCount: r.buy_count, sellCount: r.sell_count,
+            profitPerTrade: Math.round((r.buy_vol||0) / Math.max(1, r.buy_count)) };
+        }).sort((a,b) => b.activityScore - a.activityScore);
+      }
     } catch(e) { slog('Gov ranking error: ' + e.message); }
 
     _scoreboardCache = {
@@ -2869,7 +2880,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 22; // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 23; // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
