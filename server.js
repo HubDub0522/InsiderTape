@@ -2827,19 +2827,49 @@ async function preComputeScoreboard() {
 
     slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
 
-    // CRITICAL: save to cache — without this the endpoint loops forever
+    // Gov official rankings
+    let govRanked = [];
+    try {
+      const govRows = db.prepare(`
+        SELECT member, chamber,
+          COUNT(*) AS trade_count,
+          SUM(CASE WHEN transaction_type='P' THEN 1 ELSE 0 END) AS buy_count,
+          SUM(CASE WHEN transaction_type='S' THEN 1 ELSE 0 END) AS sell_count,
+          SUM(CASE WHEN transaction_type='P' THEN
+            CAST(REPLACE(REPLACE(REPLACE(amount_range,'$',''),',',''),' ','') AS INTEGER)
+          ELSE 0 END) AS buy_vol,
+          COUNT(DISTINCT ticker) AS ticker_count
+        FROM gov_trades
+        WHERE transaction_date >= date('now','-730 days')
+          AND transaction_type IN ('P','S')
+        GROUP BY member
+        HAVING buy_count >= 3
+        ORDER BY buy_vol DESC
+        LIMIT 100
+      `).all();
+      govRanked = govRows.map(r => {
+        const activityScore = Math.min(100, Math.round(
+          (r.buy_count * 8) + (r.ticker_count * 5) + Math.min(30, r.buy_vol / 50000)
+        ));
+        return { name: r.member, chamber: r.chamber, activityScore,
+          buyCount: r.buy_count, sellCount: r.sell_count,
+          profitPerTrade: Math.round(r.buy_vol / Math.max(1, r.buy_count)) };
+      }).sort((a,b) => b.activityScore - a.activityScore);
+    } catch(e) { slog('Gov ranking error: ' + e.message); }
+
     _scoreboardCache = {
       accuracy: accuracyResults, timing: timingResults, gov: govRanked,
       _formulaVersion: SCOREBOARD_FORMULA_VERSION,
     };
     _scoreboardCacheTime = Date.now();
+    slog('Scoreboard cached successfully.');
   } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
   finally { _scoreboardRunning = false; }
 }
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 21; // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 22; // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
