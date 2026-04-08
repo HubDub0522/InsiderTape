@@ -20,7 +20,7 @@ log(`DB path: ${DB_PATH}`);
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 15000');
+db.pragma('busy_timeout = 60000'); // wait up to 60s for server to finish startup DB ops
 db.pragma('synchronous = NORMAL');
 
 db.exec(`
