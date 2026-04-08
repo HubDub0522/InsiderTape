@@ -2826,13 +2826,20 @@ async function preComputeScoreboard() {
     ).join(', '));
 
     slog(`Scoreboard pre-computed: ${accuracyResults.length} accuracy, ${timingResults.length} timing`);
+
+    // CRITICAL: save to cache — without this the endpoint loops forever
+    _scoreboardCache = {
+      accuracy: accuracyResults, timing: timingResults, gov: govRanked,
+      _formulaVersion: SCOREBOARD_FORMULA_VERSION,
+    };
+    _scoreboardCacheTime = Date.now();
   } catch(e) { slog('preComputeScoreboard error: ' + e.message); }
-  finally { _scoreboardRunning = false; }   // C3: always release lock
+  finally { _scoreboardRunning = false; }
 }
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 20; // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 21; // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
