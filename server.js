@@ -2729,7 +2729,10 @@ async function preComputeScoreboard() {
       ORDER BY trade_date DESC
     `);
 
-    for (const leader of candidateRows) {
+    for (let _li = 0; _li < candidateRows.length; _li++) {
+      const leader = candidateRows[_li];
+      // Yield to event loop every 10 insiders so Express can serve requests
+      if (_li > 0 && _li % 10 === 0) await new Promise(r => setImmediate(r));
       try {
         const rawTrades = getTrades.all(leader.insider);
         if (!rawTrades.length) continue;
@@ -2758,10 +2761,11 @@ async function preComputeScoreboard() {
         const completed = scored.filter(s => s.ret90 !== null && !s.isPending);
         const totalScorable = scored.filter(s => !s.isPending).length;
 
-        // Require at least 8 completed trades AND 60% coverage of scorable trades
-        // This prevents survivorship bias from missing price data
+        // Require at least 8 completed trades AND 60% coverage of ALL raw trades
+        // Must compare against rawTrades.length — comparing against totalScorable
+        // misses the case where many trades have no price data at all (dead tickers)
         if (completed.length < 8) continue;
-        if (totalScorable > 0 && completed.length / totalScorable < 0.60) continue;
+        if (completed.length / rawTrades.length < 0.60) continue;
 
         const rets90 = completed.map(s => capR(s.ret90));
         const rets30 = completed.filter(s => s.ret30 !== null).map(s => capR(s.ret30));
@@ -2811,6 +2815,7 @@ async function preComputeScoreboard() {
 
     accuracyResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
     timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
+    if (!accuracyResults.length) { slog('Scoreboard: 0 results — aborting cache set to allow retry'); return; }
 
     // Diagnostic log — shows coverage info to catch survivorship bias
     slog('Scoreboard top5 accuracy: ' + accuracyResults.slice(0,5).map(r=>
@@ -2827,20 +2832,20 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 19; // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 20; // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
     && Date.now() - _scoreboardCacheTime < SCOREBOARD_TTL
     && _scoreboardCache._formulaVersion === SCOREBOARD_FORMULA_VERSION;
   if (cacheValid) return res.json(_scoreboardCache);
-  // Stale or missing — expire and trigger recompute
-  _scoreboardCache = null;
-  _scoreboardCacheTime = 0;
+  // Not ready yet — trigger compute only if not already running
   if (Date.now() - _bootTime < STARTUP_GRACE_MS) {
     return res.json({ computing: true, accuracy: [], timing: [] });
   }
-  preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
+  if (!_scoreboardRunning) {
+    preComputeScoreboard().catch(e => slog('scoreboard bg err: ' + e.message));
+  }
   return res.json({ computing: true, accuracy: [], timing: [] });
 });
 
