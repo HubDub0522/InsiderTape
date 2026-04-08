@@ -6357,70 +6357,40 @@ async function scoreInsiderLikeProfile(name) {
 async function computeLeaderboardScores() {
   try {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
-    if (data.computing && !(data.accuracy||[]).length) {
-      setTimeout(computeLeaderboardScores, 15000);
-      return;
+    _govScoreCache    = data.gov     || [];
+    _insiderScoreCache = (data.accuracy || []).filter(r => r.accuracyScore >= 35);
+    _timingAlphaCache  = data.timing  || [];
+
+    // Update UI with whatever we have
+    function updateUI() {
+      const body = document.getElementById('analysisViewBody');
+      const tsc  = document.getElementById('topScoresContent');
+      const tlc  = document.getElementById('timingLeadersContent');
+      if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache || []);
+      if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache || []);
+      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
     }
-    _govScoreCache = data.gov || [];
+    updateUI();
 
-    // Candidates from server — score each one from their profile, one at a time
-    const candidates = data.accuracy || [];
-    _insiderScoreCache = null; // null = loading (shows spinner)
-    _timingAlphaCache  = null;
-
-    const accResults    = [];
-    const timingResults = [];
-    const seen          = new Set();
-
-    for (const c of candidates) {
-      if (seen.has(c.name)) continue;
-      seen.add(c.name);
-
-      // Score this insider exactly like their profile page does
-      const result = await scoreInsiderLikeProfile(c.name);
-      if (result) {
-        accResults.push(result);
-        accResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
-        _insiderScoreCache = [...accResults];
-
-        // Build timing list from same data
-        if (result.timingAlpha >= 35 && result.avgRet30 !== null) {
-          timingResults.push(result);
-          timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
-          _timingAlphaCache = [...timingResults];
-        }
-
-        // Update UI progressively — show each result as it arrives
-        const tsc = document.getElementById('topScoresContent');
-        const tlc = document.getElementById('timingLeadersContent');
-        const body = document.getElementById('analysisViewBody');
-        if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-        if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache);
-        if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-      }
-
-      // Small pause between insiders — keeps server rate limits happy
-      await new Promise(r => setTimeout(r, 300));
+    // If still computing on server, poll every 3s for updates
+    if (data.computing) {
+      let polls = 0;
+      const pollInterval = setInterval(async () => {
+        polls++;
+        if (polls > 40) { clearInterval(pollInterval); return; } // stop after 2 mins
+        try {
+          const update = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
+          _govScoreCache    = update.gov     || [];
+          _insiderScoreCache = (update.accuracy || []).filter(r => r.accuracyScore >= 35);
+          _timingAlphaCache  = update.timing  || [];
+          updateUI();
+          if (!update.computing) clearInterval(pollInterval);
+        } catch(e) { clearInterval(pollInterval); }
+      }, 3000);
     }
-
-    // Ensure caches are never left as null after completion
-    if (!_insiderScoreCache) _insiderScoreCache = [];
-    if (!_timingAlphaCache)  _timingAlphaCache  = [];
-
   } catch(e) {
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
-  }
-
-  const body = document.getElementById('analysisViewBody');
-  if (!body) return;
-  if (body.querySelector('.analysis-tool-grid')) {
-    renderAnalysisDashboard();
-  } else {
-    const tsc = document.getElementById('topScoresContent');
-    const tlc = document.getElementById('timingLeadersContent');
-    if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache || []);
-    if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache || []);
   }
 }
 
