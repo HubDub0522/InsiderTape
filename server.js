@@ -3066,8 +3066,9 @@ setTimeout(() => {
   warmPriceCache()
     .then(() => preComputeDrift())
     .then(() => preComputeProximity())
-    .then(() => preComputeScoreboard())
     .catch(e => slog('startup precompute err: ' + e.message));
+  // Scoreboard runs on first /api/scoreboard request — not at startup
+  // This prevents blocking the site during the critical first 5 minutes
 }, 5 * 60 * 1000);
 
 // Run alert check every 5 minutes — same cadence as RSS poll in daily-worker
