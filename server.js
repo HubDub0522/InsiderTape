@@ -2735,31 +2735,18 @@ async function preComputeScoreboard() {
 
     slog(`Scoreboard: scoring ${candidates.length} insiders`);
 
-    // Score each insider using EXACTLY the same logic as /api/insider-score
-    // One shared price cache across all insiders to avoid redundant fetches
-    const allTickers = [...new Set(
-      db.prepare(`
-        SELECT DISTINCT ticker FROM trades
-        WHERE TRIM(type)='P' AND price>0
-          AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-      `).all().map(r => r.ticker)
-    )].slice(0, 300);
+    // Use the already-warmed in-memory price cache — no new fetches at startup
+    // getPC() reads from _priceCache which warmPriceCache() already populated
+    const priceCache = { get: sym => getPC(sym) };
+    // Wrap as object with a .get() so we can use priceCache.get(sym) below
 
-    slog(`Scoreboard: warming price cache for ${allTickers.length} tickers`);
-    const priceCache = {};
-    const BATCH = 50;
-    for (let i = 0; i < allTickers.length; i += BATCH) {
-      const batch = allTickers.slice(i, i + BATCH);
-      const results = await Promise.allSettled(batch.map(async sym => [sym, await fetchPriceBars(sym)]));
-      results.forEach(r => { if (r.status === 'fulfilled' && r.value[1]) priceCache[r.value[0]] = r.value[1]; });
-      if (i + BATCH < allTickers.length) await new Promise(r => setTimeout(r, 200));
-    }
-
-    // Exclude dead tickers (acquired/delisted — last bar > 90 days old)
+    // Dead ticker check — a ticker is dead if its last bar is > 90 days old
     const cutoff = new Date(Date.now() - 90*86400000).toISOString().slice(0,10);
-    const dead = new Set(Object.entries(priceCache)
-      .filter(([,bars]) => bars[bars.length-1]?.time < cutoff).map(([sym]) => sym));
-    if (dead.size) slog(`Scoreboard: excluding ${dead.size} dead tickers: ${[...dead].slice(0,10).join(', ')}`);
+    function isDead(sym) {
+      const bars = getPC(sym);
+      if (!bars || !bars.length) return false; // no data = not in cache, not dead
+      return bars[bars.length-1].time < cutoff;
+    }
 
     const getTrades = db.prepare(`
       SELECT ticker, trade_date AS trade, COALESCE(price,0) AS price
@@ -2796,12 +2783,12 @@ async function preComputeScoreboard() {
         const settledRows = rows.filter(t => today >= addDays(t.trade.slice(0,10), 90));
 
         // Coverage: must have price data for at least 70% of settled trades
-        const withPrice = settledRows.filter(t => !dead.has(t.ticker) && priceCache[t.ticker]?.length > 0);
+        const withPrice = settledRows.filter(t => !isDead(t.ticker) && (getPC(t.ticker)?.length > 0));
         if (withPrice.length < 8) continue;
         if (withPrice.length / Math.max(1, settledRows.length) < 0.70) continue;
 
         const scored = withPrice.map(t => {
-          const bars = priceCache[t.ticker];
+          const bars = getPC(t.ticker);
           const buyDate = t.trade.slice(0,10);
           const p90 = priceOn(bars, addDays(buyDate, 90));
           const p30 = priceOn(bars, addDays(buyDate, 30));
@@ -2898,7 +2885,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 24; // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 25; // uses existing _priceCache, no startup fetch // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
