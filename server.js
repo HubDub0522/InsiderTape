@@ -328,7 +328,7 @@ try {
 }
 
 try { db.pragma('journal_mode = WAL'); } catch(e) { console.warn('WAL pragma failed (read-only disk?):', e.message); }
-try { db.pragma('busy_timeout = 15000'); } catch(e) {} // wait up to 15s if congress worker holds write lock
+try { db.pragma('busy_timeout = 30000'); } catch(e) {} // wait up to 30s for lock
 
 // Each table/index created separately so existing DBs get new tables too
 // All wrapped in try/catch — on Render the persistent disk can be briefly
@@ -3070,13 +3070,16 @@ setTimeout(() => {
   } catch(e) {}
 }, 45000);
 
+// Delay startup precompute chain to 5 minutes
+// Daily worker starts at ~2min and needs the DB lock for initial ingestion
+// This prevents "database is locked" errors on the daily worker
 setTimeout(() => {
   warmPriceCache()
     .then(() => preComputeDrift())
     .then(() => preComputeProximity())
     .then(() => preComputeScoreboard())
     .catch(e => slog('startup precompute err: ' + e.message));
-}, 60000);
+}, 5 * 60 * 1000);
 
 // Run alert check every 5 minutes — same cadence as RSS poll in daily-worker
 // Offset by 3 minutes so it runs after new trades are likely ingested
