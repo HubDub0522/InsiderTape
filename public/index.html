@@ -6354,10 +6354,53 @@ async function scoreInsiderLikeProfile(name) {
   } catch(e) { return null; }
 }
 
+function buildGovScoreCache(govData) {
+  // Build gov official rankings from actual trade data
+  // Groups by member, sums real amounts using parseAmountRange
+  const byMember = {};
+  govData.forEach(g => {
+    const name = g.insider || g.member || '';
+    if (!name) return;
+    if (!byMember[name]) byMember[name] = {
+      name, chamber: g.chamber || '—',
+      buyVal: 0, sellVal: 0, buyCount: 0, sellCount: 0,
+      tickers: new Set(),
+    };
+    const val = parseAmountRange(g.amount_range || g.value || 0);
+    const type = g.type || g.transaction_type;
+    if (type === 'P') { byMember[name].buyVal += val; byMember[name].buyCount++; }
+    else if (type === 'S') { byMember[name].sellVal += val; byMember[name].sellCount++; }
+    if (g.ticker) byMember[name].tickers.add(g.ticker);
+  });
+
+  const members = Object.values(byMember).filter(m => m.buyCount >= 3);
+  if (!members.length) return [];
+
+  const maxVol = Math.max(1, ...members.map(m => m.buyVal));
+  const maxCnt = Math.max(1, ...members.map(m => m.buyCount));
+  const maxTck = Math.max(1, ...members.map(m => m.tickers.size));
+
+  return members.map(m => ({
+    name: m.name,
+    chamber: m.chamber,
+    activityScore: Math.round((m.buyVal/maxVol)*50 + (m.buyCount/maxCnt)*30 + (m.tickers.size/maxTck)*20),
+    buyCount: m.buyCount, sellCount: m.sellCount,
+    buyVal: m.buyVal, sellVal: m.sellVal,
+    profitPerTrade: Math.round(m.buyVal / Math.max(1, m.buyCount)),
+    tickers: [...m.tickers].slice(0, 3).join(', '),
+  })).sort((a, b) => b.activityScore - a.activityScore);
+}
+
 async function computeLeaderboardScores() {
   try {
     const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
-    _govScoreCache    = data.gov     || [];
+    // Gov officials: score from _analysisGovData (already loaded, has real amounts)
+    // Don't use server scoreboard for gov — amount_range parsing is unreliable server-side
+    if (_analysisGovData && _analysisGovData.length) {
+      _govScoreCache = buildGovScoreCache(_analysisGovData);
+    } else {
+      _govScoreCache = data.gov || [];
+    }
     _insiderScoreCache = (data.accuracy || []).filter(r => r.accuracyScore >= 35);
     _timingAlphaCache  = data.timing  || [];
 
@@ -6380,7 +6423,11 @@ async function computeLeaderboardScores() {
         if (polls > 40) { clearInterval(pollInterval); return; } // stop after 2 mins
         try {
           const update = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
-          _govScoreCache    = update.gov     || [];
+          if (_analysisGovData && _analysisGovData.length) {
+            _govScoreCache = buildGovScoreCache(_analysisGovData);
+          } else {
+            _govScoreCache = update.gov || [];
+          }
           _insiderScoreCache = (update.accuracy || []).filter(r => r.accuracyScore >= 35);
           _timingAlphaCache  = update.timing  || [];
           updateUI();
