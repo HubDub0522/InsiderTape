@@ -2382,7 +2382,11 @@ async function getYahooCrumb() {
     slog(`Yahoo crumb HTTP ${r2.status}`);
     if (r2.status === 429) { _yahooCrumbBackoff = Date.now() + 10 * 60 * 1000; }
   } catch(e) {
-    slog(`Yahoo crumb error: ${e.message}`);
+    // On timeout or network error, back off for 30 minutes before retrying
+    if (!_yahooCrumbBackoff || Date.now() > _yahooCrumbBackoff) {
+      slog(`Yahoo crumb unavailable (${e.message}) — backing off 30min`);
+    }
+    _yahooCrumbBackoff = Date.now() + 30 * 60 * 1000;
   }
   return null;
 }
