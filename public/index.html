@@ -6336,11 +6336,21 @@ async function scoreInsiderLikeProfile(name) {
     const timingAvg30 = rets30.length ? avg(rets30) : 0;
     const timingBonus = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 8) / 16 * 20)));
     const accuracyScore = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
-    if (accuracyScore < 35) return null; // filter out weak insiders
+    if (accuracyScore < 35) return null;
     const tier    = accuracyScore >= 75 ? 'ELITE' : accuracyScore >= 55 ? 'STRONG' : accuracyScore >= 35 ? 'AVERAGE' : 'WEAK';
     const title   = trades[0]?.title || '';
     const tickers3 = tickers.slice(0, 3).join(', ');
-    return { name, title, winRate, avgRet90, avgRet30, tradeCount: completed.length, accuracyScore, tier, tickers: tickers3 };
+    // Timing alpha — how well do buys predict 30d moves
+    const win30Rate  = rets30.length ? Math.round(rets30.filter(r => r > 0).length / rets30.length * 100) : null;
+    const comp30Ret  = avgRet30 !== null ? Math.round(Math.min(60, Math.max(0, (avgRet30 + 20) / 60 * 60))) : 30;
+    const comp30Win  = win30Rate !== null ? Math.round(Math.min(40, Math.max(0, (win30Rate - 50) / 50 * 40))) : 20;
+    const timingAlpha = Math.min(100, Math.max(0, comp30Ret + comp30Win));
+    const verdict = timingAlpha >= 80 ? 'Buys trigger immediate upward moves'
+                  : timingAlpha >= 60 ? 'Above-average short-term reaction'
+                  : timingAlpha >= 40 ? 'Mixed short-term price reaction'
+                  : 'Buys often followed by weakness';
+    return { name, title, winRate, avgRet90, avgRet30, win30Rate, timingAlpha, verdict,
+             tradeCount: completed.length, accuracyScore, tier, tickers: tickers3 };
   } catch(e) { return null; }
 }
 
@@ -6351,11 +6361,51 @@ async function computeLeaderboardScores() {
       setTimeout(computeLeaderboardScores, 15000);
       return;
     }
-    _govScoreCache    = data.gov     || [];
-    _timingAlphaCache = data.timing  || [];
+    _govScoreCache = data.gov || [];
 
-    // Server already computed all scores — use them directly, no extra API calls needed
-    _insiderScoreCache = (data.accuracy || []).filter(r => r.accuracyScore >= 35);
+    // Candidates from server — score each one from their profile, one at a time
+    const candidates = data.accuracy || [];
+    _insiderScoreCache = null; // null = loading (shows spinner)
+    _timingAlphaCache  = null;
+
+    const accResults    = [];
+    const timingResults = [];
+    const seen          = new Set();
+
+    for (const c of candidates) {
+      if (seen.has(c.name)) continue;
+      seen.add(c.name);
+
+      // Score this insider exactly like their profile page does
+      const result = await scoreInsiderLikeProfile(c.name);
+      if (result) {
+        accResults.push(result);
+        accResults.sort((a, b) => b.accuracyScore - a.accuracyScore);
+        _insiderScoreCache = [...accResults];
+
+        // Build timing list from same data
+        if (result.timingAlpha >= 35 && result.avgRet30 !== null) {
+          timingResults.push(result);
+          timingResults.sort((a, b) => b.timingAlpha - a.timingAlpha);
+          _timingAlphaCache = [...timingResults];
+        }
+
+        // Update UI progressively — show each result as it arrives
+        const tsc = document.getElementById('topScoresContent');
+        const tlc = document.getElementById('timingLeadersContent');
+        const body = document.getElementById('analysisViewBody');
+        if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
+        if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache);
+        if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+      }
+
+      // Small pause between insiders — keeps server rate limits happy
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    // Ensure caches are never left as null after completion
+    if (!_insiderScoreCache) _insiderScoreCache = [];
+    if (!_timingAlphaCache)  _timingAlphaCache  = [];
 
   } catch(e) {
     _insiderScoreCache = [];
@@ -6369,8 +6419,8 @@ async function computeLeaderboardScores() {
   } else {
     const tsc = document.getElementById('topScoresContent');
     const tlc = document.getElementById('timingLeadersContent');
-    if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-    if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache);
+    if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache || []);
+    if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache || []);
   }
 }
 
