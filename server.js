@@ -2728,15 +2728,19 @@ async function preComputeScoreboard() {
 
     // Step 1: Get insiders who have been RECENTLY ACTIVE (bought in last 90 days)
     // These are the insiders "trading in the market today" — not a fixed top-N
+    // Recently active = bought in last 30 days with meaningful size (>$10K)
+    // This keeps the pool tight and relevant — typically 50-100 insiders
     const recentBuyers = db.prepare(`
-      SELECT DISTINCT insider, MAX(title) AS title
+      SELECT insider, MAX(title) AS title, COUNT(*) AS recent_buys, SUM(value) AS recent_val
       FROM trades
       WHERE TRIM(type) = 'P'
         AND insider IS NOT NULL AND price > 0
-        AND trade_date >= date('now', '-90 days')
+        AND value >= 10000
+        AND trade_date >= date('now', '-30 days')
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND insider NOT IN ('AULT MILTON C III','Ault Milton C III','STALLINGS ROBERT W','Stallings Robert W')
       GROUP BY insider
+      ORDER BY recent_val DESC
     `).all();
 
     slog(`Scoreboard: ${recentBuyers.length} recently active insiders`);
@@ -2899,7 +2903,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 27; // recently-active insiders only; getPC cache; proper priceOn 5-day window // removed from startup; capped at 50; yields after every insider // uses existing _priceCache, no startup fetch // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 28; // 30-day window + $10K min to keep pool manageable // recently-active insiders only; getPC cache; proper priceOn 5-day window // removed from startup; capped at 50; yields after every insider // uses existing _priceCache, no startup fetch // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
