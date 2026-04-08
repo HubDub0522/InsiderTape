@@ -2763,7 +2763,8 @@ async function preComputeScoreboard() {
         // Timing bonus: same as client formula
         const timingBonusRets30 = completed.filter(s => s.ret30 !== null).map(s => Math.max(-100, Math.min(100, s.ret30)));
         const timingAvg30 = timingBonusRets30.length ? timingBonusRets30.reduce((a,b)=>a+b,0)/timingBonusRets30.length : 0;
-        const timingBonus = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 8) / 16 * 20)));
+        // Scale -5% to +25% range (old formula capped out at +8%, giving max bonus to most)
+        const timingBonus = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 5) / 30 * 20)));
         const baseScore = winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35)) + consist * 0.15 + Math.min(10, completed.length * 1.2);
         const accScore = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
         const tier     = accScore >= 75 ? 'ELITE' : accScore >= 55 ? 'STRONG' : accScore >= 35 ? 'AVERAGE' : 'WEAK';
@@ -2790,12 +2791,14 @@ async function preComputeScoreboard() {
         const win30Rate = timingRets30.length
           ? Math.round(timingRets30.filter(r=>r>0).length / timingRets30.length * 100) : null;
 
-        // 60% from avg30d: +8% → 60pts, 0% → 30pts, -8% → 0
+        // 60% from avg30d: scale -20% to +40% range
+        // Old formula hit ceiling at +8% avg, giving 100 to nearly everyone
         const comp30Ret = avgFwd30 !== null
-          ? Math.round(Math.min(60, Math.max(0, (avgFwd30 + 8) / 16 * 60))) : 30;
-        // 40% from 30d win rate: 70%+ → 40pts, 50% → 20pts, 30%- → 0
+          ? Math.round(Math.min(60, Math.max(0, (avgFwd30 + 20) / 60 * 60))) : 30;
+        // 40% from 30d win rate: scale 50% to 100% range  
+        // Old formula hit ceiling at 70%, giving max points to most insiders
         const comp30Win = win30Rate !== null
-          ? Math.round(Math.min(40, Math.max(0, (win30Rate - 30) / 40 * 40))) : 20;
+          ? Math.round(Math.min(40, Math.max(0, (win30Rate - 50) / 50 * 40))) : 20;
         const timingAlpha = Math.min(100, Math.max(0, comp30Ret + comp30Win));
 
         let verdict;
@@ -2890,7 +2893,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 17; // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 18; // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
