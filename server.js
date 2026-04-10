@@ -1475,16 +1475,17 @@ app.get('/api/gov-leaderboard', (req, res) => {
     });
 
     const sorted = members.sort((a, b) => b.profitPerTrade - a.profitPerTrade);
-    const maxAbs = Math.max(1, ...sorted.map(m => Math.abs(m.profitPerTrade)));
+    const n = sorted.length;
 
-    const result = sorted.map(m => {
-      const scaled = m.profitPerTrade >= 0
-        ? 50 + Math.round((m.profitPerTrade / maxAbs) * 50)
-        : 50 - Math.round((Math.abs(m.profitPerTrade) / maxAbs) * 50);
+    // Rank-based percentile scoring: #1 = 100, last = 1, linear between.
+    // This prevents a single outlier (e.g. Pelosi at $1M+/trade) from
+    // compressing everyone else into the low-50s.
+    const result = sorted.map((m, i) => {
+      const score = n === 1 ? 100 : Math.round(100 - (i / (n - 1)) * 99);
       return {
         name: m.name,
         chamber: m.chamber,
-        activityScore: Math.max(1, Math.min(100, scaled)),
+        activityScore: Math.max(1, Math.min(100, score)),
         buyCount: m.buyCount,
         sellCount: m.sellCount,
         buyVal: m.buyVal,
