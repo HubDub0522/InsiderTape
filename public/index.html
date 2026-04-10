@@ -6424,11 +6424,22 @@ async function computeLeaderboardScores() {
   // match the scores shown on each insider's profile exactly, because they
   // come from the same code path.
   try {
-    // Gov officials: compute from _analysisGovData (already loaded) using the
-    // same profit-per-trade formula the gov profile page uses.
-    if (_analysisGovData && _analysisGovData.length) {
-      _govScoreCache = buildGovScoreCache(_analysisGovData);
-    }
+    // Gov officials: pull from /api/gov-leaderboard which aggregates the full
+    // 5-year history server-side using the same profit-per-trade formula the
+    // gov profile page uses. The 90-day _analysisGovData snapshot used previously
+    // missed members like Pelosi whose biggest trades were outside the window.
+    apiFetch('/api/gov-leaderboard').then(govList => {
+      if (Array.isArray(govList) && govList.length) {
+        _govScoreCache = govList;
+        updateLeaderboardUI(true);
+      }
+    }).catch(() => {
+      // Fallback to the 90-day client-side aggregation if the endpoint fails
+      if (_analysisGovData && _analysisGovData.length) {
+        _govScoreCache = buildGovScoreCache(_analysisGovData);
+        updateLeaderboardUI(true);
+      }
+    });
 
     const data = await apiFetch('/api/scoreboard');
     const candidates = Array.isArray(data.candidates) ? data.candidates : [];
