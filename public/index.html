@@ -5612,16 +5612,30 @@ function renderAnalysisDashboard() {
   const clusterTop3 = clusterDataBoosted.slice(0, 3);
   const firstBuyTop3 = _firstBuyCache ? _firstBuyCache.slice(0, 3) : [];
 
-  // Kick off API fetch for first-buy tile data if not cached yet
+  // Kick off API fetch for first-buy tile data if not cached yet.
+  // Falls back to client-side detection against the 3-year history if the API
+  // is unavailable or returns empty — ensures the tile always shows results.
   if (!_firstBuyCache) {
-    apiFetch('/api/firstbuys?mingap=365&lookback=90&limit=50').then(rows => {
+    const applyFallback = () => {
+      ensureAnalysisDataLong(longTrades => {
+        const fb = detectFirstBuys(longTrades || []);
+        _firstBuyCache = fb;
+        if (_rankerCache) {
+          try { _rankerCache = scoreOpportunityRanker(_rankerRawRows || _rankerCache.map(r => ({...r}))); } catch(e) {}
+        }
+        const body = document.getElementById('analysisViewBody');
+        if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+      });
+    };
+    apiFetch('/api/firstbuys?mingap=365&lookback=90&limit=100').then(rows => {
+      if (!Array.isArray(rows) || !rows.length) { applyFallback(); return; }
       _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
       if (_rankerCache) {
         try { _rankerCache = scoreOpportunityRanker(_rankerRawRows || _rankerCache.map(r => ({...r}))); } catch(e) {}
       }
       const body = document.getElementById('analysisViewBody');
       if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
-    }).catch((e) => { console.warn('firstbuys fetch failed:', e); _firstBuyCache = []; });
+    }).catch((e) => { console.warn('firstbuys fetch failed, using client fallback:', e); applyFallback(); });
   }
 
 
@@ -5692,19 +5706,14 @@ function renderAnalysisDashboard() {
       top3: (() => {
         const govN = (_govScoreCache||[]).map(g => ({
           name: g.name, accuracyScore: g.activityScore, _isGov: true,
-          winRate: null, tradeCount: (g.buyCount||0) + (g.sellCount||0),
-          sellVal: g.sellVal, buyVal: g.buyVal, profitPerTrade: g.profitPerTrade,
+          winRate: null, tradeCount: g.tradeCount, sellVal: g.sellVal, buyVal: g.buyVal,
         }));
         const merged = [...(_insiderScoreCache||[]), ...govN].sort((a,b) => b.accuracyScore - a.accuracyScore);
         return merged.slice(0,3).map(r => ({
           ticker: r._isGov ? r.name.split(' ').filter(w=>!/^(Mr|Ms|Mrs|Dr|Jr|Sr|II|III)$/i.test(w)).slice(-1)[0] : r.name.split(' ')[0],
-          label: r._isGov
-            ? ((r.profitPerTrade>=0?'+':'-') + fmt(Math.abs(r.profitPerTrade||0)) + '/trade')
-            : `Score ${r.accuracyScore}`,
+          label: `Score ${r.accuracyScore}`,
           sub: r._isGov ? `Gov Official · ${r.tradeCount} trades` : `${r.winRate}% win · ${r.tradeCount} trades`,
-          color: r._isGov
-            ? ((r.profitPerTrade||0) >= 0 ? 'var(--buy)' : 'var(--sell)')
-            : (r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)'),
+          color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
         }));
       })(),
       accentColor: '#b8940a',
@@ -5954,10 +5963,6 @@ function renderAnalysisSubpage(id, opts={}) {
       </div>
       <div class="conviction-grid">${convHtml}</div>
     </div>`;
-  }
-
-  else if (id === 'conviction') {
-    renderConvictionSubpage();
   }
 
   else if (id === 'clusters') {
@@ -6361,10 +6366,10 @@ async function scoreInsiderLikeProfile(name) {
 
 function buildGovScoreCache(govData) {
   // Build gov official rankings from actual trade data.
-  // Groups by member, sums real amounts using parseAmountRange.
-  // Rankings use the SAME profit-per-trade formula shown on each gov profile:
+  // Profit-per-trade formula MATCHES the gov profile page exactly:
   //   profitPerTrade = (sellVal - buyVal) / sells.length
-  // This is the "EST. PROFIT/TRADE" figure in openGovProfile (line ~5171).
+  // Officials with no sells cannot be scored and are excluded.
+  // Sort descending by profitPerTrade so #1 has the highest per-trade profit.
   const byMember = {};
   govData.forEach(g => {
     const name = g.insider || g.member || '';
@@ -6381,81 +6386,148 @@ function buildGovScoreCache(govData) {
     if (g.ticker) byMember[name].tickers.add(g.ticker);
   });
 
-  // Need at least 1 sell to compute profit/trade (matches profile logic).
-  // Also require some activity — 3+ total trades so we aren't ranking single-sell noise.
-  const members = Object.values(byMember).filter(m => m.sellCount >= 1 && (m.buyCount + m.sellCount) >= 3);
+  // Need at least 2 trades total and at least 1 sell to compute profit-per-trade
+  const members = Object.values(byMember).filter(m => (m.buyCount + m.sellCount) >= 2 && m.sellCount >= 1);
   if (!members.length) return [];
 
-  // Real profit/trade per profile: (sellVal - buyVal) / sellCount
+  // Compute profit per trade for each member (matches gov profile page)
   members.forEach(m => {
     m.profitPerTrade = Math.round((m.sellVal - m.buyVal) / Math.max(1, m.sellCount));
   });
 
-  // Activity score is now derived from profit/trade percentile so the tile's
-  // displayed "score" reflects the same ranking the user sees.
-  const maxProfit = Math.max(1, ...members.map(m => Math.abs(m.profitPerTrade)));
+  // Rank by profitPerTrade, then map to activityScore 1-100 based on rank percentile
+  const sorted = [...members].sort((a, b) => b.profitPerTrade - a.profitPerTrade);
+  const maxPpt = Math.max(1, ...sorted.map(m => Math.abs(m.profitPerTrade)));
 
-  return members.map(m => ({
-    name: m.name,
-    chamber: m.chamber,
-    // Score is profit/trade normalised to 0–100 (positive profits map to
-    // 50–100, losses map to 0–50). This way the tile score and the ranking
-    // order both reflect profit/trade.
-    activityScore: Math.round(50 + (m.profitPerTrade / maxProfit) * 50),
-    buyCount: m.buyCount, sellCount: m.sellCount,
-    buyVal: m.buyVal, sellVal: m.sellVal,
-    profitPerTrade: m.profitPerTrade,
-    tickers: [...m.tickers].slice(0, 3).join(', '),
-  })).sort((a, b) => b.profitPerTrade - a.profitPerTrade);
+  return sorted.map((m, i) => {
+    // activityScore: linear scale from profitPerTrade so badge color reflects rank.
+    // Positive profit → scales up to 100; negative → scales down from 50.
+    const scaled = m.profitPerTrade >= 0
+      ? 50 + Math.round((m.profitPerTrade / maxPpt) * 50)
+      : 50 - Math.round((Math.abs(m.profitPerTrade) / maxPpt) * 50);
+    return {
+      name: m.name,
+      chamber: m.chamber,
+      activityScore: Math.max(1, Math.min(100, scaled)),
+      buyCount: m.buyCount, sellCount: m.sellCount,
+      buyVal: m.buyVal, sellVal: m.sellVal,
+      profitPerTrade: m.profitPerTrade,
+      tradeCount: m.buyCount + m.sellCount,
+      tickers: [...m.tickers].slice(0, 3).join(', '),
+    };
+  });
 }
 
 async function computeLeaderboardScores() {
+  // Pulls per-insider scores from /api/insider-score — the SAME endpoint the
+  // profile page uses. Scores on the analysis leaderboard are guaranteed to
+  // match the scores shown on each insider's profile exactly, because they
+  // come from the same code path.
   try {
-    const data = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
-    // Gov officials: score from _analysisGovData (already loaded, has real amounts)
-    // Don't use server scoreboard for gov — amount_range parsing is unreliable server-side
+    // Gov officials: compute from _analysisGovData (already loaded) using the
+    // same profit-per-trade formula the gov profile page uses.
     if (_analysisGovData && _analysisGovData.length) {
       _govScoreCache = buildGovScoreCache(_analysisGovData);
-    } else {
-      _govScoreCache = data.gov || [];
     }
-    _insiderScoreCache = (data.accuracy || []).filter(r => r.accuracyScore >= 35);
-    _timingAlphaCache  = data.timing  || [];
 
-    // Update UI with whatever we have
-    function updateUI() {
-      const body = document.getElementById('analysisViewBody');
-      const tsc  = document.getElementById('topScoresContent');
-      const tlc  = document.getElementById('timingLeadersContent');
-      if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache || []);
-      if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache || []);
-      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+    const data = await apiFetch('/api/scoreboard');
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    if (!candidates.length) {
+      _insiderScoreCache = [];
+      _timingAlphaCache  = [];
+      updateLeaderboardUI();
+      return;
     }
-    updateUI();
 
-    // If still computing on server, poll every 3s for updates
-    if (data.computing) {
-      let polls = 0;
-      const pollInterval = setInterval(async () => {
-        polls++;
-        if (polls > 40) { clearInterval(pollInterval); return; } // stop after 2 mins
-        try {
-          const update = await apiFetch('/api/scoreboard?minbuys=4&limit=30');
-          if (_analysisGovData && _analysisGovData.length) {
-            _govScoreCache = buildGovScoreCache(_analysisGovData);
-          } else {
-            _govScoreCache = update.gov || [];
-          }
-          _insiderScoreCache = (update.accuracy || []).filter(r => r.accuracyScore >= 35);
-          _timingAlphaCache  = update.timing  || [];
-          updateUI();
-          if (!update.computing) clearInterval(pollInterval);
-        } catch(e) { clearInterval(pollInterval); }
-      }, 3000);
-    }
-  } catch(e) {
+    // Seed the caches as empty arrays (not null) so tiles stop showing "…"
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
+    updateLeaderboardUI();
+
+    // Fetch scores in parallel batches to keep the page responsive and avoid
+    // hammering the server (rate limit is 90/min for normal endpoints).
+    const BATCH_SIZE = 5;
+    const accuracyResults = [];
+    const timingResults   = [];
+    const totalBatches = Math.ceil(candidates.length / BATCH_SIZE);
+    let batchIdx = 0;
+
+    for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+      const batch = candidates.slice(i, i + BATCH_SIZE);
+      const settled = await Promise.allSettled(batch.map(async c => {
+        const resp = await apiFetch('/api/insider-score?name=' + encodeURIComponent(c.name));
+        if (!resp || resp.error) return null;
+        return { ...resp, name: c.name, title: c.title || '' };
+      }));
+
+      settled.forEach(r => {
+        const v = r.status === 'fulfilled' ? r.value : null;
+        if (!v) return;
+
+        // Accuracy list: needs a valid accuracyScore above the floor that the
+        // profile shows as "meaningful" (>= 35).
+        if (typeof v.accuracyScore === 'number' && v.accuracyScore >= 35) {
+          accuracyResults.push({
+            name: v.name, title: v.title,
+            accuracyScore: v.accuracyScore,
+            tier: v.tier,
+            winRate: v.winRate,
+            avgRet90: v.avgRet90,
+            avgRet30: v.avgRet30,
+            tradeCount: v.tradeCount,
+            tickers: v.tickers,
+          });
+        }
+
+        // Timing list: ranked by avg 30-day return. Highest avg30 → #1.
+        if (typeof v.avgRet30 === 'number' && v.avgRet30 !== null) {
+          const ta = v.timingAlpha != null
+            ? v.timingAlpha
+            : Math.round(Math.min(100, Math.max(0, (v.avgRet30 + 10) * 5)));
+          const verdict = v.avgRet30 >= 8 ? 'Buys trigger immediate upward moves'
+                        : v.avgRet30 >= 3 ? 'Above-average short-term reaction'
+                        : v.avgRet30 >= 0 ? 'Mixed short-term price reaction'
+                        : 'Buys often followed by weakness';
+          timingResults.push({
+            name: v.name, title: v.title,
+            timingAlpha: ta,
+            avgRet30: v.avgRet30,
+            avgRet90: v.avgRet90,
+            win30Rate: v.win30Rate,
+            verdict,
+            tradeCount: v.tradeCount,
+            tickers: v.tickers,
+          });
+        }
+      });
+
+      // Update caches. Re-sort every batch so any in-place render shows the
+      // top results first. Only rebuild the heavy dashboard on first and last
+      // batch — interim batches update the subpage content in place.
+      _insiderScoreCache = [...accuracyResults].sort((a, b) => b.accuracyScore - a.accuracyScore);
+      _timingAlphaCache  = [...timingResults].sort((a, b) => b.avgRet30 - a.avgRet30);
+      batchIdx++;
+      const isFirstOrLast = batchIdx === 1 || batchIdx === totalBatches;
+      updateLeaderboardUI(isFirstOrLast);
+    }
+  } catch(e) {
+    console.warn('computeLeaderboardScores error:', e);
+    if (_insiderScoreCache === null) _insiderScoreCache = [];
+    if (_timingAlphaCache  === null) _timingAlphaCache  = [];
+    updateLeaderboardUI(true);
+  }
+}
+
+function updateLeaderboardUI(rerenderDashboard) {
+  // Always update subpage content in place (cheap DOM swap).
+  const tsc  = document.getElementById('topScoresContent');
+  const tlc  = document.getElementById('timingLeadersContent');
+  if (tsc) tsc.innerHTML = renderForm4ScoresList(_insiderScoreCache || []);
+  if (tlc) tlc.innerHTML = renderTimingLeadersList(_timingAlphaCache || []);
+  // Only re-render the full dashboard when requested (first/last batch).
+  if (rerenderDashboard) {
+    const body = document.getElementById('analysisViewBody');
+    if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
   }
 }
 
@@ -6491,13 +6563,12 @@ function renderForm4ScoresList(ranked) {
 function renderGovScoresList2Col(govList) {
   if (!govList || !govList.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:24px;text-align:center;color:var(--muted);font-size:12px">No gov officials ranked yet.</div>';
   return govList.map((r, i) => {
-    const ppt = r.profitPerTrade || 0;
-    // Color by profit direction, not absolute score
-    const scColor  = ppt >= 100000 ? 'var(--buy)' : ppt >= 0 ? 'var(--accent)' : 'var(--sell)';
-    const scBg     = ppt >= 100000 ? 'rgba(0,255,136,0.08)' : ppt >= 0 ? 'rgba(0,212,255,0.07)' : 'rgba(255,68,102,0.06)';
-    const scBorder = ppt >= 100000 ? 'rgba(0,255,136,0.28)' : ppt >= 0 ? 'rgba(0,212,255,0.22)' : 'rgba(255,68,102,0.22)';
+    const sc = r.activityScore;
+    const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
+    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(154,110,0,0.06)';
+    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(154,110,0,0.18)';
     const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-    const pptLabel = (ppt >= 0 ? '+' : '-') + fmt(Math.abs(ppt));
+    const ppt = r.profitPerTrade || 0;
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
                  onclick="openGovProfile('${escName(r.name)}')">
@@ -6506,14 +6577,13 @@ function renderGovScoresList2Col(govList) {
         <div style="font-size:12px;color:var(--accent);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name.replace(/\b(Mr|Ms|Mrs|Dr|Jr|Sr)\.?\s*/gi,'').trim()}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.chamber} · ${r.tickers}</div>
         <div style="display:flex;gap:8px;margin-top:3px;flex-wrap:wrap">
-          <span style="font-size:10px;color:var(--buy)">Bought ${fmt(r.buyVal||0)}</span>
-          <span style="font-size:10px;color:var(--sell)">Sold ${fmt(r.sellVal||0)}</span>
-          <span style="font-size:10px;color:var(--muted)">${r.sellCount} sell${r.sellCount!==1?'s':''}</span>
+          <span style="font-size:10px;color:${ppt>=0?'var(--buy)':'var(--sell)'}">${ppt>=0?'+':'-'}${fmt(Math.abs(ppt))}/trade</span>
+          <span style="font-size:10px;color:var(--muted)">${r.tradeCount||(r.buyCount+r.sellCount)} trades</span>
         </div>
       </div>
-      <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:5px 10px;text-align:center;flex-shrink:0;min-width:86px">
-        <div style="font-family:Inter,sans-serif;font-size:15px;line-height:1;color:${scColor}">${pptLabel}</div>
-        <div style="font-size:8px;font-family:Inter,sans-serif;color:${scColor};margin-top:2px">PROFIT/TRADE</div>
+      <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:5px 10px;text-align:center;flex-shrink:0">
+        <div style="font-family:Inter,sans-serif;font-size:22px;line-height:1;color:${scColor}">${sc}</div>
+        <div style="font-size:8px;font-family:Inter,sans-serif;color:${scColor};margin-top:1px">ACTIVITY</div>
       </div>
     </div>`;
   }).join('');
@@ -6872,7 +6942,7 @@ function scoreOpportunityRanker(rows) {
       topFactors: factors.filter(f => !f.startsWith('⚠')).slice(0, 3),
       crossToolBadges };
   })
-  .filter(r => r.score >= 5)
+  .filter(r => r.score >= 1)
   .sort((a, b) => b.score - a.score)
   .slice(0, 100);
 }
@@ -7307,7 +7377,7 @@ async function renderFirstBuySubpage() {
 
   // Controls
   const [minGap, lookback] = [
-    parseInt(document.getElementById('fbMinGap')?.value   || '365'),
+    parseInt(document.getElementById('fbMinGap')?.value   || '730'),
     parseInt(document.getElementById('fbLookback')?.value || '90'),
   ];
 
@@ -7352,15 +7422,45 @@ async function renderFirstBuySubpage() {
   </div>`;
 
   try {
-    const rows = await apiFetch(`/api/firstbuys?mingap=${minGap}&lookback=${lookback}&limit=100`);
+    let rows = [];
+    let usedFallback = false;
+    try {
+      rows = await apiFetch(`/api/firstbuys?mingap=${minGap}&lookback=${lookback}&limit=100`);
+      if (!Array.isArray(rows)) rows = [];
+    } catch(apiErr) {
+      console.warn('firstbuys API failed, using client fallback:', apiErr);
+      rows = [];
+    }
+
     const el = document.getElementById('firstBuyResults');
     if (!el) return;
 
+    // Client-side fallback: scan the local 3-year history
     if (!rows.length) {
-      el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
-        No signals found with current filters.<br>
-        <span style="font-size:11px">Try reducing the minimum gap or extending the lookback window.</span>
-      </div>`;
+      usedFallback = true;
+      await new Promise(resolve => ensureAnalysisDataLong(longTrades => {
+        const signals = detectFirstBuys(longTrades || [])
+          .filter(s => s.gapDays >= minGap)
+          .filter(s => {
+            if (!s.latestDate) return false;
+            const ageDays = (Date.now() - new Date(s.latestDate+'T12:00:00Z').getTime()) / 86400000;
+            return ageDays <= lookback;
+          })
+          .slice(0, 100);
+        if (!signals.length) {
+          el.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">
+            No signals found with current filters.<br>
+            <span style="font-size:11px">Try reducing the minimum gap or extending the lookback window.</span>
+          </div>`;
+        } else {
+          el.innerHTML = `
+            <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);margin-bottom:12px">${signals.length} SIGNAL${signals.length!==1?'S':''} FOUND · SORTED BY GAP LENGTH</div>
+            <div style="display:flex;flex-direction:column;gap:14px">
+              ${signals.map(s => renderFirstBuyCard(s)).join('')}
+            </div>`;
+        }
+        resolve();
+      }));
       return;
     }
 
@@ -7405,7 +7505,9 @@ function buildFirstBuySignal(r) {
 }
 
 function detectFirstBuys(trades) {
-  // Legacy JS fallback — used for dashboard tile top-3 preview only
+  // Client-side fallback — scans local trade history for first-buy-in-years signals.
+  // Produces the same shape as buildFirstBuySignal so it can be used interchangeably
+  // for the tile top-3 and the subpage when the /api/firstbuys endpoint is unavailable.
   if (!trades || !trades.length) return [];
   const byPair = {};
   trades.forEach(t => {
@@ -7417,20 +7519,29 @@ function detectFirstBuys(trades) {
   const now = new Date();
   const recentCutoffMs = now.getTime() - 90 * 86400000;
   const signals = [];
-  Object.entries(byPair).forEach(([key, buys]) => {
+  Object.values(byPair).forEach(buys => {
     const sorted = buys.sort((a,b) => (a.trade||a.filing||'').localeCompare(b.trade||b.filing||''));
     if (sorted.length < 2) return;
     const latest = sorted[sorted.length - 1];
     const prev   = sorted[sorted.length - 2];
     const latestDs = (latest.trade || latest.filing || '').slice(0,10);
     const prevDs   = (prev.trade   || prev.filing   || '').slice(0,10);
-    if (!latestDs || new Date(latestDs+'T12:00:00Z').getTime() < recentCutoffMs) return;
-    const gapDays  = (new Date(latestDs+'T12:00:00Z') - new Date(prevDs+'T12:00:00Z')) / 86400000;
-    const gapYears = +(gapDays / 365).toFixed(1);
-    if (gapDays < 180) return;
-    signals.push({ ticker: latest.ticker, insider: latest.insider, title: latest.title, gapYears, gapMonths: Math.round(gapDays/30.4) });
+    if (!latestDs || !prevDs) return;
+    if (new Date(latestDs+'T12:00:00Z').getTime() < recentCutoffMs) return;
+    const gapDays  = Math.round((new Date(latestDs+'T12:00:00Z') - new Date(prevDs+'T12:00:00Z')) / 86400000);
+    if (gapDays < 365) return; // match API default (1yr+)
+    // Return shape matching buildFirstBuySignal output
+    signals.push(buildFirstBuySignal({
+      insider: latest.insider, title: latest.title || '',
+      ticker: latest.ticker, company: latest.company || latest.ticker,
+      latest_trade: latestDs, latest_filing: latest.filing || latestDs,
+      latest_price: latest.price || 0, latest_qty: latest.qty || 0,
+      latest_value: latest.value || 0, latest_owned: latest.owned || 0,
+      prev_trade: prevDs, prev_owned: prev.owned || 0,
+      gap_days: gapDays,
+    }));
   });
-  return signals.sort((a,b) => b.gapYears - a.gapYears);
+  return signals.sort((a,b) => b.gapDays - a.gapDays);
 }
 
 function renderFirstBuyCard(s) {
