@@ -2768,96 +2768,103 @@ async function preComputeScoreboard() {
       })).sort((a,b) => b.activityScore - a.activityScore);
     } catch(e) { slog('Gov ranking err: ' + e.message); }
 
-    // Score each insider using the same logic as /api/insider-score
-    // No rate limiter on server-side DB/price queries
+    // Score each insider using the EXACT same logic as the profile page's
+    // computeAndRenderScore (public/index.html) and /api/insider-score:
+    //  • No GLOB/length ticker filter
+    //  • No dead-ticker exclusion (profile shows everything)
+    //  • No 60% coverage filter
+    //  • "First bar >= target date" lookup — matches profile's fwd()
+    //  • Minimum 5 completed trades (matches profile threshold)
+    //
+    // Without this alignment the scoreboard applied survivorship bias that
+    // inflated win rates vs what the profile shows (the user was seeing 100%
+    // win rates on the dashboard that didn't match the real profile numbers).
     const getHistory = db.prepare(`
       SELECT ticker, trade_date AS trade, COALESCE(price,0) AS price
       FROM trades
       WHERE UPPER(insider) = UPPER(?) AND TRIM(type)='P' AND price > 0
-        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       ORDER BY trade_date DESC LIMIT 500
     `);
 
-    const today = new Date().toISOString().slice(0,10);
     const CAP = 100;
     const capR = r => Math.max(-CAP, Math.min(CAP, r));
-    const cutoff90 = new Date(Date.now()-90*86400000).toISOString().slice(0,10);
 
-    function addDays(ds, n) {
-      const d = new Date(ds+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n);
-      return d.toISOString().slice(0,10);
-    }
-    function priceOn(bars, ds) {
-      for (let d=0; d<=5; d++) {
-        const dt = new Date(ds+'T12:00:00Z'); dt.setUTCDate(dt.getUTCDate()+d);
-        const bar = bars.find(b => b.time === dt.toISOString().slice(0,10));
-        if (bar) return bar.close;
-      }
-      return null;
-    }
-    function isDead(sym) {
-      const b = getPC(sym); return b && b.length && b[b.length-1].time < cutoff90;
+    // Matches profile's fwd(): finds the first bar at/after the target date.
+    // No 5-day cutoff — if the stock still trades, we get a return.
+    function fwdReturn(bars, buyDate, days, buyPrice) {
+      const fd = new Date(buyDate + 'T12:00:00Z');
+      fd.setUTCDate(fd.getUTCDate() + days);
+      const target = fd.toISOString().slice(0, 10);
+      const bar = bars.find(b => b.time >= target);
+      return bar ? (bar.close - buyPrice) / buyPrice * 100 : null;
     }
 
     for (const c of candidates) {
       await new Promise(r => setImmediate(r)); // yield so Express stays responsive
       try {
         const rows = getHistory.all(c.name);
-        const settled = rows.filter(t => today >= addDays(t.trade.slice(0,10), 90));
-        if (!settled.length) continue;
+        if (!rows.length) continue;
 
-        const scored = settled.map(t => {
-          if (isDead(t.ticker)) return null;
+        const scored = rows.map(t => {
           const bars = getPC(t.ticker);
           if (!bars || !bars.length) return null;
-          const buyDate = t.trade.slice(0,10);
-          const p90 = priceOn(bars, addDays(buyDate, 90));
-          const p30 = priceOn(bars, addDays(buyDate, 30));
-          if (!p90) return null;
-          return { ticker: t.ticker, tradeDate: buyDate,
-            ret90: (p90 - t.price) / t.price * 100,
-            ret30: p30 ? (p30 - t.price) / t.price * 100 : null };
+          const buyDate = t.trade.slice(0, 10);
+          const buyPrice = t.price;
+          if (!buyPrice) return null;
+          return {
+            ticker: t.ticker,
+            tradeDate: buyDate,
+            ret30: fwdReturn(bars, buyDate, 30, buyPrice),
+            ret90: fwdReturn(bars, buyDate, 90, buyPrice),
+          };
         }).filter(Boolean);
 
-        if (scored.length < 4) continue;
-        if (scored.length / settled.length < 0.60) continue;
+        // Profile requires >= 5 trades with settled 90d returns
+        const completed = scored.filter(s => s.ret90 !== null);
+        if (completed.length < 5) continue;
 
-        const rets90 = scored.map(s => capR(s.ret90));
-        const rets30 = scored.filter(s => s.ret30!==null).map(s => capR(s.ret30));
-        const winRate  = Math.round(rets90.filter(r=>r>0).length/rets90.length*100);
-        const avgRet90 = +(rets90.reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
-        const avgRet30 = rets30.length ? +(rets30.reduce((a,b)=>a+b,0)/rets30.length).toFixed(1) : null;
-        const avgMag   = +(rets90.map(Math.abs).reduce((a,b)=>a+b,0)/rets90.length).toFixed(1);
+        const rets90 = completed.map(s => capR(s.ret90));
+        const rets30 = completed.filter(s => s.ret30 !== null).map(s => capR(s.ret30));
+        const winRate  = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
+        const avgRet90 = +(rets90.reduce((a,b)=>a+b,0) / rets90.length).toFixed(1);
+        const avgRet30 = rets30.length ? +(rets30.reduce((a,b)=>a+b,0) / rets30.length).toFixed(1) : null;
+        const avgMag   = +(rets90.map(Math.abs).reduce((a,b)=>a+b,0) / rets90.length).toFixed(1);
         const sortedR  = [...rets90].sort((a,b)=>a-b);
         const median   = sortedR[Math.floor(sortedR.length/2)];
-        const consist  = Math.round(Math.min(100,Math.max(0,(median/Math.max(avgMag,1)+1)*50)));
-        const timingAvg30 = avgRet30||0;
-        const timingBonus = Math.round(Math.min(20,Math.max(0,(timingAvg30+8)/16*20)));
-        const baseScore   = winRate*0.40+Math.min(35,Math.max(0,avgRet90/20*35))+consist*0.15+Math.min(10,scored.length*1.2);
-        const accScore    = Math.round(Math.min(100,Math.max(0,baseScore*0.80+timingBonus)));
+        const consist  = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag,1) + 1) * 50)));
+        // Profile formula — exactly the same constants as computeAndRenderScore
+        const timingAvg30 = avgRet30 || 0;
+        const timingBonus = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 8) / 16 * 20)));
+        const baseScore   = winRate*0.40 + Math.min(35, Math.max(0, avgRet90/20*35)) + consist*0.15 + Math.min(10, completed.length*1.2);
+        const accScore    = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
         if (accScore < 35) continue;
 
         const tier = accScore>=75?'ELITE':accScore>=55?'STRONG':'AVERAGE';
-        const tickers3 = [...new Set(rows.map(t=>t.ticker))].slice(0,3).join(', ');
+        const tickers3 = [...new Set(rows.map(t => t.ticker))].slice(0, 3).join(', ');
+        const win30Rate = rets30.length ? Math.round(rets30.filter(r => r > 0).length / rets30.length * 100) : null;
 
-        // Update partial results immediately so client can poll
         _scoreboardPartial.accuracy.push({ name: c.name, title: c.title||'',
           accuracyScore: accScore, tier, winRate, avgRet90, avgRet30,
-          tradeCount: scored.length, tickers: tickers3 });
-        _scoreboardPartial.accuracy.sort((a,b)=>b.accuracyScore-a.accuracyScore);
+          tradeCount: completed.length, tickers: tickers3 });
+        _scoreboardPartial.accuracy.sort((a,b) => b.accuracyScore - a.accuracyScore);
 
-        const win30Rate = rets30.length ? Math.round(rets30.filter(r=>r>0).length/rets30.length*100) : null;
-        const comp30Ret = avgRet30!==null ? Math.round(Math.min(60,Math.max(0,(avgRet30+20)/60*60))) : 30;
-        const comp30Win = win30Rate!==null ? Math.round(Math.min(40,Math.max(0,(win30Rate-50)/50*40))) : 20;
-        const timingAlpha = Math.min(100,Math.max(0,comp30Ret+comp30Win));
-        if (timingAlpha >= 35 && rets30.length >= 3) {
-          const verdict = timingAlpha>=80?'Buys trigger immediate upward moves':
-                          timingAlpha>=60?'Above-average short-term reaction':
-                          timingAlpha>=40?'Mixed short-term price reaction':'Buys often followed by weakness';
+        // ── Timing Alpha — rank purely on average 30-day return ──
+        // Per product spec: "whoever has the highest average in their first 30
+        // days of a trade should be ranked #1". We surface avgRet30 directly
+        // as the sort key and map it to a 0–100 alpha score for display.
+        if (rets30.length >= 3 && avgRet30 !== null) {
+          // Map avgRet30 → 0–100 timingAlpha: -10% → 0, +20% → 100 (linear, clamped)
+          const timingAlpha = Math.round(Math.min(100, Math.max(0, (avgRet30 + 10) / 30 * 100)));
+          const verdict = avgRet30 >= 10 ? 'Buys trigger strong immediate upward moves' :
+                          avgRet30 >= 5  ? 'Buys trigger meaningful short-term gains' :
+                          avgRet30 >= 2  ? 'Above-average short-term reaction' :
+                          avgRet30 >= 0  ? 'Mildly positive short-term reaction' :
+                                           'Buys often followed by weakness';
           _scoreboardPartial.timing.push({ name: c.name, title: c.title||'',
             timingAlpha, avgRet30, win30Rate, avgRet90, verdict,
-            tradeCount: scored.length, tickers: tickers3 });
-          _scoreboardPartial.timing.sort((a,b)=>b.timingAlpha-a.timingAlpha);
+            tradeCount: completed.length, tickers: tickers3 });
+          // Sort by avgRet30 — the real ranking criterion
+          _scoreboardPartial.timing.sort((a,b) => (b.avgRet30||0) - (a.avgRet30||0));
         }
       } catch(e) { /* skip individual errors */ }
     }
@@ -2873,7 +2880,7 @@ async function preComputeScoreboard() {
 
 // C2: Non-blocking route — never awaits preCompute inline.
 // Returns {computing:true} immediately if not ready; client retries.
-const SCOREBOARD_FORMULA_VERSION = 30; // server scores incrementally; client polls partial results // server returns candidates only; client scores from profiles // 30-day window + $10K min to keep pool manageable // recently-active insiders only; getPC cache; proper priceOn 5-day window // removed from startup; capped at 50; yields after every insider // uses existing _priceCache, no startup fetch // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
+const SCOREBOARD_FORMULA_VERSION = 31; // server scores incrementally; client polls partial results // server returns candidates only; client scores from profiles // 30-day window + $10K min to keep pool manageable // recently-active insiders only; getPC cache; proper priceOn 5-day window // removed from startup; capped at 50; yields after every insider // uses existing _priceCache, no startup fetch // uses scoreOneSidedInsider — same logic as profile page // fixed coverage vs all raw trades; fixed gov percentile scoring // fixed: govRanked was undefined causing catch before cache set // fixed: cache was never being set (caused infinite loop) // fixed coverage: compare vs rawTrades not totalScorable; fixed loop; added yields // profile-identical scoring: direct DB query per insider, no GROUP_CONCAT window bias // fixed timing formula spread — old formula hit ceiling at +8% avg30 // 5Y window + 60% coverage + min 8 trades // exclude dead/acquired tickers from scoring // fixed fwd() to use 5-day window matching profile page // restricted trade window to 2Y-90d to eliminate survivorship bias
 
 app.get('/api/scoreboard', (req, res) => {
   const cacheValid = _scoreboardCache
