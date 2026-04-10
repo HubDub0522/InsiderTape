@@ -9610,7 +9610,7 @@ async function runMonitorWindow(tab, body) {
     if (needsSignalFetch || needsSentimentFetch) {
       const fetches = [];
       if (needsSignalFetch) {
-        fetches.push(apiFetch('/api/screener?days=90'));
+        fetches.push(apiFetch('/api/screener?days=90').catch(e => { console.warn('screener fetch failed:', e); return []; }));
         fetches.push(apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []));
         fetches.push(apiFetch('/api/gov-recent?days=90').catch(() => []));
       } else {
