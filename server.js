@@ -1420,6 +1420,90 @@ app.get('/api/gov', (req, res) => {
   }
 });
 
+// Gov leaderboard — ranks members by profit-per-trade using the SAME formula
+// the gov profile page uses: (sellVal - buyVal) / sells.length, calculated
+// over the last 5 years of disclosed trades. Returns members sorted by
+// profitPerTrade descending so #1 has the highest per-trade profit.
+let _govLeaderboardCache = null;
+let _govLeaderboardCacheTime = 0;
+const GOV_LEADERBOARD_TTL = 30 * 60 * 1000; // 30 minutes
+
+app.get('/api/gov-leaderboard', (req, res) => {
+  try {
+    const fresh = _govLeaderboardCache
+      && Date.now() - _govLeaderboardCacheTime < GOV_LEADERBOARD_TTL;
+    if (fresh) return res.json(_govLeaderboardCache);
+
+    // Pull all P/S trades from the last 5 years and aggregate per member.
+    // Uses the LOW bound of amount_range — matches client parseAmountRange.
+    const rows = db.prepare(`
+      SELECT member, chamber, transaction_type, amount_range, ticker
+      FROM gov_trades
+      WHERE transaction_date >= date('now','-1825 days')
+        AND transaction_type IN ('P','S')
+        AND member IS NOT NULL
+    `).all();
+
+    function parseLow(s) {
+      if (!s) return 1001;
+      const cleaned = String(s).replace(/[$,]/g, '');
+      const m = cleaned.match(/\d+/g);
+      if (!m || !m.length) return 1001;
+      return parseInt(m[0]) || 1001;
+    }
+
+    const byMember = {};
+    for (const r of rows) {
+      const name = r.member;
+      if (!byMember[name]) byMember[name] = {
+        name, chamber: r.chamber || '—',
+        buyVal: 0, sellVal: 0, buyCount: 0, sellCount: 0,
+        tickers: new Set(),
+      };
+      const m = byMember[name];
+      const val = parseLow(r.amount_range);
+      if (r.transaction_type === 'P') { m.buyVal += val; m.buyCount++; }
+      else if (r.transaction_type === 'S') { m.sellVal += val; m.sellCount++; }
+      if (r.ticker) m.tickers.add(r.ticker);
+    }
+
+    // Need at least 2 trades total and at least 1 sell to compute profit-per-trade
+    const members = Object.values(byMember).filter(m => (m.buyCount + m.sellCount) >= 2 && m.sellCount >= 1);
+
+    members.forEach(m => {
+      m.profitPerTrade = Math.round((m.sellVal - m.buyVal) / Math.max(1, m.sellCount));
+    });
+
+    const sorted = members.sort((a, b) => b.profitPerTrade - a.profitPerTrade);
+    const maxAbs = Math.max(1, ...sorted.map(m => Math.abs(m.profitPerTrade)));
+
+    const result = sorted.map(m => {
+      const scaled = m.profitPerTrade >= 0
+        ? 50 + Math.round((m.profitPerTrade / maxAbs) * 50)
+        : 50 - Math.round((Math.abs(m.profitPerTrade) / maxAbs) * 50);
+      return {
+        name: m.name,
+        chamber: m.chamber,
+        activityScore: Math.max(1, Math.min(100, scaled)),
+        buyCount: m.buyCount,
+        sellCount: m.sellCount,
+        buyVal: m.buyVal,
+        sellVal: m.sellVal,
+        profitPerTrade: m.profitPerTrade,
+        tradeCount: m.buyCount + m.sellCount,
+        tickers: [...m.tickers].slice(0, 3).join(', '),
+      };
+    });
+
+    _govLeaderboardCache = result;
+    _govLeaderboardCacheTime = Date.now();
+    res.json(result);
+  } catch(e) {
+    slog('gov-leaderboard error: ' + e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Gov trades for screener — all tickers within N days
 app.get('/api/gov-recent', (req, res) => {
   const days = Math.min(parseInt(req.query.days || '90'), 365);
