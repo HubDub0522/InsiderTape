@@ -5614,7 +5614,7 @@ function renderAnalysisDashboard() {
 
   // Kick off API fetch for first-buy tile data if not cached yet
   if (!_firstBuyCache) {
-    apiFetch('/api/firstbuys?mingap=730&lookback=90&limit=50').then(rows => {
+    apiFetch('/api/firstbuys?mingap=365&lookback=90&limit=50').then(rows => {
       _firstBuyCache = rows.map(r => buildFirstBuySignal(r));
       if (_rankerCache) {
         try { _rankerCache = scoreOpportunityRanker(_rankerRawRows || _rankerCache.map(r => ({...r}))); } catch(e) {}
@@ -5692,14 +5692,19 @@ function renderAnalysisDashboard() {
       top3: (() => {
         const govN = (_govScoreCache||[]).map(g => ({
           name: g.name, accuracyScore: g.activityScore, _isGov: true,
-          winRate: null, tradeCount: g.tradeCount, sellVal: g.sellVal, buyVal: g.buyVal,
+          winRate: null, tradeCount: (g.buyCount||0) + (g.sellCount||0),
+          sellVal: g.sellVal, buyVal: g.buyVal, profitPerTrade: g.profitPerTrade,
         }));
         const merged = [...(_insiderScoreCache||[]), ...govN].sort((a,b) => b.accuracyScore - a.accuracyScore);
         return merged.slice(0,3).map(r => ({
           ticker: r._isGov ? r.name.split(' ').filter(w=>!/^(Mr|Ms|Mrs|Dr|Jr|Sr|II|III)$/i.test(w)).slice(-1)[0] : r.name.split(' ')[0],
-          label: `Score ${r.accuracyScore}`,
+          label: r._isGov
+            ? ((r.profitPerTrade>=0?'+':'-') + fmt(Math.abs(r.profitPerTrade||0)) + '/trade')
+            : `Score ${r.accuracyScore}`,
           sub: r._isGov ? `Gov Official · ${r.tradeCount} trades` : `${r.winRate}% win · ${r.tradeCount} trades`,
-          color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
+          color: r._isGov
+            ? ((r.profitPerTrade||0) >= 0 ? 'var(--buy)' : 'var(--sell)')
+            : (r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)'),
         }));
       })(),
       accentColor: '#b8940a',
@@ -6355,8 +6360,11 @@ async function scoreInsiderLikeProfile(name) {
 }
 
 function buildGovScoreCache(govData) {
-  // Build gov official rankings from actual trade data
-  // Groups by member, sums real amounts using parseAmountRange
+  // Build gov official rankings from actual trade data.
+  // Groups by member, sums real amounts using parseAmountRange.
+  // Rankings use the SAME profit-per-trade formula shown on each gov profile:
+  //   profitPerTrade = (sellVal - buyVal) / sells.length
+  // This is the "EST. PROFIT/TRADE" figure in openGovProfile (line ~5171).
   const byMember = {};
   govData.forEach(g => {
     const name = g.insider || g.member || '';
@@ -6373,22 +6381,32 @@ function buildGovScoreCache(govData) {
     if (g.ticker) byMember[name].tickers.add(g.ticker);
   });
 
-  const members = Object.values(byMember).filter(m => m.buyCount >= 3);
+  // Need at least 1 sell to compute profit/trade (matches profile logic).
+  // Also require some activity — 3+ total trades so we aren't ranking single-sell noise.
+  const members = Object.values(byMember).filter(m => m.sellCount >= 1 && (m.buyCount + m.sellCount) >= 3);
   if (!members.length) return [];
 
-  const maxVol = Math.max(1, ...members.map(m => m.buyVal));
-  const maxCnt = Math.max(1, ...members.map(m => m.buyCount));
-  const maxTck = Math.max(1, ...members.map(m => m.tickers.size));
+  // Real profit/trade per profile: (sellVal - buyVal) / sellCount
+  members.forEach(m => {
+    m.profitPerTrade = Math.round((m.sellVal - m.buyVal) / Math.max(1, m.sellCount));
+  });
+
+  // Activity score is now derived from profit/trade percentile so the tile's
+  // displayed "score" reflects the same ranking the user sees.
+  const maxProfit = Math.max(1, ...members.map(m => Math.abs(m.profitPerTrade)));
 
   return members.map(m => ({
     name: m.name,
     chamber: m.chamber,
-    activityScore: Math.round((m.buyVal/maxVol)*50 + (m.buyCount/maxCnt)*30 + (m.tickers.size/maxTck)*20),
+    // Score is profit/trade normalised to 0–100 (positive profits map to
+    // 50–100, losses map to 0–50). This way the tile score and the ranking
+    // order both reflect profit/trade.
+    activityScore: Math.round(50 + (m.profitPerTrade / maxProfit) * 50),
     buyCount: m.buyCount, sellCount: m.sellCount,
     buyVal: m.buyVal, sellVal: m.sellVal,
-    profitPerTrade: Math.round(m.buyVal / Math.max(1, m.buyCount)),
+    profitPerTrade: m.profitPerTrade,
     tickers: [...m.tickers].slice(0, 3).join(', '),
-  })).sort((a, b) => b.activityScore - a.activityScore);
+  })).sort((a, b) => b.profitPerTrade - a.profitPerTrade);
 }
 
 async function computeLeaderboardScores() {
@@ -6473,13 +6491,13 @@ function renderForm4ScoresList(ranked) {
 function renderGovScoresList2Col(govList) {
   if (!govList || !govList.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:24px;text-align:center;color:var(--muted);font-size:12px">No gov officials ranked yet.</div>';
   return govList.map((r, i) => {
-    const sc = r.activityScore;
-    const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(154,110,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(154,110,0,0.18)';
+    const ppt = r.profitPerTrade || 0;
+    // Color by profit direction, not absolute score
+    const scColor  = ppt >= 100000 ? 'var(--buy)' : ppt >= 0 ? 'var(--accent)' : 'var(--sell)';
+    const scBg     = ppt >= 100000 ? 'rgba(0,255,136,0.08)' : ppt >= 0 ? 'rgba(0,212,255,0.07)' : 'rgba(255,68,102,0.06)';
+    const scBorder = ppt >= 100000 ? 'rgba(0,255,136,0.28)' : ppt >= 0 ? 'rgba(0,212,255,0.22)' : 'rgba(255,68,102,0.22)';
     const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-    const net = (r.sellVal||0)-(r.buyVal||0);
-    const ppt = r.profitPerTrade || r.profitProxy || 0;
+    const pptLabel = (ppt >= 0 ? '+' : '-') + fmt(Math.abs(ppt));
     return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;transition:border-color .15s"
                  onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
                  onclick="openGovProfile('${escName(r.name)}')">
@@ -6489,12 +6507,13 @@ function renderGovScoresList2Col(govList) {
         <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.chamber} · ${r.tickers}</div>
         <div style="display:flex;gap:8px;margin-top:3px;flex-wrap:wrap">
           <span style="font-size:10px;color:var(--buy)">Bought ${fmt(r.buyVal||0)}</span>
-          <span style="font-size:10px;color:${net>=0?'var(--buy)':'var(--sell)'}">~${net>=0?'+':''}${fmt(Math.abs(ppt))}/trade</span>
+          <span style="font-size:10px;color:var(--sell)">Sold ${fmt(r.sellVal||0)}</span>
+          <span style="font-size:10px;color:var(--muted)">${r.sellCount} sell${r.sellCount!==1?'s':''}</span>
         </div>
       </div>
-      <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:5px 10px;text-align:center;flex-shrink:0">
-        <div style="font-family:Inter,sans-serif;font-size:22px;line-height:1;color:${scColor}">${sc}</div>
-        <div style="font-size:8px;font-family:Inter,sans-serif;color:${scColor};margin-top:1px">ACTIVITY</div>
+      <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:5px 10px;text-align:center;flex-shrink:0;min-width:86px">
+        <div style="font-family:Inter,sans-serif;font-size:15px;line-height:1;color:${scColor}">${pptLabel}</div>
+        <div style="font-size:8px;font-family:Inter,sans-serif;color:${scColor};margin-top:2px">PROFIT/TRADE</div>
       </div>
     </div>`;
   }).join('');
@@ -6853,7 +6872,7 @@ function scoreOpportunityRanker(rows) {
       topFactors: factors.filter(f => !f.startsWith('⚠')).slice(0, 3),
       crossToolBadges };
   })
-  .filter(r => r.score >= 20)
+  .filter(r => r.score >= 5)
   .sort((a, b) => b.score - a.score)
   .slice(0, 100);
 }
@@ -7288,7 +7307,7 @@ async function renderFirstBuySubpage() {
 
   // Controls
   const [minGap, lookback] = [
-    parseInt(document.getElementById('fbMinGap')?.value   || '730'),
+    parseInt(document.getElementById('fbMinGap')?.value   || '365'),
     parseInt(document.getElementById('fbLookback')?.value || '90'),
   ];
 
