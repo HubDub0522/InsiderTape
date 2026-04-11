@@ -138,10 +138,36 @@ app.use((req, res, next) => {
   const limit = req.path === '/api/scoreboard' ? 55000
               : (req.path === '/api/drift' || req.path === '/api/proximity') ? 45000
               : (req.path === '/api/screener' || req.path === '/api/firstbuys' || req.path === '/api/monitor-sentiment') ? 45000
+              : req.path === '/api/gov-leaderboard' ? 45000
               : req.path === '/api/price' ? 35000
               : 25000;
+
+  // Guard against "Cannot set headers after they are sent" crashes.
+  // If the request times out, the timeout handler sends a 503 — but the
+  // original handler may still be running and will later call res.json().
+  // Patch res.json / res.send / res.status to be no-ops after the response
+  // is already sent, so late-arriving work silently discards instead of
+  // throwing an unhandled rejection that kills the process.
+  const origJson = res.json.bind(res);
+  const origSend = res.send.bind(res);
+  const origStatus = res.status.bind(res);
+  res.json = function(body) {
+    if (res.headersSent) return res;
+    try { return origJson(body); } catch(e) { return res; }
+  };
+  res.send = function(body) {
+    if (res.headersSent) return res;
+    try { return origSend(body); } catch(e) { return res; }
+  };
+  res.status = function(code) {
+    if (res.headersSent) return res;
+    try { return origStatus(code); } catch(e) { return res; }
+  };
+
   res.setTimeout(limit, () => {
-    if (!res.headersSent) res.status(503).json({ error: 'Request timeout' });
+    if (!res.headersSent) {
+      try { origStatus(503); origJson({ error: 'Request timeout' }); } catch(e) {}
+    }
   });
   next();
 });
