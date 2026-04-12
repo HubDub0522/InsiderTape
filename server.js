@@ -2908,9 +2908,25 @@ app.get('/api/scoreboard', (req, res) => {
 // ── INSIDER SCORE — scores a single insider using the same logic as the profile
 // Returns winRate, avgRet90, avgRet30, tradeCount, accuracyScore, tier
 // Uses all trades with no date cutoff — same data the profile page sees
+//
+// Results are cached per insider for 30 minutes. The analysis leaderboard
+// calls this endpoint for ~80 insiders every time someone loads the page;
+// without caching, that's 80 full price-bar sweeps per page load which
+// blocks other requests (especially /api/price for chart loads) on the
+// single Node event loop.
+const _insiderScoreCache = new Map(); // name → { data, t }
+const INSIDER_SCORE_TTL = 30 * 60 * 1000;
+
 app.get('/api/insider-score', async (req, res) => {
   const name = (req.query.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name required' });
+
+  const cacheKey = name.toUpperCase();
+  const cached = _insiderScoreCache.get(cacheKey);
+  if (cached && Date.now() - cached.t < INSIDER_SCORE_TTL) {
+    return res.json(cached.data);
+  }
+
   try {
     // Match exactly how /api/insider?exact=1 works — no date filter, same data as profile
     const rows = db.prepare(`
@@ -2923,7 +2939,11 @@ app.get('/api/insider-score', async (req, res) => {
       ORDER BY trade_date DESC LIMIT 500
     `).all(name);
 
-    if (!rows.length) return res.json({ error: 'no trades', name });
+    if (!rows.length) {
+      const payload = { error: 'no trades', name };
+      _insiderScoreCache.set(cacheKey, { data: payload, t: Date.now() });
+      return res.json(payload);
+    }
 
     const tickers = [...new Set(rows.map(r => r.ticker))];
     const priceEntries = await Promise.allSettled(
@@ -2952,7 +2972,11 @@ app.get('/api/insider-score', async (req, res) => {
     }).filter(Boolean);
 
     const completed = scored.filter(s => s.ret90 !== null);
-    if (completed.length < 4) return res.json({ error: 'insufficient data', completed: completed.length });
+    if (completed.length < 4) {
+      const payload = { error: 'insufficient data', completed: completed.length };
+      _insiderScoreCache.set(cacheKey, { data: payload, t: Date.now() });
+      return res.json(payload);
+    }
 
     const rets90  = completed.map(s => cap(s.ret90));
     const rets30  = completed.filter(s => s.ret30 !== null).map(s => cap(s.ret30));
@@ -2979,8 +3003,10 @@ app.get('/api/insider-score', async (req, res) => {
       ? Math.round(Math.min(100, Math.max(0, (avgRet30 + 10) * 5)))
       : null;
 
-    res.json({ name, winRate, avgRet90, avgRet30, win30Rate, tradeCount: completed.length,
-               accuracyScore, timingAlpha, tier, tickers: tickers3 });
+    const payload = { name, winRate, avgRet90, avgRet30, win30Rate, tradeCount: completed.length,
+                      accuracyScore, timingAlpha, tier, tickers: tickers3 };
+    _insiderScoreCache.set(cacheKey, { data: payload, t: Date.now() });
+    res.json(payload);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
