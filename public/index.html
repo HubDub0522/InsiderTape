@@ -6455,15 +6455,24 @@ async function computeLeaderboardScores() {
     _timingAlphaCache  = [];
     updateLeaderboardUI();
 
-    // Fetch scores in parallel batches to keep the page responsive and avoid
-    // hammering the server (rate limit is 90/min for normal endpoints).
-    const BATCH_SIZE = 5;
+    // Fetch scores in small parallel batches with a small gap between batches.
+    // Keeps the server event loop available for /api/price requests so chart
+    // loads don't stall while the leaderboard is populating. With server-side
+    // caching (30min TTL), repeat visits to the analysis page are near-instant.
+    const BATCH_SIZE = 3;
+    const BATCH_DELAY_MS = 120;
     const accuracyResults = [];
     const timingResults   = [];
     const totalBatches = Math.ceil(candidates.length / BATCH_SIZE);
     let batchIdx = 0;
 
     for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+      // Bail out if the user has navigated away from the analysis page —
+      // no point continuing to score insiders for a page they're not looking at.
+      const bodyEl = document.getElementById('analysisViewBody');
+      const stillOnAnalysis = bodyEl && bodyEl.offsetParent !== null;
+      if (!stillOnAnalysis && batchIdx > 0) break;
+
       const batch = candidates.slice(i, i + BATCH_SIZE);
       const settled = await Promise.allSettled(batch.map(async c => {
         const resp = await apiFetch('/api/insider-score?name=' + encodeURIComponent(c.name));
@@ -6520,6 +6529,11 @@ async function computeLeaderboardScores() {
       batchIdx++;
       const isFirstOrLast = batchIdx === 1 || batchIdx === totalBatches;
       updateLeaderboardUI(isFirstOrLast);
+
+      // Breathe between batches so /api/price and other endpoints can interleave.
+      if (batchIdx < totalBatches) {
+        await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+      }
     }
   } catch(e) {
     console.warn('computeLeaderboardScores error:', e);
