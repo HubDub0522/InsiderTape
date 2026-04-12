@@ -79,6 +79,23 @@
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* SEO content block — visually hidden from users but fully crawlable.
+     Uses the clip-path / position technique recommended by WebAIM for
+     accessible "screen reader only" content. Google indexes this normally
+     (it is NOT display:none or visibility:hidden, which Google may discount).
+     Screen readers still read it; sighted users never see it. */
+  .seo-content {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+  }
+
   html, body {
     height: 100%;
     background: var(--bg);
@@ -847,6 +864,46 @@
 </head>
 <body>
 
+<!-- ─────────────────────────────────────────────────────────────────────
+     SEO CONTENT FOR CRAWLERS
+     This block gives search engines real, descriptive content to index
+     on initial page load (before JavaScript fetches live data). It is
+     visually hidden from users via the .seo-content class — off-screen
+     positioning rather than display:none so it remains in the DOM and
+     is indexed normally by Google. Screen readers still read it.
+
+     Without this block, Googlebot crawls the page while it still shows
+     "Loading..." / "Fetching..." placeholders and flags the URL as a
+     "Soft 404" — an ostensibly successful page that looks empty or
+     broken to its content heuristics.
+
+     No JavaScript touches this block. It has no IDs or classes that
+     the app code queries, so nothing can accidentally overwrite it.
+     ───────────────────────────────────────────────────────────────── -->
+<div class="seo-content" aria-hidden="false">
+  <h1>InsiderTape — Real-Time Insider Trading &amp; Congressional Stock Trade Tracker</h1>
+  <p>InsiderTape tracks every SEC Form 4 filing and STOCK Act disclosure in real time, giving retail investors the same visibility into insider buying and selling that professional analysts have relied on for decades. See exactly what corporate executives, directors, and members of the U.S. Congress are buying and selling — the moment they file — across every U.S.-listed stock.</p>
+  <h2>What You Can Do on InsiderTape</h2>
+  <ul>
+    <li><strong>Screen Form 4 filings</strong> — Filter corporate insider trades by ticker, role (CEO, CFO, Director), transaction value, and time period. Spot open-market buys and sells across thousands of U.S. issuers.</li>
+    <li><strong>Track congressional stock trades</strong> — View STOCK Act disclosures from members of the U.S. House and Senate. See which tickers Nancy Pelosi, Dan Crenshaw, Tommy Tuberville, and other lawmakers are trading.</li>
+    <li><strong>Detect cluster buying signals</strong> — Our cluster detection engine surfaces tickers where multiple insiders are buying in a short window, after a decline, with no offsetting sells — a rare, high-conviction pattern.</li>
+    <li><strong>Score individual insiders</strong> — Every Form 4 insider is scored on actual forward returns: win rate, average 30-day and 90-day returns, consistency, and timing alpha. Find the insiders whose buys have historically preceded upward moves.</li>
+    <li><strong>Monitor first-buy signals</strong> — Detect insiders making their first open-market purchase after years of inactivity on a stock. One of the rarest and most deliberate signals in Form 4 data.</li>
+    <li><strong>Compare stock insider activity</strong> — Look up any ticker and see a year of insider buying and selling plotted directly on the price chart, alongside Form 4 trade history and congressional trade disclosures for that name.</li>
+    <li><strong>Spot exit warnings</strong> — Identify tickers where executives are selling concurrently, selling volume is accelerating, or the sell-to-buy ratio has turned sharply negative.</li>
+  </ul>
+  <h2>Data Sources</h2>
+  <p>Corporate insider trading data is pulled directly from <strong>SEC EDGAR Form 4 filings</strong>, which Section 16 officers (corporate insiders owning more than 10% of a class of stock, plus directors and executive officers) are required to file within two business days of any transaction in their company's securities. Congressional stock trading data comes from <strong>STOCK Act disclosures</strong>, which require members of the U.S. House of Representatives and U.S. Senate to publicly disclose any stock, bond, or commodity transaction over $1,000 within 45 days. InsiderTape ingests new filings throughout every trading day.</p>
+  <h2>Why Insider Trading Data Matters</h2>
+  <p>Academic research has repeatedly found that open-market insider buying — particularly cluster buying by multiple executives at the same company within a short window — has historically correlated with above-average forward returns. Insiders are, by definition, the people with the deepest knowledge of their company's operations, pipeline, and prospects. When they put their own money at risk buying their own stock on the open market, it is one of the most credible signals available in public markets. InsiderTape exists to surface those signals instantly, rank them by quality, and put them in front of retail investors the moment they file — the same way hedge funds and institutional desks have been tracking this data for years.</p>
+  <h2>Common Questions</h2>
+  <p><strong>What is SEC Form 4?</strong> SEC Form 4 is the filing corporate insiders are required to submit within two business days of any transaction in their company's equity securities. It reports the date, transaction type (purchase, sale, option exercise), number of shares, price per share, and total value of the trade, along with the insider's position at the company.</p>
+  <p><strong>What is the STOCK Act?</strong> The Stop Trading on Congressional Knowledge Act of 2012 requires members of the U.S. House and Senate, along with senior congressional staff, to publicly disclose any stock, bond, or commodity transaction over $1,000 within 45 days. These disclosures are published as periodic transaction reports (PTRs).</p>
+  <p><strong>Is insider trading legal?</strong> The insider trades tracked on InsiderTape are all legally disclosed transactions filed under Section 16 of the Securities Exchange Act of 1934 (corporate insiders) or the STOCK Act (congressional members). This is the legal, publicly-reported insider activity — not the illegal material non-public information kind.</p>
+  <p><strong>How often is InsiderTape updated?</strong> New SEC Form 4 filings are ingested throughout the trading day as they're published to EDGAR. Congressional STOCK Act disclosures are ingested daily.</p>
+  <p><strong>Is InsiderTape financial advice?</strong> No. InsiderTape is an information and data platform. Nothing on this site constitutes financial advice, a solicitation, or a recommendation to buy or sell any security. Always do your own research and consult a licensed financial advisor before making investment decisions.</p>
+</div>
 <header>
   <div class="logo" onclick="switchView('screener', document.querySelectorAll('.nav-tab')[0])" style="cursor:pointer">INSIDER<span>TAPE</span></div>
   <div class="search-wrap" style="position:relative">
