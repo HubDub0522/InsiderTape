@@ -3810,9 +3810,18 @@ app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, r
     return res.status(400).json({ error: 'Valid email required' });
   }
   try {
-    // Upsert user
-    db.prepare(`INSERT OR IGNORE INTO users (email) VALUES (?)`).run(email);
-    const user = db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+    // Only send magic links to emails that already exist in the users table.
+    // This prevents random/unknown emails from triggering outbound emails
+    // (wasting Resend credits and potentially annoying strangers).
+    // New users must be created via /api/admin/grant-premium or Stripe webhook
+    // before they can request a magic link.
+    const user = db.prepare(`SELECT * FROM users WHERE LOWER(email) = ?`).get(email);
+    if (!user) {
+      // Return the same success response — don't reveal whether the email exists.
+      // This is standard security practice to prevent email enumeration.
+      slog(`Magic link requested for unknown email: ${email.slice(0,3)}***`);
+      return res.json({ ok: true });
+    }
 
     // Create magic token — expires in 15 minutes
     const token = generateToken();
