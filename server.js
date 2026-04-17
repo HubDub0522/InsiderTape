@@ -3810,16 +3810,27 @@ app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, r
     return res.status(400).json({ error: 'Valid email required' });
   }
   try {
-    // Only send magic links to emails that already exist in the users table.
-    // This prevents random/unknown emails from triggering outbound emails
-    // (wasting Resend credits and potentially annoying strangers).
-    // New users must be created via /api/admin/grant-premium or Stripe webhook
-    // before they can request a magic link.
+    // Only send magic links to emails that have premium access (active
+    // subscription, admin flag, or ADMIN_EMAIL match). This prevents random
+    // emails from triggering outbound emails. The old code auto-created user
+    // rows for every email entered, so checking row existence alone isn't enough.
     const user = db.prepare(`SELECT * FROM users WHERE LOWER(email) = ?`).get(email);
     if (!user) {
-      // Return the same success response — don't reveal whether the email exists.
-      // This is standard security practice to prevent email enumeration.
       slog(`Magic link requested for unknown email: ${email.slice(0,3)}***`);
+      return res.json({ ok: true });
+    }
+
+    // Check if this user actually has premium/admin access
+    const adminEmail = (ADMIN_EMAIL || '').trim().toLowerCase();
+    const isAdmin = !!user.is_admin || (adminEmail && email === adminEmail);
+    const sub = getSubscription(user.id);
+    const hasActiveSub = sub && (sub.status === 'active' ||
+      (sub.current_period_end && sub.current_period_end > new Date().toISOString()));
+
+    if (!isAdmin && !hasActiveSub) {
+      // User row exists (likely from old auto-create) but has no premium access.
+      // Don't send a magic link — silently return success to prevent enumeration.
+      slog(`Magic link requested for non-premium user: ${email.slice(0,3)}***`);
       return res.json({ ok: true });
     }
 
