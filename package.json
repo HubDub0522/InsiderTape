@@ -1,6 +1,6 @@
 {
   "name": "insidertape",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Insider trading tracker",
   "main": "server.js",
   "scripts": {
@@ -8,12 +8,12 @@
     "build": "npm install"
   },
   "dependencies": {
-    "better-sqlite3": "^9.4.3",
+    "@libsql/client": "^0.14.0",
+    "compression": "^1.7.4",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "stripe": "^14.21.0",
     "resend": "^3.2.0",
-    "compression": "^1.7.4"
+    "stripe": "^14.21.0"
   },
   "engines": {
     "node": "20.x"

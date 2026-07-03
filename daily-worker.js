@@ -1,103 +1,71 @@
 'use strict';
 
-// daily-worker.js — v9 (paginated RSS for recent data)
-// Fixes:
-//  - Removed seen_accessions cache (was blocking re-insertion; DB UNIQUE constraint handles dedup)
-//  - EFTS backfill now runs on startup AND every 4 hours (not just once/day)
-//  - RSS poll runs every 2 min for low-latency same-day picks
-//  - daily_log now records per-date counts correctly
-//  - Increased EFTS page limit to catch all filings (up to 10k/day)
+// daily-worker.js v10 — Turso edition
+// Designed to run as a one-shot GitHub Actions job (backfill mode).
+// Replaces better-sqlite3 with @libsql/client (async, remote Turso DB).
+// Usage: node daily-worker.js [daysBack] [mode]
+//   daysBack — how many calendar days to backfill (default: 3)
+//   mode     — 'backfill' (default) or 'recent' (same, alias)
 
-const https    = require('https');
-const fs       = require('fs');
-const path     = require('path');
-const Database = require('better-sqlite3');
+const https  = require('https');
+const { createClient } = require('@libsql/client');
 
-const DATA_DIR = fs.existsSync('/var/data') ? '/var/data' : path.join(__dirname, 'data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_PATH  = process.env.DB_PATH || path.join(DATA_DIR, 'trades.db');
-log(`DB path: ${DB_PATH}`);
+const TURSO_URL   = process.env.TURSO_DATABASE_URL;
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN;
+if (!TURSO_URL) { console.error('TURSO_DATABASE_URL not set'); process.exit(1); }
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 60000'); // wait up to 60s for server to finish startup DB ops
-db.pragma('synchronous = NORMAL');
+const client = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN || undefined });
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
-    trade_date TEXT NOT NULL, filing_date TEXT,
-    type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER, accession TEXT,
-    UNIQUE(accession, insider, trade_date, type, qty)
-  );
-  CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker);
-  CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC);
-  CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC);
-  CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider);
-  CREATE TABLE IF NOT EXISTS daily_log (
-    date TEXT PRIMARY KEY,
-    synced_at TEXT DEFAULT (datetime('now')),
-    filings INTEGER,
-    trades INTEGER
-  );
-  CREATE TABLE IF NOT EXISTS seen_filings (
-    accession TEXT PRIMARY KEY,
-    seen_at   TEXT DEFAULT (datetime('now'))
-  );
-`);
+// ─── DB helpers ───────────────────────────────────────────────────────────────
+async function dbQuery(sql, args = []) {
+  const r = await client.execute({ sql, args });
+  return r.rows.map(row => Object.fromEntries(r.columns.map((c, i) => [c, row[i] ?? null])));
+}
+async function dbRun(sql, args = []) {
+  const r = await client.execute({ sql, args });
+  return r.rowsAffected;
+}
+async function dbBatch(stmts) {
+  return client.batch(stmts, 'write');
+}
 
-const insertTrade = db.prepare(`
-  INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-`);
-
-// For 4/A amendments: delete original rows for this insider+ticker on the same trade dates
-// before inserting corrected data. This ensures amendments always overwrite originals.
-const deleteForAmendment = db.prepare(`
-  DELETE FROM trades
-  WHERE ticker = ? AND insider = ? AND trade_date = ? AND TRIM(type) IN ('P','S','S-')
-`);
-
-const doInsert = db.transaction(rows => {
-  let n = 0;
-  for (const r of rows) n += insertTrade.run(r).changes;
-  return n;
-});
-
-// Amendment-aware insert: wipe original rows first, then insert corrected data
-const doInsertAmendment = db.transaction(rows => {
-  // Group rows by ticker+insider+trade_date and delete originals first
-  const keys = new Set(rows.map(r => r[0] + '|' + r[2] + '|' + r[4])); // ticker|insider|trade_date
-  for (const key of keys) {
-    const [ticker, insider, trade_date] = key.split('|');
-    deleteForAmendment.run(ticker, insider, trade_date);
+// ─── Schema ───────────────────────────────────────────────────────────────────
+async function initSchema() {
+  const stmts = [
+    `CREATE TABLE IF NOT EXISTS trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL, company TEXT, insider TEXT, title TEXT,
+      trade_date TEXT NOT NULL, filing_date TEXT,
+      type TEXT, qty INTEGER, price REAL, value INTEGER, owned INTEGER,
+      accession TEXT, footnote TEXT,
+      UNIQUE(accession, insider, trade_date, type, qty)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_ticker      ON trades(ticker)`,
+    `CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`,
+    `CREATE TABLE IF NOT EXISTS daily_log (date TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), filings INTEGER, trades INTEGER)`,
+    `CREATE TABLE IF NOT EXISTS seen_filings (accession TEXT PRIMARY KEY, seen_at TEXT DEFAULT (datetime('now')))`,
+  ];
+  for (const sql of stmts) {
+    try { await client.execute(sql); } catch(e) { /* already exists */ }
   }
-  // Now insert the amended rows
-  let n = 0;
-  for (const r of rows) n += insertTrade.run(r).changes;
-  return n;
-});
+}
 
-function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11,19)}] ${msg}\n`); }
+// ─── Logging ──────────────────────────────────────────────────────────────────
+function log(msg) { process.stdout.write(`[${new Date().toISOString().slice(11, 19)}] ${msg}\n`); }
 
-// ── Rate-limited GET (max 8 req/sec to respect SEC limits) ───────
+// ─── Rate-limited HTTPS GET (SEC rate limit: max 8 req/sec) ──────────────────
 const reqTimes = [];
 async function get(url, ms = 20000, _hops = 0) {
   if (_hops > 5) throw new Error('Too many redirects');
   const now = Date.now();
   while (reqTimes.length && reqTimes[0] < now - 1000) reqTimes.shift();
-  if (reqTimes.length >= 8) {
-    await new Promise(r => setTimeout(r, 1000 - (now - reqTimes[0]) + 10));
-  }
+  if (reqTimes.length >= 8) await new Promise(r => setTimeout(r, 1000 - (now - reqTimes[0]) + 10));
   reqTimes.push(Date.now());
-
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      headers: { 'User-Agent': 'InsiderTape/1.0 admin@insidertape.com' },
-      timeout: ms,
-    }, res => {
-      if ([301,302,303].includes(res.statusCode) && res.headers.location) {
+    const req = https.get(url, { headers: { 'User-Agent': 'InsiderTape/2.0 admin@insidertape.com' }, timeout: ms }, res => {
+      if ([301, 302, 303].includes(res.statusCode) && res.headers.location) {
         res.resume();
         return get(res.headers.location, ms, _hops + 1).then(resolve).catch(reject);
       }
@@ -111,6 +79,7 @@ async function get(url, ms = 20000, _hops = 0) {
   });
 }
 
+// ─── Form 4 XML parsing ───────────────────────────────────────────────────────
 function parseDate(s) {
   if (!s) return null;
   const d = s.slice(0, 10);
@@ -129,90 +98,40 @@ function xmlGet(xml, tag) {
 }
 
 function parseForm4(xml, filingDate, accession) {
-  const ticker  = xmlGet(xml, 'issuerTradingSymbol').toUpperCase().trim().replace(/^[A-Z]+:/,'');
+  const ticker  = xmlGet(xml, 'issuerTradingSymbol').toUpperCase().trim().replace(/^[A-Z]+:/, '');
   const company = xmlGet(xml, 'issuerName').trim();
   const insider = xmlGet(xml, 'rptOwnerName').trim();
   const title   = (xmlGet(xml, 'officerTitle') || xmlGet(xml, 'rptOwnerRelationship') || '').trim();
   const period  = parseDate(xmlGet(xml, 'periodOfReport'));
-  const INVALID_TICKERS = new Set(['NONE','NULL','N/A','NA','--','-','.','0','FALSE','TRUE']);
-  if (!ticker || INVALID_TICKERS.has(ticker) || !/^[A-Z]/.test(ticker) || ticker.length > 10) return [];
+  const INVALID = new Set(['NONE', 'NULL', 'N/A', 'NA', '--', '-', '.', '0', 'FALSE', 'TRUE']);
+  if (!ticker || INVALID.has(ticker) || !/^[A-Z]/.test(ticker) || ticker.length > 10) return [];
 
   const rows = [];
   function parseBlock(block) {
-    const code  = (xmlGet(block, 'transactionCode') || '').trim();
-    // Only store open-market buys (P) and sales (S, S-)
-    // All other codes (C=conversion, M=exercise, A=award, G=gift, F=tax withholding, etc.)
-    // are not open-market transactions and produce fabricated values when qty*price is computed
+    const code = (xmlGet(block, 'transactionCode') || '').trim();
     if (!['P', 'S', 'S-'].includes(code)) return;
-
     const date  = parseDate(xmlGet(block, 'transactionDate')) || period || filingDate;
     if (!date) return;
-
     const qty   = Math.round(Math.abs(parseFloat(xmlGet(block, 'transactionShares') || '0') || 0));
     const price = Math.abs(parseFloat(xmlGet(block, 'transactionPricePerShare') || '0') || 0);
     const owned = Math.round(Math.abs(parseFloat(xmlGet(block, 'sharesOwnedFollowingTransaction') || '0') || 0));
-
-    // Sanity checks: reject implausible values that indicate parsing errors or derivative noise
-    if (qty > 500_000_000) return;      // >500M shares = likely a derivative artifact or bad parse
-    if (price > 1_500_000) return;      // >$1.5M/share = above even Berkshire A, likely bad data
+    if (qty > 500_000_000 || price > 1_500_000) return;
     const value = Math.round(qty * price);
-    if (value > 5_000_000_000) return;  // >$5B single trade = implausible
-    // Reject trades where price is suspiciously low relative to share count
-    // $0.01/share on 7.84M shares = $78K reported value, but stock trades at $1.30+
-    // These are typically reclassifications or conversions mislabeled as P/S
-    if (price > 0 && price < 0.05 && qty > 1_000_000) return; // sub-nickel price + huge qty = artifact
-    if (value > 0 && value < 500) return;  // under $500 total = noise, not a real open-market trade
+    if (value > 5_000_000_000) return;
+    if (price > 0 && price < 0.05 && qty > 1_000_000) return;
+    if (value > 0 && value < 500) return;
 
-    // Extract footnote text — used to detect DRIP/compensation-plan purchases
-    // which are coded 'P' by the SEC but are NOT discretionary open-market buys
-    const footnoteId = xmlGet(block, 'transactionCodeFootnoteId') ||
-                       xmlGet(block, 'transactionPricePerShareFootnoteId') || '';
-    // Collect all footnote descriptions from the document
     const fnTexts = [];
     const fnRe = /<footnote[^>]*id="([^"]*)"[^>]*>([\s\S]*?)<\/footnote>/gi;
     let fnMatch;
-    while ((fnMatch = fnRe.exec(block + xml)) !== null) {
-      fnTexts.push(fnMatch[2].replace(/<[^>]+>/g, '').trim());
-    }
+    while ((fnMatch = fnRe.exec(block + xml)) !== null) fnTexts.push(fnMatch[2].replace(/<[^>]+>/g, '').trim());
     const footnote = fnTexts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 500);
 
-    // Filter out non-discretionary purchases — coded 'P' by SEC but NOT
-    // genuine open-market conviction buys. Two categories:
     if (code === 'P') {
       const fn = footnote.toLowerCase();
-
-      // 1. DRIP / compensation-plan: pre-elected, programmatic, not discretionary
-      // Only filter if the footnote indicates THIS transaction was made via DRIP/plan
-      // (e.g. "pursuant to", "through the", "under the" plan).
-      // A footnote that merely mentions DRIP in passing (e.g. describing other holdings)
-      // should NOT cause the transaction to be dropped.
-      const isDRIPTransaction = (
-        fn.includes('pursuant to') || fn.includes('through the') ||
-        fn.includes('under the') || fn.includes('under a') ||
-        fn.includes('using a portion') || fn.includes('prior election') ||
-        fn.includes('automatic') || fn.includes('pre-elected')
-      ) && (
-        fn.includes('dividend reinvest') || fn.includes('drip') ||
-        fn.includes('reinvestment plan') || fn.includes('stock purchase plan') ||
-        fn.includes('employee stock purchase') || fn.includes('espp') ||
-        fn.includes('compensation plan') || fn.includes('deferred compensation') ||
-        fn.includes('director compensation')
-      );
-      const isDRIP = isDRIPTransaction;
-
-      // 2. Offering participation: buying in a company's own capital raise,
-      //    not an independent open-market decision
-      const isOffering = fn.includes('public offering') ||
-                         fn.includes('underwritten offering') ||
-                         fn.includes('registered offering') ||
-                         fn.includes('private placement') ||
-                         fn.includes('subscription agreement') ||
-                         fn.includes('securities purchase agreement') ||
-                         fn.includes('placement agent') ||
-                         fn.includes('prospectus supplement') ||
-                         fn.includes('direct offering') ||
-                         fn.includes('pipe offering');
-
+      const isDRIP = (fn.includes('pursuant to') || fn.includes('through the') || fn.includes('under the') || fn.includes('under a') || fn.includes('automatic') || fn.includes('prior election'))
+        && (fn.includes('dividend reinvest') || fn.includes('drip') || fn.includes('reinvestment plan') || fn.includes('stock purchase plan') || fn.includes('espp') || fn.includes('compensation plan') || fn.includes('deferred compensation'));
+      const isOffering = fn.includes('public offering') || fn.includes('underwritten offering') || fn.includes('private placement') || fn.includes('subscription agreement') || fn.includes('securities purchase agreement') || fn.includes('placement agent') || fn.includes('direct offering');
       if (isDRIP || isOffering) return;
     }
 
@@ -221,28 +140,21 @@ function parseForm4(xml, filingDate, accession) {
 
   let m;
   const ndRe = /<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/gi;
-  const dRe  = /<derivativeTransaction>([\s\S]*?)<\/derivativeTransaction>/gi;
   while ((m = ndRe.exec(xml))) parseBlock(m[1]);
-  while ((m = dRe.exec(xml)))  parseBlock(m[1]);
   return rows;
 }
 
-// ── Resolve accession number → parsed Form 4 rows ────────────────
+// ─── Fetch Form 4 XML from EDGAR ──────────────────────────────────────────────
 async function fetchForm4(accession, filingDate, xmlFile, ciks) {
   const acc      = accession.replace(/-/g, '');
   const filerCik = parseInt(acc.slice(0, 10), 10).toString();
   const allCiks  = [...new Set([...(ciks || []).map(k => parseInt(k, 10).toString()), filerCik])];
 
-  // Helper: try fetching XML at a given URL
   async function tryXml(url) {
-    try {
-      const { status, body } = await get(url);
-      if (status === 200 && body.includes('ownershipDocument')) return body;
-    } catch(e) {}
+    try { const { status, body } = await get(url); if (status === 200 && body.includes('ownershipDocument')) return body; } catch(_) {}
     return null;
   }
 
-  // 1. Direct xmlFile path (fastest — EFTS gives us the filename)
   if (xmlFile) {
     for (const cik of allCiks) {
       const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlFile}`);
@@ -250,43 +162,30 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
     }
   }
 
-  // 2. Use the SGML submission index (.txt) — always accessible, lists all docs
-  // URL: https://www.sec.gov/Archives/edgar/data/{CIK}/{ACC}/{ACC}.txt (header file)
-  // Better: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&filenum=...
-  // Best: fetch the index page directly
   for (const cik of allCiks) {
     try {
       const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accession}-index.htm`);
       if (status === 200) {
-        // Extract XML filename from index HTML
         const xmlMatch = body.match(/href="([^"]+\.xml)"/i);
         if (xmlMatch) {
-          const xmlName = xmlMatch[1].split('/').pop();
-          const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlName}`);
+          const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlMatch[1].split('/').pop()}`);
           if (xml) return parseForm4(xml, filingDate, accession);
         }
       }
-    } catch(e) {}
+    } catch(_) {}
 
-    // Also try the JSON index
     try {
       const { status, body } = await get(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${accession}-index.json`);
       if (status === 200) {
-        const idx    = JSON.parse(body);
-        const xmlDoc = (idx.documents || []).find(d =>
-          d.document?.match(/\.xml$/i) && (d.type === '4' || d.type === '4/A' || !d.type)
-        ) || (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
-        if (xmlDoc) {
-          const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${xmlDoc.document}`);
-          if (xml) return parseForm4(xml, filingDate, accession);
-        }
+        const idx = JSON.parse(body);
+        const doc = (idx.documents || []).find(d => d.document?.match(/\.xml$/i) && (d.type === '4' || d.type === '4/A' || !d.type)) || (idx.documents || []).find(d => d.document?.match(/\.xml$/i));
+        if (doc) { const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${doc.document}`); if (xml) return parseForm4(xml, filingDate, accession); }
       }
-    } catch(e) {}
+    } catch(_) {}
   }
 
-  // 3. Common filename patterns
   for (const cik of allCiks) {
-    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml', 'xslF345X03/primary_doc.xml']) {
+    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml']) {
       const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`);
       if (xml) return parseForm4(xml, filingDate, accession);
     }
@@ -295,145 +194,9 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
   return [];
 }
 
-// ── EDGAR browse-edgar paginated fetch — gets ALL filings since cutoff ──
-// fetchRecentFilings: get all Form 4s filed since sinceDate
-// Combines atom feed (low latency) + per-day EFTS (fills gaps)
-async function fetchRecentFilings(sinceDate) {
-  const seen    = new Set();
-  let   filings = [];
-
-  // 1. Atom feed — paginated, low latency
-  try {
-    const atomFilings = await fetchViaAtom(sinceDate);
-    atomFilings.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); } });
-    log(`Atom feed: ${atomFilings.length} filings since ${sinceDate}`);
-  } catch(e) {
-    log(`Atom feed error: ${e.message}`);
-  }
-
-  // 2. EFTS per-day supplement — catches anything atom missed (slight lag but complete)
-  const today = new Date().toISOString().slice(0, 10);
-  const start = new Date(sinceDate + 'T12:00:00Z');
-  const end   = new Date(today     + 'T12:00:00Z');
-  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-    const dateStr = d.toISOString().slice(0, 10);
-    try {
-      const dayFilings = await searchEFTS(dateStr, dateStr);
-      let added = 0;
-      dayFilings.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); added++; } });
-      if (added > 0) log(`EFTS ${dateStr}: +${added} filings not in atom feed`);
-    } catch(e) {}
-  }
-
-  log(`fetchRecentFilings total: ${filings.length} since ${sinceDate}`);
-  return filings;
-}
-
-async function fetchViaAtom(sinceDate) {
-  const filings = [];
-  const seen    = new Set();
-
-  for (let start = 0; start < 4000; start += 40) {
-    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&start=${start}&output=atom`;
-    const r = await get(url, 30000);
-    if (r.status !== 200) {
-      log(`Atom HTTP ${r.status} at start=${start}`);
-      break;
-    }
-
-    const entries = r.body.split('<entry>').slice(1);
-    if (start === 0) log(`Atom page 0: ${entries.length} entries, body length ${r.body.length}`);
-    if (!entries.length) break;
-
-    let oldestOnPage = '';
-    for (const entry of entries) {
-      const dateMatch  = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
-      const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0,10);
-      const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
-      if (!linkMatch) continue;
-      const cik    = linkMatch[1];
-      const accRaw = linkMatch[2];
-      const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
-      if (!seen.has(accDash)) {
-        seen.add(accDash);
-        // Extract form type from atom entry title/category — default to '4'
-        const typeMatch = entry.match(/<category[^>]*term="([^"]*4[^"]*)"/) ||
-                          entry.match(/<title[^>]*>[^<]*(4\/A)[^<]*<\/title>/i);
-        const formType  = (typeMatch?.[1] || typeMatch?.[2] || '').includes('4/A') ? '4/A' : '4';
-        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate, formType });
-      }
-      if (!oldestOnPage || filingDate < oldestOnPage) oldestOnPage = filingDate;
-    }
-
-    if (oldestOnPage && oldestOnPage < sinceDate) break;
-    if (entries.length < 40) break;
-  }
-
-  return filings.filter(f => f.filingDate >= sinceDate);
-}
-
-
-
-
-
-async function pollRSS() {
-  // Cover last 2 days so filings from yesterday aren't missed between scheduled polls
-  const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
-  return fetchRecentFilings(since);
-}
-
-// ── EDGAR daily index (definitive — lists every filing for each day) ─
-// https://www.sec.gov/Archives/edgar/full-index/YYYY/QN/company.idx
-// This is what serious data providers use — it's the authoritative list.
-async function fetchDailyIndex(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00Z');
-  const yr = d.getUTCFullYear();
-  const mo = d.getUTCMonth() + 1;
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  const q  = Math.ceil(mo / 3);
-
-  // The full-index company.gz file for this quarter lists all filings
-  // But it's updated daily — we parse it and filter by date + form type
-  const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=100&search_text=&action=getcurrent&output=atom`;
-  
-  // Actually use the EDGAR full-index for the specific date
-  // Format: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4&dateb=YYYYMMDD&owner=include&count=100&search_text=&output=atom
-  const dateFmt = `${yr}${String(mo).padStart(2,'0')}${dd}`;
-  const idxUrl  = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=${dateFmt}&owner=include&count=100&search_text=&output=atom`;
-  
-  try {
-    const { status, body } = await get(idxUrl, 30000);
-    if (status !== 200) return [];
-    return parseAtomFeed(body, dateStr);
-  } catch(e) {
-    log(`Daily index error for ${dateStr}: ${e.message}`);
-    return [];
-  }
-}
-
-function parseAtomFeed(body, expectedDate) {
-  const filings = [];
-  const entryRe = /<entry>([\s\S]*?)<\/entry>/gi;
-  let m;
-  while ((m = entryRe.exec(body))) {
-    const entry = m[1];
-    const dateMatch = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
-    const filingDate = dateMatch ? dateMatch[1] : expectedDate;
-    const linkMatch = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]+)\//);
-    if (!linkMatch) continue;
-    const cik    = linkMatch[1];
-    const accRaw = linkMatch[2];
-    if (accRaw.length !== 18) continue;
-    const accDash = `${accRaw.slice(0,10)}-${accRaw.slice(10,12)}-${accRaw.slice(12)}`;
-    filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate });
-  }
-  return filings;
-}
-
-// ── EFTS search — paginates through ALL Form 4s in date range ────
+// ─── EDGAR filing discovery ────────────────────────────────────────────────────
 async function searchEFTS(startDate, endDate) {
   const filings = [];
-  // Use category=form-type to get exact form type matching
   for (let from = 0; from < 10000; from += 100) {
     const url = `https://efts.sec.gov/LATEST/search-index?forms=4,4%2FA&dateRange=custom&startdt=${startDate}&enddt=${endDate}&from=${from}&size=100`;
     try {
@@ -443,41 +206,61 @@ async function searchEFTS(startDate, endDate) {
       const hits = data.hits?.hits || [];
       if (!hits.length) break;
       for (const h of hits) {
-        const raw      = h._id || '';
-        const colonAt  = raw.indexOf(':');
-        const accDash  = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
-        const xmlFile  = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
-        const fd       = parseDate(h._source?.file_date) || endDate;
-        const ciks     = h._source?.ciks || [];
-        const formType = (h._source?.form_type || '4').trim(); // '4' or '4/A'
-        if (accDash.match(/^\d{10}-\d{2}-\d{6}$/))
-          filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd, formType });
+        const raw = h._id || '';
+        const colonAt = raw.indexOf(':');
+        const accDash = colonAt >= 0 ? raw.slice(0, colonAt) : raw.replace(/\//g, '-');
+        const xmlFile = colonAt >= 0 ? raw.slice(colonAt + 1) : null;
+        const fd = parseDate(h._source?.file_date) || endDate;
+        const ciks = h._source?.ciks || [];
+        const formType = (h._source?.form_type || '4').trim();
+        if (accDash.match(/^\d{10}-\d{2}-\d{6}$/)) filings.push({ accession: accDash, xmlFile, ciks, filingDate: fd, formType });
       }
       if (hits.length < 100) break;
     } catch(e) { log(`EFTS error: ${e.message}`); break; }
   }
-  log(`EFTS returned ${filings.length} filings for ${startDate}→${endDate}`);
+  log(`EFTS: ${filings.length} filings for ${startDate}→${endDate}`);
   return filings;
 }
 
-// ── EDGAR full-index — authoritative list of every filing by quarter ─
-// URL: https://www.sec.gov/Archives/edgar/full-index/YYYY/QTRN/form.idx
-// Updated daily. Lists every Form 4/4A with CIK, date, and accession path.
+async function fetchViaAtom(sinceDate) {
+  const filings = [], seen = new Set();
+  for (let start = 0; start < 4000; start += 40) {
+    const url = `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=4&dateb=&owner=include&count=40&start=${start}&output=atom`;
+    const r = await get(url, 30000);
+    if (r.status !== 200) break;
+    const entries = r.body.split('<entry>').slice(1);
+    if (!entries.length) break;
+    let oldestOnPage = '';
+    for (const entry of entries) {
+      const dateMatch  = entry.match(/<updated>(\d{4}-\d{2}-\d{2})/);
+      const filingDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 10);
+      const linkMatch  = entry.match(/https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/(\d+)\/([\d]{18})\//);
+      if (!linkMatch) continue;
+      const cik    = linkMatch[1];
+      const accRaw = linkMatch[2];
+      const accDash = `${accRaw.slice(0, 10)}-${accRaw.slice(10, 12)}-${accRaw.slice(12)}`;
+      if (!seen.has(accDash)) {
+        seen.add(accDash);
+        const isAmend = entry.includes('4/A');
+        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate, formType: isAmend ? '4/A' : '4' });
+      }
+      if (!oldestOnPage || filingDate < oldestOnPage) oldestOnPage = filingDate;
+    }
+    if (oldestOnPage && oldestOnPage < sinceDate) break;
+    if (entries.length < 40) break;
+  }
+  return filings.filter(f => f.filingDate >= sinceDate);
+}
+
 async function fetchFullIndex(startDate, endDate) {
   const filings = [];
-  const start = new Date(startDate + 'T12:00:00Z');
-  const end   = new Date(endDate   + 'T12:00:00Z');
-
-  // Collect unique quarter keys spanning the date range
   const quarters = new Set();
-  const cur = new Date(start);
-  while (cur <= end) {
-    const yr = cur.getUTCFullYear();
-    const q  = Math.ceil((cur.getUTCMonth() + 1) / 3);
+  const cur = new Date(startDate + 'T12:00:00Z');
+  while (cur <= new Date(endDate + 'T12:00:00Z')) {
+    const yr = cur.getUTCFullYear(), q = Math.ceil((cur.getUTCMonth() + 1) / 3);
     quarters.add(`${yr}|${q}`);
     cur.setUTCMonth(cur.getUTCMonth() + 3);
   }
-
   for (const qkey of quarters) {
     const [yr, q] = qkey.split('|');
     const url = `https://www.sec.gov/Archives/edgar/full-index/${yr}/QTR${q}/form.idx`;
@@ -485,304 +268,191 @@ async function fetchFullIndex(startDate, endDate) {
     try {
       const { status, body } = await get(url, 60000);
       if (status !== 200) { log(`full-index HTTP ${status} for ${yr}Q${q}`); continue; }
-
-      // form.idx fixed-width format:
-      //   Form Type  Company Name        CIK         Date Filed  Filename
-      //   ---------- ------------------- ----------- ----------- ---------------------------------
-      //   4          ACME CORP           0001234567  2026-02-28  edgar/data/1234567/0001234567-26-000001.txt
-      //
-      // Strategy: skip header lines, match form type at start, extract date+filename by regex.
       const lines = body.split('\n');
       let pastHeader = false;
-      let scanned = 0;
-      let maxDateSeen = '';
-      let debugPrinted = 0;
-
       for (const line of lines) {
-        // The separator line is all dashes and spaces
-        if (!pastHeader) {
-          if (/^-{5}/.test(line.trim())) pastHeader = true;
-          continue;
-        }
+        if (!pastHeader) { if (/^-{5}/.test(line.trim())) pastHeader = true; continue; }
         if (line.length < 30) continue;
-
-        // Debug: print first 3 lines after header so we can see actual format
-        if (debugPrinted < 3) {
-          log(`  form.idx sample line: "${line.slice(0, 120)}"`);
-          debugPrinted++;
-        }
-
         const formType = line.slice(0, 12).trim();
         if (formType !== '4' && formType !== '4/A') continue;
-        const isAmendment = formType === '4/A';
-        scanned++;
-
-        // Date filed — ISO format YYYY-MM-DD
         let dateFiled = '';
-        const isoMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
-        const mdyMatch = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-        if (isoMatch) {
-          dateFiled = isoMatch[1];
-        } else if (mdyMatch) {
-          dateFiled = `${mdyMatch[3]}-${mdyMatch[1]}-${mdyMatch[2]}`;
-        } else continue;
-
-        if (dateFiled > maxDateSeen) maxDateSeen = dateFiled;
+        const isoM = line.match(/(\d{4}-\d{2}-\d{2})/);
+        const mdyM = line.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (isoM) dateFiled = isoM[1];
+        else if (mdyM) dateFiled = `${mdyM[3]}-${mdyM[1]}-${mdyM[2]}`;
+        else continue;
         if (dateFiled < startDate || dateFiled > endDate) continue;
-
-        // Accession path — always edgar/data/CIK/XXXXXXXXXX-XX-XXXXXX.txt
         const fm = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
         if (!fm) continue;
-        const cik   = fm[1];
         const parts = fm[2].split('-');
         if (parts.length !== 3) continue;
-        const accDash = `${parts[0].padStart(10,'0')}-${parts[1]}-${parts[2]}`;
-        filings.push({ accession: accDash, xmlFile: null, ciks: [cik], filingDate: dateFiled, formType });
+        filings.push({ accession: `${parts[0].padStart(10, '0')}-${parts[1]}-${parts[2]}`, xmlFile: null, ciks: [fm[1]], filingDate: dateFiled, formType });
       }
-      log(`  form.idx ${yr}Q${q}: scanned ${scanned} Form-4 lines, most recent date: ${maxDateSeen}, ${filings.length} total in range`);
+      log(`  form.idx ${yr}Q${q}: ${filings.length} total so far in range`);
     } catch(e) { log(`full-index error ${yr}Q${q}: ${e.message}`); }
   }
-
-  log(`Full-index found ${filings.length} Form 4 filings for ${startDate}→${endDate}`);
+  log(`Full-index: ${filings.length} Form 4 filings for ${startDate}→${endDate}`);
   return filings;
 }
 
+async function fetchRecentFilings(sinceDate) {
+  const seen = new Set(), filings = [];
+  try {
+    const atom = await fetchViaAtom(sinceDate);
+    atom.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); } });
+    log(`Atom feed: ${atom.length} since ${sinceDate}`);
+  } catch(e) { log(`Atom error: ${e.message}`); }
 
+  const today = new Date().toISOString().slice(0, 10);
+  for (let d = new Date(sinceDate + 'T12:00:00Z'); d.toISOString().slice(0, 10) <= today; d.setUTCDate(d.getUTCDate() + 1)) {
+    const ds = d.toISOString().slice(0, 10);
+    try {
+      const day = await searchEFTS(ds, ds);
+      let added = 0;
+      day.forEach(f => { if (!seen.has(f.accession)) { seen.add(f.accession); filings.push(f); added++; } });
+      if (added > 0) log(`EFTS ${ds}: +${added}`);
+    } catch(_) {}
+  }
+  log(`fetchRecentFilings: ${filings.length} since ${sinceDate}`);
+  return filings;
+}
 
+// ─── Batch insert helpers (Turso) ─────────────────────────────────────────────
+const INSERT_SQL = `INSERT OR IGNORE INTO trades (ticker,company,insider,title,trade_date,filing_date,type,qty,price,value,owned,accession,footnote) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`;
 
-// ── Process filings — no seen-cache, rely on DB UNIQUE constraint ──
-async function processBatch(filings, label) {
-  if (!filings.length) return 0;
-
-  // Pre-filter: skip filings already in trades OR already seen (processed but no trades)
-  // This prevents re-fetching XML for thousands of non-trade filings on every boot.
-  const checkTrades = db.prepare('SELECT 1 FROM trades WHERE accession=? LIMIT 1');
-  const checkSeen   = db.prepare('SELECT 1 FROM seen_filings WHERE accession=? LIMIT 1');
-  const markSeen    = db.prepare('INSERT OR IGNORE INTO seen_filings (accession) VALUES (?)');
-
-  // Skip if already in trades DB or already seen (processed, even if it yielded 0 trades).
-  // seen_filings covers ALL attempted filings — zero-trade filings (options, gifts, etc.)
-  // are the majority and should NOT be retried every poll.
-  const newFilings = filings.filter(f => {
-    if (checkTrades.get(f.accession)) return false; // already has trades in DB
-    if (checkSeen.get(f.accession))   return false; // already attempted (0 trades or parsed ok)
-    return true; // never seen — attempt it
-  });
-  const skipped = filings.length - newFilings.length;
-  if (skipped > 0) log(`${label}: skipping ${skipped} already-processed, fetching ${newFilings.length} new`);
-  if (!newFilings.length) { log(`${label}: nothing new to process`); return 0; }
-  log(`${label}: processing ${newFilings.length} filings`);
-
+async function doInsertBatch(rows) {
+  if (!rows.length) return 0;
   let inserted = 0;
-  let failed   = 0;
-  const CONCURRENCY = 2; // keep low so server stays responsive
-
-  for (let i = 0; i < newFilings.length; i += CONCURRENCY) {
-    const batch   = newFilings.slice(i, i + CONCURRENCY);
-    const results = await Promise.allSettled(
-      batch.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks))
-    );
-    for (let j = 0; j < results.length; j++) {
-      const r = results[j];
-      if (r.status === 'fulfilled' && r.value?.length) {
-        const isAmendment = batch[j].formType === '4/A';
-        inserted += isAmendment ? doInsertAmendment(r.value) : doInsert(r.value);
-      } else if (r.status === 'rejected') {
-        failed++;
-        // Don't mark failed filings as seen — they'll be retried next poll
-        // But cap retries: if it's been seen failing, it'll stay un-marked and retry naturally
-      }
-      // Zero-trade filings (options, gifts, etc.) are marked seen below — no retry needed
-    }
-    if ((i + CONCURRENCY) % 60 === 0)
-      log(`  ${i + CONCURRENCY}/${newFilings.length} — inserted:${inserted} failed:${failed}`);
-    // Yield to event loop so Express can serve requests during backfill
-    await new Promise(r => setImmediate(r));
-    // Extra yield every 10 batches to prevent sustained lock pressure
-    if (Math.floor(i / CONCURRENCY) % 10 === 0) await new Promise(r => setTimeout(r, 10));
+  const CHUNK = 50;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const stmts = rows.slice(i, i + CHUNK).map(r => ({ sql: INSERT_SQL, args: r }));
+    const results = await dbBatch(stmts);
+    for (const r of results) inserted += r.rowsAffected || 0;
   }
-
-  log(`${label} done — inserted:${inserted} failed:${failed} from ${newFilings.length} filings`);
-
-  // Mark all processed filings as seen so future backfills skip them instantly
-  // Mark seen in small chunks with event loop yields between them
-  // to avoid blocking Express during large backfills
-  const MARK_CHUNK = 50;
-  for (let i = 0; i < newFilings.length; i += MARK_CHUNK) {
-    const chunk = newFilings.slice(i, i + MARK_CHUNK);
-    const markChunk = db.transaction(items => { for (const f of items) markSeen.run(f.accession); });
-    markChunk(chunk);
-    if (i + MARK_CHUNK < newFilings.length) await new Promise(r => setImmediate(r));
-  }
-
   return inserted;
 }
 
-// ── Backfill: form.idx for older data, paginated RSS for last 5 days ──
+async function doInsertAmendmentBatch(rows) {
+  if (!rows.length) return 0;
+  const keys = new Set(rows.map(r => r[0] + '|' + r[2] + '|' + r[4]));
+  const stmts = [];
+  for (const key of keys) {
+    const [ticker, insider, trade_date] = key.split('|');
+    stmts.push({ sql: `DELETE FROM trades WHERE ticker=? AND insider=? AND trade_date=? AND TRIM(type) IN ('P','S','S-')`, args: [ticker, insider, trade_date] });
+  }
+  for (const r of rows) stmts.push({ sql: INSERT_SQL, args: r });
+  const results = await dbBatch(stmts);
+  let inserted = 0;
+  for (const r of results.slice(keys.size)) inserted += r.rowsAffected || 0;
+  return inserted;
+}
+
+async function markSeenBatch(accessions) {
+  const CHUNK = 100;
+  for (let i = 0; i < accessions.length; i += CHUNK) {
+    const stmts = accessions.slice(i, i + CHUNK).map(acc => ({ sql: 'INSERT OR IGNORE INTO seen_filings (accession) VALUES (?)', args: [acc] }));
+    await dbBatch(stmts).catch(() => {});
+  }
+}
+
+// ─── Process filings (batch-aware) ────────────────────────────────────────────
+async function processBatch(filings, label) {
+  if (!filings.length) return 0;
+
+  // Batch check: which accessions are already processed?
+  const alreadySeen = new Set();
+  const BATCH_SIZE = 200;
+  for (let i = 0; i < filings.length; i += BATCH_SIZE) {
+    const chunk = filings.slice(i, i + BATCH_SIZE).map(f => f.accession);
+    const placeholders = chunk.map(() => '?').join(',');
+    const [tradeRows, seenRows] = await Promise.all([
+      dbQuery(`SELECT DISTINCT accession FROM trades WHERE accession IN (${placeholders})`, chunk),
+      dbQuery(`SELECT accession FROM seen_filings WHERE accession IN (${placeholders})`, chunk),
+    ]);
+    tradeRows.forEach(r => alreadySeen.add(r.accession));
+    seenRows.forEach(r => alreadySeen.add(r.accession));
+  }
+
+  const newFilings = filings.filter(f => !alreadySeen.has(f.accession));
+  log(`${label}: ${filings.length} total, ${filings.length - newFilings.length} already processed, ${newFilings.length} new`);
+  if (!newFilings.length) return 0;
+
+  let inserted = 0;
+  const CONCURRENCY = 3;
+
+  for (let i = 0; i < newFilings.length; i += CONCURRENCY) {
+    const chunk = newFilings.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks))
+    );
+    const insertRows = [], amendRows = [];
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (r.status === 'fulfilled' && r.value?.length) {
+        if (chunk[j].formType === '4/A') amendRows.push(...r.value);
+        else insertRows.push(...r.value);
+      }
+    }
+    if (insertRows.length) inserted += await doInsertBatch(insertRows);
+    if (amendRows.length)  inserted += await doInsertAmendmentBatch(amendRows);
+    if ((i + CONCURRENCY) % 60 === 0) log(`  ${i + CONCURRENCY}/${newFilings.length} done, inserted:${inserted}`);
+    await new Promise(r => setTimeout(r, 25)); // brief yield
+  }
+
+  await markSeenBatch(newFilings.map(f => f.accession));
+  log(`${label}: done — ${inserted} trades from ${newFilings.length} new filings`);
+  return inserted;
+}
+
+// ─── Backfill ─────────────────────────────────────────────────────────────────
 async function runBackfill(daysBack) {
-  const today = new Date().toISOString().slice(0, 10);
-  const start = new Date();
-  start.setDate(start.getDate() - daysBack);
-  const startDate = start.toISOString().slice(0, 10);
+  const today     = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - daysBack * 86400000).toISOString().slice(0, 10);
+  const recentCutoff = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
 
-  // Split: form.idx covers up to 5 days ago (reliable), RSS covers last 5 days
-  const recentCutoff = new Date();
-  recentCutoff.setDate(recentCutoff.getDate() - 5);
-  const recentCutoffStr = recentCutoff.toISOString().slice(0, 10);
+  log(`Backfill: ${startDate} → ${today}`);
 
-  log(`Backfill: ${startDate} → ${today} (idx: ${startDate}→${recentCutoffStr}, rss: ${recentCutoffStr}→${today})`);
-
-  try {
-    let allFilings = [];
-
-    // 1. form.idx for older portion (more than 5 days ago)
-    if (startDate < recentCutoffStr) {
-      const idxFilings = await fetchFullIndex(startDate, recentCutoffStr);
-      log(`form.idx returned ${idxFilings.length} filings for older range`);
-      allFilings = allFilings.concat(idxFilings);
-    }
-
-    // 2. Paginated RSS for last 5 days (bypasses form.idx lag)
-    const rssFilings = await fetchRecentFilings(recentCutoffStr);
-    log(`Paginated RSS returned ${rssFilings.length} filings for recent range`);
-    allFilings = allFilings.concat(rssFilings);
-
-    if (!allFilings.length) {
-      log('No filings found from any source');
-      return;
-    }
-
-    const inserted = await processBatch(allFilings, 'Backfill');
-
-    const byDate = {};
-    allFilings.forEach(f => { byDate[f.filingDate] = (byDate[f.filingDate] || 0) + 1; });
-    const upsert = db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)');
-    const upsertMany = db.transaction(entries => {
-      for (const [date, count] of entries) upsert.run(date, count, 0);
-    });
-    upsertMany(Object.entries(byDate));
-    db.prepare('INSERT OR REPLACE INTO daily_log (date,filings,trades) VALUES (?,?,?)').run(today, allFilings.length, inserted);
-
-    log(`Backfill complete: ${inserted} trades inserted across ${Object.keys(byDate).length} days`);
-  } catch(e) {
-    log(`Backfill error: ${e.message}\n${e.stack}`);
+  let allFilings = [];
+  if (startDate < recentCutoff) {
+    const idxFilings = await fetchFullIndex(startDate, recentCutoff);
+    allFilings = allFilings.concat(idxFilings);
   }
+  const rssFilings = await fetchRecentFilings(recentCutoff);
+  allFilings = allFilings.concat(rssFilings);
+
+  if (!allFilings.length) { log('No filings found'); return; }
+  const inserted = await processBatch(allFilings, 'Backfill');
+
+  // Update daily_log
+  const byDate = {};
+  allFilings.forEach(f => { byDate[f.filingDate] = (byDate[f.filingDate] || 0) + 1; });
+  const logStmts = Object.entries(byDate).map(([date, count]) => ({
+    sql: 'INSERT OR REPLACE INTO daily_log (date, filings, trades) VALUES (?, ?, ?)',
+    args: [date, count, 0],
+  }));
+  logStmts.push({ sql: 'INSERT OR REPLACE INTO daily_log (date, filings, trades) VALUES (?, ?, ?)', args: [today, allFilings.length, inserted] });
+  await dbBatch(logStmts).catch(() => {});
+
+  // Prune seen_filings older than 45 days
+  await dbRun("DELETE FROM seen_filings WHERE seen_at < datetime('now','-45 days')").catch(() => {});
+
+  log(`Backfill complete: ${inserted} trades across ${Object.keys(byDate).length} days`);
 }
 
-// ── RSS poll ──────────────────────────────────────────────────────
-async function runRSSPoll() {
-  try {
-    const filings  = await pollRSS();
-    const inserted = await processBatch(filings, 'RSS');
-    if (inserted > 0) log(`RSS poll: +${inserted} trades`);
-  } catch(e) {
-    log(`RSS poll error: ${e.message}`);
-  }
-}
-
-// ── MAIN ─────────────────────────────────────────────────────────
+// ─── MAIN ─────────────────────────────────────────────────────────────────────
 const daysBack = parseInt(process.argv[2] || '3');
-const mode     = process.argv[3] || 'poll';
 
 async function main() {
-  log(`=== daily-worker v9 start (mode=${mode}, daysBack=${daysBack}) ===`);
+  log(`=== daily-worker v10 (Turso) start, daysBack=${daysBack} ===`);
+  await initSchema();
 
-  // Clean up any rows with implausible trade_date or filing_date values
-  const cleaned = db.prepare(`
-    DELETE FROM trades
-    WHERE trade_date  < '2000-01-01' OR trade_date  > '2030-12-31'
-       OR filing_date < '2000-01-01' OR filing_date > '2030-12-31'
-  `).run();
-  if (cleaned.changes > 0) log(`Cleaned up ${cleaned.changes} rows with bad dates`);
+  // Light startup cleanup
+  await dbRun(`DELETE FROM trades WHERE trade_date < '2000-01-01' OR trade_date > '2030-12-31'`).catch(() => {});
+  await dbRun(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`).catch(() => {});
+  await dbRun(`DELETE FROM trades WHERE value > 5000000000 OR price > 1500000 OR qty > 500000000`).catch(() => {});
 
-  // Purge non-open-market codes and implausible values from any previously ingested data
-  const c2 = db.prepare(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`).run();
-  if (c2.changes > 0) log(`Removed ${c2.changes} non-market transaction records`);
-  const c3 = db.prepare(`DELETE FROM trades WHERE value > 5000000000 OR price > 1500000 OR qty > 500000000`).run();
-  if (c3.changes > 0) log(`Removed ${c3.changes} records with implausible values`);
-
-  // Prune seen_filings older than 30 days to keep the table lean
-  try {
-    const pruned = db.prepare("DELETE FROM seen_filings WHERE seen_at < datetime('now','-30 days')").run();
-    if (pruned.changes > 0) log(`Pruned ${pruned.changes} old seen_filings entries`);
-  } catch(e) {}
-
-  if (mode === 'backfill') {
-    await runBackfill(daysBack);
-    db.close();
-    process.exit(0);
-  }
-
-  // Continuous poll mode:
-  // 1. Startup backfill — but only if we haven't done one recently.
-  //    Tracks last run time in DB to avoid redundant backfills on restart.
-  // Use sync_log to track last startup backfill time
-  // sync_log schema: (quarter TEXT PK, synced_at TEXT, rows INTEGER)
-  // We repurpose 'quarter' as key and 'rows' as unix-ms timestamp
-  // No startup backfill — hourly poll handles new trades during market hours,
-  // 3am ET daily backfill handles overnight catch-up.
-  // This keeps the site responsive on deploy/restart.
-  log('Skipping startup backfill — hourly poll + 3am backfill handle updates.');
-
-  // ── Scheduled polls (ET times, weekdays only) ──────────────────
-  // Noon ET poll  : 12:00 ET = 16:00 UTC
-  // Close+15 poll : 16:15 ET = 20:15 UTC
-  // Overnight backfill: 3:00 ET = 07:00 UTC
-  // No continuous hourly polling — keeps server lean for traffic spikes
-
-  function etHour() {
-    // ET = UTC-4 (EDT) or UTC-5 (EST). Use UTC-4 as safe approximation.
-    return (new Date().getUTCHours() - 4 + 24) % 24;
-  }
-  function isWeekday() {
-    const day = new Date().getUTCDay(); // 0=Sun, 6=Sat
-    return day >= 1 && day <= 5;
-  }
-
-  // Schedule a daily run at a fixed UTC time (HH:MM)
-  function scheduleDailyAt(utcHour, utcMin, label, fn) {
-    function msToNext() {
-      const now = new Date();
-      const target = new Date(now);
-      target.setUTCHours(utcHour, utcMin, 0, 0);
-      if (target <= now) target.setUTCDate(target.getUTCDate() + 1);
-      return target - now;
-    }
-    function run() {
-      const ms = msToNext();
-      log(`Next ${label} in ${Math.round(ms/60000)}min`);
-      setTimeout(async () => {
-        if (isWeekday() || label.includes('backfill')) {
-          log(`${label} starting...`);
-          await fn().catch(e => log(`${label} error: ${e.message}`));
-        } else {
-          log(`${label} skipped (weekend)`);
-        }
-        run(); // reschedule for next day
-      }, ms);
-    }
-    run();
-  }
-
-  // 10:00am ET poll — mid-morning session (14:00 UTC)
-  scheduleDailyAt(14, 0, '10am ET RSS poll', runRSSPoll);
-
-  // 1:00pm ET poll — midday session (17:00 UTC)
-  scheduleDailyAt(17, 0, '1pm ET RSS poll', runRSSPoll);
-
-  // 4:15pm ET poll — 15min after market close (20:15 UTC)
-  scheduleDailyAt(20, 15, '4:15pm ET RSS poll', runRSSPoll);
-
-  // 3:00am ET overnight backfill (07:00 UTC) — runs every day incl. weekends
-  scheduleDailyAt(7, 0, '3am ET overnight backfill', () => runBackfill(7));
-
-  // Initial poll 2 minutes after startup so site is fully responsive first
-  log('Initial RSS poll delayed 2min to allow site to load...');
-  setTimeout(() => runRSSPoll().catch(e => log(`Initial poll error: ${e.message}`)), 2 * 60 * 1000);
+  await runBackfill(daysBack);
+  log('=== daily-worker done ===');
 }
 
-main().catch(e => {
-  log(`FATAL: ${e.message}\n${e.stack}`);
-  db.close();
-  process.exit(1);
-});
+main().catch(e => { log(`FATAL: ${e.message}\n${e.stack}`); process.exit(1); });
