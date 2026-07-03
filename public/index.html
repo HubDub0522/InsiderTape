@@ -5804,7 +5804,7 @@ function renderTopScoresSubpage(opts={}) {
     <div>
       <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
         <div style="font-family:Inter,sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--text)">📊 FORM 4 INSIDERS</div>
-        <div style="font-size:10px;color:var(--muted)">${loading ? ‘⏳ loading…’ : `${(_insiderScoreCache||[]).length} ranked`}</div>
+        <div style="font-size:10px;color:var(--muted)">${loading ? ‘loading...’ : ((_insiderScoreCache||[]).length + ‘ ranked’)}</div>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.6">Scored by win rate, avg 90d return &amp; consistency. Requires 4+ completed buys with settled price data.</div>
       <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
