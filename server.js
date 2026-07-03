@@ -139,6 +139,7 @@ async function initSchema() {
     await run(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`);
     await run(`DELETE FROM price_cache WHERE bars_json = '[]'`);
     await run(`DELETE FROM price_cache WHERE fetched_at < ?`, [Date.now() - 12 * 3600000]);
+    await run(`DELETE FROM price_cache`); // clear stale 20-year entries on this deploy
   } catch(e) { slog('Startup cleanup skipped: ' + e.message); }
 
   slog('Schema ready');
@@ -379,7 +380,7 @@ async function fetchPriceBars(sym) {
   if (cached) return cached;
 
   const endTs   = Math.floor(Date.now() / 1000);
-  const startTs = endTs - 20 * 365 * 86400;
+  const startTs = endTs - 365 * 86400;
 
   try {
     const bars = await Promise.any([
