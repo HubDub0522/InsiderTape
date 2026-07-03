@@ -2,8 +2,6 @@ name: Quarterly Historical Sync
 
 on:
   schedule:
-    # Runs on the 20th of Feb, May, Aug, Nov — 45+ days after each quarter ends,
-    # giving SEC time to publish the structured data ZIP.
     - cron: '0 6 20 2,5,8,11 *'
   workflow_dispatch:
     inputs:
@@ -24,11 +22,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '24'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run quarterly sync
         run: node sync-worker.js ${{ github.event.inputs.num_quarters || '4' }}

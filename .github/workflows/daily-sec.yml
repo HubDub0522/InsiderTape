@@ -2,8 +2,6 @@ name: Daily SEC Ingestion
 
 on:
   schedule:
-    # Runs 4× per weekday: 10am, 1pm, 4:30pm, and 9pm ET
-    # (14:00, 17:00, 20:30, 01:00 UTC — covers market hours + after-hours filings)
     - cron: '0 14 * * 1-5'
     - cron: '0 17 * * 1-5'
     - cron: '30 20 * * 1-5'
@@ -27,11 +25,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: '24'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run SEC Form 4 ingestion
         run: node daily-worker.js ${{ github.event.inputs.days_back || '3' }} backfill
