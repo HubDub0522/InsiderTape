@@ -14,27 +14,27 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>InsiderTape — Track Insider Trading & Congressional Stock Trades</title>
+<title>InsiderTape — Track SEC Insider Trading in Real Time</title>
 <!-- Favicon -->
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/favicon.svg">
 <!-- SEO meta -->
-<meta name="description" content="Track what corporate insiders and members of Congress are buying and selling in real time. Filter SEC Form 4 filings for open-market buys and sells, spot cluster buying signals, and follow congressional stock trades via STOCK Act disclosures.">
-<meta name="keywords" content="insider trading tracker, SEC Form 4 filings, congressional stock trades, STOCK Act disclosures, Nancy Pelosi trades, cluster buying signal, insider buying stocks, corporate insider trades, insider sell tracker, what are insiders buying, follow the smart money">
+<meta name="description" content="Track what corporate insiders are buying and selling in real time. Filter SEC Form 4 filings for open-market buys and sells, spot cluster buying signals, and follow insider conviction trades.">
+<meta name="keywords" content="insider trading tracker, SEC Form 4 filings, cluster buying signal, insider buying stocks, corporate insider trades, insider sell tracker, what are insiders buying, follow the smart money">
 <meta name="author" content="InsiderTape">
 <meta name="robots" content="index, follow">
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://insidertape.com">
-<meta property="og:title" content="InsiderTape — Track Insider Trading & Congressional Stock Trades">
-<meta property="og:description" content="See exactly what corporate executives and members of Congress are buying and selling. Real-time SEC Form 4 and STOCK Act filings — cluster buys, conviction signals, timing scores, and congressional trades all in one place.">
+<meta property="og:title" content="InsiderTape — Track SEC Insider Trading in Real Time">
+<meta property="og:description" content="Track what corporate insiders are buying and selling in real time. Filter SEC Form 4 filings for open-market buys and sells, spot cluster buying signals, and follow insider conviction trades.">
 <meta property="og:image" content="https://insidertape.com/og-image.png">
 <!-- Twitter/X Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@insidertape">
-<meta name="twitter:title" content="InsiderTape — Track Insider Trading & Congressional Stock Trades">
-<meta name="twitter:description" content="See exactly what corporate executives and members of Congress are buying and selling. Real-time SEC Form 4 and STOCK Act filings — cluster buys, timing scores, and congressional trades.">
+<meta name="twitter:title" content="InsiderTape — Track SEC Insider Trading in Real Time">
+<meta name="twitter:description" content="Track what corporate insiders are buying and selling in real time. Filter SEC Form 4 filings for open-market buys and sells, spot cluster buying signals, and follow insider conviction trades.">
 <meta name="twitter:image" content="https://insidertape.com/og-image.png">
 <!-- Preconnect to critical external origins to reduce latency -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -881,27 +881,25 @@
      the app code queries, so nothing can accidentally overwrite it.
      ───────────────────────────────────────────────────────────────── -->
 <div class="seo-content" aria-hidden="false">
-  <h1>InsiderTape — Real-Time Insider Trading &amp; Congressional Stock Trade Tracker</h1>
-  <p>InsiderTape tracks every SEC Form 4 filing and STOCK Act disclosure in real time, giving retail investors the same visibility into insider buying and selling that professional analysts have relied on for decades. See exactly what corporate executives, directors, and members of the U.S. Congress are buying and selling — the moment they file — across every U.S.-listed stock.</p>
+  <h1>InsiderTape — Real-Time SEC Insider Trading Tracker</h1>
+  <p>InsiderTape tracks every SEC Form 4 filing in real time, giving retail investors the same visibility into insider buying and selling that professional analysts have relied on for decades. See exactly what corporate executives and directors are buying and selling — the moment they file — across every U.S.-listed stock.</p>
   <h2>What You Can Do on InsiderTape</h2>
   <ul>
     <li><strong>Screen Form 4 filings</strong> — Filter corporate insider trades by ticker, role (CEO, CFO, Director), transaction value, and time period. Spot open-market buys and sells across thousands of U.S. issuers.</li>
-    <li><strong>Track congressional stock trades</strong> — View STOCK Act disclosures from members of the U.S. House and Senate. See which tickers Nancy Pelosi, Dan Crenshaw, Tommy Tuberville, and other lawmakers are trading.</li>
     <li><strong>Detect cluster buying signals</strong> — Our cluster detection engine surfaces tickers where multiple insiders are buying in a short window, after a decline, with no offsetting sells — a rare, high-conviction pattern.</li>
     <li><strong>Score individual insiders</strong> — Every Form 4 insider is scored on actual forward returns: win rate, average 30-day and 90-day returns, consistency, and timing alpha. Find the insiders whose buys have historically preceded upward moves.</li>
     <li><strong>Monitor first-buy signals</strong> — Detect insiders making their first open-market purchase after years of inactivity on a stock. One of the rarest and most deliberate signals in Form 4 data.</li>
-    <li><strong>Compare stock insider activity</strong> — Look up any ticker and see a year of insider buying and selling plotted directly on the price chart, alongside Form 4 trade history and congressional trade disclosures for that name.</li>
+    <li><strong>Compare stock insider activity</strong> — Look up any ticker and see a year of insider buying and selling plotted directly on the price chart, alongside Form 4 trade history for that name.</li>
     <li><strong>Spot exit warnings</strong> — Identify tickers where executives are selling concurrently, selling volume is accelerating, or the sell-to-buy ratio has turned sharply negative.</li>
   </ul>
   <h2>Data Sources</h2>
-  <p>Corporate insider trading data is pulled directly from <strong>SEC EDGAR Form 4 filings</strong>, which Section 16 officers (corporate insiders owning more than 10% of a class of stock, plus directors and executive officers) are required to file within two business days of any transaction in their company's securities. Congressional stock trading data comes from <strong>STOCK Act disclosures</strong>, which require members of the U.S. House of Representatives and U.S. Senate to publicly disclose any stock, bond, or commodity transaction over $1,000 within 45 days. InsiderTape ingests new filings throughout every trading day.</p>
+  <p>Corporate insider trading data is pulled directly from <strong>SEC EDGAR Form 4 filings</strong>, which Section 16 officers (corporate insiders owning more than 10% of a class of stock, plus directors and executive officers) are required to file within two business days of any transaction in their company's securities. InsiderTape ingests new filings throughout every trading day.</p>
   <h2>Why Insider Trading Data Matters</h2>
   <p>Academic research has repeatedly found that open-market insider buying — particularly cluster buying by multiple executives at the same company within a short window — has historically correlated with above-average forward returns. Insiders are, by definition, the people with the deepest knowledge of their company's operations, pipeline, and prospects. When they put their own money at risk buying their own stock on the open market, it is one of the most credible signals available in public markets. InsiderTape exists to surface those signals instantly, rank them by quality, and put them in front of retail investors the moment they file — the same way hedge funds and institutional desks have been tracking this data for years.</p>
   <h2>Common Questions</h2>
   <p><strong>What is SEC Form 4?</strong> SEC Form 4 is the filing corporate insiders are required to submit within two business days of any transaction in their company's equity securities. It reports the date, transaction type (purchase, sale, option exercise), number of shares, price per share, and total value of the trade, along with the insider's position at the company.</p>
-  <p><strong>What is the STOCK Act?</strong> The Stop Trading on Congressional Knowledge Act of 2012 requires members of the U.S. House and Senate, along with senior congressional staff, to publicly disclose any stock, bond, or commodity transaction over $1,000 within 45 days. These disclosures are published as periodic transaction reports (PTRs).</p>
-  <p><strong>Is insider trading legal?</strong> The insider trades tracked on InsiderTape are all legally disclosed transactions filed under Section 16 of the Securities Exchange Act of 1934 (corporate insiders) or the STOCK Act (congressional members). This is the legal, publicly-reported insider activity — not the illegal material non-public information kind.</p>
-  <p><strong>How often is InsiderTape updated?</strong> New SEC Form 4 filings are ingested throughout the trading day as they're published to EDGAR. Congressional STOCK Act disclosures are ingested daily.</p>
+  <p><strong>Is insider trading legal?</strong> The insider trades tracked on InsiderTape are all legally disclosed transactions filed under Section 16 of the Securities Exchange Act of 1934 (corporate insiders). This is the legal, publicly-reported insider activity — not the illegal material non-public information kind.</p>
+  <p><strong>How often is InsiderTape updated?</strong> New SEC Form 4 filings are ingested throughout the trading day as they're published to EDGAR.</p>
   <p><strong>Is InsiderTape financial advice?</strong> No. InsiderTape is an information and data platform. Nothing on this site constitutes financial advice, a solicitation, or a recommendation to buy or sell any security. Always do your own research and consult a licensed financial advisor before making investment decisions.</p>
 </div>
 <header>
@@ -967,7 +965,6 @@
           <div class="chip" data-role="CEO"  onclick="toggleRole(this)">CEO</div>
           <div class="chip" data-role="CFO"  onclick="toggleRole(this)">CFO</div>
           <div class="chip" data-role="Dir"  onclick="toggleRole(this)">Director</div>
-          <div class="chip" data-role="Gov"  onclick="toggleRole(this)">Gov Official</div>
         </div>
       </div>
       <div class="filter-section">
@@ -1010,8 +1007,8 @@
       <div class="filter-data-source" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
         <p style="font-size:11px;color:var(--muted);line-height:1.6">
-          Corporate insider filings sourced directly from SEC EDGAR (Form 4). Congressional trading data sourced from public STOCK Act disclosures filed by members of the U.S. House and Senate.<br><br>
-          <span style="color:var(--accent)">Note:</span> SEC rules allow corporate insiders up to 2 business days to file after a transaction. STOCK Act requires congressional members to disclose within 45 days. InsiderTape ingests new filings throughout the trading day.
+          Corporate insider filings sourced directly from SEC EDGAR (Form 4).<br><br>
+          <span style="color:var(--accent)">Note:</span> SEC rules allow corporate insiders up to 2 business days to file after a transaction. InsiderTape ingests new filings throughout the trading day.
         </p>
       </div>
     </aside>
@@ -1021,7 +1018,7 @@
         <div>
           <div class="screener-title">RECENT INSIDER TRADES</div>
           <div class="screener-meta" id="screenerMeta">Loading latest filings...</div>
-          <div style="font-size:10px;color:#2a3d52;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 (corporate insiders) · STOCK Act (congressional members) · US domestic issuers only · Foreign private issuers exempt from Section 16</div>
+          <div style="font-size:10px;color:#2a3d52;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-top:4px;letter-spacing:0.3px" id="screenerSubtitle">SEC Form 4 (corporate insiders) · US domestic issuers only · Foreign private issuers exempt from Section 16</div>
           <div id="buildStamp" style="font-size:9px;color:#2a3d52;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;margin-top:2px">v1.6</div>
         </div>
       </div>
@@ -1205,21 +1202,6 @@ function showToast(msg, isError=false) {
 }
 function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
-// Detect government officials (Senators, Representatives, federal officers)
-// Government official detection.
-// IMPORTANT: We only match titles that are unambiguously governmental.
-// "President" and "Vice President" are intentionally EXCLUDED — they are extremely
-// common corporate titles (President & CEO, VP of Finance, etc.) and would produce
-// massive false positives. Government senators/reps/governors have those specific titles.
-const GOV_TITLES = /\b(senator|representative|congressman|congresswoman|attorney\s*general|governor|secretary\s+of\s+(state|treasury|defense|commerce|labor|energy|education|transportation)|comptroller\s+of\s+the\s+currency|member\s+of\s+congress)\b/i;
-
-// Verified current and recent government officials who trade under STOCK Act.
-// These are exact full names as they appear in STOCK Act disclosures.
-const GOV_NAMES = /^(nancy pelosi|paul pelosi|mitch mcconnell|kevin mccarthy|chuck schumer|elizabeth warren|bernie sanders|mark kelly|tommy tuberville|dan sullivan|sheldon whitehouse|ron wyden|pat roberts|richard burr|kelly loeffler|david perdue|jim inhofe|john boozman|marsha blackburn|bill hagerty|thom tillis|mike crapo|james risch|john barrasso|roger wicker|cindy hyde-smith|john kennedy|bill cassidy|john cornyn|ted cruz|mike rounds|john thune|jerry moran|rob portman|sherrod brown|tim scott|lindsey graham|dianne feinstein|alex padilla|mark warner|tim kaine|ben cardin|chris van hollen|chris coons|tom carper|joe manchin|shelley moore capito|patrick leahy|peter welch|angus king|susan collins|jack reed|bob casey|pat toomey|dick durbin|tammy duckworth|todd young|mike braun|chuck grassley|joni ernst|gary peters|debbie stabenow|amy klobuchar|tina smith|jon tester|steve daines|deb fischer|jeff merkley|bob menendez|cory booker|martin heinrich|ben ray lujan|kirsten gillibrand|richard blumenthal|chris murphy|michael bennet|john hickenlooper|brian schatz|mazie hirono|mike lee|mitt romney|rand paul|ro khanna|eric swalwell|brad sherman|virginia foxx|patrick mchenry|greg meeks|maxine waters)$/i;
-function isGovOfficial(titleOrName) {
-  if (!titleOrName) return false;
-  return GOV_TITLES.test(titleOrName) || GOV_NAMES.test(titleOrName);
-}
 
 function switchView(view, btn, opts={}) {
   window.scrollTo(0, 0);
@@ -1342,8 +1324,7 @@ function onGlobalInput(val) {
       const results = await apiFetch('/api/search?q=' + encodeURIComponent(val));
       const tickers = (results.tickers || []).slice(0, 5);
       const insiders = (results.insiders || []).slice(0, 4);
-      const govs = (results.gov || []).slice(0, 3);
-      if (!tickers.length && !insiders.length && !govs.length) { if(box) box.style.display='none'; return; }
+      if (!tickers.length && !insiders.length) { if(box) box.style.display='none'; return; }
       if (!box) return;
       let html = '';
       if (tickers.length) {
@@ -1361,16 +1342,6 @@ function onGlobalInput(val) {
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.name}</div>
             <div style="font-size:11px;color:var(--muted)">${i.title||''} ${i.tickers ? '· ' + i.tickers : ''}</div>
-          </div>
-        </div>`).join('');
-      }
-      if (govs.length) {
-        html += '<div style="padding:6px 14px 3px;font-size:10px;font-weight:600;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">Gov Officials</div>';
-        html += govs.map(g => `<div class="suggest-row ac-gov-link" data-member="${g.member.replace(/"/g,'&quot;')}" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;transition:background .1s" onmouseover="this.style.background='rgba(36,120,204,0.06)'" onmouseout="this.style.background=''">
-          <div style="width:30px;height:30px;border-radius:50%;background:rgba(36,120,204,0.1);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--accent);flex-shrink:0">${g.member.split(' ').map(w=>w[0]||'').slice(0,2).join('')}</div>
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;font-weight:600;color:var(--accent)">${g.member}</span><span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(36,120,204,0.1);color:var(--accent);font-weight:600">GOV</span></div>
-            <div style="font-size:11px;color:var(--muted)">${g.chamber==='H'?'U.S. House':'U.S. Senate'}</div>
           </div>
         </div>`).join('');
       }
@@ -1620,36 +1591,6 @@ async function loadScreener() {
     }
     let trades = Array.isArray(resp) ? resp : (resp.trades || []);
 
-    // Merge gov trades: free users get 7 days, premium get full window
-    const govDays = 90; // gov trades use 90d window (transaction_date)
-    try {
-      const govResp = await apiFetch('/api/gov-recent?days=' + govDays);
-      if (Array.isArray(govResp) && govResp.length) {
-                const govTrades = govResp.map(g => ({
-          _isGov: true,
-          insider: g.member, title: (g.chamber==='H'?'U.S. House':'U.S. Senate') + (g.owner&&g.owner!=='Self'?' · '+g.owner:''),
-          trade: g.transaction_date, filing: g.disclosure_date||g.transaction_date,
-          type: g.transaction_type,
-          value: parseAmountRange(g.amount_range),
-          qty: 0, price: 0, owned: 0,
-          ticker: g.ticker, company: g.company||g.ticker,
-          accession: '', amount_range: g.amount_range, filing_url: g.filing_url||'',
-          _govDate: g.transaction_date,
-        }));
-        // Apply same date window to gov trades
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - days);
-        const cutoffStr = cutoff.toISOString().slice(0,10);
-        const filteredGovTrades = govTrades.filter(g => (g._govDate || g.trade || '') >= cutoffStr);
-        // Merge and sort by trade date descending so gov and Form 4 intermix properly
-        trades = [...filteredGovTrades, ...trades].sort((a,b) => {
-          const da = a.trade||a.filing||'';
-          const db_ = b.trade||b.filing||'';
-          return db_.localeCompare(da);
-        });
-      }
-    } catch(e) { /* gov fetch failed silently */ }
-
     if (!trades.length) {
       document.getElementById('screenerBody').innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📭</div><div>No filings found for the selected window.</div></div></td></tr>`;
       return;
@@ -1663,7 +1604,6 @@ async function loadScreener() {
         if (state.activeRole === 'CEO')  return title.includes('CEO') || title.includes('CHIEF EXECUTIVE');
         if (state.activeRole === 'CFO')  return title.includes('CFO') || title.includes('CHIEF FINANCIAL');
         if (state.activeRole === 'Dir')  return title.includes('DIRECTOR') || title.includes('BOARD') || title.includes('TRUSTEE');
-        if (state.activeRole === 'Gov')  return t._isGov === true;
         return true;
       });
     }
@@ -1757,15 +1697,6 @@ function buildConvictionData(trades) {
         reasons.push(`${roleList} — high-signal executive`);
       }
     }
-    // Gov official buying bonus — congress + insiders = elevated conviction
-    const govBuysConviction = tickerBuys.filter(t => t._isGov);
-    if (govBuysConviction.length > 0) {
-      const govConvNames = [...new Set(govBuysConviction.map(t => t.insider))];
-      const govConvVal = govBuysConviction.reduce((s,t) => s+(t.value||0), 0);
-      score += Math.min(15, govConvNames.length * 8);
-      reasons.push(`🏛 ${govConvNames.length} gov official${govConvNames.length>1?'s':''} buying — congress + insider alignment`);
-      if (govConvVal >= 250000) { score += 5; reasons.push(`Gov commitment ${fmtAmountRange(govBuysConviction[0].amount_range)}`); }
-    }
     score = Math.min(100, Math.max(0, Math.round(score)));
     if (score >= 40) scored.push({
       ticker, score, reasons: reasons.slice(0, 4), totalVal: totalBuyVal,
@@ -1839,40 +1770,6 @@ function renderScreener() {
   if (!page.length) { tbody.innerHTML=`<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">🔍</div><div>No trades match your filters</div></div></td></tr>`; return; }
   const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);
   try { tbody.innerHTML = page.map(t => {
-    if (t._isGov) {
-      // Gov official row
-      const isBuy = t.type === 'P';
-      const govColor = isBuy ? '#00d4ff' : '#ff00ff';
-      const govBg    = isBuy ? 'rgba(0,212,255,0.12)' : 'rgba(255,0,255,0.12)';
-      const govBorder= isBuy ? 'rgba(0,212,255,0.35)' : 'rgba(255,0,255,0.35)';
-      const govLabel = isBuy ? 'Gov Buy' : 'Gov Sale';
-      const valClass = isBuy ? 'val-positive' : 'val-negative';
-      const filingLink = t.filing_url
-        ? `<a href="${t.filing_url}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="display:inline-block;margin-top:2px;font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;text-decoration:none;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">FILING ↗</a>`
-        : '';
-      const tradeDate = new Date((t._govDate||'')+'T12:00:00Z');
-      const isRecent  = tradeDate >= sevenDaysAgo;
-      const needsBlur = !auth.isPremium && !isRecent;
-      const govBadge  = `<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.35);border-radius:3px;font-size:9px;color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px">GOV OFFICIAL</span>`;
-      const row = `<tr onclick="openTickerFromScreener('${t.ticker}')" style="opacity:0.95">
-        <td><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade)}</span><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);display:block">filed: ${fmtDate(t.filing)}</span>${filingLink}</td>
-        <td class="ticker-cell" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
-        <td onclick="event.stopPropagation()"><span class="gov-profile-link insider-name-link" data-member="${escName(t.insider||'')}" style="cursor:pointer">${t.insider||'—'}</span>${govBadge}</td>
-        <td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;background:${govBg};color:${govColor};border:1px solid ${govBorder}">${govLabel}</span></td>
-        <td class="hide-mobile" style="color:var(--muted)">—</td>
-        <td class="hide-mobile" style="color:var(--muted)">—</td>
-        <td class="${valClass}" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtAmountRange(t.amount_range)}</td>
-        <td class="hide-mobile" style="color:var(--muted)">—</td>
-      </tr>`;
-      if (needsBlur) {
-        return `<tr><td colspan="9" style="padding:0"><div style="position:relative">
-          <div style="filter:blur(3px);pointer-events:none;user-select:none"><table style="width:100%"><tbody>${row}</tbody></table></div>
-          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
-            <button onclick="showPremiumOverlay('Gov Official Trades')" style="background:var(--accent);color:#000;border:none;border-radius:5px;padding:5px 14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;font-weight:700;cursor:pointer;letter-spacing:1px">🔒 GOV OFFICIAL · PREMIUM</button>
-          </div></div></td></tr>`;
-      }
-      return row;
-    }
     // Regular Form 4 row with expandable dropdown
     const srid = 'scr' + Math.random().toString(36).slice(2,8);
     const secUrl = t.accession
@@ -1887,7 +1784,7 @@ function renderScreener() {
       <td style="width:28px;text-align:center"><span class="sra" style="display:inline-block;color:#8fb0c8;font-size:14px;line-height:1;transition:transform .15s;font-family:sans-serif">&#8250;</span></td>
       <td class="scr-col-date"><span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">${fmtDate(t.trade||t.filing)}</span></td>
       <td class="ticker-cell scr-col-ticker" onclick="event.stopPropagation();openTickerFromScreener('${t.ticker}')" style="cursor:pointer">${t.ticker}</td>
-      <td class="scr-col-insider" onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}${isGovOfficial(t.title||t.insider||'')?'<span style="display:inline-block;margin-top:3px;padding:1px 6px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:9px;color:#6ca0ff;font-family:\'Inter\',monospace;letter-spacing:0.5px">GOV OFFICIAL</span>':''}</td>
+      <td class="scr-col-insider" onclick="event.stopPropagation()"><span class="insider-name-link" onclick="openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')">${t.insider||'—'}</span><span class="insider-title">${t.title||''}</span>${insiderRoleBadge(t.title||'')}</td>
       <td class="scr-col-type"><span class="badge ${badgeClass(t.type)}">${tradeLabel(t.type)}</span>${t.type==='S-'?'<span style="display:inline-block;margin-top:2px;padding:1px 5px;background:rgba(154,110,0,0.1);border:1px solid rgba(154,110,0,0.3);border-radius:3px;font-size:9px;color:var(--option);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">10b5-1</span>':''}</td>
       <td class="hide-mobile scr-col-shares" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${fmtShares(t.qty)}</td>
       <td class="hide-mobile scr-col-price" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$${(t.price||0).toFixed(2)}</td>
@@ -2366,7 +2263,7 @@ function _renderProximityResults(body, backBtn, results) {
 
     <div style="font-size:10px;color:var(--muted);margin-top:16px;opacity:0.6;line-height:1.6">
       ⚠ This tool identifies statistical proximity, not insider knowledge. Insiders are legally prohibited from trading on material non-public information.
-      Corporate insider data sourced from SEC EDGAR (Form 4). Congressional trading data sourced from public STOCK Act disclosures. Earnings calendar estimated from historical filing patterns.
+      Corporate insider data sourced from SEC EDGAR (Form 4). Earnings calendar estimated from historical filing patterns.
     </div>
   </div>`;
 }
@@ -2602,12 +2499,9 @@ async function loadStockView(ticker, opts={}) {
   // Render the full layout immediately with insider data.
   // Price chart streams in separately so the user isn't waiting for
   // an external API call before seeing anything.
-  const [insiderData, govData] = await Promise.all([
-    fetchInsiderForTicker(ticker).catch(()=>[]),
-    apiFetch('/api/gov?symbol='+encodeURIComponent(ticker)).catch(()=>[])
-  ]);
+  const insiderData = await fetchInsiderForTicker(ticker).catch(()=>[]);
   if (mySeq !== _loadStockViewSeq) return; // superseded
-  state.tickerTrades = insiderData; state.govData = govData; state.currentPriceData = [];
+  state.tickerTrades = insiderData; state.currentPriceData = [];
 
   const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
 
@@ -2666,8 +2560,6 @@ async function loadStockView(ticker, opts={}) {
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
-            <div class="legend-item"><span style="color:#00d4ff;font-size:11px;line-height:1">◆</span>Gov Buy</div>
-            <div class="legend-item"><span style="color:#ff00ff;font-size:11px;line-height:1">◆</span>Gov Sell</div>
                       </div>
           <div style="width:100%;display:flex;align-items:center;gap:6px;padding-top:6px;border-top:1px solid var(--border);margin-top:2px;">
             <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);margin-right:2px">SHOW:</span>
@@ -2677,7 +2569,6 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn rf-btn active" id="chartRole-all" data-role="all" data-color="var(--accent)" onclick="toggleRoleFilter('all',this)" title="All insiders">ALL</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-exec" data-role="exec" data-color="#a78bfa" onclick="toggleRoleFilter('exec',this)" title="CEO, CFO, COO, President, Chairman">EXEC</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-director" data-role="director" data-color="#60a5fa" onclick="toggleRoleFilter('director',this)" title="Board Directors">DIR</button>
-            <button class="tf-btn cf-btn rf-btn" id="chartRole-gov" data-role="gov" data-color="#00d4ff" onclick="toggleRoleFilter('gov',this)" title="Government Officials">GOV</button>
             
             <div style="margin-left:auto;display:flex;gap:4px">
               <button id="chartTypeCandle" onclick="setChartType('candle')" class="tf-btn ct-btn active" title="Candlestick chart" style="padding:4px 8px">
@@ -2746,12 +2637,12 @@ async function loadStockView(ticker, opts={}) {
   state.currentPriceData = priceData;
 
   // Render sidebar and trades table with Form 4 data
-  renderSidebarGated(state.tickerTrades || [], state.govData || []);
-  renderStockTradesTable(state.tickerTrades || [], state.govData || []);
+  renderSidebarGated(state.tickerTrades || []);
+  renderStockTradesTable(state.tickerTrades || []);
 
   if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
-    await buildChart(priceData, insiderData, state.govData || []);
+    await buildChart(priceData, insiderData, []);
 
     // Apply requested range and S/R state — runs after buildChart's own setTimeout(60ms)
     if (opts.rangeDays || opts.srEnabled) {
@@ -2812,7 +2703,7 @@ function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth
 const CHART_H = getChartH();
 let _chartType = 'candle';
 let _srEnabled = false; // 'candle' | 'line'
-async function buildChart(priceData, trades, govData=[]) {
+async function buildChart(priceData, trades) {
   if (!window.LightweightCharts) {
     window._lcCallbacks = window._lcCallbacks.filter(f => f._isBuildChart !== true);
     const cb = () => buildChart(priceData, trades);
@@ -2915,7 +2806,7 @@ async function buildChart(priceData, trades, govData=[]) {
   wm.textContent = 'InsiderTape';
   container.appendChild(wm);
 
-  buildCircleOverlay(container,chart,mainSeries,trades,cleanData,govData);
+  buildCircleOverlay(container,chart,mainSeries,trades,cleanData,[]);
 
   // Defer all time-scale and pressure chart operations until after LC's first rAF
   requestAnimationFrame(() => {
@@ -2934,8 +2825,7 @@ async function buildChart(priceData, trades, govData=[]) {
     }
     // Pressure chart after another rAF
     requestAnimationFrame(() => {
-      // On initial load show all gov trades (filters are in default all/both state)
-      buildPressureChartGated(chart,trades,priceData,govData);
+      buildPressureChartGated(chart,trades,priceData);
     });
   });
 
@@ -2974,7 +2864,7 @@ function setChartType(type) {
   }
 }
 
-function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) {
+function buildCircleOverlay(container,chart,series,trades,priceData) {
   const canvas=document.createElement('canvas'); canvas.id='markerCanvas';
   canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:10;';
   canvas.width=container.clientWidth||800; canvas.height=getChartH(); container.appendChild(canvas);
@@ -3005,18 +2895,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
   });
   state.markerGroups=Object.values(groups);
   state._allMarkerGroups=state.markerGroups; // unfiltered — for consistent diamond sizing
-  // Build initial gov marker groups from full govData (all types visible on load)
-  state._govMarkerGroups = govData ? (() => {
-    const gg = {};
-    govData.forEach(g => {
-      const tc = g.transaction_type==='P'?'buy':'sell';
-      const k = (g.transaction_date||'')+'|'+tc+'|'+g.member;
-      if(!gg[k]) gg[k]={date:g.transaction_date,tc,trades:[{insider:g.member,amount_range:g.amount_range}],value:0,_isGov:true};
-      else gg[k].trades.push({insider:g.member,amount_range:g.amount_range});
-      gg[k].value += parseAmountRange(g.amount_range)||1001;
-    });
-    return Object.values(gg);
-  })() : [];
+  state._govMarkerGroups = [];
 
 
   const tooltip=document.getElementById('chartTooltip')||(() => {
@@ -3045,22 +2924,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
     state._circles=[];
 
     // ── Form 4 circles ──────────────────────────────────────────────────────
-        const govGroupedVals = govData ? Object.values(
-      govData.reduce((acc,g)=>{
-        const k=(g.transaction_date||'')+'|'+g.transaction_type;
-        if(!acc[k]) acc[k]=0;
-        acc[k]+=parseAmountRange(g.amount_range);
-        return acc;
-      },{})
-    ) : [];
-    // Separate maxVals so Form 4 and gov diamonds each scale within their own range.
-    // Gov STOCK Act filings are capped at ~$15M (range descriptions), while Form 4
-    // trades can be hundreds of millions — a shared maxVal makes all gov diamonds tiny.
     const allGroupVals = (state._allMarkerGroups||state.markerGroups).map(g=>g.value);
     const maxVal    = Math.max(...allGroupVals, 1000000);
-    // Use the actual rendered gov groups (per-member) for maxValGov, not the differently-grouped govGroupedVals
-    const govRenderVals = (state._govMarkerGroups||[]).map(g=>g.value);
-    const maxValGov = Math.max(...govRenderVals, 1000000);
     state.markerGroups.forEach(g=>{
       const ts=chart.timeScale().timeToCoordinate(g.date); if(ts===null||ts===undefined)return;
       const pd=priceMap[g.date]; if(!pd)return;
@@ -3078,35 +2943,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       state._circles.push({x:ts,y:yCoord,r,group:g});
     });
 
-    // ── Congressional trade diamonds (premium only, respects active filters) ──
-    state._govDiamonds = [];
-    if (auth.isPremium) {
-      // Use state._govMarkerGroups which is built by applyChartFilters and already
-      // respects both buy/sell type filters and role filters
-      const govGroupsToRender = state._govMarkerGroups || [];
-      govGroupsToRender.forEach(g => {
-        const td = nearestTradingDay(g.date);
-        if (!td) return;
-        const xCoord = chart.timeScale().timeToCoordinate(td);
-        if (xCoord === null) return;
-        const pricePoint = priceMap[td];
-        if (!pricePoint) return;
-        const yCoord = series.priceToCoordinate(pricePoint.close);
-        if (yCoord === null) return;
-        const _mob=window.innerWidth<=640;
-        const rMin=_mob?6:8, rMax=_mob?28:38;
-        const val = g.value || 0;
-        const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, val) / maxValGov);
-        const isBuy = g.tc === 'buy';
-        const baseColor = isBuy ? 'rgba(0,212,255,' : 'rgba(255,0,255,';
-        ctx.beginPath(); ctx.arc(xCoord,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=baseColor+'0.08)'; ctx.fill();
-        drawDiamond(ctx, xCoord, yCoord, r, baseColor+'0.20)', baseColor+'0.85)');
-        const memberNames = g.trades.map(t => t.insider).filter(Boolean);
-        const ranges = g.trades.map(t => t.amount_range).filter(Boolean);
-        state._govDiamonds.push({ x:xCoord, y:yCoord, r, trades:memberNames, type:isBuy?'P':'S', val, date:g.date, ranges });
-      });
-    }
-
+      state._govDiamonds = [];
     // Draw S/R overlay last so it sits on top
     drawSRLevels(ctx);
   }  // end drawCircles
@@ -3174,20 +3011,6 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
   canvas.addEventListener('mousemove',e=>{
     const rect=canvas.getBoundingClientRect(); const mx=e.clientX-rect.left,my=e.clientY-rect.top;
 
-    // Check gov diamonds first
-    let govHit=null;
-    for(const d of(state._govDiamonds||[])){if(Math.hypot(mx-d.x,my-d.y)<=d.r+4){govHit=d;break;}}
-    if(govHit){
-      canvas.style.cursor='crosshair';
-      const gcolor=govHit.type==='P'?'#00d4ff':'#ff00ff';
-      const glabel=govHit.type==='P'?'◆ GOV BUY':'◆ GOV SELL';
-      tooltip.innerHTML='<div style="color:'+gcolor+';font-weight:700;margin-bottom:6px">'+glabel+' · '+govHit.date+'</div><div style="color:#b0c4d8">'+govHit.trades.slice(0,4).join(', ')+(govHit.trades.length>4?' +'+(govHit.trades.length-4)+' more':'')+'</div><div style="margin-top:6px;padding-top:6px;border-top:1px solid #1e2d3d;color:#e8f4fd">Est. Amount: <span style="color:'+gcolor+'">'+(govHit.ranges&&govHit.ranges.length?govHit.ranges.map(function(r){return fmtAmountRange(r);}).join(' + '):'~'+fmt(govHit.val))+'</span></div>';
-      tooltip.style.display='block';
-      const gtx=e.clientX+16,gty=e.clientY-10;
-      tooltip.style.left=(gtx+280>window.innerWidth?e.clientX-296:gtx)+'px'; tooltip.style.top=gty+'px';
-    } else {
-
-    // Then check circles
     let hit=null;
     for(const c of(state._circles||[])){if(Math.hypot(mx-c.x,my-c.y)<=c.r+4){hit=c;break;}}
     if(hit){
@@ -3201,15 +3024,14 @@ function buildCircleOverlay(container,chart,series,trades,priceData,govData=[]) 
       const tx=e.clientX+16,ty=e.clientY-10;
       tooltip.style.left=(tx+280>window.innerWidth?e.clientX-296:tx)+'px'; tooltip.style.top=ty+'px';
     } else { canvas.style.cursor=''; tooltip.style.display='none'; }
-    } // end govHit else
   });
   canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 }
 
-function buildPressureChart(mainChart,trades,priceData,govData=[]) {
+function buildPressureChart(mainChart,trades,priceData) {
   // Wipe the wrapper completely on every build — prevents stale canvases and
   // duplicate labels from accumulating across ticker navigations.
-  const pw=document.getElementById('pressureWrapper'); if(!pw||(trades.length===0&&(!govData||!govData.length)))return;
+  const pw=document.getElementById('pressureWrapper'); if(!pw||trades.length===0)return;
   pw.innerHTML='<div id="pressureContainer" style="width:100%;height:'+(window.innerWidth<=640?'80':'120')+'px;" class="pressure-container"></div>';
   const pc=document.getElementById('pressureContainer');
 
@@ -3244,7 +3066,7 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
   // Green bar = net buying that week, red bar = net selling.
   // No baseline line, no price line, no last-value line — just bars.
   // scaleMargins: symmetric 15% top+bottom keeps zero centred.
-  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData, govData)); return; }
+  if (!window.LightweightCharts) { window._onLCReady(() => buildPressureChartGated(mainChart, trades, priceData)); return; }
   const pcH = window.innerWidth <= 640 ? 80 : 120;
   pc.style.height = pcH + 'px';
   pc.style.minHeight = pcH + 'px';
@@ -3277,48 +3099,6 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
     return {time:t, value:v, color:v>=0?'rgba(0,255,136,0.85)':'rgba(255,68,102,0.85)'};
   }));
 
-
-  // ── Gov overlay bars ─────────────────────────────────────────────────────────
-  try {
-    if (govData && govData.length) {
-      const govSeries=pChart.addHistogramSeries({
-        base:0,priceLineVisible:false,lastValueVisible:false,
-        priceFormat:{type:'price',precision:1,minMove:0.1},
-      });
-            // Aggregate gov trades by week (same logic as insider pressure bars)
-      const govByWeek={};
-      govData.forEach(g=>{
-        const d=g.transaction_date||''; if(!d) return;
-        const dt=new Date(d+'T12:00:00Z');
-        const dow=dt.getUTCDay();
-        const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
-        const wk=mon.toISOString().slice(0,10);
-        if(!govByWeek[wk]) govByWeek[wk]=0;
-        govByWeek[wk]+=(g.transaction_type==='P'?1:-1)*(parseAmountRange(g.amount_range));
-      });
-      if (Object.keys(govByWeek).length) {
-        // Normalize gov bars same as insider bars: net/maxTotal*100, capped at ±50 so gov never dwarfs insider
-        const govMaxRaw=Math.max(...Object.values(govByWeek).map(Math.abs),1);
-        const insiderMaxTotal=Math.max(...Object.values(byWeek).map(d=>d.total),1);
-        const govByDate={};
-        allDates.forEach(date=>{
-          const dt=new Date(date+'T12:00:00Z');
-          const dow=dt.getUTCDay();
-          const mon=new Date(dt); mon.setUTCDate(dt.getUTCDate()-(dow===0?6:dow-1));
-          const wk=mon.toISOString().slice(0,10);
-          if(govByWeek[wk]!==undefined) {
-            // Scale gov relative to insider maxTotal so bars are directly comparable
-            const normalized = govByWeek[wk] / insiderMaxTotal * 100;
-            govByDate[date] = Math.max(-50, Math.min(50, normalized));
-          }
-        });
-        govSeries.setData(allDates
-          .filter(t=>govByDate[t]!==undefined && govByDate[t]!==0)
-          .map(t=>({time:t,value:govByDate[t],color:govByDate[t]>=0?'rgba(0,212,255,0.7)':'rgba(255,0,255,0.7)'}))
-        );
-      }
-    }
-  } catch(e) { console.warn('gov overlay:', e.message); }
 
   const byDayTrades={};
   trades.forEach(t=>{const d=(t.trade||t.filing||'').slice(0,10);if(!d)return;if(!byDayTrades[d])byDayTrades[d]=[];byDayTrades[d].push(t);});
@@ -3355,14 +3135,6 @@ function buildPressureChart(mainChart,trades,priceData,govData=[]) {
     <span style="display:flex;align-items:center;gap:4px">
       <span style="width:10px;height:10px;background:rgba(255,68,102,0.7);display:inline-block;border-radius:1px"></span>
       <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:#4a6580">INSIDER SELL</span>
-    </span>
-    <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:10px;height:10px;background:rgba(0,212,255,0.5);display:inline-block;border-radius:1px"></span>
-      <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:#4a6580">GOV BUY</span>
-    </span>
-    <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:10px;height:10px;background:rgba(255,0,255,0.5);display:inline-block;border-radius:1px"></span>
-      <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:#4a6580">GOV SELL</span>
     </span>
 `;
   pw.style.position='relative';
@@ -3463,38 +3235,13 @@ function tradeMatchesRoleFilter(t) {
     if (/10%|10 %|MAJOR SHARE|BENEFICIAL OWNER|>10|GREATER THAN 10/.test(title) ||
         /10%/.test(insider)) return true;
   }
-  if (chartActiveRoles.has('gov')) {
-    if (t._isGov) return true;
-  }
   return false;
 }
 
 function getChartFilteredTrades() {
-  const form4 = (state.tickerTrades||[]).filter(t =>
+  return (state.tickerTrades||[]).filter(t =>
     chartActiveFilters.has(tradeFilterGroup(t.type)) && tradeMatchesRoleFilter(t)
   );
-  // Gov trades — only include if 'all' or 'gov' role filter active (and premium)
-  // Also respect the buy/sell type filter
-  if (auth.isPremium && (chartActiveRoles.has('all') || chartActiveRoles.has('gov'))) {
-    const govAsTrades = (state.govData||[])
-      .filter(g => {
-        // Respect buy/sell type filter
-        const type = g.transaction_type === 'P' ? 'P' : 'S';
-        return chartActiveFilters.has(type);
-      })
-      .map(g => ({
-        _isGov: true,
-        insider: g.member, title: g.chamber === 'H' ? 'U.S. House' : 'U.S. Senate',
-        trade: g.transaction_date, filing: g.transaction_date,
-        type: g.transaction_type,
-        value: parseAmountRange(g.amount_range) || 1001,
-        qty: 0, price: 0, owned: 0,
-        ticker: g.ticker, company: '', accession: '',
-        amount_range: g.amount_range,
-      }));
-    return [...form4, ...govAsTrades];
-  }
-  return form4;
 }
 
 function toggleChartFilter(group, btn) {
@@ -3546,35 +3293,20 @@ function applyChartFilters() {
     const pm={};state.currentPriceData.forEach(d=>{pm[d.time]=true;});
     function snapDay(ds){if(pm[ds])return ds;for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}for(let i=1;i<=5;i++){const d=new Date(ds+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-i);const s=d.toISOString().slice(0,10);if(pm[s])return s;}return null;}
     const groups={};
-    const govGroups={};
     filtered.forEach(t=>{
       const raw=(t.trade||t.filing||'').slice(0,10);
       const d=snapDay(raw);if(!d)return;
       const tc=tradeClass(t.type);
-      if(t._isGov){
-        const k=d+'|'+tc+'|'+t.insider;
-        if(!govGroups[k])govGroups[k]={date:d,tc,trades:[],value:0,_isGov:true};
-        govGroups[k].trades.push(t);govGroups[k].value+=t.value||0;
-      } else {
-        const k=d+'|'+tc;
-        if(!groups[k])groups[k]={date:d,tc,trades:[],value:0};
-        groups[k].trades.push(t);groups[k].value+=t.value||0;
-      }
+      const k=d+'|'+tc;
+      if(!groups[k])groups[k]={date:d,tc,trades:[],value:0};
+      groups[k].trades.push(t);groups[k].value+=t.value||0;
     });
     state.markerGroups=Object.values(groups);
-    state._govMarkerGroups=Object.values(govGroups);
+    state._govMarkerGroups=[];
   }
   if(state.drawCircles)state.drawCircles();
-  renderSidebarTrades(filtered, state.govData||[]); renderStockTradesTable(filtered, state.govData||[]); renderTradeMarkerList(filtered);
-  // Build filtered gov data for pressure chart — respect active buy/sell and role filters
-  let filteredGovForPressure = [];
-  if (auth.isPremium && (chartActiveRoles.has('all') || chartActiveRoles.has('gov'))) {
-    filteredGovForPressure = (state.govData||[]).filter(g => {
-      const type = g.transaction_type === 'P' ? 'P' : 'S';
-      return chartActiveFilters.has(type);
-    });
-  }
-  buildPressureChartGated(state.chart,filtered,state.currentPriceData,filteredGovForPressure);
+  renderSidebarTrades(filtered, []); renderStockTradesTable(filtered, []); renderTradeMarkerList(filtered);
+  buildPressureChartGated(state.chart,filtered,state.currentPriceData,[]);
 }
 
 
@@ -3693,42 +3425,9 @@ function renderTradeMarkerList(trades) {
 
 }
 
-function renderSidebarTrades(trades, govData=[]) {
+function renderSidebarTrades(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
-  const isPrem = auth.isPremium;
-
-  // Build gov trade cards — normalized to same shape
-  const govCards = govData.map(g => {
-    const tc = g.transaction_type === 'P' ? 'buy' : 'sell';
-    const color = tc==='buy' ? 'var(--buy)' : 'var(--sell)';
-    const label = tc==='buy' ? 'BUY' : 'SELL';
-    const card = '<div class="trade-card ' + tc + '" style="position:relative">'
-      + '<div class="trade-card-top"><span class="trade-type-label" style="background:' + (tc==='buy'?'rgba(0,212,255,0.15)':'rgba(255,0,255,0.15)') + ';color:' + (tc==='buy'?'#00d4ff':'#ff00ff') + ';border-color:' + (tc==='buy'?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)') + '">' + (tc==='buy'?'Gov Buy':'Gov Sale') + '</span><span class="trade-date">' + fmtDate(g.transaction_date) + '</span></div>'
-      + '<div style="display:flex;gap:5px;align-items:center;margin-bottom:2px">'
-      + '<div class="trade-insider insider-name-link" class="gov-profile-link" style="flex:1" data-member="' + escName(g.member) + '">' + (g.member||'—') + '</div>'
-      + '<span style="font-size:8px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.12);color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;white-space:nowrap">GOV OFFICIAL</span>'
-      + '</div>'
-      + '<div class="trade-role">' + (g.chamber==='H'?'U.S. House':'U.S. Senate') + (g.owner&&g.owner!=='Self'?' · '+g.owner:'') + '</div>'
-      + '<div class="trade-numbers">'
-      + '<div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Est. Amount</div><div class="trade-num-val" style="color:' + color + '">' + fmtAmountRange(g.amount_range) + '</div></div>'
-      + '</div>'
-      + '</div>';
-    // Non-premium: show gov trades from last 7 days free, older ones blurred
-    const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-7);
-    const tradeDate = new Date((g.transaction_date||'')+'T12:00:00Z');
-    const isRecent = tradeDate >= sevenDaysAgo;
-    if (!isPrem && !isRecent) {
-      return '<div style="position:relative;margin-bottom:8px">'
-        + '<div style="filter:blur(4px);pointer-events:none;user-select:none">' + card + '</div>'
-        + '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(8,11,15,0.5);border-radius:6px">'
-        + '<button onclick="showPremiumOverlay(\'Gov Official Trades\')" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:7px 14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:1px">🔒 GOV OFFICIAL · PREMIUM</button>'
-        + '</div></div>';
-    }
-    return card;
-  });
-
-  // Merge Form 4 + gov, sort by date descending
-  const form4Cards = trades.map(t => {
+  const cards = trades.map(t => {
     const tc=tradeClass(t.type);
     const color=tc==='buy'?'var(--buy)':tc==='sell'?'var(--sell)':'var(--option)';
     return { date: t.trade||t.filing||'', html:
@@ -3742,17 +3441,15 @@ function renderSidebarTrades(trades, govData=[]) {
       + '<div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Total Value</div><div class="trade-num-val" style="color:' + color + '">' + fmt(t.value) + '</div></div>'
       + '</div></div>'
     };
-  });
-  const govCardObjs = govData.map((g,i) => ({ date: g.transaction_date||'', html: govCards[i] }));
-  const all = [...form4Cards, ...govCardObjs].sort((a,b) => b.date.localeCompare(a.date));
+  }).sort((a,b) => b.date.localeCompare(a.date));
 
-  if (!all.length) {
+  if (!cards.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>';
     return;
   }
-  el.innerHTML = all.map(c => c.html).join('');
+  el.innerHTML = cards.map(c => c.html).join('');
 }
-function renderSidebarSummary(trades, govData=[]) {
+function renderSidebarSummary(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
   const buys=trades.filter(t=>t.type==='P'),sells=trades.filter(t=>t.type==='S'||t.type==='S-'),opts=trades.filter(t=>t.type==='A');
   const buyVal=buys.reduce((s,t)=>s+t.value,0),sellVal=sells.reduce((s,t)=>s+t.value,0);
@@ -3764,16 +3461,6 @@ function renderSidebarSummary(trades, govData=[]) {
     insiderMap[k].netVal+=t.type==='P'?t.value:-t.value;
   });
   const topInsiders=Object.values(insiderMap).sort((a,b)=>Math.abs(b.netVal)-Math.abs(a.netVal)).slice(0,5);
-  // Gov activity for this ticker
-  const AMOUNT_MID_S={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-  const recentGov = govData.filter(g => {
-    const d = new Date((g.transaction_date||'')+'T12:00:00Z');
-    return (Date.now() - d.getTime()) < 90*24*60*60*1000;
-  });
-  const govBuys = recentGov.filter(g=>g.transaction_type==='P');
-  const govSells = recentGov.filter(g=>g.transaction_type==='S');
-  const govBuyVal = govBuys.reduce((s,g)=>s+(AMOUNT_MID_S[g.amount_range]||8000),0);
-  const govSellVal = govSells.reduce((s,g)=>s+(AMOUNT_MID_S[g.amount_range]||8000),0);
   el.innerHTML=`
     <div style="margin-bottom:16px">
       <div class="trade-num-label" style="margin-bottom:8px">ACTIVITY BREAKDOWN</div>
@@ -3784,50 +3471,10 @@ function renderSidebarSummary(trades, govData=[]) {
       </div>
     </div>
     <div class="trade-num-label" style="margin-bottom:8px">TOP INSIDERS</div>
-    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}
-    ${recentGov.length ? `
-    <div class="trade-num-label" style="margin-bottom:8px;margin-top:16px">🏛 GOV OFFICIAL ACTIVITY · 90D</div>
-    <div style="display:grid;gap:6px;margin-bottom:12px">
-      ${govBuys.length ? `<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(36,120,204,0.07);border-radius:4px;border:1px solid rgba(36,120,204,0.2)"><span style="color:var(--accent);font-size:12px">▲ Gov Buys (${govBuys.length})</span><span style="font-size:12px;font-variant-numeric:tabular-nums;color:var(--accent)">~${fmt(govBuyVal)}</span></div>` : ''}
-      ${govSells.length ? `<div style="display:flex;justify-content:space-between;padding:8px;background:rgba(180,0,180,0.06);border-radius:4px;border:1px solid rgba(180,0,180,0.2)"><span style="color:#cc44cc;font-size:12px">▼ Gov Sells (${govSells.length})</span><span style="font-size:12px;font-variant-numeric:tabular-nums;color:#cc44cc">~${fmt(govSellVal)}</span></div>` : ''}
-    </div>
-    ${recentGov.slice(0,4).map(g=>`<div style="padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-left:2px solid ${g.transaction_type==='P'?'var(--accent)':'#cc44cc'};border-radius:0 5px 5px 0;margin-bottom:5px;cursor:pointer" class="gov-profile-link" data-member="${escName(g.member)}"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px;font-weight:600;color:${g.transaction_type==='P'?'var(--accent)':'#cc44cc'}">${g.member}</span><span style="font-size:8px;padding:1px 4px;border-radius:2px;background:rgba(36,120,204,0.1);color:var(--accent);font-weight:600">GOV</span></div><div style="font-size:10px;color:var(--muted);margin-top:2px">${g.chamber==='H'?'U.S. House':'U.S. Senate'} · ${fmtDate(g.transaction_date)}</div><div style="font-size:11px;margin-top:3px;font-variant-numeric:tabular-nums;color:${g.transaction_type==='P'?'var(--accent)':'#cc44cc'}">${g.transaction_type==='P'?'Buy':'Sale'} · ${g.amount_range||'—'}</div></div>`).join('')}
-    ` : ''}`;
+    ${topInsiders.map(ins=>`<div style="padding:10px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;margin-bottom:6px"><div class="insider-name-link" style="font-size:12px;font-weight:500" onclick="openInsiderProfile('${escName(ins.name)}','${escName(ins.title)}')">${ins.name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${ins.title||'—'} · ${ins.trades} trade${ins.trades!==1?'s':''}</div><div style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;margin-top:6px;color:${ins.netVal>=0?'var(--buy)':'var(--sell)'}">Net: ${ins.netVal>=0?'+':''}${fmt(Math.abs(ins.netVal))} ${ins.netVal>=0?'(net buyer)':'(net seller)'}</div></div>`).join('')}`;
 }
-function renderStockTradesTable(trades, govData=[]) {
+function renderStockTradesTable(trades) {
   const el=document.getElementById('stockTradesBody'); if(!el)return;
-  const isPrem = auth.isPremium;
-
-  // Gov trade rows
-  const govRows = govData.map(g => {
-    const tc = g.transaction_type==='P'?'buy':'sell';
-    const valClass = tc==='buy'?'val-positive':'val-negative';
-    const govBadge = '<span style="font-size:8px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.12);color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-left:4px">GOV</span>';
-    const row = '<tr style="opacity:0.92">'
-      + '<td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px">' + fmtDate(g.transaction_date) + '</td>'
-      + '<td><span class="insider-name-link" class="gov-profile-link" data-member="' + escName(g.member) + '">' + (g.member||'—') + '</span>' + govBadge + '</td>'
-      + '<td style="color:#00d4ff;font-size:11px">' + (g.chamber==='H'?'House':'Senate') + '</td>'
-      + '<td><span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;background:' + (tc==='buy'?'rgba(0,212,255,0.15)':'rgba(255,0,255,0.15)') + ';color:' + (tc==='buy'?'#00d4ff':'#ff00ff') + ';border:1px solid ' + (tc==='buy'?'rgba(0,212,255,0.4)':'rgba(255,0,255,0.4)') + '">' + (tc==='buy'?'Gov Buy':'Gov Sale') + '</span></td>'
-      + '<td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--muted)">—</td>'
-      + '<td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--muted)">—</td>'
-      + '<td class="' + valClass + '" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">' + fmtAmountRange(g.amount_range) + '</td>'
-      + '<td style="color:var(--muted)">—</td>'
-      + '<td style="font-size:10px;color:var(--muted)">'
-      + (g.filing_url ? '<a href="' + g.filing_url + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;opacity:0.6" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">FILING ↗</a>' : '')
-      + '</td></tr>';
-    const sevenDaysAgoT = new Date(); sevenDaysAgoT.setDate(sevenDaysAgoT.getDate()-7);
-    const tradeDateT = new Date((g.transaction_date||'')+'T12:00:00Z');
-    const isRecentT = tradeDateT >= sevenDaysAgoT;
-    if (!isPrem && !isRecentT) {
-      return '<tr><td colspan="9" style="padding:0">'
-        + '<div style="position:relative">'
-        + '<div style="filter:blur(3px);pointer-events:none;user-select:none"><table style="width:100%"><tbody>' + row + '</tbody></table></div>'
-        + '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">'
-        + '<button onclick="showPremiumOverlay(\'Gov Official Trades\')" style="background:var(--accent);color:#000;border:none;border-radius:5px;padding:5px 12px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;font-weight:700;cursor:pointer">🔒 GOV OFFICIAL · PREMIUM</button>'
-        + '</div></div></td></tr>';
-    }
-    return row;
-  });
 
   // Form 4 rows with expandable dropdown
   const form4Rows = trades.map(t => {
@@ -3866,8 +3513,7 @@ function renderStockTradesTable(trades, govData=[]) {
       + '</tr>' + detailHtml
     };
   });
-  const govRowObjs = govData.map((g,i) => ({ date: g.transaction_date||'', html: govRows[i] }));
-  const all = [...form4Rows, ...govRowObjs].sort((a,b) => b.date.localeCompare(a.date));
+  const all = [...form4Rows].sort((a,b) => b.date.localeCompare(a.date));
 
   if (!all.length) {
     el.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div></td></tr>';
@@ -3917,7 +3563,7 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
       <div class="insider-hero">
         <div class="insider-avatar">${initials}</div>
         <div class="insider-hero-info">
-          <div class="insider-hero-name">${name}${isGovOfficial(latestTitle||name)?'<span title="Government Official — STOCK Act filer" style="margin-left:8px;padding:2px 8px;background:rgba(100,160,255,0.15);border:1px solid rgba(100,160,255,0.35);border-radius:3px;font-size:10px;color:#6ca0ff;font-family:\'Inter\',monospace;vertical-align:middle;letter-spacing:0.5px">🏛 GOV OFFICIAL</span>':''}</div>
+          <div class="insider-hero-name">${name}</div>
           <div class="insider-hero-title">${latestTitle}</div>
           <div class="insider-hero-companies">
             ${tickerList.map(t=>`<span class="company-tag" onclick="openTickerFromScreener('${t.ticker}')">${t.ticker}</span>`).join('')}
@@ -4673,10 +4319,7 @@ function insiderLanding(opts={}) {
 async function loadInsiderDashboard() {
   const dash=document.getElementById('insiderDashboard'); if(!dash)return;
   try {
-    const [resp, govResp] = await Promise.all([
-      apiFetch('/api/screener?days=30'),
-      apiFetch('/api/gov-recent?days=30').catch(()=>[]),
-    ]);
+    const resp = await apiFetch('/api/screener?days=30');
     let recent = Array.isArray(resp) ? resp : (resp.trades || []);
     if(!recent.length) {
       const wide=await apiFetch('/api/screener?days=365');
@@ -4684,49 +4327,32 @@ async function loadInsiderDashboard() {
     }
     if(!recent.length){dash.innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><div>No data yet — sync may still be running</div></div>';return;}
 
-    // Normalize gov trades to match Form 4 shape for unified ranking
-    const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-    const govTrades = Array.isArray(govResp) ? govResp.map(g=>({
-      insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
-      ticker: g.ticker, type: g.transaction_type==='P'?'P':'S',
-      value: AMOUNT_MID[g.amount_range]||8000,
-      trade: g.transaction_date, _isGov: true,
-    })) : [];
-
-    // Merge for unified rankings
-    const allTrades = [...recent, ...govTrades];
     const buyMap={},sellMap={};
-    allTrades.forEach(t=>{
+    recent.forEach(t=>{
       const k=t.insider; if(!k)return;
       if(t.type==='P') buyMap[k]=(buyMap[k]||0)+(t.value||0);
       if(t.type==='S'||t.type==='S-') sellMap[k]=(sellMap[k]||0)+(t.value||0);
     });
     const topBuyers=Object.entries(buyMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const topSellers=Object.entries(sellMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-    const bigBuys=[...allTrades].filter(t=>t.type==='P').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
-    const bigSells=[...allTrades].filter(t=>t.type==='S'||t.type==='S-').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
-    // Track which names are gov for badge display
-    const govNames = new Set(govTrades.map(g=>g.insider));
-    const largestGateHtml = ``; // Stock view landing is fully open to all users
-    const govBadgeSm = '<span style="font-size:8px;padding:1px 4px;border-radius:2px;background:rgba(36,120,204,0.12);color:var(--accent);font-weight:600;margin-left:4px">GOV</span>';
-    const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}${t._isGov?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:${color}">${t._isGov?'~':''}${fmt(t.value)}</span></div>`;
+    const bigBuys=[...recent].filter(t=>t.type==='P').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+    const bigSells=[...recent].filter(t=>t.type==='S'||t.type==='S-').sort((a,b)=>(b.value||0)-(a.value||0)).slice(0,8);
+    const tradeRow = (t, color) => `<div onclick="openTickerFromScreener('${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);min-width:48px">${t.ticker}</span><span style="flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.insider||'—'}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:${color}">${fmt(t.value)}</span></div>`;
     dash.innerHTML=`
       <div class="insider-dash-grid">
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--buy);font-size:14px">▲</span><span style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:1.5px">TOP BUYERS · LAST 30D</span></div>
-          <div>${topBuyers.map(([name,val],i)=>`<div onclick="${govNames.has(name)?`openGovProfile('${escName(name)}')`:`openInsiderProfileFull('${escName(name)}','')`}" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}${govNames.has(name)?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--buy)">${fmt(val)}</span></div>`).join('')}</div>
+          <div>${topBuyers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--buy)">${fmt(val)}</span></div>`).join('')}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--sell);font-size:14px">▼</span><span style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:1.5px">TOP SELLERS · LAST 30D</span></div>
-          <div>${topSellers.map(([name,val],i)=>`<div onclick="${govNames.has(name)?`openGovProfile('${escName(name)}')`:`openInsiderProfileFull('${escName(name)}','')`}" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}${govNames.has(name)?govBadgeSm:''}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
+          <div>${topSellers.map(([name,val],i)=>`<div onclick="openInsiderProfileFull('${escName(name)}','')" style="display:flex;align-items:center;padding:10px 18px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s" onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"><span style="font-family:Inter,sans-serif;font-size:10px;color:var(--muted);width:20px">${i+1}</span><span style="flex:1;font-size:13px;color:var(--text)">${name}</span><span style="font-family:Inter,sans-serif;font-size:12px;font-variant-numeric:tabular-nums;color:var(--sell)">${fmt(val)}</span></div>`).join('')}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
-          ${largestGateHtml}
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--buy);font-size:14px">💰</span><span style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST BUY TRADES · LAST 30D</span></div>
           <div>${bigBuys.map(t=>tradeRow(t,'var(--buy)')).join('')}</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
-          ${largestGateHtml}
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><span style="color:var(--sell);font-size:14px">💸</span><span style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:1.5px">LARGEST SELL TRADES · LAST 30D</span></div>
           <div>${bigSells.map(t=>tradeRow(t,'var(--sell)')).join('')}</div>
         </div>
@@ -5157,10 +4783,7 @@ async function runInsiderSearch() {
   document.getElementById('insiderSearchInput').addEventListener('input',e=>insiderAutocomplete(e.target.value));
   document.getElementById('insiderSearchInput').addEventListener('keydown',e=>{if(e.key==='Enter')runInsiderSearch();});
   try {
-    const [trades, govResults] = await Promise.all([
-      apiFetch('/api/insider?name='+encodeURIComponent(q)).catch(()=>[]),
-      apiFetch('/api/gov-member-search?q='+encodeURIComponent(q)).catch(()=>[]),
-    ]);
+    const trades = await apiFetch('/api/insider?name='+encodeURIComponent(q)).catch(()=>[]);
     const area=document.getElementById('insiderResultsArea');
 
     // Build Form 4 insider rows
@@ -5168,154 +4791,19 @@ async function runInsiderSearch() {
     trades.forEach(t=>{const k=t.insider||'Unknown';if(!byInsider[k])byInsider[k]={name:k,title:t.title,trades:[],buyVal:0,sellVal:0,tickers:new Set()};byInsider[k].trades.push(t);byInsider[k].tickers.add(t.ticker);if(t.type==='P')byInsider[k].buyVal+=t.value||0;if(t.type==='S'||t.type==='S-')byInsider[k].sellVal+=t.value||0;});
     const insiders=Object.values(byInsider).sort((a,b)=>b.trades.length-a.trades.length);
 
-    // Build gov official rows
-    const govMembers = Array.isArray(govResults) ? [...new Set(govResults.map(r=>r.member).filter(Boolean))] : [];
+    if(!insiders.length){area.innerHTML=`<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;return;}
 
-    if(!insiders.length && !govMembers.length){area.innerHTML=`<div class="empty-state"><div class="empty-icon">🔍</div><div>No insiders found matching "${q}"</div></div>`;return;}
-
-    const totalCount = insiders.length + govMembers.length;
-    const govBadge = `<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.12);color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-left:6px">GOV</span>`;
+    const totalCount = insiders.length;
 
     const form4Rows = insiders.map(ins=>`<tr class="insider-profile-link" data-iname="${escName(ins.name)}" data-ititle="${escName(ins.title||'')}" style="cursor:pointer"><td style="font-weight:500;color:var(--text)">${ins.name}</td><td style="color:var(--muted);font-size:11px">${ins.title||'—'}</td><td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${ins.trades.length}</td><td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent)">${[...ins.tickers].slice(0,3).join(', ')}${ins.tickers.size>3?' +more':''}</td><td style="color:var(--buy);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${ins.buyVal?fmt(ins.buyVal):'—'}</td><td style="color:var(--sell);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">${ins.sellVal?fmt(ins.sellVal):'—'}</td><td style="color:var(--accent);font-size:11px">VIEW →</td></tr>`).join('');
-
-    const govRows = govMembers.map(name=>`<tr class="gov-profile-link" data-member="${escName(name)}" style="cursor:pointer"><td style="font-weight:500;color:#00d4ff">${name}${govBadge}</td><td style="color:#00d4ff;font-size:11px">${govResults.find(r=>r.member===name)?.chamber==='H'?'U.S. House':'U.S. Senate'}</td><td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--muted)">—</td><td class="hide-mobile" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent)">STOCK Act</td><td style="color:var(--muted)">—</td><td style="color:var(--muted)">—</td><td style="color:#00d4ff;font-size:11px">VIEW →</td></tr>`).join('');
 
     area.innerHTML=`
       <div style="font-family:Inter,sans-serif;font-size:18px;letter-spacing:1.5px;color:var(--text);margin-bottom:12px">${totalCount} RESULT${totalCount>1?'S':''} FOR "${q.toUpperCase()}"</div>
       <div class="table-wrap"><table><thead><tr><th>INSIDER</th><th>TITLE</th><th class="hide-mobile">TRADES</th><th class="hide-mobile">COMPANIES</th><th>TOTAL BOUGHT</th><th>TOTAL SOLD</th><th></th></tr></thead>
-      <tbody>${govRows}${form4Rows}</tbody></table></div>`;
+      <tbody>${form4Rows}</tbody></table></div>`;
   } catch(e) { document.getElementById('insiderResultsArea').innerHTML=`<div class="empty-state"><div class="empty-icon">⚠️</div><div style="color:var(--sell)">${e.message}</div></div>`; }
 }
 
-
-// ── GOV OFFICIAL PROFILE ─────────────────────────────────────────────────────
-async function openGovProfile(name) {
-  if (!auth.isPremium) { showPremiumOverlay('Gov Official Trades'); return; }
-  window.scrollTo(0, 0);
-  const tab=document.getElementById('insiderTab');
-  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active')); tab.classList.add('active');
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  document.getElementById('view-insider').classList.add('active');
-  history.pushState({view:'insider',name,title:'Gov Official'},'','/insider/'+encodeURIComponent(name));
-  updateTitle('insider', name);
-
-  const body=document.getElementById('insiderViewBody');
-  body.innerHTML='<div class="loading-state" style="height:60vh"><div class="spinner"></div><span>Loading '+name+'...</span></div>';
-
-  try {
-    const trades = await apiFetch('/api/gov-member?member='+encodeURIComponent(name));
-    if (!trades||!trades.length) {
-      body.innerHTML='<div class="empty-state" style="height:60vh"><div class="empty-icon">📭</div><div>No gov trades found for '+name+'</div><button class="back-btn" style="margin-top:16px" onclick="insiderLanding()">← Back</button></div>';
-      return;
-    }
-    const buys=trades.filter(t=>t.transaction_type==='P'), sells=trades.filter(t=>t.transaction_type==='S');
-        const buyVal=buys.reduce((s,t)=>s+(parseAmountRange(t.amount_range)),0);
-    const sellVal=sells.reduce((s,t)=>s+(parseAmountRange(t.amount_range)),0);
-    const netVal=buyVal-sellVal;
-    const tickerMap={};
-    trades.forEach(t=>{
-      if(!tickerMap[t.ticker])tickerMap[t.ticker]={ticker:t.ticker,buyVal:0,sellVal:0,count:0};
-      if(t.transaction_type==='P')tickerMap[t.ticker].buyVal+=parseAmountRange(t.amount_range);
-      else tickerMap[t.ticker].sellVal+=parseAmountRange(t.amount_range);
-      tickerMap[t.ticker].count++;
-    });
-    const tickerList=Object.values(tickerMap).sort((a,b)=>(b.buyVal+b.sellVal)-(a.buyVal+a.sellVal));
-    const chamber=trades[0]?.chamber==='H'?'U.S. House of Representatives':'U.S. Senate';
-    const initials=name.split(' ').map(w=>w[0]||'').join('').slice(0,2).toUpperCase();
-
-    // Compute profitPerTrade: net proceeds per sell transaction
-    // Divide by sells.length not trades.length — buys don't dilute the figure
-    const profitPerTrade = sells.length > 0 ? (sellVal - buyVal) / sells.length : 0;
-    // Score comes from server cache — normalised relative to all gov officials
-    // Strip honorifics for matching
-    const cleanName = n => n.replace(/\b(Mr|Ms|Mrs|Dr|Jr|Sr|II|III)\.?\s*/gi,'').trim();
-    const cachedGov = (_govScoreCache||[]).find(g => cleanName(g.name) === cleanName(name) || g.name === name);
-    const govScore = cachedGov ? cachedGov.activityScore : null;
-    const sc = govScore || 0;
-    const scoreColor = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':govScore===null?'var(--muted)':'var(--sell)';
-    const scoreBg = sc>=75?'rgba(22,122,64,0.08)':sc>=55?'rgba(36,120,204,0.08)':'rgba(176,48,48,0.06)';
-    const scoreBdr = sc>=75?'rgba(22,122,64,0.3)':sc>=55?'rgba(36,120,204,0.25)':'rgba(176,48,48,0.25)';
-    const govTier = govScore===null?'LOADING':govScore>=75?'ELITE':govScore>=55?'STRONG':govScore>=35?'AVERAGE':'WEAK';
-
-    body.innerHTML = `<div id="insiderContent" style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
-        <button class="back-btn" onclick="insiderLanding()" style="margin-bottom:0">← Back</button>
-        <button id="govFollowBtn"
-          onclick="toggleFollowGov('${name}','${chamber}')"
-          style="padding:7px 16px;border-radius:6px;font-family:Inter,sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;${fiHas(name)?'background:rgba(36,120,204,0.12);border:1px solid var(--accent);color:var(--accent)':'background:transparent;border:1px solid var(--border);color:var(--muted)'}">
-          ${fiHas(name)?'★ FOLLOWING':'☆ FOLLOW'}
-        </button>
-      </div>
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
-        <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,rgba(36,120,204,0.3),rgba(36,120,204,0.1));border:1px solid rgba(36,120,204,0.4);display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif;font-size:20px;color:var(--accent)">${initials}</div>
-        <div>
-          <div style="font-family:Inter,sans-serif;font-size:26px;letter-spacing:2px;color:var(--text)">${name}</div>
-          <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
-            <span style="font-size:10px;padding:2px 7px;border-radius:3px;background:rgba(36,120,204,0.12);color:var(--accent);font-family:Inter,sans-serif">GOV OFFICIAL</span>
-            <span style="font-size:11px;color:var(--muted)">${chamber}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Scorecard -->
-      <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap">
-        <div style="background:${scoreBg};border:2px solid ${scoreBdr};border-radius:10px;padding:16px 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:110px;flex-shrink:0">
-          <div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px">PROFIT SCORE</div>
-          <div style="font-size:42px;font-weight:800;line-height:1;color:${scoreColor}">${govScore !== null ? govScore : '—'}</div>
-          <div style="font-size:9px;color:${scoreColor};font-weight:700;margin-top:4px">${govScore !== null ? govTier : 'LOADING'}</div>
-          <div style="font-size:9px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.4">(Sells − Buys)<br>÷ Total Trades</div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;flex:1">
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">TOTAL TRADES</div><div style="font-size:20px;font-weight:600;color:var(--text)">${trades.length}</div></div>
-          <div style="background:var(--bg2);border:1px solid rgba(22,122,64,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. BUYS</div><div style="font-size:20px;font-weight:600;color:var(--buy)">${fmt(buyVal)}</div></div>
-          <div style="background:var(--bg2);border:1px solid rgba(176,48,48,0.2);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. SELLS</div><div style="font-size:20px;font-weight:600;color:var(--sell)">${fmt(sellVal)}</div></div>
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px"><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">EST. PROFIT/TRADE</div><div style="font-size:18px;font-weight:600;color:${scoreColor}">${profitPerTrade>=0?'+':''}${fmt(Math.abs(profitPerTrade))}</div></div>
-        </div>
-      </div>
-
-      <div style="font-size:10px;color:var(--muted);margin-bottom:16px;padding:8px 12px;background:rgba(36,120,204,0.04);border:1px solid rgba(36,120,204,0.12);border-radius:5px">Statistics reflect the last 5 years of available STOCK Act disclosures and may not represent the member's complete trading history.</div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">
-          <div style="font-family:Inter,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">HOLDINGS TRADED</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Last 5 years</div>
-          ${tickerList.slice(0,8).map(t => {
-            const total = t.buyVal+t.sellVal||1;
-            return `<div data-ticker="${t.ticker}" class="gov-ticker-link" style="margin-bottom:8px;cursor:pointer">
-              <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-                <span style="font-size:12px;color:var(--accent);font-weight:600">${t.ticker}</span>
-                <span style="font-size:11px;color:var(--muted)">${t.count} trade${t.count!==1?'s':''}</span>
-              </div>
-              <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
-                <div style="height:100%;width:${Math.round(t.buyVal/total*100)}%;background:var(--buy);display:inline-block"></div>
-                <div style="height:100%;width:${Math.round(t.sellVal/total*100)}%;background:var(--sell);display:inline-block"></div>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px">
-          <div style="font-family:Inter,sans-serif;font-size:14px;letter-spacing:2px;color:var(--text);margin-bottom:4px">RECENT TRADES</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:10px">Last 5 years · Most recent first</div>
-          ${trades.slice(0,10).map(t => {
-            const isBuy = t.transaction_type==='P';
-            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)">
-              <div>
-                <div data-ticker="${t.ticker}" class="gov-ticker-link" style="font-size:12px;color:var(--accent);font-weight:600;cursor:pointer">${t.ticker}</div>
-                <div style="font-size:10px;color:var(--muted)">${fmtDate(t.transaction_date)}</div>
-              </div>
-              <div style="text-align:right">
-                <div style="font-size:11px;color:${isBuy?'var(--buy)':'var(--sell)'}">${isBuy?'▲ BUY':'▼ SELL'}</div>
-                <div style="font-size:10px;color:var(--muted)">${fmtAmountRange(t.amount_range)}</div>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-    </div>`;
-  } catch(e) {
-    body.innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><div>'+e.message+'</div></div>';
-  }
-}
 
 async function openInsiderProfileFull(name, title, opts={}) {
   window.scrollTo(0, 0);
@@ -5325,14 +4813,6 @@ async function openInsiderProfileFull(name, title, opts={}) {
   try {
     const trades=await fetchInsiderByName(name);
     if(!trades.length){
-      // No Form 4 trades — check if this is a gov official
-      try {
-        const govCheck = await apiFetch('/api/gov-member?member=' + encodeURIComponent(name));
-        if (govCheck && govCheck.length) {
-          await openGovProfile(name);
-          return;
-        }
-      } catch(e) {}
       body.innerHTML=`<div class="empty-state" style="height:60vh"><div class="empty-icon">📭</div><div>No trades found for ${name}</div><button class="back-btn" style="margin-top:16px" onclick="insiderLanding()">← Back</button></div>`;
       return;
     }
@@ -5347,16 +4827,11 @@ function insiderAutocomplete(val) {
   if(!val||val.length<2){box.style.display='none';return;}
   _acTimer=setTimeout(async()=>{
     try{
-      const [trades, govTrades] = await Promise.all([
-        apiFetch('/api/insider?name='+encodeURIComponent(val)).catch(()=>[]),
-        apiFetch('/api/gov-member-search?q='+encodeURIComponent(val)).catch(()=>[]),
-      ]);
+      const trades = await apiFetch('/api/insider?name='+encodeURIComponent(val)).catch(()=>[]);
       const form4Names = [...new Set(trades.map(t=>t.insider).filter(Boolean))].slice(0,5);
-      const govNames = Array.isArray(govTrades) ? [...new Set(govTrades.map(t=>t.member).filter(Boolean))].slice(0,3) : [];
-      if(!form4Names.length && !govNames.length){box.style.display='none';return;}
+      if(!form4Names.length){box.style.display='none';return;}
       const form4Html = form4Names.map(n=>`<div class="ac-insider-link" data-name="${escName(n)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''">${n}</div>`).join('');
-      const govHtml = govNames.map(n=>`<div class="ac-gov-link" data-name="${escName(n)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background=''"><span style="color:#00d4ff">${n}</span><span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.1);color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">GOV</span></div>`).join('');
-      box.innerHTML = form4Html + govHtml;
+      box.innerHTML = form4Html;
       box.style.display='block';
     }catch(e){}
   },280);
@@ -5364,24 +4839,17 @@ function insiderAutocomplete(val) {
 document.addEventListener('click', e => {
   const acIns = e.target.closest('.ac-insider-link');
   if (acIns) { const n=acIns.dataset.name; document.getElementById('insiderSearchInput').value=n; document.getElementById('insiderSuggest').style.display='none'; runInsiderSearch(); return; }
-  const acGov = e.target.closest('.ac-gov-link');
-  if (acGov) { const n=acGov.dataset.name; document.getElementById('insiderSuggest').style.display='none'; openGovProfile(n); return; }
 });
 document.addEventListener('click',e=>{if(!e.target.closest('#insiderSearchInput')&&!e.target.closest('#insiderSuggest')){const box=document.getElementById('insiderSuggest');if(box)box.style.display='none';}});
 // Delegated handlers for profile links (avoids inline onclick quote issues)
 document.addEventListener('click', e => {
-  const gov = e.target.closest('.gov-profile-link');
-  if (gov) { const name = gov.dataset.member; if (name) openGovProfile(name); return; }
   const ins = e.target.closest('.insider-profile-link');
   if (ins) { const n = ins.dataset.iname, t = ins.dataset.ititle||''; if (n) openInsiderProfile(n, t); return; }
-  const ticker = e.target.closest('.gov-ticker-link');
-  if (ticker) { const sym = ticker.dataset.ticker; if (sym) openTickerFromScreener(sym); }
 });
 
 // ── ANALYSIS PAGE ────────────────────────────────────────────────
 
-let _analysisData = null;     // 30-day trades cache (Form 4 + gov)
-let _analysisGovData = null;  // gov-only ref for gov tiles (null = not yet fetched)
+let _analysisData = null;     // 30-day trades cache (Form 4)
 let _analysisDataLong = null; // 3-year trades cache — loaded lazily by subpages that need it
 let _analysisDataLongLoading = false;
 let _analysisDataLongCallbacks = [];
@@ -5410,7 +4878,6 @@ let _rankerCache = null;        // opportunity ranker scored results cache
 let _rankerRawRows = null;      // raw rows from /api/ranker before price enrichment
 let _insiderScoreCache = null;  // top insider accuracy scores cache
 let _timingAlphaCache = null;   // top timing alpha scores cache
-let _govScoreCache = [];        // top gov official activity rankings
 
 async function loadAnalysisPage(subpage) {
   // Wait for auth to finish loading before showing blur gate
@@ -5426,32 +4893,13 @@ async function loadAnalysisPage(subpage) {
   const body = document.getElementById('analysisViewBody');
   if (!body) return;
 
-  // Always fetch fresh gov data + form4 together on every analysis load
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px"><div class="loading-state"><div class="spinner"></div><span>Loading analysis data...</span></div></div>`;
   try {
-    const fetchForm4 = _analysisData
-      ? Promise.resolve(_analysisData.filter(t => !t._isGov))
-      : apiFetch('/api/screener?days=30').then(r => Array.isArray(r) ? r : (r.trades||[]));
-    const [form4, govRaw] = await Promise.all([
-      fetchForm4,
-      apiFetch('/api/gov-recent?days=90').catch(()=>[]),
-    ]);
-    const normGov = g => ({
-      _isGov: true,
-      ticker: g.ticker, company: g.company||g.ticker,
-      insider: g.member, title: 'Gov Official',
-      type: g.transaction_type,
-      trade: g.transaction_date, filing: g.transaction_date,
-      value: parseAmountRange(g.amount_range),
-      qty: 0, price: 0, owned: 0, accession: '',
-      amount_range: g.amount_range, chamber: g.chamber,
-    });
-    _analysisGovData = Array.isArray(govRaw) ? govRaw.map(normGov) : [];
-    _analysisData = [...form4, ..._analysisGovData];
-    console.log('[analysis] loaded form4:', form4.length, 'gov:', _analysisGovData.length);
+    if (!_analysisData) {
+      _analysisData = await apiFetch('/api/screener?days=30').then(r => Array.isArray(r) ? r : (r.trades||[]));
+    }
   } catch(e) {
     console.error('[analysis] fetch failed:', e);
-    _analysisGovData = _analysisGovData || [];
     _analysisData = _analysisData || [];
   }
 
@@ -5583,65 +5031,6 @@ function buildRegimeShiftData(longTrades, recentTrades) {
 
 
 
-// ── GOV OFFICIAL ANALYSIS TILES ──────────────────────────────────────────────
-function buildGovTiles(govData) {
-  if (!govData || !govData.length) return { buys:[], sells:[], newPos:[] };
-  const val = g => parseAmountRange(g.amount_range);
-  // govData entries are normalized: use .type (.type='P'/'S'), .insider, .trade
-  const isBuyG  = g => (g.type||g.transaction_type) === 'P';
-  const isSellG = g => (g.type||g.transaction_type) === 'S';
-  const nameG   = g => g.insider || g.member || '—';
-  const dateG   = g => g.trade   || g.transaction_date || '';
-
-  const buys = [...govData.filter(isBuyG)]
-    .sort((a,b) => val(b)-val(a)).slice(0,3)
-    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${nameG(g)} · ${fmtDate(dateG(g))}`, color:'#00d4ff' }));
-
-  const sells = [...govData.filter(isSellG)]
-    .sort((a,b) => val(b)-val(a)).slice(0,3)
-    .map(g => ({ ticker:g.ticker, label:fmtAmountRange(g.amount_range), sub:`${nameG(g)} · ${fmtDate(dateG(g))}`, color:'#ff00ff' }));
-
-  // Gov Cluster Buys: 2+ gov officials buying same ticker within 30 days
-  const govBuysByTicker = {};
-  govData.filter(isBuyG).forEach(g => {
-    if (!govBuysByTicker[g.ticker]) govBuysByTicker[g.ticker] = [];
-    govBuysByTicker[g.ticker].push(g);
-  });
-  const govClusters = Object.entries(govBuysByTicker)
-    .map(([ticker, arr]) => {
-      // Find densest 30-day window
-      const sorted = [...arr].sort((a,b) => dateG(a).localeCompare(dateG(b)));
-      let best = null;
-      for (let i = 0; i < sorted.length; i++) {
-        const anchor = new Date((dateG(sorted[i])+'T12:00:00Z')).getTime();
-        const window = sorted.filter(g => {
-          const d = new Date((dateG(g)+'T12:00:00Z')).getTime();
-          return d >= anchor && d <= anchor + 30 * 86400000;
-        });
-        const uniqueMembers = new Set(window.map(g => nameG(g)));
-        if (uniqueMembers.size >= 2) {
-          const totalVal = window.reduce((s,g) => s+val(g), 0);
-          if (!best || uniqueMembers.size > best.members.size || totalVal > best.totalVal) {
-            best = { ticker, members: uniqueMembers, window, totalVal,
-              earliest: dateG(window[0]), latest: dateG(window[window.length-1]) };
-          }
-        }
-      }
-      return best;
-    })
-    .filter(Boolean)
-    .sort((a,b) => b.members.size - a.members.size || b.totalVal - a.totalVal)
-    .slice(0,3)
-    .map(c => ({
-      ticker: c.ticker,
-      label: `${c.members.size} officials · ${fmt(c.totalVal)}+`,
-      sub: [...c.members].slice(0,2).join(', ') + (c.members.size > 2 ? ` +${c.members.size-2}` : '') + ' · ' + fmtDate(c.earliest),
-      color: '#00d4ff'
-    }));
-
-  return { buys, sells, govClusters };
-}
-
 function renderAnalysisDashboard() {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
@@ -5657,15 +5046,7 @@ function renderAnalysisDashboard() {
   window._cachedRegimeData = _regimeData;
 
   const convTop3    = _convData.slice(0, 3);
-  // Boost cluster scores when gov officials are also buying the same ticker
-  const govBuyTickers = new Set((_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').map(g=>g.ticker));
-  const clusterDataBoosted = _clusterData.map(c => {
-    if (!govBuyTickers.has(c.ticker)) return c;
-    const govBuysForTicker = (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P'&&g.ticker===c.ticker);
-    const govCount = new Set(govBuysForTicker.map(g=>g.insider||g.member)).size;
-    const boost = Math.min(15, govCount * 6); // up to +15 pts, 6 per official
-    return { ...c, score: Math.min(100, c.score + boost), _govBoost: boost, _govCount: govCount };
-  }).sort((a,b) => b.score - a.score);
+  const clusterDataBoosted = _clusterData;
   const clusterTop3 = clusterDataBoosted.slice(0, 3);
   const firstBuyTop3 = _firstBuyCache ? _firstBuyCache.slice(0, 3) : [];
 
@@ -5728,7 +5109,7 @@ function renderAnalysisDashboard() {
       top3: clusterTop3.map(c => ({
         ticker: c.ticker,
         label: `Score ${c.score}`,
-        sub: `${c.insiderCount} insiders · ${c.daySpan <= 1 ? 'same day' : c.daySpan + 'd window'}${c._govBoost ? ' · 🏛 +' + c._govBoost + ' gov' : ''}`,
+        sub: `${c.insiderCount} insiders · ${c.daySpan <= 1 ? 'same day' : c.daySpan + 'd window'}`,
         color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
       })),
       accentColor: 'var(--accent)',
@@ -5756,20 +5137,15 @@ function renderAnalysisDashboard() {
       id: 'topscores',
       icon: '🥇',
       name: 'Top Insider Scores',
-      desc: 'Ranks corporate insiders by accuracy score over the last 5 years — win rate, average forward return, and consistency. Gov officials ranked separately by trading activity and volume.',
+      desc: 'Ranks corporate insiders by accuracy score over the last 5 years — win rate, average forward return, and consistency.',
       count: _insiderScoreCache ? _insiderScoreCache.length : '…',
       countLabel: 'insiders scored',
       loading: _insiderScoreCache === null,
       top3: (() => {
-        const govN = (_govScoreCache||[]).map(g => ({
-          name: g.name, accuracyScore: g.activityScore, _isGov: true,
-          winRate: null, tradeCount: g.tradeCount, sellVal: g.sellVal, buyVal: g.buyVal,
-        }));
-        const merged = [...(_insiderScoreCache||[]), ...govN].sort((a,b) => b.accuracyScore - a.accuracyScore);
-        return merged.slice(0,3).map(r => ({
-          ticker: r._isGov ? r.name.split(' ').filter(w=>!/^(Mr|Ms|Mrs|Dr|Jr|Sr|II|III)$/i.test(w)).slice(-1)[0] : r.name.split(' ')[0],
+        return (_insiderScoreCache||[]).slice(0,3).map(r => ({
+          ticker: r.name.split(' ')[0],
           label: `Score ${r.accuracyScore}`,
-          sub: r._isGov ? `Gov Official · ${r.tradeCount} trades` : `${r.winRate}% win · ${r.tradeCount} trades`,
+          sub: `${r.winRate}% win · ${r.tradeCount} trades`,
           color: r.accuracyScore >= 75 ? 'var(--buy)' : r.accuracyScore >= 55 ? 'var(--accent)' : 'var(--option)',
         }));
       })(),
@@ -5814,62 +5190,6 @@ function renderAnalysisDashboard() {
       accentBorder: 'rgba(0,255,136,0.2)',
     },
   ];
-
-  // Gov Official tiles (from _analysisGovData)
-  const _govTiles = buildGovTiles(_analysisGovData || []);
-  const govBuysTool = {
-    id: 'govbuys',
-    icon: '🏛',
-    name: 'Top Gov Official Buys',
-    desc: 'Largest congressional purchases in the last 90 days — House and Senate members buying across any ticker.',
-    count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').length,
-    countLabel: 'purchases (90d)',
-    top3: _govTiles.buys,
-    accentColor: '#00d4ff',
-    accentBg: 'rgba(0,212,255,0.06)',
-    accentBorder: 'rgba(0,212,255,0.25)',
-  };
-  const govSellsTool = {
-    id: 'govsells',
-    icon: '🏛',
-    name: 'Top Gov Official Sells',
-    desc: 'Largest congressional sales in the last 90 days — when elected officials exit positions it can precede broader moves.',
-    count: (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='S').length,
-    countLabel: 'sales (90d)',
-    top3: _govTiles.sells,
-    accentColor: '#ff00ff',
-    accentBg: 'rgba(255,0,255,0.06)',
-    accentBorder: 'rgba(255,0,255,0.25)',
-  };
-  // Count gov clusters (2+ officials same ticker in 30d)
-  const _govClusterCount = (() => {
-    const byTicker = {};
-    (_analysisGovData||[]).filter(g=>(g.type||g.transaction_type)==='P').forEach(g=>{
-      if(!byTicker[g.ticker])byTicker[g.ticker]=[];
-      byTicker[g.ticker].push(g);
-    });
-    return Object.values(byTicker).filter(arr=>{
-      const sorted=[...arr].sort((a,b)=>(a.trade||a.transaction_date||'').localeCompare(b.trade||b.transaction_date||''));
-      for(let i=0;i<sorted.length;i++){
-        const anchor=new Date(((sorted[i].trade||sorted[i].transaction_date||'')+'T12:00:00Z')).getTime();
-        const w=sorted.filter(g=>{const d=new Date(((g.trade||g.transaction_date||'')+'T12:00:00Z')).getTime();return d>=anchor&&d<=anchor+30*86400000;});
-        if(new Set(w.map(g=>g.insider||g.member)).size>=2)return true;
-      }
-      return false;
-    }).length;
-  })();
-  const govNewPosTool = {
-    id: 'govnewpos',
-    icon: '🏛',
-    name: 'Gov Cluster Buys',
-    desc: '2+ government officials buying the same ticker within a 30-day window — coordinated congressional conviction signal.',
-    count: _govClusterCount,
-    countLabel: 'cluster signals (90d)',
-    top3: _govTiles.govClusters,
-    accentColor: '#00d4ff',
-    accentBg: 'rgba(0,212,255,0.06)',
-    accentBorder: 'rgba(0,212,255,0.25)',
-  };
 
   // Event Proximity (uses cached results)
   const proxTop3 = (_proximityCache || []).slice(0, 3);
@@ -5939,7 +5259,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool, govBuysTool, govSellsTool, govNewPosTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -6062,112 +5382,8 @@ function renderAnalysisSubpage(id, opts={}) {
     renderFirstBuySubpage();
   }
 
-  else if (id === 'govbuys' || id === 'govsells' || id === 'govnewpos') {
-    renderGovTileSubpage(id);
-  }
-
 }
 
-
-function renderGovTileSubpage(id) {
-  window.scrollTo(0, 0);
-  const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
-  const govData = _analysisGovData || [];
-  const AMOUNT_MID={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-
-  let title, subtitle, icon, trades;
-  if (id === 'govbuys') {
-    title = 'TOP GOV OFFICIAL BUYS'; icon = '🏛'; subtitle = 'Congressional purchases · Last 90 days · Sorted by est. amount';
-    trades = [...govData.filter(g=>(g.type||g.transaction_type)==='P')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
-  } else if (id === 'govsells') {
-    title = 'TOP GOV OFFICIAL SELLS'; icon = '🏛'; subtitle = 'Congressional sales · Last 90 days · Sorted by est. amount';
-    trades = [...govData.filter(g=>(g.type||g.transaction_type)==='S')].sort((a,b)=>parseAmountRange(b.amount_range)-parseAmountRange(a.amount_range));
-  } else {
-    title = 'GOV CLUSTER BUYS'; icon = '🏛'; subtitle = '2+ gov officials buying same ticker within 30 days · Last 90 days';
-    const govBuysByTickerSub = {};
-    govData.filter(g=>(g.type||g.transaction_type)==='P').forEach(g=>{
-      if(!govBuysByTickerSub[g.ticker])govBuysByTickerSub[g.ticker]=[];
-      govBuysByTickerSub[g.ticker].push(g);
-    });
-    trades = [];
-    const clusterRows = Object.entries(govBuysByTickerSub).map(([ticker, arr]) => {
-      const sorted = [...arr].sort((a,b)=>(a.trade||a.transaction_date||'').localeCompare(b.trade||b.transaction_date||''));
-      let best = null;
-      for(let i=0;i<sorted.length;i++){
-        const anchor=new Date(((sorted[i].trade||sorted[i].transaction_date||'')+'T12:00:00Z')).getTime();
-        const w=sorted.filter(g=>{const d=new Date(((g.trade||g.transaction_date||'')+'T12:00:00Z')).getTime();return d>=anchor&&d<=anchor+30*86400000;});
-        const members=[...new Set(w.map(g=>g.insider||g.member))];
-        if(members.length>=2){
-          const totalVal=w.reduce((s,g)=>s+parseAmountRange(g.amount_range),0);
-          if(!best||members.length>best.members.length||totalVal>best.totalVal)
-            best={ticker,members,window:w,totalVal};
-        }
-      }
-      return best;
-    }).filter(Boolean).sort((a,b)=>b.members.length-a.members.length||b.totalVal-a.totalVal);
-
-    const clusterHtml = clusterRows.length
-      ? '<div style="display:flex;flex-direction:column;gap:10px">' + clusterRows.map(c =>
-          '<div onclick="openTickerFromScreener(' + "'"+c.ticker+"'" + ')" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px 18px;cursor:pointer;transition:border-color .15s" onmouseover="this.style.borderColor=\'#00d4ff\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
-          + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
-          + '<div style="display:flex;align-items:center;gap:12px">'
-          + '<div style="font-family:Inter,sans-serif;font-size:22px;color:var(--accent)">' + c.ticker + '</div>'
-          + '<span style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:#00d4ff">🏛 ' + c.members.length + ' OFFICIALS</span>'
-          + '</div>'
-          + '<div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:13px;color:#00d4ff">' + fmt(c.totalVal) + '+</div>'
-          + '</div>'
-          + '<div style="display:flex;flex-direction:column;gap:6px">'
-          + c.window.map(g =>
-              '<div style="display:flex;align-items:center;gap:8px;font-size:11px">'
-              + '<span class="gov-profile-link" data-member="' + escName(g.insider||g.member||'') + '" style="color:#00d4ff;cursor:pointer;flex:1">' + (g.insider||g.member||'—') + '</span>'
-              + '<span style="color:var(--muted)">' + fmtDate(g.trade||g.transaction_date) + '</span>'
-              + '<span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:#00d4ff">' + fmtAmountRange(g.amount_range) + '</span>'
-              + '</div>'
-            ).join('')
-          + '</div></div>'
-        ).join('') + '</div>'
-      : '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No gov cluster buys found in the last 90 days.</div>';
-
-    body.innerHTML = '<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">'
-      + backBtn
-      + '<div style="margin-bottom:20px"><div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🏛 ' + title + '</div>'
-      + '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + subtitle + '</div></div>'
-      + clusterHtml + '</div>';
-    return;
-  }
-
-  const rows = trades.map(g => {
-    const isBuy = (g.type||g.transaction_type)==='P';
-    const color = isBuy ? '#00d4ff' : '#ff00ff';
-    const bg    = isBuy ? 'rgba(0,212,255,0.08)' : 'rgba(255,0,255,0.08)';
-    const border= isBuy ? 'rgba(0,212,255,0.25)' : 'rgba(255,0,255,0.25)';
-    return `<div onclick="openTickerFromScreener('${g.ticker}')" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:14px;transition:border-color .15s" onmouseover="this.style.borderColor='${color}'" onmouseout="this.style.borderColor='var(--border)'">
-      <div style="min-width:60px">
-        <div style="font-family:Inter,sans-serif;font-size:20px;letter-spacing:1px;color:var(--accent)">${g.ticker}</div>
-        <div style="font-size:9px;color:var(--muted)">${fmtDate(g.transaction_date)}</div>
-      </div>
-      <div style="flex:1">
-        <div class="gov-profile-link" data-member="${escName(g.insider||'')}" style="font-size:13px;color:var(--text);cursor:pointer;font-weight:500">${g.insider||'—'}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${g.chamber==='H'?'U.S. House':'U.S. Senate'}${g.owner&&g.owner!=='Self'?' · '+g.owner:''}</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:14px;font-weight:700;color:${color}">${fmtAmountRange(g.amount_range)}</div>
-        <div style="margin-top:4px"><span style="display:inline-block;padding:1px 7px;border-radius:3px;font-size:9px;font-weight:700;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;background:${bg};color:${color};border:1px solid ${border}">${isBuy?'GOV BUY':'GOV SALE'}</span></div>
-      </div>
-    </div>`;
-  }).join('');
-
-  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
-    ${backBtn}
-    <div style="margin-bottom:20px">
-      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${icon} ${title}</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">${subtitle}</div>
-    </div>
-    ${trades.length ? `<div style="display:flex;flex-direction:column;gap:8px">${rows}</div>`
-      : `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No gov trades found in the last 30 days.</div>`}
-  </div>`;
-}
 
 function renderRegimeShiftSubpage(opts={}) {
   window.scrollTo(0, 0);
@@ -6308,35 +5524,6 @@ function renderRegimeResults(results) {
 // ── INSIDER LEADERBOARDS ──────────────────────────────────────────
 
 
-function renderGovScoresList(ranked) {
-  if (!ranked || !ranked.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)">No gov officials ranked yet.</div>';
-  return ranked.map((r, i) => {
-    const sc = r.activityScore;
-    const scColor  = sc>=75?'var(--buy)':sc>=55?'#00d4ff':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.08)':'rgba(154,110,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.25)':'rgba(154,110,0,0.18)';
-    const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;transition:border-color .15s" class="gov-profile-link" data-member="' + escName(r.name) + '"'
-      + ' data-hc="' + scBorder + '" onmouseover="this.style.borderColor=this.dataset.hc" onmouseout="this.style.borderColor=\'var(--border)\'">' 
-      + '<div style="font-family:Inter,sans-serif;font-size:20px;color:' + rankColor + ';min-width:28px;text-align:center">#' + (i+1) + '</div>'
-      + '<div style="flex:1;min-width:0">'
-      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">'
-      + '<div style="font-size:13px;color:#00d4ff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + r.name + '</div>'
-      + '<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:rgba(0,212,255,0.12);color:#00d4ff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;flex-shrink:0">GOV</span>'
-      + '</div>'
-      + '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">' + r.chamber + ' · ' + r.tickers + '</div>'
-      + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
-      + '<span style="font-size:10px;color:var(--buy)">' + r.buyCount + ' purchases</span>'
-      + '<span style="font-size:10px;color:var(--accent)">' + fmt(r.buyVal) + '+ est. bought</span>'
-      + '<span style="font-size:10px;color:var(--muted)">' + r.tradeCount + ' total trades</span>'
-      + '</div></div>'
-      + '<div style="background:' + scBg + ';border:1px solid ' + scBorder + ';border-radius:6px;padding:6px 12px;text-align:center;flex-shrink:0">'
-      + '<div style="font-family:Inter,sans-serif;font-size:26px;line-height:1;color:' + scColor + '">' + sc + '</div>'
-      + '<div style="font-size:8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:' + scColor + ';margin-top:2px;letter-spacing:1px">ACTIVITY</div>'
-      + '</div></div>';
-  }).join('');
-}
-
 // Score a single insider using the exact same pipeline as the profile scorecard.
 // Fetches trades via /api/insider and prices via /api/price per ticker.
 async function scoreInsiderLikeProfile(name) {
@@ -6421,83 +5608,12 @@ async function scoreInsiderLikeProfile(name) {
   } catch(e) { return null; }
 }
 
-function buildGovScoreCache(govData) {
-  // Build gov official rankings from actual trade data.
-  // Profit-per-trade formula MATCHES the gov profile page exactly:
-  //   profitPerTrade = (sellVal - buyVal) / sells.length
-  // Officials with no sells cannot be scored and are excluded.
-  // Sort descending by profitPerTrade so #1 has the highest per-trade profit.
-  const byMember = {};
-  govData.forEach(g => {
-    const name = g.insider || g.member || '';
-    if (!name) return;
-    if (!byMember[name]) byMember[name] = {
-      name, chamber: g.chamber || '—',
-      buyVal: 0, sellVal: 0, buyCount: 0, sellCount: 0,
-      tickers: new Set(),
-    };
-    const val = parseAmountRange(g.amount_range || g.value || 0);
-    const type = g.type || g.transaction_type;
-    if (type === 'P') { byMember[name].buyVal += val; byMember[name].buyCount++; }
-    else if (type === 'S') { byMember[name].sellVal += val; byMember[name].sellCount++; }
-    if (g.ticker) byMember[name].tickers.add(g.ticker);
-  });
-
-  // Need at least 2 trades total and at least 1 sell to compute profit-per-trade
-  const members = Object.values(byMember).filter(m => (m.buyCount + m.sellCount) >= 2 && m.sellCount >= 1);
-  if (!members.length) return [];
-
-  // Compute profit per trade for each member (matches gov profile page)
-  members.forEach(m => {
-    m.profitPerTrade = Math.round((m.sellVal - m.buyVal) / Math.max(1, m.sellCount));
-  });
-
-  // Rank by profitPerTrade, then map to activityScore 1-100 based on rank percentile
-  const sorted = [...members].sort((a, b) => b.profitPerTrade - a.profitPerTrade);
-  const maxPpt = Math.max(1, ...sorted.map(m => Math.abs(m.profitPerTrade)));
-
-  return sorted.map((m, i) => {
-    // activityScore: linear scale from profitPerTrade so badge color reflects rank.
-    // Positive profit → scales up to 100; negative → scales down from 50.
-    const scaled = m.profitPerTrade >= 0
-      ? 50 + Math.round((m.profitPerTrade / maxPpt) * 50)
-      : 50 - Math.round((Math.abs(m.profitPerTrade) / maxPpt) * 50);
-    return {
-      name: m.name,
-      chamber: m.chamber,
-      activityScore: Math.max(1, Math.min(100, scaled)),
-      buyCount: m.buyCount, sellCount: m.sellCount,
-      buyVal: m.buyVal, sellVal: m.sellVal,
-      profitPerTrade: m.profitPerTrade,
-      tradeCount: m.buyCount + m.sellCount,
-      tickers: [...m.tickers].slice(0, 3).join(', '),
-    };
-  });
-}
-
 async function computeLeaderboardScores() {
   // Pulls per-insider scores from /api/insider-score — the SAME endpoint the
   // profile page uses. Scores on the analysis leaderboard are guaranteed to
   // match the scores shown on each insider's profile exactly, because they
   // come from the same code path.
   try {
-    // Gov officials: pull from /api/gov-leaderboard which aggregates the full
-    // 5-year history server-side using the same profit-per-trade formula the
-    // gov profile page uses. The 90-day _analysisGovData snapshot used previously
-    // missed members like Pelosi whose biggest trades were outside the window.
-    apiFetch('/api/gov-leaderboard').then(govList => {
-      if (Array.isArray(govList) && govList.length) {
-        _govScoreCache = govList;
-        updateLeaderboardUI(true);
-      }
-    }).catch(() => {
-      // Fallback to the 90-day client-side aggregation if the endpoint fails
-      if (_analysisGovData && _analysisGovData.length) {
-        _govScoreCache = buildGovScoreCache(_analysisGovData);
-        updateLeaderboardUI(true);
-      }
-    });
-
     const data = await apiFetch('/api/scoreboard');
     const candidates = Array.isArray(data.candidates) ? data.candidates : [];
     if (!candidates.length) {
@@ -6642,35 +5758,6 @@ function renderForm4ScoresList(ranked) {
   }).join('');
 }
 
-function renderGovScoresList2Col(govList) {
-  if (!govList || !govList.length) return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:24px;text-align:center;color:var(--muted);font-size:12px">No gov officials ranked yet.</div>';
-  return govList.map((r, i) => {
-    const sc = r.activityScore;
-    const scColor  = sc>=75?'var(--buy)':sc>=55?'var(--accent)':sc>=35?'var(--option)':'var(--muted)';
-    const scBg     = sc>=75?'rgba(0,255,136,0.08)':sc>=55?'rgba(0,212,255,0.07)':'rgba(154,110,0,0.06)';
-    const scBorder = sc>=75?'rgba(0,255,136,0.28)':sc>=55?'rgba(0,212,255,0.22)':'rgba(154,110,0,0.18)';
-    const rankColor = i===0?'#b8940a':i===1?'#c0c0c0':i===2?'#cd7f32':'var(--muted)';
-    const ppt = r.profitPerTrade || 0;
-    return `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;transition:border-color .15s"
-                 onmouseover="this.style.borderColor='${scBorder}'" onmouseout="this.style.borderColor='var(--border)'"
-                 onclick="openGovProfile('${escName(r.name)}')">
-      <div style="font-family:Inter,sans-serif;font-size:16px;color:${rankColor};min-width:24px;text-align:center">#${i+1}</div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:12px;color:var(--accent);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name.replace(/\b(Mr|Ms|Mrs|Dr|Jr|Sr)\.?\s*/gi,'').trim()}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:1px">${r.chamber} · ${r.tickers}</div>
-        <div style="display:flex;gap:8px;margin-top:3px;flex-wrap:wrap">
-          <span style="font-size:10px;color:${ppt>=0?'var(--buy)':'var(--sell)'}">${ppt>=0?'+':'-'}${fmt(Math.abs(ppt))}/trade</span>
-          <span style="font-size:10px;color:var(--muted)">${r.tradeCount||(r.buyCount+r.sellCount)} trades</span>
-        </div>
-      </div>
-      <div style="background:${scBg};border:1px solid ${scBorder};border-radius:6px;padding:5px 10px;text-align:center;flex-shrink:0">
-        <div style="font-family:Inter,sans-serif;font-size:22px;line-height:1;color:${scColor}">${sc}</div>
-        <div style="font-size:8px;font-family:Inter,sans-serif;color:${scColor};margin-top:1px">ACTIVITY</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
 function renderTopScoresList(ranked) { return renderForm4ScoresList(ranked); }
 
 function renderTimingLeadersList(ranked) {
@@ -6710,43 +5797,27 @@ function renderTopScoresSubpage(opts={}) {
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
   if (_insiderScoreCache === null) computeLeaderboardScores();
   const loading = _insiderScoreCache === null;
-  const govLoading = !_govScoreCache || !_govScoreCache.length;
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
+  body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:4px">🥇 TOP INSIDER SCORES</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Form 4 insiders scored on actual forward returns · Gov officials scored on disclosed trading activity</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start" class="top-scores-grid">
-      <div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
-          <div style="font-family:Inter,sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--text)">📊 FORM 4 INSIDERS</div>
-          <div style="font-size:10px;color:var(--muted)">${loading ? '⏳ loading…' : `${(_insiderScoreCache||[]).length} ranked`}</div>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.6">Scored by win rate, avg 90d return &amp; consistency. Requires 4+ completed buys with settled price data.</div>
-        <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
-          ${loading ? '<div class="loading-state"><div class="spinner"></div><span>Scoring insiders…</span></div>' : renderForm4ScoresList(_insiderScoreCache)}
-        </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Form 4 insiders scored on actual forward returns — win rate, avg return &amp; consistency</div>
+    <div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+        <div style="font-family:Inter,sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--text)">📊 FORM 4 INSIDERS</div>
+        <div style="font-size:10px;color:var(--muted)">${loading ? ‘⏳ loading…’ : `${(_insiderScoreCache||[]).length} ranked`}</div>
       </div>
-      <div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(36,120,204,0.35)">
-          <div style="font-family:Inter,sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--accent)">🏛 GOV OFFICIALS</div>
-          <div style="font-size:10px;color:var(--muted)">${govLoading ? '⏳ loading…' : `${(_govScoreCache||[]).length} ranked`}</div>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.6">Ranked by disclosed trading volume &amp; activity. STOCK Act filings don’t include exact prices so forward return scoring is unavailable.</div>
-        <div id="govScoresContent" style="display:flex;flex-direction:column;gap:8px">
-          ${govLoading ? '<div class="loading-state"><div class="spinner"></div><span>Loading gov officials…</span></div>' : renderGovScoresList2Col(_govScoreCache)}
-        </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.6">Scored by win rate, avg 90d return &amp; consistency. Requires 4+ completed buys with settled price data.</div>
+      <div id="topScoresContent" style="display:flex;flex-direction:column;gap:8px">
+        ${loading ? ‘<div class="loading-state"><div class="spinner"></div><span>Scoring insiders…</span></div>’ : renderForm4ScoresList(_insiderScoreCache)}
       </div>
     </div>
-  </div>
-  <style>@media(max-width:700px){.top-scores-grid{grid-template-columns:1fr!important}}</style>`;
+  </div>`;
   if (loading) {
     const poll = setInterval(() => {
       if (_insiderScoreCache !== null) {
         clearInterval(poll);
-        const el = document.getElementById('topScoresContent');
+        const el = document.getElementById(‘topScoresContent’);
         if (el) el.innerHTML = renderForm4ScoresList(_insiderScoreCache);
-        const ge = document.getElementById('govScoresContent');
-        if (ge && _govScoreCache && _govScoreCache.length) ge.innerHTML = renderGovScoresList2Col(_govScoreCache);
       }
     }, 800);
   }
@@ -7181,8 +6252,7 @@ async function renderExitWarningSubpage() {
 }
 
 function detectExitWarnings(trades, priceHighs={}) {
-  // Include gov sells as strong exit signals (senators/house members selling = institutional signal)
-  // Gov sells are already in trades array as _isGov trades
+  // Detect insider exit warning signals
   if (!trades || !trades.length) return [];
 
   const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && (t.trade || t.filing));
@@ -7230,16 +6300,6 @@ function detectExitWarnings(trades, priceHighs={}) {
     else if (execSellers.length === 1) {
       const title = tickerSells.find(t => t.insider === execSellers[0])?.title || 'Executive';
       score += 8; signals.push(`${title} among sellers`);
-    }
-
-    // ── GOV OFFICIAL SELLING BONUS ─────────────────────────────
-    const govSellers = tickerSells.filter(t => t._isGov);
-    if (govSellers.length > 0) {
-      const govSellerNames = [...new Set(govSellers.map(t => t.insider))];
-      const govSellVal = govSellers.reduce((s,t) => s + (t.value||0), 0);
-      score += Math.min(18, govSellerNames.length * 7);
-      signals.push(`${govSellerNames.length} gov official${govSellerNames.length>1?'s':''} selling alongside insiders`);
-      if (govSellVal >= 100000) { score += 5; signals.push(`Gov selling commitment ${fmt(govSellVal)}+`); }
     }
 
     // ── FACTOR 3: Sell/buy ratio imbalance — sells overwhelm buys (up to 20pts) ──
@@ -7341,15 +6401,14 @@ function detectExitWarnings(trades, priceHighs={}) {
     else if (score >= 50) { severity='CAUTION';     severityColor='var(--option)'; severityBg='rgba(154,110,0,0.08)';   severityBorder='rgba(154,110,0,0.3)'; }
     else                  { severity='WATCH';       severityColor='var(--muted)';  severityBg='rgba(201,216,232,0.05)'; severityBorder='rgba(201,216,232,0.2)'; }
 
-    const govSellerNames = [...new Set(tickerSells.filter(t=>t._isGov).map(t=>t.insider))];
     warnings.push({
       ticker,
       company: tickerSells[0]?.company || ticker,
       score, signals, context, severity, severityColor, severityBg, severityBorder,
       sellerCount, execSellers: execSellers.length,
       totalSellVal, totalBuyVal,
-      sellerNames: sellerNames.filter(n => !govSellerNames.includes(n)).slice(0, 5),
-      govSellers: govSellerNames,
+      sellerNames: sellerNames.slice(0, 5),
+      govSellers: [],
       sellPriceRange: null,
       latestSell: [...tickerSells].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0],
       topSignal: signals[0] || '',
@@ -7800,15 +6859,6 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
   if (execCount >= 2) { score += 10; signals.push(`${execCount} C-suite / senior execs involved`); }
   else if (execCount === 1) { score += 5; signals.push(`${clusterBuys.find(t=>highSigRoles.some(r=>(t.title||'').toUpperCase().includes(r)))?.title||'Executive'} among buyers`); }
 
-  // ── GOV OFFICIAL BONUS ────────────────────────────────────────
-  const govBuyers = clusterBuys.filter(t => t._isGov);
-  if (govBuyers.length > 0) {
-    const govNames = [...new Set(govBuyers.map(t => t.insider))];
-    const govVal = govBuyers.reduce((s,t) => s + (t.value||0), 0);
-    score += Math.min(20, govNames.length * 8);
-    signals.push(`${govNames.length} gov official${govNames.length>1?'s':''} buying alongside insiders`);
-    if (govVal >= 100000) { score += 5; signals.push(`Gov commitment ${fmt(govVal)}+`); }
-  }
 
   // ── STOCK PLAN / ESPP DETECTION ──────────────────────────────
   // If 5+ insiders buy the EXACT same price on the same date, it's almost certainly
@@ -7899,8 +6949,6 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
 
   score = Math.min(100, Math.max(1, Math.round(score)));
 
-  const govBuyersInCluster = clusterBuys.filter(t => t._isGov);
-  const govNames = [...new Set(govBuyersInCluster.map(t => t.insider))];
   return {
     ticker,
     company: clusterBuys[0]?.company || ticker,
@@ -7908,8 +6956,8 @@ function scoreCluster(ticker, clusterBuys, allTicker) {
     signals,
     penalties,
     insiderCount,
-    insiderNames: insiderNames.filter(n => !clusterBuys.find(t=>t.insider===n&&t._isGov)).slice(0, 4),
-    govNames,
+    insiderNames: insiderNames.slice(0, 4),
+    govNames: [],
     execCount,
     daySpan: Math.ceil(daySpan),
     priceSpread: +priceSpread.toFixed(1),
@@ -7947,7 +6995,6 @@ function renderClusterCard(c) {
             <span style="background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--buy)">${c.insiderCount} INSIDERS</span>
             <span style="background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:var(--accent)">${c.daySpan <= 1 ? 'SAME DAY' : c.daySpan + '-DAY WINDOW'}</span>
             ${c.execCount > 0 ? `<span style="background:rgba(154,110,0,0.08);border:1px solid rgba(154,110,0,0.2);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--option)">${c.execCount} EXEC${c.execCount>1?'S':''}</span>` : ''}
-            ${c.govNames && c.govNames.length ? `<span style="background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:#00d4ff">🏛 ${c.govNames.length} GOV</span>` : ''}
             ${c.concurrentSells > 0 ? `<span style="background:rgba(255,68,102,0.08);border:1px solid rgba(255,68,102,0.25);border-radius:4px;padding:2px 8px;font-size:10px;font-family:Inter,monospace;color:var(--sell)">⚠ ${c.concurrentSells} SELL${c.concurrentSells>1?'S':''}</span>` : ''}
           </div>
           <div style="font-size:10px;color:var(--muted)">${fmtDate(c.earliestDate)}${c.latestDate !== c.earliestDate ? ` – ${fmtDate(c.latestDate)}` : ''} · avg @${c.avgPrice > 0 ? '$' + c.avgPrice : '—'}</div>
@@ -8515,7 +7562,7 @@ let _compareTickers  = [];       // array of ticker strings (up to 4)
 let _compareData     = {};       // { TICKER: trades[] }
 let _compareLoading  = new Set();
 let _compareDays     = 30;  // default to 30-day window
-let _compareSource   = 'all'; // 'all' | 'form4' | 'gov'
+let _compareSource   = 'all'; // 'all' | 'form4'
 
 const COMPARE_COLORS = ['var(--accent)', 'var(--buy)', 'var(--option)', 'var(--sell)'];
 const COMPARE_COLORS_HEX = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4466'];
@@ -8566,7 +7613,7 @@ function renderComparePage() {
           </div>
           <div style="width:1px;height:24px;background:var(--border);margin:0 4px"></div>
           <div style="display:flex;gap:4px">
-            ${srcBtn('all','All')} ${srcBtn('form4','Corporate')} ${srcBtn('gov','Gov Officials')}
+            ${srcBtn('all','All')} ${srcBtn('form4','Corporate')}
           </div>
         </div>
       </div>
@@ -8638,11 +7685,9 @@ function renderCompareResults() {
   const cutoff = new Date(Date.now() - _compareDays * 86400000).toISOString().slice(0,10);
   const metrics = ready.map((ticker, idx) => {
     const allTrades = _compareData[ticker] || [];
-    // Filter to selected time window and source
+    // Filter to selected time window
     const trades  = allTrades.filter(t => {
       if ((t.trade||t.filing||'') < cutoff) return false;
-      if (_compareSource === 'form4' && t._isGov) return false;
-      if (_compareSource === 'gov' && !t._isGov) return false;
       return true;
     });
     const buys    = trades.filter(t => t.type === 'P');
@@ -8858,20 +7903,8 @@ async function fetchCompareData(ticker) {
   if (_compareLoading.has(ticker)) return;
   _compareLoading.add(ticker);
   try {
-    const [trades, govTrades] = await Promise.all([
-      apiFetch('/api/ticker?symbol=' + encodeURIComponent(ticker)),
-      apiFetch('/api/gov?symbol=' + encodeURIComponent(ticker)).catch(() => []),
-    ]);
-    const AMOUNT_MID_C={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-    const normalizedGov = Array.isArray(govTrades) ? govTrades.map(g => ({
-      insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
-      ticker, type: g.transaction_type==='P'?'P':'S',
-      value: AMOUNT_MID_C[g.amount_range]||8000,
-      trade: g.transaction_date, filing: g.transaction_date,
-      _isGov: true,
-    })) : [];
-    const allTrades = Array.isArray(trades) ? [...trades, ...normalizedGov] : normalizedGov;
-    _compareData[ticker] = allTrades;
+    const trades = await apiFetch('/api/ticker?symbol=' + encodeURIComponent(ticker));
+    _compareData[ticker] = Array.isArray(trades) ? trades : [];
   } catch(_) {
     _compareData[ticker] = [];
   }
@@ -8902,9 +7935,9 @@ function fiLoad() {
 function fiSave(list) {
   try { localStorage.setItem(FOLLOWED_KEY, JSON.stringify(list)); } catch(_) {}
 }
-function fiAdd(name, title, isGov=false) {
+function fiAdd(name, title) {
   const list = fiLoad();
-  if (!list.find(i => i.name === name)) { list.push({ name, title: title || '', _isGov: isGov }); fiSave(list); }
+  if (!list.find(i => i.name === name)) { list.push({ name, title: title || '' }); fiSave(list); }
 }
 function fiRemove(name) {
   fiSave(fiLoad().filter(i => i.name !== name));
@@ -8961,21 +7994,7 @@ function loadWatchlistPage() {
 
   const insiderFetches = missingFollowed.map(async i => {
     try {
-      let trades;
-      if (i._isGov) {
-        // Gov official — fetch from STOCK Act endpoint and normalise to Form4 shape
-        const govTrades = await apiFetch('/api/gov-member?member=' + encodeURIComponent(i.name));
-        const AMOUNT_MID_W={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-        trades = Array.isArray(govTrades) ? govTrades.map(g => ({
-          insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
-          ticker: g.ticker, type: g.transaction_type,
-          value: AMOUNT_MID_W[g.amount_range]||8000,
-          trade: g.transaction_date, filing: g.transaction_date,
-          _isGov: true, amount_range: g.amount_range,
-        })) : [];
-      } else {
-        trades = await apiFetch('/api/insider?name=' + encodeURIComponent(i.name) + '&exact=1');
-      }
+      const trades = await apiFetch('/api/insider?name=' + encodeURIComponent(i.name) + '&exact=1');
       _followedData[i.name] = Array.isArray(trades) ? trades : [];
     } catch(_) { _followedData[i.name] = []; }
   });
@@ -9362,20 +8381,6 @@ function watchlistRemove(ticker) {
 }
 
 // ── Toggle Follow Insider ────────────────────────────────────
-function toggleFollowGov(name, chamber) {
-  const btn = document.getElementById('govFollowBtn');
-  if (fiHas(name)) {
-    fiRemove(name);
-    if (btn) { btn.textContent='☆ FOLLOW'; btn.style.background='transparent'; btn.style.borderColor='var(--border)'; btn.style.color='var(--muted)'; }
-    showToast('Unfollowed ' + name.replace(/\b(Mr|Ms|Mrs|Dr)\.?\s*/gi,'').trim().split(' ').slice(-1)[0], false);
-  } else {
-    fiAdd(name, chamber, true); // _isGov=true
-    if (btn) { btn.textContent='★ FOLLOWING'; btn.style.background='rgba(36,120,204,0.12)'; btn.style.borderColor='var(--accent)'; btn.style.color='var(--accent)'; }
-    showToast('Following ' + name.replace(/\b(Mr|Ms|Mrs|Dr)\.?\s*/gi,'').trim().split(' ').slice(-1)[0], false);
-  }
-  if (document.getElementById('view-watchlist')?.classList.contains('active')) loadWatchlistPage();
-}
-
 function toggleFollowInsider(name, title, btn) {
   if (fiHas(name)) {
     fiRemove(name);
@@ -9432,7 +8437,6 @@ const MONITOR_TYPES = [
   { key: 'FIRST BUY',       label: '🚨 FIRST BUY'  },
   { key: 'EXIT WARNING',    label: '⚠️ EXIT'        },
   { key: 'EVENT PROXIMITY', label: '🎯 PROXIMITY'   },
-  { key: 'GOV TRADE',       label: '🏛 GOV'         },
 ];
 
 // Returns true if US markets are currently open (9:30–16:00 ET, Mon–Fri)
@@ -9683,34 +8687,19 @@ async function runMonitorWindow(tab, body) {
       if (needsSignalFetch) {
         fetches.push(apiFetch('/api/screener?days=90').catch(e => { console.warn('screener fetch failed:', e); return []; }));
         fetches.push(apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []));
-        fetches.push(apiFetch('/api/gov-recent?days=90').catch(() => []));
       } else {
-        fetches.push(Promise.resolve(null));
         fetches.push(Promise.resolve(null));
         fetches.push(Promise.resolve(null));
       }
       fetches.push(needsSentimentFetch ? apiFetch('/api/monitor-sentiment').catch(() => null) : Promise.resolve(_monitorCache['_sentiment']));
 
-      const [resp, fb, govResp, sent] = await Promise.all(fetches);
+      const [resp, fb, sent] = await Promise.all(fetches);
 
       if (resp !== null) {
         allTrades     = Array.isArray(resp) ? resp : (resp.trades || []);
         firstBuysFull = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
-        // Build gov signals
-        const AMOUNT_MID_M={'$1,001 - $15,000':8000,'$15,001 - $50,000':32500,'$50,001 - $100,000':75000,'$100,001 - $250,000':175000,'$250,001 - $500,000':375000,'$500,001 - $1,000,000':750000,'$1,000,001 - $5,000,000':3000000,'$5,000,001 - $25,000,000':15000000};
-        const govSignals = (Array.isArray(govResp) ? govResp : []).map(g => ({
-          type: 'GOV TRADE', ticker: g.ticker, date: g.transaction_date,
-          insider: g.member, title: g.chamber==='H'?'U.S. House':'U.S. Senate',
-          value: AMOUNT_MID_M[g.amount_range]||8000,
-          tradeType: g.transaction_type==='P'?'buy':'sell',
-          amountRange: g.amount_range||'',
-          score: g.transaction_type==='P'?60:50,
-          narrative: (g.transaction_type==='P'?'Congressional buy: ':'Congressional sale: ') + g.member + ' disclosed a ' + (g.amount_range||'') + ' ' + (g.transaction_type==='P'?'purchase':'sale') + ' in ' + g.ticker + ' via STOCK Act filing.',
-          _isGov: true,
-        }));
         _monitorCache['_allTrades']     = allTrades;
         _monitorCache['_firstBuysFull'] = firstBuysFull;
-        _monitorCache['_govSignals']    = govSignals;
       } else {
         allTrades     = _monitorCache['_allTrades'];
         firstBuysFull = _monitorCache['_firstBuysFull'] || [];
@@ -9757,8 +8746,7 @@ async function runMonitorWindow(tab, body) {
       displayCutStr = etLocalISO(new Date(Date.UTC(now.getFullYear(), qStartMonth, 1)));
     }
 
-    const govSignals = (_monitorCache['_govSignals'] || []).filter(g => g.date >= displayCutStr);
-    const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, displayCutStr, govSignals);
+    const alerts = buildMonitorAlerts(allTrades, firstBuys, proximity, displayCutStr, []);
     _monitorCache[tab] = alerts;
     _monitorCache[tab + '_trades']  = allTrades;
     _monitorCache[tab + '_cutStr']  = displayCutStr;
@@ -9832,7 +8820,7 @@ function buildSignalNarrative(alert) {
   }
 }
 
-function buildMonitorAlerts(trades, firstBuys, proximity, cutStr, govSignals=[]) {
+function buildMonitorAlerts(trades, firstBuys, proximity, cutStr) {
   const alerts = [];
 
   // ── 1. Cluster Buys ──────────────────────────────────────────
@@ -9914,8 +8902,6 @@ function buildMonitorAlerts(trades, firstBuys, proximity, cutStr, govSignals=[])
     });
   });
 
-  // Inject gov signals into alert stream
-  govSignals.forEach(g => alerts.push(g));
   alerts.sort((a,b) => (b.score-a.score) || (b.date||'').localeCompare(a.date||''));
 
   const tickerCount = {}, seen = new Set();
@@ -10170,13 +9156,6 @@ window.addEventListener('popstate', e => {
     document.getElementById('view-stock').classList.add('active');
     document.getElementById('tickerInput').value = '';
     if (_stockListsCache) { renderStockLanding(_stockListsCache); } else { loadStockLanding(); }
-  } else if (s.view === 'insider' && s.name && s.title === 'Gov Official') {
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.getElementById('insiderTab').classList.add('active');
-    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-    document.getElementById('view-insider').classList.add('active');
-    openGovProfile(s.name);
-    return;
   } else if (s.view === 'insider' && s.name) {
     document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
     document.getElementById('insiderTab').classList.add('active');
@@ -10348,7 +9327,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
   <div style="max-width:1200px;margin:0 auto">
     <div style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
     <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
-      InsiderTape tracks SEC Form 4 corporate insider trades and STOCK Act congressional disclosures in real time — cluster buys, conviction signals, and gov official activity.
+      InsiderTape tracks SEC Form 4 corporate insider trades in real time — cluster buys, conviction signals, and insider activity.
       Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
@@ -10356,7 +9335,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
       <span style="color:#1e2d3d">·</span>
       <button onclick="showPrivacy()" style="background:none;border:none;color:#3a5570;font-size:11px;cursor:pointer;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Privacy Policy</button>
       <span style="color:#1e2d3d">·</span>
-      <span style="font-size:11px;color:#2e4055;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">DATA: SEC EDGAR · STOCK ACT DISCLOSURES</span>
+      <span style="font-size:11px;color:#2e4055;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">DATA: SEC EDGAR</span>
     </div>
     <div style="font-size:10px;color:#1e3040;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
     <div style="font-size:9px;color:#1a2535;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-top:6px">build 2026-03-11.1</div>
@@ -10403,10 +9382,7 @@ function showTerms() {
     ${h2('4. PAST PERFORMANCE')}
     ${p('Historical data, scores, return calculations, and pattern analysis shown on InsiderTape are based on past performance. <strong style="color:#e0e8f0">Past performance is not indicative of future results.</strong> Insider buying or selling activity does not guarantee any particular outcome for a security\'s price. All investing involves risk, including the possible loss of principal.')}
 
-    ${h2('5. GOVERNMENT OFFICIAL TRADES')}
-    ${p('Congressional trading data is sourced from public STOCK Act (Stop Trading on Congressional Knowledge Act) disclosures filed by members of the U.S. House of Representatives and U.S. Senate. Members are required to file transaction reports within 45 days of a qualifying trade. This data may be subject to reporting delays as permitted by law. InsiderTape makes no representations as to the completeness or real-time accuracy of such filings.')}
-
-    ${h2('6. LIMITATION OF LIABILITY')}
+    ${h2('5. LIMITATION OF LIABILITY')}
     ${p('To the fullest extent permitted by applicable law, InsiderTape, its owners, operators, employees, and affiliates shall not be liable for any direct, indirect, incidental, special, consequential, punitive, or exemplary damages arising from or related to your use of the Platform, including but not limited to: investment losses, lost profits, loss of data, or any other pecuniary or non-pecuniary loss, even if advised of the possibility of such damages.')}
     ${p('Your sole remedy for dissatisfaction with the Platform is to stop using it.')}
 
@@ -10460,7 +9436,7 @@ function showPrivacy() {
     ${p('InsiderTape may use minimal functional cookies or browser local storage to preserve your in-session preferences (e.g., selected filters or view state). We do not use third-party advertising cookies, behavioral tracking pixels, or cross-site tracking technologies. You may disable cookies in your browser settings; this may affect Platform functionality.')}
 
     ${h2('5. PUBLIC DATA DISPLAYED')}
-    ${p('The data displayed on InsiderTape — insider names, trade amounts, government official disclosures — is sourced from public government filings including SEC EDGAR (Form 4 filings) and public STOCK Act disclosures filed with the Clerk of the U.S. House and the Secretary of the U.S. Senate. All such data is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
+    ${p('The data displayed on InsiderTape — insider names, trade amounts — is sourced from public government filings including SEC EDGAR (Form 4 filings). All such data is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.')}
 
     ${h2('6. DATA SECURITY')}
     ${p('We implement reasonable technical and organizational measures to protect the Platform and any data it processes. However, no system is completely secure. We cannot guarantee the absolute security of any information.')}
@@ -10740,19 +9716,18 @@ function switchSidebarTab(tab, el) {
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
   const trades = state.tickerTrades || [];
-  const govData = state.govData || [];
-  if (tab === 'summary') renderSidebarSummary(trades, govData);
-  else renderSidebarTrades(trades, govData);
+  if (tab === 'summary') renderSidebarSummary(trades);
+  else renderSidebarTrades(trades);
 }
 
-function renderSidebarGated(trades, govData=[]) {
-  renderSidebarTrades(trades, govData);
+function renderSidebarGated(trades) {
+  renderSidebarTrades(trades);
 }
 
 // ── Pressure chart guard ──────────────────────────────────────
-function buildPressureChartGated(mainChart, trades, priceData, govData=[]) {
+function buildPressureChartGated(mainChart, trades, priceData) {
   if (auth.isPremium) {
-    buildPressureChart(mainChart, trades, priceData, govData);
+    buildPressureChart(mainChart, trades, priceData);
     return;
   }
   const pw = document.getElementById('pressureWrapper');
@@ -11091,83 +10066,6 @@ function loadPremiumPage() {
     <text x="123" y="182" fill="#8fb0c8" font-family="monospace" font-size="5.5">📅 Daily Digest</text>
   </svg>`;
 
-const govMockup = `<svg viewBox="0 0 340 195" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
-    <rect width="340" height="195" fill="#080b0f"/>
-    <rect width="340" height="12" fill="#0d1421"/>
-    <text x="12" y="9" fill="#8fb0c8" font-family="monospace" font-size="6" letter-spacing="1">ANALYSIS TOOLS — GOV OFFICIAL SIGNALS</text>
-
-    <!-- Top Gov Buys tile -->
-    <rect x="4" y="14" width="100" height="54" rx="3" fill="#0d1421" stroke="rgba(0,212,255,0.25)" stroke-width="0.5"/>
-    <text x="10" y="24" fill="#00d4ff" font-family="monospace" font-size="6" letter-spacing="0.5">🏛 TOP GOV BUYS</text>
-    <text x="10" y="33" fill="#8fb0c8" font-family="monospace" font-size="5.5">369 purchases (90d)</text>
-    <text x="10" y="44" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">JPM</text>
-    <text x="30" y="44" fill="#c0ccd8" font-family="monospace" font-size="5.5">Jefferson Shreve</text>
-    <text x="82" y="44" fill="#00d4ff" font-family="monospace" font-size="5.5">$10M+</text>
-    <text x="10" y="53" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">AB</text>
-    <text x="30" y="53" fill="#c0ccd8" font-family="monospace" font-size="5.5">Nancy Pelosi</text>
-    <text x="82" y="53" fill="#00d4ff" font-family="monospace" font-size="5.5">$1M+</text>
-    <text x="10" y="62" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">AMZN</text>
-    <text x="30" y="62" fill="#c0ccd8" font-family="monospace" font-size="5.5">Nancy Pelosi</text>
-    <text x="82" y="62" fill="#00d4ff" font-family="monospace" font-size="5.5">$500K+</text>
-
-    <!-- Top Gov Sells tile -->
-    <rect x="120" y="14" width="100" height="54" rx="3" fill="#0d1421" stroke="rgba(255,0,255,0.25)" stroke-width="0.5"/>
-    <text x="126" y="24" fill="#ff00ff" font-family="monospace" font-size="6" letter-spacing="0.5">🏛 TOP GOV SELLS</text>
-    <text x="126" y="33" fill="#8fb0c8" font-family="monospace" font-size="5.5">410 sales (90d)</text>
-    <text x="126" y="44" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">AAPL</text>
-    <text x="146" y="44" fill="#c0ccd8" font-family="monospace" font-size="5.5">Nancy Pelosi</text>
-    <text x="196" y="44" fill="#ff00ff" font-family="monospace" font-size="5.5">$10M+</text>
-    <text x="126" y="53" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">AAPL</text>
-    <text x="146" y="53" fill="#c0ccd8" font-family="monospace" font-size="5.5">Nancy Pelosi</text>
-    <text x="196" y="53" fill="#ff00ff" font-family="monospace" font-size="5.5">$10M+</text>
-    <text x="126" y="62" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">GS</text>
-    <text x="146" y="62" fill="#c0ccd8" font-family="monospace" font-size="5.5">Dave McCormick</text>
-    <text x="196" y="62" fill="#ff00ff" font-family="monospace" font-size="5.5">$1M+</text>
-
-    <!-- Gov Cluster Buys tile -->
-    <rect x="236" y="14" width="100" height="54" rx="3" fill="#0d1421" stroke="rgba(0,212,255,0.25)" stroke-width="0.5"/>
-    <text x="242" y="24" fill="#00d4ff" font-family="monospace" font-size="6" letter-spacing="0.5">🏛 GOV CLUSTERS</text>
-    <text x="242" y="33" fill="#8fb0c8" font-family="monospace" font-size="5.5">Multi-member 30d window</text>
-    <text x="242" y="44" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">TSM</text>
-    <text x="262" y="44" fill="#00d4ff" font-family="monospace" font-size="5.5">3 officials</text>
-    <text x="314" y="44" fill="#00d4ff" font-family="monospace" font-size="5.5">$15M+</text>
-    <text x="242" y="53" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">NVDA</text>
-    <text x="262" y="53" fill="#00d4ff" font-family="monospace" font-size="5.5">2 officials</text>
-    <text x="314" y="53" fill="#00d4ff" font-family="monospace" font-size="5.5">$2M+</text>
-    <text x="242" y="62" fill="#00d4ff" font-family="monospace" font-size="7" font-weight="700">GOOGL</text>
-    <text x="264" y="62" fill="#00d4ff" font-family="monospace" font-size="5.5">2 officials</text>
-    <text x="314" y="62" fill="#00d4ff" font-family="monospace" font-size="5.5">$1M+</text>
-
-    <!-- Member profile card -->
-    <rect x="4" y="74" width="332" height="50" rx="3" fill="#0d1421" stroke="#1e3a5c" stroke-width="0.5"/>
-    <text x="12" y="85" fill="#8fb0c8" font-family="monospace" font-size="5.5" letter-spacing="1">MEMBER PROFILE — 5 YEAR HISTORY</text>
-    <circle cx="20" cy="104" r="8" fill="rgba(0,212,255,0.1)" stroke="rgba(0,212,255,0.3)" stroke-width="0.5"/>
-    <text x="17" y="107" fill="#00d4ff" font-family="monospace" font-size="6" font-weight="700">NP</text>
-    <text x="34" y="99" fill="#e0e6ed" font-family="monospace" font-size="8" font-weight="700">Nancy Pelosi</text>
-    <rect x="120" y="92" width="46" height="9" rx="2" fill="rgba(0,212,255,0.1)" stroke="rgba(0,212,255,0.3)" stroke-width="0.5"/>
-    <text x="124" y="99" fill="#00d4ff" font-family="monospace" font-size="5.5">GOV OFFICIAL</text>
-    <text x="34" y="109" fill="#8fb0c8" font-family="monospace" font-size="5.5">U.S. House · 47 trades on record</text>
-    <text x="220" y="99" fill="#00ff88" font-family="monospace" font-size="6">Buys $14.2M+</text>
-    <text x="282" y="99" fill="#ff4466" font-family="monospace" font-size="6">Sells $48M+</text>
-    <text x="220" y="109" fill="#8fb0c8" font-family="monospace" font-size="5.5">AAPL NVDA AMZN MSFT +more</text>
-
-    <!-- Chart overlay preview -->
-    <rect x="4" y="130" width="332" height="58" rx="3" fill="#080b0f" stroke="#1e3a5c" stroke-width="0.5"/>
-    <text x="12" y="141" fill="#8fb0c8" font-family="monospace" font-size="5.5" letter-spacing="1">PRICE CHART — GOV DIAMONDS OVERLAID</text>
-    <!-- Simple price line -->
-    <polyline points="20,175 50,168 80,172 110,160 140,148 170,155 200,145 230,152 260,158 290,150 320,143" fill="none" stroke="#1e3a5c" stroke-width="1"/>
-    <!-- Gov buy diamonds (cyan) -->
-    <polygon points="140,148 146,154 140,160 134,154" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="1"/>
-    <polygon points="200,145 208,153 200,161 192,153" fill="rgba(0,212,255,0.2)" stroke="#00d4ff" stroke-width="1.5"/>
-    <!-- Gov sell diamond (magenta) -->
-    <polygon points="260,158 266,164 260,170 254,164" fill="rgba(255,0,255,0.2)" stroke="#ff00ff" stroke-width="1"/>
-    <!-- Form 4 circles -->
-    <circle cx="110" cy="160" r="5" fill="rgba(0,255,136,0.2)" stroke="#00ff88" stroke-width="1"/>
-    <circle cx="230" cy="152" r="7" fill="rgba(0,255,136,0.2)" stroke="#00ff88" stroke-width="1"/>
-    <text x="130" y="186" fill="#00d4ff" font-family="monospace" font-size="5">◆ Gov Buy</text>
-    <text x="180" y="186" fill="#ff00ff" font-family="monospace" font-size="5">◆ Gov Sell</text>
-    <text x="230" y="186" fill="#00ff88" font-family="monospace" font-size="5">● Insider Buy</text>
-  </svg>`;
 
   const featureCards = [
     {
@@ -11177,12 +10075,12 @@ const govMockup = `<svg viewBox="0 0 340 195" xmlns="http://www.w3.org/2000/svg"
     },
     {
       icon: '🔍', title: 'EXTENDED SCREENER',
-      desc: 'Go beyond 7 days. Filter by 30D, 90D, or a full year of insider filings. Add minimum trade value, role filters including Gov Official, and trade type to zero in on the signals that matter. Free users see congressional trades from the last 7 days — premium unlocks the full 90-day history.',
+      desc: 'Go beyond 7 days. Filter by 30D, 90D, or a full year of insider filings. Add minimum trade value, role filters, and trade type to zero in on the signals that matter.',
       mock: screenerMockup
     },
     {
       icon: '📊', title: 'ANALYSIS DASHBOARD',
-      desc: 'Nine signal tools running across corporate insider and congressional trade activity: Opportunity Ranker, Cluster Detection, Exit Warning, Regime Shift Detector, First Buy Signals, Event Proximity, Top Gov Official Buys, Top Gov Official Sells, and Gov Cluster Buys — plus an Insider Scoreboard.',
+      desc: 'Nine signal tools running across corporate insider activity: Opportunity Ranker, Cluster Detection, Exit Warning, Regime Shift Detector, First Buy Signals, Event Proximity — plus an Insider Scoreboard with timing alpha rankings.',
       mock: analysisMockup
     },
     {
@@ -11210,11 +10108,6 @@ const govMockup = `<svg viewBox="0 0 340 195" xmlns="http://www.w3.org/2000/svg"
       desc: 'Pin tickers and follow specific insiders by name. See every move they make across any ticker the moment it\'s filed — 90D pressure bars, activity badges, and a live signal feed all in one place.',
       mock: watchlistMockup
     },
-    {
-      icon: '🏛', title: 'CONGRESSIONAL TRADING',
-      desc: 'STOCK Act disclosures from House and Senate members overlaid directly on every price chart as cyan diamonds alongside corporate insider trades. See when Congress and insiders are buying the same ticker simultaneously. Includes gov cluster detection, 5 years of congressional trading history per member, and three dedicated Analysis tiles showing top buys, top sells, and multi-member cluster signals across the last 90 days.',
-      mock: govMockup
-    },
   ];
 
   el.innerHTML = `
@@ -11222,7 +10115,7 @@ const govMockup = `<svg viewBox="0 0 340 195" xmlns="http://www.w3.org/2000/svg"
 
       <div style="text-align:center;margin-bottom:56px">
         <div style="font-family:Inter,sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
-        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders and members of Congress both file legally required disclosures when they trade. InsiderTape Premium gives you every tool to track both signals, find where they overlap, and act before the crowd does.</div>
+        <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required SEC Form 4 disclosures when they trade. InsiderTape Premium gives you every tool to track insider signals, detect clusters and conviction trades, and act before the crowd does.</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:56px;margin-bottom:72px">
@@ -11266,8 +10159,6 @@ const govMockup = `<svg viewBox="0 0 340 195" xmlns="http://www.w3.org/2000/svg"
           ['Screener — 30D / 90D / 1Y + filters', false, true],
           ['Stock View — price chart + trade markers', true, true],
           ['Insider sidebar — trade history', true, true],
-          ['Gov official trades — 7 days visible', true, false],
-          ['Gov official trades — full 90D history', false, true],
           ['Insider Pressure indicator', false, true],
           ['Cluster Buys & Largest Trades', false, true],
           ['Notable Insiders & Best Timers', false, true],
