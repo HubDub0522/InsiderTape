@@ -33,6 +33,8 @@ process.on('uncaughtException',  e => slog('UNCAUGHT: '  + e.message));
 process.on('unhandledRejection', e => slog('UNHANDLED: ' + (e?.message || e)));
 
 // ─── DB SCHEMA INIT ───────────────────────────────────────────────────────────
+// Only called explicitly (e.g. via /api/admin/init-schema) — NOT on every cold start.
+// The schema is bootstrapped once by the GitHub Actions init job.
 async function initSchema() {
   const stmts = [
     `CREATE TABLE IF NOT EXISTS trades (
@@ -144,8 +146,7 @@ async function initSchema() {
   slog('Schema ready');
 }
 
-// Run schema init once at startup (idempotent)
-initSchema().catch(e => slog('Schema init failed: ' + e.message));
+// Schema is pre-created by GitHub Actions init job — no startup init needed.
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors());
@@ -315,8 +316,7 @@ async function buildSearchIndex() {
     slog(`Search index: ${_searchIndex.length} tickers`);
   } catch(e) { slog('buildSearchIndex error: ' + e.message); }
 }
-// Build on startup (non-blocking)
-buildSearchIndex().catch(() => {});
+// Built lazily on first /api/search request.
 
 // ─── PRICE CACHE ──────────────────────────────────────────────────────────────
 const _priceCache = {};
@@ -519,6 +519,7 @@ app.get('/api/insider', async (req, res) => {
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q || q.length < 1) return res.json({ tickers: [], insiders: [] });
+  if (!_searchIndex.length) buildSearchIndex().catch(() => {});
   try {
     const upper = q.toUpperCase();
     const prefixMatches = [], companyMatches = [];
@@ -803,10 +804,22 @@ app.get('/api/ranker', async (req, res) => {
 
 // ─── STOCK LISTS ──────────────────────────────────────────────────────────────
 let _stockListsCache = null, _stockListsCacheTime = 0;
-const STOCK_LISTS_TTL = 12 * 3600000;
+const STOCK_LISTS_TTL = 4 * 3600000; // 4 hours
 
 app.get('/api/stock-lists', async (req, res) => {
+  // Serve from in-memory cache first
   if (_stockListsCache && Date.now() - _stockListsCacheTime < STOCK_LISTS_TTL) return res.json(_stockListsCache);
+
+  // Fall back to computed_cache in Turso (pre-populated by GitHub Actions)
+  try {
+    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'stock-lists'");
+    if (cached && Date.now() - cached.computed_at < STOCK_LISTS_TTL) {
+      const payload = JSON.parse(cached.value_json);
+      _stockListsCache = payload;
+      _stockListsCacheTime = cached.computed_at;
+      return res.json(payload);
+    }
+  } catch(e) { slog('stock-lists cache read error: ' + e.message); }
   try {
     const [mostActive, hotBuys, clusterBuys, freshBuys, heavySells] = await Promise.all([
       query(`SELECT ticker, MAX(company) AS company,
