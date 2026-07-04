@@ -9235,6 +9235,15 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// Auth state — must be defined before init() runs
+const auth = {
+  loggedIn: false,
+  email: null,
+  isPremium: true,  // site fully open
+  isAdmin: false,
+  loaded: false,
+};
+
 // Init: route based on current URL, then load screener data
 (function init() {
   // Restore persisted filters before routing/loading
@@ -9517,14 +9526,6 @@ function showBlurGate(bodyId, title, desc, featureName) {
 // ═══════════════════════════════════════════════════════════════
 // ─── AUTH & PREMIUM GATING ──────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
-
-const auth = {
-  loggedIn: false,
-  email: null,
-  isPremium: true,  // site fully open
-  isAdmin: false,
-  loaded: false,
-};
 
 // Read session cookie client-side (for instant UI — server validates on API calls)
 function getSessionCookie() {

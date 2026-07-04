@@ -87,10 +87,118 @@ async function ensureComputedCacheTable() {
   )`);
 }
 
+async function computeFirstBuys() {
+  log('Computing first-buys...');
+  const lookbackDays = 90, minGapDays = 180, limit = 100;
+  const rows = await dbQuery(`
+    WITH recent_buys AS (
+      SELECT DISTINCT insider, ticker FROM trades
+      WHERE TRIM(type)='P' AND trade_date >= date('now','-${lookbackDays} days') AND trade_date <= date('now')
+        AND insider IS NOT NULL AND ticker IS NOT NULL
+    ),
+    latest AS (
+      SELECT t.ticker, MAX(t.company) AS company, t.insider, MAX(t.title) AS title,
+             MAX(t.trade_date) AS latest_trade, MAX(t.filing_date) AS latest_filing,
+             MAX(t.price) AS latest_price, MAX(t.qty) AS latest_qty,
+             MAX(t.value) AS latest_value, MAX(t.owned) AS latest_owned
+      FROM trades t JOIN recent_buys rb ON t.insider=rb.insider AND t.ticker=rb.ticker
+      WHERE TRIM(t.type)='P' AND t.trade_date >= date('now','-${lookbackDays} days') AND t.trade_date <= date('now')
+      GROUP BY t.insider, t.ticker
+    ),
+    prev AS (
+      SELECT t.insider, t.ticker, MAX(t.trade_date) AS prev_trade, MAX(t.owned) AS prev_owned
+      FROM trades t JOIN recent_buys rb ON t.insider=rb.insider AND t.ticker=rb.ticker
+      WHERE TRIM(t.type)='P' AND t.trade_date < date('now','-${lookbackDays} days')
+      GROUP BY t.insider, t.ticker
+    )
+    SELECT l.ticker, l.company, l.insider, l.title,
+           l.latest_trade, l.latest_filing, l.latest_price, l.latest_qty, l.latest_value, l.latest_owned,
+           p.prev_trade, p.prev_owned,
+           CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) AS gap_days
+    FROM latest l JOIN prev p ON l.insider=p.insider AND l.ticker=p.ticker
+    WHERE CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) >= ${minGapDays}
+    ORDER BY gap_days DESC LIMIT ${limit}
+  `);
+  await dbRun(
+    `INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('firstbuys', ?, ?)`,
+    [JSON.stringify(rows), Date.now()]
+  );
+  log(`first-buys cached: ${rows.length} results`);
+}
+
+async function computeProximity() {
+  log('Computing proximity...');
+  const today = new Date().toISOString().slice(0, 10);
+  const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+
+  const rows = await dbQuery(`
+    SELECT t.ticker, t.company, t.insider, t.title,
+           t.trade_date AS buyDate, t.value AS buyVal, t.filing_date
+    FROM trades t
+    WHERE TRIM(t.type)='P'
+      AND t.trade_date >= '${since}' AND t.trade_date <= '${today}'
+      AND t.ticker GLOB '[A-Z]*' AND LENGTH(t.ticker) BETWEEN 1 AND 6
+      AND t.value > 0
+    ORDER BY t.trade_date DESC LIMIT 400
+  `);
+
+  // Simple proximity: estimate earnings ~45 days after quarter end
+  function estimateNextEarnings(buyDate) {
+    const d = new Date(buyDate + 'T12:00:00Z');
+    const yr = d.getUTCFullYear();
+    const qEnds = [
+      new Date(Date.UTC(yr, 2, 31)), new Date(Date.UTC(yr, 5, 30)),
+      new Date(Date.UTC(yr, 8, 30)), new Date(Date.UTC(yr, 11, 31)),
+      new Date(Date.UTC(yr+1, 2, 31)),
+    ];
+    const nextQEnd = qEnds.find(e => e > d);
+    if (!nextQEnd) return null;
+    const est = new Date(nextQEnd);
+    est.setUTCDate(est.getUTCDate() + 45);
+    return est.toISOString().slice(0, 10);
+  }
+
+  const results = [], seen = new Set();
+  for (const row of rows) {
+    const key = `${row.ticker}|${row.insider}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const estDate = estimateNextEarnings(row.buyDate);
+    if (!estDate) continue;
+    const daysTo = Math.round((new Date(estDate + 'T12:00:00Z') - new Date()) / 86400000);
+    if (daysTo < 0 || daysTo > 120) continue;
+    const isCsuite = /\b(CEO|CFO|COO|CTO|President|Chairman)\b/i.test(row.title || '');
+    let score = daysTo <= 7 ? 40 : daysTo <= 14 ? 28 : daysTo <= 30 ? 18 : 10;
+    score += 10; // quarterly event
+    if (isCsuite) score += 8;
+    if ((row.buyVal || 0) >= 5000000) score += 12;
+    else if ((row.buyVal || 0) >= 1000000) score += 8;
+    else if ((row.buyVal || 0) >= 500000) score += 5;
+    score = Math.min(100, score);
+    results.push({
+      ticker: row.ticker, company: row.company || row.ticker,
+      insider: row.insider || '—', title: row.title || '—',
+      buyDate: row.buyDate, buyVal: row.buyVal || 0, buyValue: row.buyVal || 0,
+      nextEvent: { date: estDate, type: 'QUARTERLY', label: 'Est. Earnings', predicted: true, confirmed: false, daysToFromToday: daysTo },
+      daysTo, score, isAbnormal: false, repeatPattern: false,
+    });
+  }
+  results.sort((a, b) => b.score - a.score);
+  await dbRun(
+    `INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('proximity', ?, ?)`,
+    [JSON.stringify(results), Date.now()]
+  );
+  log(`proximity cached: ${results.length} results`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
-  await computeStockLists();
+  await Promise.all([
+    computeStockLists(),
+    computeFirstBuys(),
+    computeProximity(),
+  ]);
   log('=== precompute done ===');
 }
 

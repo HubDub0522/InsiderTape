@@ -742,6 +742,14 @@ app.get('/api/firstbuys', async (req, res) => {
     const minGapDays   = parseInt(req.query.mingap   || '180');
     const lookbackDays = parseInt(req.query.lookback || '90');
     const limit        = parseInt(req.query.limit    || '100');
+
+    // Serve from computed_cache if using default params (pre-computed by GitHub Actions)
+    if (minGapDays === 180 && lookbackDays === 90 && limit === 100) {
+      const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'firstbuys'");
+      if (cached && Date.now() - cached.computed_at < 4 * 3600000) {
+        return res.json(JSON.parse(cached.value_json));
+      }
+    }
     const fbKey = `${minGapDays}|${lookbackDays}|${limit}`;
     const fbCached = _firstBuysCache.get(fbKey);
     if (fbCached && Date.now() - fbCached.t < 300000) return res.json(fbCached.d);
