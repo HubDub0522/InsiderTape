@@ -9569,7 +9569,7 @@ async function loadAuth() {
 
   auth.loggedIn  = data.loggedIn  || false;
   auth.email     = data.email     || null;
-  auth.isPremium = data.isPremium || false;
+  auth.isPremium = true; // site fully open
   auth.isAdmin   = data.isAdmin   || false;
   auth.loaded = true;
   renderAuthHeader();
