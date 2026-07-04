@@ -1130,20 +1130,7 @@ async function getSubscription(userId) {
 }
 
 async function isPremium(session) {
-  if (!session) return false;
-  if (session.is_admin) return true;
-  const adminEmail = (ADMIN_EMAIL || '').trim().toLowerCase();
-  const sessEmail  = (session.email || '').trim().toLowerCase();
-  if (adminEmail && sessEmail && sessEmail === adminEmail) return true;
-  const userId = session.user_id;
-  if (!userId) return false;
-  const sub = await getSubscription(userId);
-  if (!sub) return false;
-  if (sub.status === 'active') return true;
-  // Trial support: status='trial', current_period_end holds trial expiry
-  if (sub.status === 'trial' && sub.current_period_end && sub.current_period_end > new Date().toISOString()) return true;
-  if (sub.current_period_end && sub.current_period_end > new Date().toISOString()) return true;
-  return false;
+  return true; // site fully open — all features accessible to everyone
 }
 
 // Attach session to every request

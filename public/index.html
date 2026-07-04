@@ -918,7 +918,7 @@
     <button class="nav-tab" onclick="window.location.href='/articles/'">LEARN</button>
     <div class="nav-dropdown" id="membersDropdown">
       <button class="nav-dropdown-btn" id="membersDropdownBtn" onclick="toggleMembersDropdown(event)">
-        MEMBERS AREA
+        FILTERS
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3.5L5 6.5L8 3.5"/></svg>
       </button>
       <div class="nav-dropdown-menu" id="membersDropdownMenu">
@@ -9244,10 +9244,10 @@ setInterval(() => {
   const path = location.pathname;
   history.replaceState({view: _viewFromPath(path), ticker: _tickerFromPath(path), name: _nameFromPath(path)}, '', path);
 
-  // Premium pages need auth to be loaded first — defer them
+  // All views load immediately — no premium gating
   const premiumViews = ['analysis','monitor','sectors','compare','watchlist'];
   const initialView = _viewFromPath(path);
-  if (premiumViews.includes(initialView)) {
+  if (false && premiumViews.includes(initialView)) {
     // Show the view shell immediately, then wait for auth before loading content
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     const viewEl = document.getElementById('view-' + initialView);
@@ -9521,7 +9521,7 @@ function showBlurGate(bodyId, title, desc, featureName) {
 const auth = {
   loggedIn: false,
   email: null,
-  isPremium: false,
+  isPremium: true,  // site fully open
   isAdmin: false,
   loaded: false,
 };
@@ -9670,11 +9670,9 @@ async function logout() {
 }
 
 // ── Premium gate ──────────────────────────────────────────────
-// Returns true if action should proceed, false + shows overlay if blocked
+// Site fully open — always returns true
 function requirePremium(featureName) {
-  if (auth.isPremium) return true;
-  showPremiumOverlay(featureName);
-  return false;
+  return true;
 }
 
 function showPremiumOverlay(featureName) {
