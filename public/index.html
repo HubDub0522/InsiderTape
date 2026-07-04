@@ -9722,19 +9722,9 @@ function renderSidebarGated(trades) {
   renderSidebarTrades(trades);
 }
 
-// ── Pressure chart guard ──────────────────────────────────────
+// ── Pressure chart (always shown — site fully open) ───────────
 function buildPressureChartGated(mainChart, trades, priceData) {
-  if (auth.isPremium) {
-    buildPressureChart(mainChart, trades, priceData);
-    return;
-  }
-  const pw = document.getElementById('pressureWrapper');
-  if (!pw) return;
-  pw.innerHTML = `
-    <div style="height:120px;display:flex;align-items:center;justify-content:center;gap:12px;cursor:pointer" onclick="showPremiumOverlay('Insider Pressure Indicator')">
-      <div style="font-size:13px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">🔒 INSIDER PRESSURE</div>
-      <span style="font-size:10px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">PREMIUM</span>
-    </div>`;
+  buildPressureChart(mainChart, trades, priceData);
 }
 
 // Load auth on boot
