@@ -16,7 +16,7 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 350
 
     steps:
       - name: Checkout

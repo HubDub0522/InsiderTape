@@ -361,7 +361,7 @@ async function processBatch(filings, label) {
 
   // Batch check: which accessions are already processed?
   const alreadySeen = new Set();
-  const BATCH_SIZE = 200;
+  const BATCH_SIZE = 500;
   for (let i = 0; i < filings.length; i += BATCH_SIZE) {
     const chunk = filings.slice(i, i + BATCH_SIZE).map(f => f.accession);
     const placeholders = chunk.map(() => '?').join(',');
@@ -378,7 +378,7 @@ async function processBatch(filings, label) {
   if (!newFilings.length) return 0;
 
   let inserted = 0;
-  const CONCURRENCY = 3;
+  const CONCURRENCY = 8;
 
   for (let i = 0; i < newFilings.length; i += CONCURRENCY) {
     const chunk = newFilings.slice(i, i + CONCURRENCY);
