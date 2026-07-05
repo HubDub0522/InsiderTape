@@ -9239,7 +9239,7 @@ setInterval(() => {
 const auth = {
   loggedIn: false,
   email: null,
-  isPremium: true,  // site fully open
+  isPremium: false,
   isAdmin: false,
   loaded: false,
 };
@@ -9570,7 +9570,7 @@ async function loadAuth() {
 
   auth.loggedIn  = data.loggedIn  || false;
   auth.email     = data.email     || null;
-  auth.isPremium = true; // site fully open
+  auth.isPremium = data.isPremium || false;
   auth.isAdmin   = data.isAdmin   || false;
   auth.loaded = true;
   renderAuthHeader();

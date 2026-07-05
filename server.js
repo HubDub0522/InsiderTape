@@ -1159,7 +1159,20 @@ async function getSubscription(userId) {
 }
 
 async function isPremium(session) {
-  return true; // site fully open — all features accessible to everyone
+  if (!session) return false;
+  if (session.is_admin) return true;
+  const adminEmail = (ADMIN_EMAIL || '').trim().toLowerCase();
+  const sessEmail  = (session.email || '').trim().toLowerCase();
+  if (adminEmail && sessEmail && sessEmail === adminEmail) return true;
+  const userId = session.user_id;
+  if (!userId) return false;
+  const sub = await getSubscription(userId);
+  if (!sub) return false;
+  // active = paid, trialing = Stripe-managed trial with CC on file
+  if (sub.status === 'active' || sub.status === 'trialing') return true;
+  // Grace period: current_period_end still in the future covers cancel-at-period-end
+  if (sub.current_period_end && sub.current_period_end > new Date().toISOString()) return true;
+  return false;
 }
 
 // Attach session to every request
@@ -1232,13 +1245,7 @@ app.get('/api/auth/verify', authBruteGuard, async (req, res) => {
     await run('INSERT OR IGNORE INTO users (email) VALUES (?)', [mt.email]);
     const user = await queryOne('SELECT * FROM users WHERE email = ?', [mt.email]);
 
-    // Grant free trial to new users (no existing subscription)
-    const existingSub = await getSubscription(user.id);
-    if (!existingSub) {
-      const trialEnd = new Date(Date.now() + TRIAL_DAYS * 86400000).toISOString();
-      await run(`INSERT INTO subscriptions (user_id, plan, status, current_period_end, updated_at) VALUES (?, 'trial', 'trial', ?, datetime('now'))`, [user.id, trialEnd]);
-      slog(`Trial started for ${mt.email} — expires ${trialEnd.slice(0, 10)}`);
-    }
+    // No internal trial — Stripe manages the 7-day trial with CC on file
 
     const sessionToken = generateToken();
     const expires = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -1247,11 +1254,13 @@ app.get('/api/auth/verify', authBruteGuard, async (req, res) => {
 
     const sub = await getSubscription(user.id);
     const adminEmail = (ADMIN_EMAIL || '').trim().toLowerCase();
-    const alreadyPremium = user.is_admin || (adminEmail && (user.email || '').toLowerCase() === adminEmail) ||
-      (sub && (sub.status === 'active' || sub.status === 'trial' ||
-        (sub.current_period_end && sub.current_period_end > new Date().toISOString())));
+    const alreadyPremium = user.is_admin
+      || (adminEmail && (user.email || '').toLowerCase() === adminEmail)
+      || (sub && (sub.status === 'active' || sub.status === 'trialing'
+          || (sub.current_period_end && sub.current_period_end > new Date().toISOString())));
 
     if (alreadyPremium) return res.redirect('/?auth=1');
+    // New users go straight to Stripe — trial is handled there with CC on file
     return res.redirect('/api/stripe/checkout?session=' + sessionToken);
   } catch(e) { slog('verify error: ' + e.message); res.redirect('/signup?error=server_error'); }
 });
@@ -1281,7 +1290,7 @@ app.get('/api/stripe/checkout', async (req, res) => {
       line_items: [{ price: priceId, quantity: 1 }],
       customer_email: userSession.email,
       metadata: { user_id: String(userSession.user_id || userSession.id), plan },
-      subscription_data: { trial_period_days: 0 }, // trial handled by our own system
+      subscription_data: { trial_period_days: 7 },
       success_url: `${SITE_URL}/api/stripe/success?cs_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${SITE_URL}/premium?cancelled=1`,
     });
@@ -1385,7 +1394,8 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
       case 'customer.subscription.updated': {
         const userId = await userIdFromCustomer(obj.customer);
         const plan   = obj.items?.data?.[0]?.price?.id === STRIPE_PRICE_ANNUAL ? 'annual' : 'monthly';
-        const status = obj.status === 'active' ? 'active'
+        const status = obj.status === 'active'   ? 'active'
+                     : obj.status === 'trialing' ? 'trialing'
                      : obj.status === 'past_due' ? 'past_due' : 'inactive';
         await upsertSub(userId, obj.customer, obj, plan, status);
         slog(`Webhook: subscription updated for customer ${obj.customer} → ${status}`);
