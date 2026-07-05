@@ -14,9 +14,10 @@ const PORT = process.env.PORT || 3000;
 const RESEND_KEY     = process.env.RESEND_KEY          || '';
 const FROM_EMAIL     = process.env.FROM_EMAIL          || 'noreply@insidertape.com';
 const SITE_URL       = process.env.SITE_URL            || 'https://insidertape.com';
-const STRIPE_SECRET  = process.env.STRIPE_SECRET_KEY   || '';
-const STRIPE_PRICE_MONTHLY = process.env.STRIPE_PRICE_ID        || '';
-const STRIPE_PRICE_ANNUAL  = process.env.STRIPE_PRICE_ID_ANNUAL || '';
+const STRIPE_SECRET         = process.env.STRIPE_SECRET_KEY    || '';
+const STRIPE_PRICE_MONTHLY  = process.env.STRIPE_PRICE_ID       || '';
+const STRIPE_PRICE_ANNUAL   = process.env.STRIPE_PRICE_ID_ANNUAL|| '';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET  || '';
 const ADMIN_EMAIL    = process.env.ADMIN_EMAIL         || '';
 const TRIAL_DAYS     = parseInt(process.env.TRIAL_DAYS || '7');
 
@@ -1329,6 +1330,103 @@ app.get('/api/stripe/portal', async (req, res) => {
     });
     res.redirect(portal.url);
   } catch(e) { slog('Portal error: ' + e.message); res.redirect('/account'); }
+});
+
+// ── STRIPE WEBHOOK ────────────────────────────────────────────
+// Must use express.raw() — Stripe signature verification needs the raw body bytes.
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!STRIPE_SECRET || !STRIPE_WEBHOOK_SECRET) return res.status(400).send('Webhook not configured');
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    const stripe = require('stripe')(STRIPE_SECRET);
+    event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+  } catch(e) {
+    slog('Webhook sig error: ' + e.message);
+    return res.status(400).send('Webhook Error: ' + e.message);
+  }
+
+  try {
+    const stripe = require('stripe')(STRIPE_SECRET);
+    const obj = event.data.object;
+
+    async function upsertSub(userId, customerId, subObj, plan, status) {
+      if (!userId) return;
+      const periodEnd = subObj?.current_period_end
+        ? new Date(subObj.current_period_end * 1000).toISOString() : null;
+      await run(`
+        INSERT INTO subscriptions (user_id, stripe_customer_id, stripe_subscription_id, plan, status, current_period_end, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+          stripe_customer_id     = excluded.stripe_customer_id,
+          stripe_subscription_id = excluded.stripe_subscription_id,
+          plan = excluded.plan, status = excluded.status,
+          current_period_end = excluded.current_period_end,
+          updated_at = datetime('now')
+      `, [userId, customerId, subObj?.id || '', plan, status, periodEnd]);
+    }
+
+    async function userIdFromCustomer(customerId) {
+      const row = await queryOne('SELECT user_id FROM subscriptions WHERE stripe_customer_id = ?', [customerId]);
+      return row?.user_id || null;
+    }
+
+    switch (event.type) {
+
+      case 'checkout.session.completed': {
+        const userId = parseInt(obj.metadata?.user_id);
+        const plan   = obj.metadata?.plan || 'monthly';
+        const sub    = obj.subscription ? await stripe.subscriptions.retrieve(obj.subscription) : null;
+        await upsertSub(userId, obj.customer, sub, plan, 'active');
+        slog(`Webhook: subscription activated for user ${userId} (${plan})`);
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        const userId = await userIdFromCustomer(obj.customer);
+        const plan   = obj.items?.data?.[0]?.price?.id === STRIPE_PRICE_ANNUAL ? 'annual' : 'monthly';
+        const status = obj.status === 'active' ? 'active'
+                     : obj.status === 'past_due' ? 'past_due' : 'inactive';
+        await upsertSub(userId, obj.customer, obj, plan, status);
+        slog(`Webhook: subscription updated for customer ${obj.customer} → ${status}`);
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const userId = await userIdFromCustomer(obj.customer);
+        if (userId) {
+          await run(`UPDATE subscriptions SET status='cancelled', updated_at=datetime('now') WHERE user_id=?`, [userId]);
+          slog(`Webhook: subscription cancelled for user ${userId}`);
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const userId = await userIdFromCustomer(obj.customer);
+        if (userId) {
+          await run(`UPDATE subscriptions SET status='past_due', updated_at=datetime('now') WHERE user_id=?`, [userId]);
+          slog(`Webhook: payment failed for user ${userId}`);
+        }
+        break;
+      }
+
+      case 'invoice.paid': {
+        // Renewal — keep subscription active and update period end
+        const sub    = obj.subscription ? await stripe.subscriptions.retrieve(obj.subscription) : null;
+        const userId = await userIdFromCustomer(obj.customer);
+        if (userId && sub) {
+          await upsertSub(userId, obj.customer, sub, null, 'active');
+          slog(`Webhook: subscription renewed for user ${userId}`);
+        }
+        break;
+      }
+    }
+  } catch(e) {
+    slog('Webhook processing error: ' + e.message);
+    return res.status(500).send('Processing error');
+  }
+
+  res.json({ received: true });
 });
 
 // ─── ALERT ENGINE ─────────────────────────────────────────────────────────────
