@@ -374,19 +374,46 @@ function parseYahoo(body) {
   } catch(_) { return null; }
 }
 
+function parseStooq(body) {
+  try {
+    const lines = body.toString().trim().split('\n');
+    if (lines.length < 3) return null; // header + at least 2 data rows
+    const bars = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (cols.length < 5) continue;
+      const [date, open, high, low, close, volume] = cols;
+      if (!date || !date.match(/^\d{4}-\d{2}-\d{2}$/)) continue;
+      const c = parseFloat(close);
+      if (!c || c <= 0) continue;
+      bars.push({
+        time: date, open: parseFloat(open) || c, high: parseFloat(high) || c,
+        low: parseFloat(low) || c, close: c, volume: parseInt(volume) || 0,
+      });
+    }
+    return bars.length >= 2 ? bars : null;
+  } catch(_) { return null; }
+}
+
 async function fetchPriceBars(sym) {
   const cached = await getPC(sym);
   if (cached) return cached;
 
   const endTs   = Math.floor(Date.now() / 1000);
   const startTs = endTs - 365 * 86400;
+  const endDate   = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
 
+  // Try Yahoo Finance (both endpoints) and Stooq in parallel — first valid result wins
   try {
     const bars = await Promise.any([
-      httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 8000)
+      httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
         .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
-      httpGet(`https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 8000)
+      httpGet(`https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
         .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
+      // Stooq: good coverage of US-listed stocks including thinly-traded / small-cap
+      httpGet(`https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&d1=${startDate.replace(/-/g,'')}&d2=${endDate.replace(/-/g,'')}&i=d`, 10000)
+        .then(({ status, body }) => { if (status !== 200) throw new Error('stooq 404'); const b = parseStooq(body); if (!b) throw new Error('stooq no data'); return b; }),
     ]);
     const sanitized = bars
       .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
