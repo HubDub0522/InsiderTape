@@ -410,6 +410,14 @@ app.get('/api/screener', async (req, res) => {
     const cacheTTL = _reqDays >= 90 ? 120000 : 30000;
     if (cached && Date.now() - cached.t < cacheTTL) return res.json(cached.d);
 
+    // 90-day screener served from precomputed cache
+    if (_reqDays === 90 && !req.query.limit) {
+      try {
+        const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'screener-90d'");
+        if (cached && Date.now() - cached.computed_at < 4 * 3600000) return res.json(JSON.parse(cached.value_json));
+      } catch(_) {}
+    }
+
     const count = await queryOne('SELECT COUNT(*) AS n FROM trades');
     const n = count?.n || 0;
     if (n === 0) return res.json({ building: true, message: 'Loading SEC data — data is being ingested, check back in a few minutes.', trades: [] });
@@ -695,6 +703,10 @@ app.get('/api/insider-ratio-history', async (req, res) => {
 
 app.get('/api/monitor-sentiment', async (req, res) => {
   try {
+    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'monitor-sentiment'");
+    if (cached && Date.now() - cached.computed_at < 4 * 3600000) return res.json(JSON.parse(cached.value_json));
+  } catch(_) {}
+  try {
     const now = new Date(), etOff = -5;
     const etNow = new Date(now.getTime() + etOff * 3600000);
     const dow = etNow.getUTCDay();
@@ -743,7 +755,14 @@ app.get('/api/firstbuys', async (req, res) => {
     const lookbackDays = parseInt(req.query.lookback || '90');
     const limit        = parseInt(req.query.limit    || '100');
 
-    // Serve from computed_cache if using default params (pre-computed by GitHub Actions)
+    // Serve from computed_cache for known param sets pre-computed by GitHub Actions
+    const cacheKey = minGapDays === 730 && lookbackDays === 92 && limit === 100 ? 'firstbuys-monitor'
+                   : minGapDays === 180 && lookbackDays === 90 && limit === 100  ? 'firstbuys'
+                   : null;
+    if (cacheKey) {
+      const cached = await queryOne(`SELECT value_json, computed_at FROM computed_cache WHERE key = '${cacheKey}'`);
+      if (cached && Date.now() - cached.computed_at < 4 * 3600000) return res.json(JSON.parse(cached.value_json));
+    }
     if (minGapDays === 180 && lookbackDays === 90 && limit === 100) {
       const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'firstbuys'");
       if (cached && Date.now() - cached.computed_at < 4 * 3600000) {

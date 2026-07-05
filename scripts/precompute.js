@@ -129,7 +129,7 @@ async function computeFirstBuys() {
 async function computeProximity() {
   log('Computing proximity...');
   const today = new Date().toISOString().slice(0, 10);
-  const since = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  const since = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
 
   const rows = await dbQuery(`
     SELECT t.ticker, t.company, t.insider, t.title,
@@ -166,7 +166,7 @@ async function computeProximity() {
     const estDate = estimateNextEarnings(row.buyDate);
     if (!estDate) continue;
     const daysTo = Math.round((new Date(estDate + 'T12:00:00Z') - new Date()) / 86400000);
-    if (daysTo < 0 || daysTo > 120) continue;
+    if (daysTo < 0 || daysTo > 180) continue;
     const isCsuite = /\b(CEO|CFO|COO|CTO|President|Chairman)\b/i.test(row.title || '');
     let score = daysTo <= 7 ? 40 : daysTo <= 14 ? 28 : daysTo <= 30 ? 18 : 10;
     score += 10; // quarterly event
@@ -191,13 +191,122 @@ async function computeProximity() {
   log(`proximity cached: ${results.length} results`);
 }
 
+async function computeMonitorSentiment() {
+  log('Computing monitor-sentiment...');
+  const now = new Date(), etOff = -5;
+  const etNow = new Date(now.getTime() + etOff * 3600000);
+  const dow = etNow.getUTCDay();
+  const lastTrade = new Date(etNow);
+  if (dow === 0) lastTrade.setUTCDate(etNow.getUTCDate() - 2);
+  else if (dow === 6) lastTrade.setUTCDate(etNow.getUTCDate() - 1);
+  const todayStr = lastTrade.toISOString().slice(0, 10);
+  const tradeDow = lastTrade.getUTCDay();
+  const weekStart = new Date(lastTrade);
+  weekStart.setUTCDate(lastTrade.getUTCDate() - (tradeDow === 0 ? 6 : tradeDow - 1));
+  const weekStr    = weekStart.toISOString().slice(0, 10);
+  const monthStart = new Date(lastTrade); monthStart.setUTCDate(lastTrade.getUTCDate() - 30);
+  const monthStr   = monthStart.toISOString().slice(0, 10);
+  const qStartMonth = Math.floor(lastTrade.getUTCMonth() / 3) * 3;
+  const quarterStr = `${lastTrade.getUTCFullYear()}-${String(qStartMonth + 1).padStart(2, '0')}-01`;
+
+  async function windowStats(cutStr, endStr) {
+    const rows = await dbQuery(`
+      SELECT COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
+             COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count,
+             COALESCE(SUM(CASE WHEN TRIM(type)='P' THEN value ELSE 0 END), 0) AS buy_val,
+             COALESCE(SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN value ELSE 0 END), 0) AS sell_val,
+             COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS unique_buyers,
+             COUNT(DISTINCT CASE WHEN TRIM(type) IN ('S','S-') THEN insider END) AS unique_sellers
+      FROM trades WHERE trade_date >= ? AND trade_date <= ?
+        AND TRIM(type) IN ('P','S','S-') AND ticker GLOB '[A-Z]*' AND COALESCE(value,0) > 0
+    `, [cutStr, endStr]);
+    return rows[0] || {};
+  }
+
+  const result = {
+    today:   { cutStr: todayStr,   ...(await windowStats(todayStr,   todayStr))   },
+    week:    { cutStr: weekStr,    ...(await windowStats(weekStr,    todayStr))   },
+    month:   { cutStr: monthStr,   ...(await windowStats(monthStr,   todayStr))   },
+    quarter: { cutStr: quarterStr, ...(await windowStats(quarterStr, todayStr))   },
+  };
+  await dbRun(
+    `INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('monitor-sentiment', ?, ?)`,
+    [JSON.stringify(result), Date.now()]
+  );
+  log('monitor-sentiment cached');
+}
+
+async function computeScreener90() {
+  log('Computing screener-90d...');
+  const rows = await dbQuery(`
+    SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+           trade_date AS trade, MAX(filing_date) AS filing,
+           TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
+           MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
+    FROM trades
+    WHERE trade_date >= date('now','-90 days') AND trade_date <= date('now')
+      AND TRIM(type) IN ('P','S','S-')
+      AND ticker NOT IN ('N/A','NA','NONE','NULL','--','-','.')
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+    GROUP BY ticker, insider, trade_date, type
+    ORDER BY trade_date DESC LIMIT 20000
+  `);
+  await dbRun(
+    `INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('screener-90d', ?, ?)`,
+    [JSON.stringify(rows), Date.now()]
+  );
+  log(`screener-90d cached: ${rows.length} rows`);
+}
+
+async function computeFirstBuysMonitor() {
+  log('Computing firstbuys-monitor...');
+  const lookbackDays = 92, minGapDays = 730, limit = 100;
+  const rows = await dbQuery(`
+    WITH recent_buys AS (
+      SELECT DISTINCT insider, ticker FROM trades
+      WHERE TRIM(type)='P' AND trade_date >= date('now','-${lookbackDays} days') AND trade_date <= date('now')
+        AND insider IS NOT NULL AND ticker IS NOT NULL
+    ),
+    latest AS (
+      SELECT t.ticker, MAX(t.company) AS company, t.insider, MAX(t.title) AS title,
+             MAX(t.trade_date) AS latest_trade, MAX(t.filing_date) AS latest_filing,
+             MAX(t.price) AS latest_price, MAX(t.qty) AS latest_qty,
+             MAX(t.value) AS latest_value, MAX(t.owned) AS latest_owned
+      FROM trades t JOIN recent_buys rb ON t.insider=rb.insider AND t.ticker=rb.ticker
+      WHERE TRIM(t.type)='P' AND t.trade_date >= date('now','-${lookbackDays} days') AND t.trade_date <= date('now')
+      GROUP BY t.insider, t.ticker
+    ),
+    prev AS (
+      SELECT t.insider, t.ticker, MAX(t.trade_date) AS prev_trade, MAX(t.owned) AS prev_owned
+      FROM trades t JOIN recent_buys rb ON t.insider=rb.insider AND t.ticker=rb.ticker
+      WHERE TRIM(t.type)='P' AND t.trade_date < date('now','-${lookbackDays} days')
+      GROUP BY t.insider, t.ticker
+    )
+    SELECT l.ticker, l.company, l.insider, l.title,
+           l.latest_trade, l.latest_filing, l.latest_price, l.latest_qty, l.latest_value, l.latest_owned,
+           p.prev_trade, p.prev_owned,
+           CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) AS gap_days
+    FROM latest l JOIN prev p ON l.insider=p.insider AND l.ticker=p.ticker
+    WHERE CAST(julianday(l.latest_trade) - julianday(p.prev_trade) AS INTEGER) >= ${minGapDays}
+    ORDER BY gap_days DESC LIMIT ${limit}
+  `);
+  await dbRun(
+    `INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('firstbuys-monitor', ?, ?)`,
+    [JSON.stringify(rows), Date.now()]
+  );
+  log(`firstbuys-monitor cached: ${rows.length} results`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
   await Promise.all([
     computeStockLists(),
     computeFirstBuys(),
+    computeFirstBuysMonitor(),
     computeProximity(),
+    computeMonitorSentiment(),
+    computeScreener90(),
   ]);
   log('=== precompute done ===');
 }
