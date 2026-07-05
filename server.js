@@ -404,16 +404,13 @@ async function fetchPriceBars(sym) {
   const endDate   = new Date().toISOString().slice(0, 10);
   const startDate = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
 
-  // Try Yahoo Finance (both endpoints) and Stooq in parallel — first valid result wins
+  // Try Yahoo Finance both endpoints in parallel — first valid result wins
   try {
     const bars = await Promise.any([
       httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
         .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
       httpGet(`https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
         .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
-      // Stooq: good coverage of US-listed stocks including thinly-traded / small-cap
-      httpGet(`https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&d1=${startDate.replace(/-/g,'')}&d2=${endDate.replace(/-/g,'')}&i=d`, 10000)
-        .then(({ status, body }) => { if (status !== 200) throw new Error('stooq 404'); const b = parseStooq(body); if (!b) throw new Error('stooq no data'); return b; }),
     ]);
     const sanitized = bars
       .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
