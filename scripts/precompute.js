@@ -297,9 +297,35 @@ async function computeFirstBuysMonitor() {
   log(`firstbuys-monitor cached: ${rows.length} results`);
 }
 
+// Remove DRIP / director-plan clusters: 3+ distinct insiders buying the SAME
+// ticker on the SAME day at the EXACT same price, each a small buy (<$5,000).
+// These are coded 'P' with no footnote, so text-based filters can't catch them,
+// but the identical-price + same-day + multi-insider signature is a routine plan,
+// not open-market conviction. Real cluster buys have varied fill prices.
+async function cleanupPlanClusters() {
+  log('Cleaning up DRIP/director-plan clusters...');
+  const removed = await dbRun(`
+    DELETE FROM trades
+    WHERE id IN (
+      SELECT t.id FROM trades t
+      WHERE TRIM(t.type) = 'P' AND t.price > 0 AND COALESCE(t.value,0) < 5000
+        AND EXISTS (
+          SELECT 1 FROM trades t2
+          WHERE t2.ticker = t.ticker AND t2.trade_date = t.trade_date AND t2.price = t.price
+            AND TRIM(t2.type) = 'P' AND COALESCE(t2.value,0) < 5000
+          GROUP BY t2.ticker, t2.trade_date, t2.price
+          HAVING COUNT(DISTINCT t2.insider) >= 3
+        )
+    )
+  `);
+  log(`Plan-cluster cleanup: removed ${removed.rowsAffected} trades`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
+  // Clean noise BEFORE computing caches so they reflect filtered data
+  await cleanupPlanClusters();
   await Promise.all([
     computeStockLists(),
     computeFirstBuys(),
