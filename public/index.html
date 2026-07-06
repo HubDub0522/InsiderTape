@@ -1217,6 +1217,24 @@ function switchView(view, btn, opts={}) {
     const idx = {screener:0, stock:1, insider:2}[view];
     if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
   }
+
+  // ── Premium gate — only the Screener (7D/30D) and Learn pages are free ──
+  const GATED_VIEWS = {
+    stock:     ['stockContent',      'STOCK VIEW',       'See insider trades plotted on the price chart, buy/sell pressure, and full trade history for any ticker.'],
+    insider:   ['insiderViewBody',   'INSIDER PROFILES', 'Look up any insider and see their full trade history, timing accuracy, and forward-return scores.'],
+    analysis:  ['analysisViewBody',  'ANALYSIS',         'Nine signal engines — cluster detection, opportunity ranker, event proximity, first-buy signals and more.'],
+    monitor:   ['monitorViewBody',   'MONITOR',          'Every notable insider signal, ranked and refreshed throughout the trading day.'],
+    sectors:   ['sectorsViewBody',   'SECTORS',          'See which industries are attracting the most insider buying, ranked by total buy flow.'],
+    compare:   ['compareViewBody',   'COMPARE',          'Put any two tickers head-to-head across every insider metric.'],
+    watchlist: ['watchlistViewBody', 'WATCHLIST',        'Pin tickers and follow specific insiders — see every move the moment it is filed.'],
+  };
+  if (GATED_VIEWS[view] && !auth.isPremium) {
+    const [bodyId, title, desc] = GATED_VIEWS[view];
+    showBlurGate(bodyId, title, desc, title);
+    if (!opts.fromPopstate) { history.pushState({view}, '', '/' + view); updateTitle(view); }
+    return;
+  }
+
   if (view === 'insider') {
     const body = document.getElementById('insiderViewBody');
     if (body && (!body.hasChildNodes() || body.dataset.showing !== 'dashboard')) {
@@ -1566,8 +1584,8 @@ function clearTickerFilter() {
 
 function toggleDays(el) {
   const days = parseInt(el.dataset.days);
-  if (days > 7 && !auth.isPremium) {
-    requirePremium('Extended screener periods (30D, 90D, 1Y) and advanced filters');
+  if (days > 30 && !auth.isPremium) {
+    requirePremium('Extended screener periods (90D, 1Y) and advanced filters');
     return;
   }
   document.querySelectorAll('[data-days]').forEach(c => c.classList.remove('active'));
@@ -2453,15 +2471,22 @@ async function loadStockViewBust(ticker) {
 let _loadStockViewInFlight = null;
 let _loadStockViewSeq = 0; // increments on every call — lets us detect superseded calls
 async function loadStockView(ticker, opts={}) {
-  // Cancel any in-flight load — increment sequence so old calls abort themselves
-  const mySeq = ++_loadStockViewSeq;
-  _loadStockViewInFlight = ticker;
   window.scrollTo(0, 0);
   // Activate the stock view + nav tab
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-stock').classList.add('active');
   document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
+  // Premium gate — Stock View is members-only
+  if (!auth.isPremium) {
+    if (!opts.fromPopstate) { history.pushState({view:'stock'}, '', '/stock'); }
+    updateTitle('stock');
+    showBlurGate('stockContent', 'STOCK VIEW', 'See insider trades plotted on the price chart, buy/sell pressure, and full trade history for ' + ticker + '.', 'STOCK VIEW');
+    return;
+  }
+  // Cancel any in-flight load — increment sequence so old calls abort themselves
+  const mySeq = ++_loadStockViewSeq;
+  _loadStockViewInFlight = ticker;
   _suppressSuggest = true;
   setTimeout(() => { _suppressSuggest = false; }, 500);
   hideGlobalSuggest();
@@ -3534,6 +3559,11 @@ async function openInsiderProfile(name, title, opts={}) {
     updateTitle('insider', name);
   } else {
     updateTitle('insider', name);
+  }
+  // Premium gate — Insider profiles are members-only
+  if (!auth.isPremium) {
+    showBlurGate('insiderViewBody', 'INSIDER PROFILES', 'Look up any insider and see their full trade history, timing accuracy, and forward-return scores.', 'INSIDER PROFILES');
+    return;
   }
   await openInsiderProfileFull(name, title, opts);
 }
@@ -9511,13 +9541,14 @@ function showBlurGate(bodyId, title, desc, featureName) {
     </div>
     <!-- unlock overlay -->
     <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:10">
-      <div style="background:#0d1421;border:1px solid #00d4ff44;border-radius:12px;padding:40px 36px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.6)">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:40px 36px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(26,32,48,0.25)">
         <div style="font-size:28px;margin-bottom:12px">🔒</div>
-        <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text);margin-bottom:8px">${title}</div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:24px;line-height:1.7">${desc}</div>
+        <div style="font-family:Inter,sans-serif;font-size:22px;font-weight:700;letter-spacing:1px;color:var(--text);margin-bottom:8px">${title}</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.7">${desc}</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:24px;line-height:1.6">Start a <span style="color:var(--text);font-weight:600">7-day free trial</span> — full access, cancel anytime.</div>
         <div style="display:flex;flex-direction:column;gap:10px">
-          <button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:1px;width:100%">SEE PLANS →</button>
-          ${!auth.loggedIn ? `<button onclick="switchView('signup',null)" style="background:transparent;color:var(--accent);border:1px solid var(--accent)44;border-radius:8px;padding:12px;font-family:Inter,sans-serif;font-size:11px;font-variant-numeric:tabular-nums;cursor:pointer;width:100%">SIGN IN</button>` : ''}
+          <button onclick="switchView('premium',null)" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:14px;font-family:Inter,sans-serif;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%">START FREE TRIAL →</button>
+          ${!auth.loggedIn ? `<button onclick="switchView('signup',null)" style="background:transparent;color:var(--accent);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:Inter,sans-serif;font-size:11px;cursor:pointer;width:100%">SIGN IN</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -9578,11 +9609,13 @@ async function loadAuth() {
 
   // Re-render any page that was gated before auth loaded
   if (auth.isPremium) {
-    ['analysisViewBody','monitorViewBody','sectorsViewBody','compareViewBody','watchlistViewBody'].forEach(id => {
+    ['stockContent','insiderViewBody','analysisViewBody','monitorViewBody','sectorsViewBody','compareViewBody','watchlistViewBody'].forEach(id => {
       const el = document.getElementById(id);
       if (el && el.dataset.blurGated === '1') {
         el.dataset.blurGated = '';
         el.style.position = '';
+        if (id === 'stockContent')    { loadStockLanding(); return; }
+        if (id === 'insiderViewBody') { insiderLanding(); return; }
         const view = id.replace('ViewBody','').replace('View','');
         if (view === 'sectors')  { _sectorCache = null; loadSectorsPage(); }
         if (view === 'analysis') loadAnalysisPage();
@@ -9671,9 +9704,10 @@ async function logout() {
 }
 
 // ── Premium gate ──────────────────────────────────────────────
-// Site fully open — always returns true
 function requirePremium(featureName) {
-  return true;
+  if (auth.isPremium) return true;
+  showPremiumOverlay(featureName);
+  return false;
 }
 
 function showPremiumOverlay(featureName) {
@@ -9690,15 +9724,15 @@ function showPremiumOverlay(featureName) {
   `;
   overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
   overlay.innerHTML = `
-    <div style="background:#0d1421;border:1px solid #00d4ff44;border-radius:12px;padding:40px 36px;max-width:420px;width:90%;text-align:center;position:relative">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:40px 36px;max-width:420px;width:90%;text-align:center;position:relative;box-shadow:0 20px 60px rgba(26,32,48,0.25)">
       <button onclick="document.getElementById('premiumOverlay').remove()" style="position:absolute;top:12px;right:16px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">✕</button>
       <div style="font-size:28px;margin-bottom:12px">🔒</div>
-      <div style="font-family:Inter,sans-serif;font-size:22px;letter-spacing:2.5px;color:var(--text);margin-bottom:8px">PREMIUM FEATURE</div>
+      <div style="font-family:Inter,sans-serif;font-size:22px;font-weight:700;letter-spacing:1px;color:var(--text);margin-bottom:8px">PREMIUM FEATURE</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:6px">${featureName}</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:28px;line-height:1.6">Unlock full access to all signals, analysis tools, and real-time alerts with InsiderTape Premium.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:28px;line-height:1.6">Start a <span style="color:var(--text);font-weight:600">7-day free trial</span> for full access to all signals, analysis tools, and real-time alerts. Cancel anytime.</div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        <button onclick="document.getElementById('premiumOverlay').remove();switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:1px;width:100%">SEE PLANS →</button>
-        ${!auth.loggedIn ? `<button onclick="document.getElementById('premiumOverlay').remove();switchView('signup',null)" style="background:transparent;color:var(--accent);border:1px solid var(--accent)44;border-radius:8px;padding:12px;font-family:Inter,sans-serif;font-size:11px;font-variant-numeric:tabular-nums;cursor:pointer;width:100%">SIGN IN</button>` : ''}
+        <button onclick="document.getElementById('premiumOverlay').remove();switchView('premium',null)" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:14px;font-family:Inter,sans-serif;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%">START FREE TRIAL →</button>
+        ${!auth.loggedIn ? `<button onclick="document.getElementById('premiumOverlay').remove();switchView('signup',null)" style="background:transparent;color:var(--accent);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:Inter,sans-serif;font-size:11px;cursor:pointer;width:100%">SIGN IN</button>` : ''}
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -9745,8 +9779,8 @@ setTimeout(showTrialPromo, 60000);
 
 // ── Screener filter guard (30D+ requires premium) ────────────
 function requirePremiumForPeriod(days) {
-  if (days <= 7) return true;
-  return requirePremium('Extended screener periods (30D, 90D, 1Y) and advanced filters');
+  if (days <= 30) return true;
+  return requirePremium('Extended screener periods (90D, 1Y) and advanced filters');
 }
 
 // ── Sidebar guard (blurs sidebar for free users in stock view) ─
@@ -10180,15 +10214,16 @@ function loadPremiumPage() {
       </div>
 
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;max-width:600px;margin:0 auto;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
-        <div style="padding:14px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto auto;gap:16px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:1px;color:var(--muted)">
+        <div style="padding:14px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr 90px 90px;gap:12px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:1px;color:var(--muted)">
           <span>FEATURE</span><span style="text-align:center">FREE</span><span style="text-align:center;color:var(--accent)">PREMIUM</span>
         </div>
         ${[
-          ['Screener — 7 days', true, true],
-          ['Screener — 30D / 90D / 1Y + filters', false, true],
-          ['Stock View — price chart + trade markers', true, true],
-          ['Insider sidebar — trade history', true, true],
-          ['Insider Pressure indicator', false, true],
+          ['Screener — last 7 days', true, true],
+          ['Screener — last 30 days', true, true],
+          ['Learn — articles & guides', true, true],
+          ['Screener — 90D / 1Y + advanced filters', false, true],
+          ['Stock View — chart, pressure & trade history', false, true],
+          ['Insider profiles & timing scores', false, true],
           ['Cluster Buys & Largest Trades', false, true],
           ['Notable Insiders & Best Timers', false, true],
           ['Analysis dashboard', false, true],
@@ -10198,7 +10233,7 @@ function loadPremiumPage() {
           ['Watchlist — pin tickers + follow insiders', false, true],
           ['Email Alerts — sector, role & value filters', false, true],
         ].map(([feat, free, prem], i) => `
-          <div style="padding:12px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:center;background:${i%2===0?'transparent':'var(--bg3)'}">
+          <div style="padding:12px 24px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr 90px 90px;gap:12px;align-items:center;background:${i%2===0?'transparent':'var(--bg3)'}">
             <span style="font-size:12px;color:var(--text)">${feat}</span>
             <span style="text-align:center;font-size:14px;color:${free?'var(--buy)':'var(--border2)'}">${free ? '✓' : '—'}</span>
             <span style="text-align:center;font-size:14px;color:var(--accent)">✓</span>
