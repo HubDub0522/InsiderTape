@@ -24,18 +24,19 @@
 <meta name="keywords" content="insider trading tracker, SEC Form 4 filings, cluster buying signal, insider buying stocks, corporate insider trades, insider sell tracker, what are insiders buying, follow the smart money">
 <meta name="author" content="InsiderTape">
 <meta name="robots" content="index, follow">
+<link rel="canonical" href="https://www.insidertape.com/">
 <!-- Open Graph -->
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://insidertape.com">
+<meta property="og:url" content="https://www.insidertape.com/">
 <meta property="og:title" content="InsiderTape | Insider Trading Tracker, Minus the Noise">
 <meta property="og:description" content="InsiderTape filters SEC insider filings down to real open-market conviction and cuts the noise. Spot cluster buying, first buys in years, pre-earnings insider trades, and more.">
-<meta property="og:image" content="https://insidertape.com/og-image.png">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
 <!-- Twitter/X Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@insidertape">
 <meta name="twitter:title" content="InsiderTape | Insider Trading Tracker, Minus the Noise">
 <meta name="twitter:description" content="InsiderTape filters SEC insider filings down to real open-market conviction and cuts the noise. Spot cluster buying, first buys in years, pre-earnings insider trades, and more.">
-<meta name="twitter:image" content="https://insidertape.com/og-image.png">
+<meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
 <!-- Preconnect to critical external origins to reduce latency -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -9165,7 +9166,7 @@ function renderMonitorAlerts(allAlerts, label, body, trades, cutStr) {
 
 // ── SHARE SIGNAL ──────────────────────────────────────────────────
 function shareSignal(ticker, headline, detail, type) {
-  const url = 'https://insidertape.com/stock/' + encodeURIComponent(ticker);
+  const url = 'https://www.insidertape.com/stock/' + encodeURIComponent(ticker);
   const text = headline + (detail ? '\n' + detail : '') + '\n\n$' + ticker + ' — insidertape.com';
   // Try Web Share API first (mobile)
   if (navigator.share) {

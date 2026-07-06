@@ -1720,22 +1720,23 @@ app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
 // ─── ROBOTS / SITEMAP ─────────────────────────────────────────────────────────
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
-  res.send('User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /members/\nCrawl-delay: 1\n\nSitemap: https://insidertape.com/sitemap.xml\n');
+  res.send('User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /members/\nCrawl-delay: 1\n\nSitemap: https://www.insidertape.com/sitemap.xml\n');
 });
 
 let _sitemapCache = null, _sitemapCacheTime = 0;
 app.get('/sitemap.xml', async (req, res) => {
   if (_sitemapCache && Date.now() - _sitemapCacheTime < 86400000) { res.type('application/xml'); return res.send(_sitemapCache); }
-  const now = new Date().toISOString().slice(0, 10), base = 'https://insidertape.com';
+  const now = new Date().toISOString().slice(0, 10), base = 'https://www.insidertape.com';
   const staticPages = [
     { url: '/', priority: '1.0', freq: 'daily' },
     { url: '/screener', priority: '0.9', freq: 'daily' },
     { url: '/stock', priority: '0.8', freq: 'daily' },
     { url: '/insider', priority: '0.8', freq: 'daily' },
+    { url: '/premium', priority: '0.7', freq: 'monthly' },
     { url: '/articles/', priority: '0.7', freq: 'weekly' },
   ];
   const articleSlugs = ['cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
-  const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}`, priority: '0.6', freq: 'monthly' }));
+  const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}.html`, priority: '0.6', freq: 'monthly' }));
   let tickerPages = [];
   try {
     const tickers = await query("SELECT ticker FROM trades WHERE ticker GLOB '[A-Z]*' AND trade_date >= date('now','-1825 days') GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 200");
