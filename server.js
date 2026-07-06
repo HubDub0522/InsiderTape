@@ -1215,7 +1215,7 @@ app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, r
 
     if (RESEND_KEY) {
       const { Resend } = require('resend');
-      await new Resend(RESEND_KEY).emails.send({
+      const { data, error } = await new Resend(RESEND_KEY).emails.send({
         from: FROM_EMAIL, to: email,
         subject: 'Your InsiderTape login link',
         html: `
@@ -1227,8 +1227,13 @@ app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, r
             <div style="margin-top:32px;font-size:11px;color:#4a6580">If you didn't request this, ignore this email.<br>Link: ${link}</div>
           </div>`,
       });
+      if (error) {
+        slog('Resend send FAILED: ' + JSON.stringify(error));
+        return res.status(500).json({ error: 'Email delivery failed: ' + (error.message || error.name || 'unknown') });
+      }
+      slog('Magic link sent to ' + email.slice(0, 3) + '*** (id: ' + (data?.id || '?') + ')');
     } else {
-      slog('MAGIC LINK (no Resend): ' + link);
+      slog('MAGIC LINK (no Resend key): ' + link);
     }
     res.json({ ok: true });
   } catch(e) { slog('request-link error: ' + e.message); res.status(500).json({ error: 'Failed to send link' }); }
