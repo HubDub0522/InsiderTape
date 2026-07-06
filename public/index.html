@@ -217,7 +217,7 @@
   }
   .logo span { color: var(--accent); }
 
-  .search-wrap { position: relative; flex: 1; max-width: 420px; }
+  .search-wrap { position: relative; flex: 0 1 480px; max-width: 480px; margin: 0 auto; }
   .search-wrap input {
     width: 100%;
     background: var(--bg3);
@@ -1038,6 +1038,10 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
   <div class="logo" onclick="switchView('screener')" style="cursor:pointer">INSIDER<span>TAPE</span></div>
+  <a href="https://x.com/InsiderTape" target="_blank" rel="noopener" class="x-follow" title="Follow InsiderTape on X">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L2.25 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+    FOLLOW
+  </a>
   <div class="search-wrap" style="position:relative">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" id="tickerInput" placeholder="Search ticker or insider name…" maxlength="60" autocomplete="off" oninput="if(!_suppressSuggest)onGlobalInput(this.value)" onblur="setTimeout(()=>hideGlobalSuggest(),200)">
@@ -1045,10 +1049,6 @@
     <div id="globalSuggest"></div>
 
   </div>
-  <a href="https://x.com/InsiderTape" target="_blank" rel="noopener" class="x-follow" title="Follow InsiderTape on X">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L2.25 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-    FOLLOW
-  </a>
   <div id="authHeaderBtn" style="flex-shrink:0;margin-left:8px;display:flex;align-items:center"></div>
 </header>
 
@@ -9781,15 +9781,15 @@ function renderAuthHeader() {
   if (!el) return;
   if (auth.loggedIn) {
     el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px">
-        ${auth.isPremium ? '<span style="font-size:9px;color:#00d4ff;border:1px solid #00d4ff44;border-radius:3px;padding:2px 6px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">PREMIUM</span>' : ''}
-        <button onclick="switchView('account',null)" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);cursor:pointer;letter-spacing:0.5px">ACCOUNT</button>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${auth.isPremium ? '<span style="font-size:10px;color:var(--accent);border:1px solid rgba(36,120,204,0.35);border-radius:4px;padding:3px 8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-weight:600">PREMIUM</span>' : ''}
+        <button onclick="switchView('account',null)" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:9px 18px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text);cursor:pointer;letter-spacing:0.5px;font-weight:600">ACCOUNT</button>
       </div>`;
   } else {
     el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:6px">
-        <button onclick="switchView('signup',null)" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);cursor:pointer;letter-spacing:0.5px">SIGN IN</button>
-        <button onclick="switchView('premium',null)" style="background:var(--accent);color:#000;border:none;border-radius:6px;padding:6px 14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:0.5px">GET PREMIUM</button>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="switchView('signup',null)" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:9px 18px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text);cursor:pointer;letter-spacing:0.5px;font-weight:600">SIGN IN</button>
+        <button onclick="switchView('premium',null)" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px">GET PREMIUM</button>
       </div>`;
   }
 }
