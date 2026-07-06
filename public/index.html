@@ -10268,16 +10268,16 @@ function loadPremiumPage() {
     <line x1="20" y1="155" x2="320" y2="155" stroke="#f0f2f5" stroke-width="1"/>
     <path d="M22,140 L55,128 L88,138 L120,108 L152,118 L185,82 L218,95 L250,60 L285,72 L318,48 L318,165 L22,165 Z" fill="url(#pmArea)"/>
     <polyline points="22,140 55,128 88,138 120,108 152,118 185,82 218,95 250,60 285,72 318,48" fill="none" stroke="#2478cc" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
-    <polygon points="83.5,154 92.5,154 88,145" fill="#2aab5c"/>
-    <polygon points="147.5,134 156.5,134 152,125" fill="#2aab5c"/>
-    <polygon points="213.5,111 222.5,111 218,102" fill="#2aab5c"/>
-    <polygon points="280.5,88 289.5,88 285,79" fill="#2aab5c"/>
-    <polygon points="115.5,92 124.5,92 120,101" fill="#b03030"/>
-    <polygon points="180.5,66 189.5,66 185,75" fill="#b03030"/>
-    <polygon points="245.5,44 254.5,44 250,53" fill="#b03030"/>
-    <polygon points="18,180 26,180 22,174" fill="#2aab5c"/>
+    <circle cx="88" cy="138" r="4.5" fill="#2aab5c" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="152" cy="118" r="4.5" fill="#2aab5c" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="218" cy="95" r="4.5" fill="#2aab5c" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="285" cy="72" r="4.5" fill="#2aab5c" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="120" cy="108" r="4.5" fill="#b03030" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="185" cy="82" r="4.5" fill="#b03030" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="250" cy="60" r="4.5" fill="#b03030" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="22" cy="178" r="4" fill="#2aab5c" stroke="#ffffff" stroke-width="1"/>
     <text x="30" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">BUY</text>
-    <polygon points="58,175 66,175 62,181" fill="#b03030"/>
+    <circle cx="62" cy="178" r="4" fill="#b03030" stroke="#ffffff" stroke-width="1"/>
     <text x="70" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">SELL</text>
     <text x="200" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6.5">Form 4 trades plotted at execution price</text>
   </svg>`;
@@ -10336,6 +10336,10 @@ function loadPremiumPage() {
       <div style="text-align:center;margin-bottom:56px">
         <div style="font-family:Inter,sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
         <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required SEC Form 4 disclosures when they trade. InsiderTape Premium gives you every tool to track insider signals, detect clusters and conviction trades, and act before the crowd does.</div>
+        <div style="margin-top:28px">
+          <button onclick="document.getElementById('pricing').scrollIntoView({behavior:'smooth'})" style="background:var(--accent);color:#fff;border:none;border-radius:9px;padding:15px 36px;font-family:Inter,sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.5px;box-shadow:0 4px 16px rgba(36,120,204,0.25)">SIGN UP NOW →</button>
+          <div style="font-size:11px;color:var(--muted);margin-top:10px">7-day free trial · Cancel anytime</div>
+        </div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:64px;margin-bottom:72px">
@@ -10350,7 +10354,7 @@ function loadPremiumPage() {
           </div>`).join('')}
       </div>
 
-      <div style="text-align:center;margin-bottom:32px">
+      <div id="pricing" style="text-align:center;margin-bottom:32px;scroll-margin-top:80px">
         <div style="font-family:Inter,sans-serif;font-size:32px;letter-spacing:3px;color:var(--text)">SIMPLE PRICING</div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:540px;margin:0 auto 48px" class="mob-pricing-grid">
