@@ -2,10 +2,12 @@ name: Daily SEC Ingestion
 
 on:
   schedule:
-    # Hourly during US market + after-hours filing window.
-    # Times are UTC; the range covers ~8am-9pm ET across both EDT and EST.
-    - cron: '0 12-23 * * 1-5'   # Mon-Fri, 12:00-23:00 UTC
-    - cron: '0 0-2 * * 2-6'     # Tue-Sat, 00:00-02:00 UTC (prior evening ET)
+    # Times are UTC and anchored to EDT (UTC-4); in winter (EST) they land ~1h later ET.
+    - cron: '0 14 * * 1-5'    # ~10:00 AM ET  (30 min after open)
+    - cron: '0 16 * * 1-5'    # ~12:00 PM ET
+    - cron: '0 19 * * 1-5'    # ~3:00 PM ET
+    - cron: '14 20 * * 1-5'   # ~4:14 PM ET   (just after close)
+    - cron: '0 13 * * 0,6'    # ~9:00 AM ET   (once each weekend day)
   workflow_dispatch:
     inputs:
       days_back:

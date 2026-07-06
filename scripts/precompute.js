@@ -400,21 +400,42 @@ async function prewarmPrices() {
   log(`Price cache pre-warmed: ${warmed}/${rows.length} tickers`);
 }
 
+// Keep the table to ~5 years so scans stay small and Turso reads stay low.
+async function prune5yr() {
+  const r = await dbRun("DELETE FROM trades WHERE trade_date < date('now','-1830 days')");
+  if (r.rowsAffected) log(`Pruned ${r.rowsAffected} trades older than 5 years`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
-  // Clean noise BEFORE computing caches so they reflect filtered data
+
+  // The heavy full-history aggregates (5-year sentiment, deep first-buy scans) barely
+  // change intraday and are the biggest Turso-read consumers, so run them only once
+  // per day (the morning run). Everything else runs every ingestion.
+  const heavyRun = new Date().getUTCHours() <= 14;
+  log(`Mode: ${heavyRun ? 'FULL (heavy aggregates included)' : 'LIGHT (recent-data only)'}`);
+
+  // Cleanup + prune first so caches reflect filtered, in-range data
   await cleanupPlanClusters();
+  await prune5yr();
+
+  // Light, recent-data caches — every run
   await Promise.all([
     computeStockLists(),
-    computeFirstBuys(),
     computeFirstBuysMonitor(),
     computeProximity(),
     computeMonitorSentiment(),
     computeScreener90(),
-    computeInsiderSentiment(),
   ]);
-  // Price pre-warm runs last (it's the longest — many external Yahoo calls)
+
+  // Heavy full-history caches — once per day
+  if (heavyRun) {
+    await computeInsiderSentiment();
+    await computeFirstBuys();
+  }
+
+  // Price pre-warm runs last (longest — many external Yahoo calls, no Turso reads)
   await prewarmPrices();
   log('=== precompute done ===');
 }

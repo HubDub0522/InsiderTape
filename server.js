@@ -439,11 +439,21 @@ app.get('/api/screener', async (req, res) => {
     const cacheTTL = _reqDays >= 90 ? 120000 : 30000;
     if (cached && Date.now() - cached.t < cacheTTL) return res.json(cached.d);
 
-    // 90-day screener served from precomputed cache
-    if (_reqDays === 90 && !req.query.limit) {
+    // Short windows (≤90d) served from the precomputed 90-day cache: read the blob
+    // once, slice to the requested window in memory, reuse via _screenerCache.
+    // Avoids scanning thousands of trade rows on every screener load at scale.
+    if (_reqDays <= 90 && !req.query.limit) {
       try {
-        const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'screener-90d'");
-        if (cached && Date.now() - cached.computed_at < 4 * 3600000) return res.json(JSON.parse(cached.value_json));
+        const cachedRow = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'screener-90d'");
+        if (cachedRow && Date.now() - cachedRow.computed_at < 6 * 3600000) {
+          let rows = JSON.parse(cachedRow.value_json);
+          if (_reqDays < 90) {
+            const cutoff = new Date(Date.now() - _reqDays * 86400000).toISOString().slice(0, 10);
+            rows = rows.filter(r => (r.trade || '') >= cutoff);
+          }
+          _screenerCache.set(cacheKey, { d: rows, t: Date.now() });
+          return res.json(rows);
+        }
       } catch(_) {}
     }
 
