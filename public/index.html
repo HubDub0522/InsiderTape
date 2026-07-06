@@ -10251,10 +10251,46 @@ function loadPremiumPage() {
   </svg>`;
 
 
+  // PRICE CHART with insider buy/sell markers plotted at execution price
+  const chartMarkersMockup = `<svg viewBox="0 0 340 190" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
+    <defs>
+      <linearGradient id="pmArea" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#2478cc" stop-opacity="0.16"/>
+        <stop offset="100%" stop-color="#2478cc" stop-opacity="0.01"/>
+      </linearGradient>
+    </defs>
+    <rect width="340" height="190" fill="#ffffff"/>
+    <rect width="340" height="14" fill="#eaecf0"/>
+    <text x="12" y="10" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6.5" letter-spacing="1">NVDA · INSIDER TRADES ON PRICE CHART</text>
+    <line x1="20" y1="50" x2="320" y2="50" stroke="#f0f2f5" stroke-width="1"/>
+    <line x1="20" y1="85" x2="320" y2="85" stroke="#f0f2f5" stroke-width="1"/>
+    <line x1="20" y1="120" x2="320" y2="120" stroke="#f0f2f5" stroke-width="1"/>
+    <line x1="20" y1="155" x2="320" y2="155" stroke="#f0f2f5" stroke-width="1"/>
+    <path d="M22,140 L55,128 L88,138 L120,108 L152,118 L185,82 L218,95 L250,60 L285,72 L318,48 L318,165 L22,165 Z" fill="url(#pmArea)"/>
+    <polyline points="22,140 55,128 88,138 120,108 152,118 185,82 218,95 250,60 285,72 318,48" fill="none" stroke="#2478cc" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <polygon points="83.5,154 92.5,154 88,145" fill="#2aab5c"/>
+    <polygon points="147.5,134 156.5,134 152,125" fill="#2aab5c"/>
+    <polygon points="213.5,111 222.5,111 218,102" fill="#2aab5c"/>
+    <polygon points="280.5,88 289.5,88 285,79" fill="#2aab5c"/>
+    <polygon points="115.5,92 124.5,92 120,101" fill="#b03030"/>
+    <polygon points="180.5,66 189.5,66 185,75" fill="#b03030"/>
+    <polygon points="245.5,44 254.5,44 250,53" fill="#b03030"/>
+    <polygon points="18,180 26,180 22,174" fill="#2aab5c"/>
+    <text x="30" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">BUY</text>
+    <polygon points="58,175 66,175 62,181" fill="#b03030"/>
+    <text x="70" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">SELL</text>
+    <text x="200" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6.5">Form 4 trades plotted at execution price</text>
+  </svg>`;
+
   const featureCards = [
     {
+      icon: '📈', title: 'PRICE CHART WITH TRADE MARKERS',
+      desc: 'Every insider buy and sell plotted right on the price chart, so you can see exactly where executives were trading relative to the stock. Green markers for buys, red for sells, with full trade details on hover.',
+      mock: chartMarkersMockup
+    },
+    {
       icon: '📬', title: 'EMAIL ALERTS',
-      desc: 'Get notified within minutes of a qualifying insider filing. Filter by sector, role, minimum trade size, and signal type. Set it once — never miss a high-conviction move again.',
+      desc: 'Get notified within minutes of a qualifying insider filing. Filter by sector, role, minimum trade size, and signal type. Set it once and never miss a high-conviction move again.',
       mock: alertsMockup
     },
     {
@@ -10295,16 +10331,16 @@ function loadPremiumPage() {
   ];
 
   el.innerHTML = `
-    <div style="max-width:960px;margin:0 auto;padding:48px 24px">
+    <div style="max-width:1160px;margin:0 auto;padding:48px 24px">
 
       <div style="text-align:center;margin-bottom:56px">
         <div style="font-family:Inter,sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
         <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required SEC Form 4 disclosures when they trade. InsiderTape Premium gives you every tool to track insider signals, detect clusters and conviction trades, and act before the crowd does.</div>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:56px;margin-bottom:72px">
+      <div style="display:flex;flex-direction:column;gap:64px;margin-bottom:72px">
         ${featureCards.map((f, i) => `
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center" class="mob-feature-card${i%2!==0?';direction:rtl':''}">
+          <div style="display:grid;grid-template-columns:0.82fr 1.18fr;gap:44px;align-items:center" class="mob-feature-card">
             <div style="${i%2!==0?'direction:ltr;':''}">
               <div style="font-size:26px;margin-bottom:10px">${f.icon}</div>
               <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2px;color:var(--text);margin-bottom:10px">${f.title}</div>
