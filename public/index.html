@@ -3743,7 +3743,10 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
           <div class="insider-stat"><div class="insider-stat-label">Total Trades</div><div class="insider-stat-val" style="color:var(--text)">${trades.length}</div></div>
           <div class="insider-stat"><div class="insider-stat-label">Total Bought</div><div class="insider-stat-val" style="color:var(--buy)">${fmt(buyVal)}</div></div>
           <div class="insider-stat"><div class="insider-stat-label">Total Sold</div><div class="insider-stat-val" style="color:var(--sell)">${fmt(sellVal)}</div></div>
-          <div class="insider-stat"><div class="insider-stat-label">Active Since</div><div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div></div>
+          <div class="insider-stat" title="Earliest trade we have on file. Our data covers roughly the last 5 years of SEC filings, so most insiders were active before this date."><div class="insider-stat-label">Earliest in Data</div><div class="insider-stat-val" style="color:var(--muted);font-size:13px">${firstTrade}</div></div>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+          <span>📅</span><span>Trade history reflects roughly the last 5 years of SEC Form 4 filings, not the insider's complete career.</span>
         </div>
         ${auth.isPremium ? `
           <button id="followInsiderBtn"
