@@ -1223,14 +1223,23 @@ app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, r
       const { Resend } = require('resend');
       const { data, error } = await new Resend(RESEND_KEY).emails.send({
         from: FROM_EMAIL, to: email,
-        subject: 'Your InsiderTape login link',
+        subject: 'Your InsiderTape sign-in link',
+        text: `Sign in to InsiderTape\n\nClick the link below to sign in. It expires in 15 minutes.\n\n${link}\n\nIf you didn't request this, you can safely ignore this email.\n\nInsiderTape — insidertape.com`,
         html: `
-          <div style="font-family:'Courier New',monospace;max-width:480px;margin:0 auto;background:#080b0f;color:#e0e6ed;padding:40px;border-radius:8px">
-            <div style="font-size:22px;font-weight:700;letter-spacing:3px;color:#00d4ff;margin-bottom:8px">INSIDERTAPE</div>
-            <div style="font-size:12px;color:#4a6580;margin-bottom:32px">FOLLOW THE SMART MONEY</div>
-            <div style="font-size:15px;color:#e0e6ed;margin-bottom:24px">Click below to sign in. This link expires in <strong>15 minutes</strong>.</div>
-            <a href="${link}" style="display:inline-block;background:#00d4ff;color:#000;font-family:'Courier New',monospace;font-weight:700;font-size:13px;letter-spacing:1px;padding:14px 32px;border-radius:6px;text-decoration:none">SIGN IN TO INSIDERTAPE</a>
-            <div style="margin-top:32px;font-size:11px;color:#4a6580">If you didn't request this, ignore this email.<br>Link: ${link}</div>
+          <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;background:#e3e6eb;padding:32px 16px;margin:0">
+            <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #d0d4db;border-radius:12px;overflow:hidden">
+              <div style="padding:32px 36px 24px">
+                <div style="font-size:22px;font-weight:800;letter-spacing:2px;color:#1a2030;margin-bottom:4px">INSIDER<span style="color:#2478cc">TAPE</span></div>
+                <div style="font-size:11px;letter-spacing:1px;color:#6e7a8a;margin-bottom:28px">FOLLOW THE SMART MONEY</div>
+                <div style="font-size:16px;font-weight:600;color:#1a2030;margin-bottom:8px">Sign in to InsiderTape</div>
+                <div style="font-size:14px;color:#6e7a8a;line-height:1.6;margin-bottom:26px">Click the button below to sign in. This link expires in <strong style="color:#1a2030">15 minutes</strong>.</div>
+                <a href="${link}" style="display:inline-block;background:#2478cc;color:#ffffff;font-weight:700;font-size:14px;letter-spacing:0.5px;padding:14px 34px;border-radius:8px;text-decoration:none">Sign in →</a>
+                <div style="margin-top:28px;font-size:12px;color:#6e7a8a;line-height:1.6">Or paste this link into your browser:<br><a href="${link}" style="color:#2478cc;word-break:break-all">${link}</a></div>
+              </div>
+              <div style="padding:18px 36px;border-top:1px solid #eaecf0;background:#f5f7fa;font-size:11px;color:#8b95a4;line-height:1.6">
+                If you didn't request this, you can safely ignore this email.<br>InsiderTape · SEC insider trade tracking · <a href="https://insidertape.com" style="color:#6e7a8a">insidertape.com</a>
+              </div>
+            </div>
           </div>`,
       });
       if (error) {
