@@ -76,6 +76,7 @@
     --sell-dim:  #d94040;
     --option:    #9a6e00;
     --header-h:  64px;
+    --rail-w:    62px;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -112,7 +113,7 @@
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
   header {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    position: fixed; top: 0; left: var(--rail-w); right: 0; z-index: 100;
     height: var(--header-h);
     background: rgba(240,242,245,0.97);
     backdrop-filter: blur(12px);
@@ -121,6 +122,52 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 24px;
     gap: 16px;
+  }
+
+  /* ─── LEFT NAV RAIL ─────────────────────────────────────────── */
+  .side-rail {
+    position: fixed; top: 0; left: 0; z-index: 130;
+    width: var(--rail-w); height: 100vh;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    box-shadow: 1px 0 3px rgba(0,0,0,0.05);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 10px 0; gap: 3px;
+  }
+  .rail-brand {
+    width: 38px; height: 38px; margin-bottom: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px; cursor: pointer;
+  }
+  .rail-brand:hover { background: var(--bg3); }
+  .rail-spacer { flex: 1; }
+  .rail-btn {
+    position: relative; width: 46px; height: 46px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid transparent; border-radius: 11px;
+    color: var(--muted); background: transparent; cursor: pointer;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .rail-btn:hover { color: var(--text); background: var(--bg3); }
+  .rail-btn.active { color: var(--accent); background: rgba(36,120,204,0.10); border-color: rgba(36,120,204,0.28); }
+  .rail-btn svg { width: 21px; height: 21px; }
+  .rail-tip {
+    position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+    background: var(--text); color: #fff;
+    font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+    padding: 6px 11px; border-radius: 7px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity .14s;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18); z-index: 300;
+  }
+  .rail-tip::before {
+    content: ''; position: absolute; left: -4px; top: 50%; transform: translateY(-50%) rotate(45deg);
+    width: 8px; height: 8px; background: var(--text); border-radius: 1px;
+  }
+  .rail-btn:hover .rail-tip { opacity: 1; }
+  @media (max-width: 640px) {
+    :root { --rail-w: 52px; }
+    .rail-btn { width: 40px; height: 40px; }
+    .rail-btn svg { width: 19px; height: 19px; }
   }
 
   .logo {
@@ -252,7 +299,7 @@
   }
   .x-follow:hover { color: var(--text); border-color: var(--border2); background: var(--bg2); }
 
-  main { margin-top: var(--header-h); min-height: calc(100vh - var(--header-h)); }
+  main { margin-top: var(--header-h); margin-left: var(--rail-w); min-height: calc(100vh - var(--header-h)); }
   .view { display: none; }
   .view.active { display: block; }
   /* Improve rendering performance for inactive views */
@@ -903,8 +950,55 @@
   <p><strong>How often is InsiderTape updated?</strong> New SEC Form 4 filings are ingested throughout the trading day as they're published to EDGAR.</p>
   <p><strong>Is InsiderTape financial advice?</strong> No. InsiderTape is an information and data platform. Nothing on this site constitutes financial advice, a solicitation, or a recommendation to buy or sell any security. Always do your own research and consult a licensed financial advisor before making investment decisions.</p>
 </div>
+<nav class="side-rail" aria-label="Main navigation">
+  <div class="rail-brand" onclick="switchView('screener')" title="InsiderTape">
+    <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
+      <circle cx="12" cy="12" r="9" stroke="#2478cc" stroke-width="1.3" opacity="0.35"/>
+      <circle cx="12" cy="12" r="5" stroke="#2478cc" stroke-width="1.3" opacity="0.6"/>
+      <circle cx="12" cy="12" r="2" fill="#2478cc"/>
+      <line x1="12" y1="12" x2="19" y2="7" stroke="#2478cc" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <button class="rail-btn active" id="rail-screener" onclick="switchView('screener')" aria-label="Screener">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9.5" x2="21" y2="9.5"/><line x1="3" y1="14.5" x2="21" y2="14.5"/></svg>
+    <span class="rail-tip">Screener</span>
+  </button>
+  <button class="rail-btn" id="rail-stock" onclick="switchView('stock')" aria-label="Stock View">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 16 8 11 12 14 21 5"/><polyline points="15 5 21 5 21 11"/></svg>
+    <span class="rail-tip">Stock View</span>
+  </button>
+  <button class="rail-btn" id="rail-insider" onclick="switchView('insider')" aria-label="Insider">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5"/></svg>
+    <span class="rail-tip">Insider</span>
+  </button>
+  <button class="rail-btn" id="rail-analysis" onclick="switchView('analysis')" aria-label="Analysis">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><line x1="12" y1="12" x2="18.5" y2="7"/></svg>
+    <span class="rail-tip">Analysis</span>
+  </button>
+  <button class="rail-btn" id="rail-monitor" onclick="switchView('monitor')" aria-label="Monitor">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5 7 5-14 2.5 7h4"/></svg>
+    <span class="rail-tip">Monitor</span>
+  </button>
+  <button class="rail-btn" id="rail-sectors" onclick="switchView('sectors')" aria-label="Sectors">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="12" x2="12" y2="3"/><line x1="12" y1="12" x2="20" y2="15.5"/></svg>
+    <span class="rail-tip">Sectors</span>
+  </button>
+  <button class="rail-btn" id="rail-compare" onclick="switchView('compare')" aria-label="Compare">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="9" width="6" height="11" rx="1"/><rect x="14" y="4" width="6" height="16" rx="1"/></svg>
+    <span class="rail-tip">Compare</span>
+  </button>
+  <button class="rail-btn" id="rail-watchlist" onclick="switchView('watchlist')" aria-label="Watchlist">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 3 14.6 8.6 20.5 9.3 16 13.2 17.4 19 12 15.9 6.6 19 8 13.2 3.5 9.3 9.4 8.6"/></svg>
+    <span class="rail-tip">Watchlist</span>
+  </button>
+  <div class="rail-spacer"></div>
+  <button class="rail-btn" id="rail-learn" onclick="window.location.href='/articles/'" aria-label="Learn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><line x1="8" y1="7.5" x2="15.5" y2="7.5"/><line x1="8" y1="11" x2="15.5" y2="11"/></svg>
+    <span class="rail-tip">Learn</span>
+  </button>
+</nav>
 <header>
-  <div class="logo" onclick="switchView('screener', document.querySelectorAll('.nav-tab')[0])" style="cursor:pointer">INSIDER<span>TAPE</span></div>
+  <div class="logo" onclick="switchView('screener')" style="cursor:pointer">INSIDER<span>TAPE</span></div>
   <div class="search-wrap" style="position:relative">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" id="tickerInput" placeholder="Search ticker or insider name…" maxlength="60" autocomplete="off" oninput="if(!_suppressSuggest)onGlobalInput(this.value)" onblur="setTimeout(()=>hideGlobalSuggest(),200)">
@@ -912,25 +1006,6 @@
     <div id="globalSuggest"></div>
 
   </div>
-  <nav class="nav-tabs">
-    <button class="nav-tab active" onclick="switchView('screener', this)">SCREENER</button>
-    <button class="nav-tab" onclick="switchView('stock', this)">STOCK VIEW</button>
-    <button class="nav-tab" id="insiderTab" onclick="switchView('insider', this)">INSIDER</button>
-    <button class="nav-tab" onclick="window.location.href='/articles/'">LEARN</button>
-    <div class="nav-dropdown" id="membersDropdown">
-      <button class="nav-dropdown-btn" id="membersDropdownBtn" onclick="toggleMembersDropdown(event)">
-        FILTERS
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3.5L5 6.5L8 3.5"/></svg>
-      </button>
-      <div class="nav-dropdown-menu" id="membersDropdownMenu">
-        <button class="nav-dropdown-item" id="analysisTab" onclick="closeMembersDropdown();switchView('analysis',this)">ANALYSIS</button>
-        <button class="nav-dropdown-item" id="monitorTab" onclick="closeMembersDropdown();switchView('monitor',this)">MONITOR</button>
-        <button class="nav-dropdown-item" id="sectorsTab" onclick="closeMembersDropdown();switchView('sectors',this)">SECTORS</button>
-        <button class="nav-dropdown-item" id="compareTab" onclick="closeMembersDropdown();switchView('compare',this)">COMPARE</button>
-        <button class="nav-dropdown-item" id="watchlistTab" onclick="closeMembersDropdown();switchView('watchlist',this)">WATCHLIST</button>
-      </div>
-    </div>
-  </nav>
   <a href="https://x.com/InsiderTape" target="_blank" rel="noopener" class="x-follow" title="Follow InsiderTape on X">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L2.25 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
     FOLLOW
@@ -1209,20 +1284,18 @@ function showToast(msg, isError=false) {
 function escName(str) { return (str||'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 
 
+// Highlight the active icon in the left rail for a given view
+function setActiveNav(view) {
+  document.querySelectorAll('.rail-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('rail-' + view)?.classList.add('active');
+}
+
 function switchView(view, btn, opts={}) {
   window.scrollTo(0, 0);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('membersDropdownBtn')?.classList.remove('active');
   const memberViews = new Set(['analysis','monitor','sectors','compare','watchlist']);
-  if (memberViews.has(view)) document.getElementById('membersDropdownBtn')?.classList.add('active');
   document.getElementById('view-' + view).classList.add('active');
-  if (btn) btn.classList.add('active');
-  else {
-    // Only main nav tabs get highlighted — member-area sub-views only activate the dropdown btn
-    const idx = {screener:0, stock:1, insider:2}[view];
-    if (idx !== undefined) document.querySelectorAll('.nav-tab')[idx]?.classList.add('active');
-  }
+  setActiveNav(view);
 
   // ── Premium gate — only the Screener (7D/30D) and Learn pages are free ──
   const GATED_VIEWS = {
@@ -2478,11 +2551,10 @@ let _loadStockViewInFlight = null;
 let _loadStockViewSeq = 0; // increments on every call — lets us detect superseded calls
 async function loadStockView(ticker, opts={}) {
   window.scrollTo(0, 0);
-  // Activate the stock view + nav tab
+  // Activate the stock view + rail icon
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('view-stock').classList.add('active');
-  document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
+  setActiveNav('stock');
   // Premium gate — Stock View is members-only
   if (!auth.isPremium) {
     if (!opts.fromPopstate) { history.pushState({view:'stock'}, '', '/stock'); }
@@ -3555,8 +3627,7 @@ function renderStockTradesTable(trades) {
 // ── INSIDER PROFILE ───────────────────────────────────────────────
 async function openInsiderProfile(name, title, opts={}) {
   window.scrollTo(0, 0);
-  const tab=document.getElementById('insiderTab');
-  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active')); tab.classList.add('active');
+  setActiveNav('insider');
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-insider').classList.add('active');
   if (!opts.fromPopstate) {
@@ -9186,21 +9257,18 @@ window.addEventListener('popstate', e => {
     loadStockView(s.ticker, {fromPopstate: true});
   } else if (s.view === 'stock') {
     // Back to stock landing
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.nav-tab')[1]?.classList.add('active');
+    setActiveNav('stock');
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-stock').classList.add('active');
     document.getElementById('tickerInput').value = '';
     if (_stockListsCache) { renderStockLanding(_stockListsCache); } else { loadStockLanding(); }
   } else if (s.view === 'insider' && s.name) {
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.getElementById('insiderTab').classList.add('active');
+    setActiveNav('insider');
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-insider').classList.add('active');
     openInsiderProfile(s.name, s.title||'', {fromPopstate: true});
   } else if (s.view === 'insider') {
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.getElementById('insiderTab').classList.add('active');
+    setActiveNav('insider');
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-insider').classList.add('active');
     const body = document.getElementById('insiderViewBody');
@@ -9237,8 +9305,7 @@ function routeFromPath(path, fromPopstate) {
   const insiderMatch = path.match(/^\/insider\/(.+)/i);
   if (insiderMatch) {
     const name = decodeURIComponent(insiderMatch[1]);
-    document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
-    document.getElementById('insiderTab').classList.add('active');
+    setActiveNav('insider');
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-insider').classList.add('active');
     openInsiderProfile(name, '', {fromPopstate});
@@ -9569,18 +9636,6 @@ function getSessionCookie() {
   const m = document.cookie.match(/(?:^|;\s*)it_session=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : null;
 }
-
-function toggleMembersDropdown(e) {
-  e.stopPropagation();
-  document.getElementById('membersDropdown').classList.toggle('open');
-}
-function closeMembersDropdown() {
-  document.getElementById('membersDropdown').classList.remove('open');
-}
-// Close dropdown when clicking outside
-document.addEventListener('click', e => {
-  if (!e.target.closest('#membersDropdown')) closeMembersDropdown();
-});
 
 async function loadAuth() {
   // Fire ping to wake dyno but don't block auth on it
