@@ -1190,7 +1190,7 @@ app.use(async (req, res, next) => {
 
 app.get('/api/auth/me', async (req, res) => {
   const session = await getSession(req);
-  if (!session) return res.json({ loggedIn: false, isPremium: true });
+  if (!session) return res.json({ loggedIn: false, isPremium: false });
   const premium = await isPremium(session);
   const sub = premium ? await getSubscription(session.user_id) : null;
   res.json({
