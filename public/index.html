@@ -76,7 +76,7 @@
     --sell-dim:  #d94040;
     --option:    #9a6e00;
     --header-h:  64px;
-    --rail-w:    62px;
+    --rail-w:    82px;
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -135,22 +135,23 @@
     padding: 10px 0; gap: 3px;
   }
   .rail-brand {
-    width: 38px; height: 38px; margin-bottom: 10px; flex-shrink: 0;
+    width: 50px; height: 50px; margin-bottom: 12px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    border-radius: 10px; cursor: pointer;
+    border-radius: 12px; cursor: pointer;
   }
   .rail-brand:hover { background: var(--bg3); }
+  .rail-brand svg { width: 34px; height: 34px; }
   .rail-spacer { flex: 1; }
   .rail-btn {
-    position: relative; width: 46px; height: 46px; flex-shrink: 0;
+    position: relative; width: 60px; height: 60px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    border: 1px solid transparent; border-radius: 11px;
+    border: 1px solid transparent; border-radius: 14px;
     color: var(--muted); background: transparent; cursor: pointer;
     transition: color .15s, background .15s, border-color .15s;
   }
   .rail-btn:hover { color: var(--text); background: var(--bg3); }
   .rail-btn.active { color: var(--accent); background: rgba(36,120,204,0.10); border-color: rgba(36,120,204,0.28); }
-  .rail-btn svg { width: 21px; height: 21px; }
+  .rail-btn svg { width: 28px; height: 28px; }
   .rail-tip {
     position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
     background: var(--text); color: #fff;
@@ -165,9 +166,11 @@
   }
   .rail-btn:hover .rail-tip { opacity: 1; }
   @media (max-width: 640px) {
-    :root { --rail-w: 52px; }
-    .rail-btn { width: 40px; height: 40px; }
-    .rail-btn svg { width: 19px; height: 19px; }
+    :root { --rail-w: 64px; }
+    .rail-btn { width: 48px; height: 48px; }
+    .rail-btn svg { width: 23px; height: 23px; }
+    .rail-brand { width: 42px; height: 42px; }
+    .rail-brand svg { width: 28px; height: 28px; }
   }
 
   .logo {
