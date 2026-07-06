@@ -2,16 +2,22 @@ name: Daily SEC Ingestion
 
 on:
   schedule:
-    - cron: '0 14 * * 1-5'
-    - cron: '0 17 * * 1-5'
-    - cron: '30 20 * * 1-5'
-    - cron: '0 1 * * 2-6'
+    # Hourly during US market + after-hours filing window.
+    # Times are UTC; the range covers ~8am-9pm ET across both EDT and EST.
+    - cron: '0 12-23 * * 1-5'   # Mon-Fri, 12:00-23:00 UTC
+    - cron: '0 0-2 * * 2-6'     # Tue-Sat, 00:00-02:00 UTC (prior evening ET)
   workflow_dispatch:
     inputs:
       days_back:
         description: 'Number of days to backfill'
         required: false
         default: '3'
+
+# Never let two ingestion runs overlap — a new run cancels an in-progress one.
+# Safe because inserts are idempotent (UNIQUE constraint + seen_filings dedup).
+concurrency:
+  group: sec-ingest
+  cancel-in-progress: true
 
 jobs:
   ingest:
