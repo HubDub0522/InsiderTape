@@ -1225,8 +1225,8 @@ function switchView(view, btn, opts={}) {
 
   // ── Premium gate — only the Screener (7D/30D) and Learn pages are free ──
   const GATED_VIEWS = {
-    stock:     ['stockContent',      'STOCK VIEW',       'See insider trades plotted on the price chart, buy/sell pressure, and full trade history for any ticker.'],
-    insider:   ['insiderViewBody',   'INSIDER PROFILES', 'Look up any insider and see their full trade history, timing accuracy, and forward-return scores.'],
+    stock:     ['stockContent',      'STOCK VIEW',       'See insider trades plotted on the price chart, buy/sell pressure, and trade history for any ticker.'],
+    insider:   ['insiderViewBody',   'INSIDER PROFILES', 'Look up any insider and see their trade history, timing accuracy, and forward-return scores.'],
     analysis:  ['analysisViewBody',  'ANALYSIS',         'Nine signal engines — cluster detection, opportunity ranker, event proximity, first-buy signals and more.'],
     monitor:   ['monitorViewBody',   'MONITOR',          'Every notable insider signal, ranked and refreshed throughout the trading day.'],
     sectors:   ['sectorsViewBody',   'SECTORS',          'See which industries are attracting the most insider buying, ranked by total buy flow.'],
@@ -2486,7 +2486,7 @@ async function loadStockView(ticker, opts={}) {
   if (!auth.isPremium) {
     if (!opts.fromPopstate) { history.pushState({view:'stock'}, '', '/stock'); }
     updateTitle('stock');
-    showBlurGate('stockContent', 'STOCK VIEW', 'See insider trades plotted on the price chart, buy/sell pressure, and full trade history for ' + ticker + '.', 'STOCK VIEW');
+    showBlurGate('stockContent', 'STOCK VIEW', 'See insider trades plotted on the price chart, buy/sell pressure, and trade history for ' + ticker + '.', 'STOCK VIEW');
     return;
   }
   // Cancel any in-flight load — increment sequence so old calls abort themselves
@@ -3567,7 +3567,7 @@ async function openInsiderProfile(name, title, opts={}) {
   }
   // Premium gate — Insider profiles are members-only
   if (!auth.isPremium) {
-    showBlurGate('insiderViewBody', 'INSIDER PROFILES', 'Look up any insider and see their full trade history, timing accuracy, and forward-return scores.', 'INSIDER PROFILES');
+    showBlurGate('insiderViewBody', 'INSIDER PROFILES', 'Look up any insider and see their trade history, timing accuracy, and forward-return scores.', 'INSIDER PROFILES');
     return;
   }
   await openInsiderProfileFull(name, title, opts);
@@ -3638,7 +3638,7 @@ async function renderInsiderProfile(name, title, trades, opts={}) {
             <div class="activity-chart-title">Trade Activity Timeline</div>
             <div id="insiderActivityChart" style="position:relative;height:160px;overflow:hidden;">${buildCSSTimeline(trades)}</div>
           </div>
-          <div class="section-title">FULL TRANSACTION HISTORY</div>
+          <div class="section-title">TRANSACTION HISTORY</div>
           <div class="table-wrap">
             <table>
               <thead><tr>
@@ -6561,7 +6561,7 @@ async function renderFirstBuySubpage() {
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🚨 FIRST BUY IN YEARS</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying their own stock after a long gap · Full database history</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying their own stock after a long gap · Across all available data</div>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7;max-width:680px">
       When an insider who hasn't bought in <span style="color:var(--text)">years</span> suddenly opens their wallet, it's one of the rarest signals in Form 4 data.
@@ -6591,10 +6591,10 @@ async function renderFirstBuySubpage() {
           <option value="90"  ${lookback===90?'selected':''}>90 days</option>
         </select>
       </div>
-      <div style="font-size:11px;color:var(--muted)">Scanning full DB history — no date cap</div>
+      <div style="font-size:11px;color:var(--muted)">Scanning all available data (no date cap)</div>
     </div>
 
-    <div id="firstBuyResults"><div class="loading-state"><div class="spinner"></div><span>Scanning full trade history...</span></div></div>
+    <div id="firstBuyResults"><div class="loading-state"><div class="spinner"></div><span>Scanning trade history...</span></div></div>
   </div>`;
 
   try {
