@@ -165,12 +165,44 @@
     width: 8px; height: 8px; background: var(--text); border-radius: 1px;
   }
   .rail-btn:hover .rail-tip { opacity: 1; }
+
+  /* Hamburger (mobile only) + drawer backdrop */
+  #navHamburger {
+    display: none; align-items: center; justify-content: center;
+    width: 40px; height: 40px; margin-right: 4px; flex-shrink: 0;
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    color: var(--text); cursor: pointer;
+  }
+  #navHamburger svg { width: 24px; height: 24px; }
+  #navHamburger:hover { background: var(--bg3); }
+  #navBackdrop {
+    display: none; position: fixed; inset: 0; z-index: 125;
+    background: rgba(26,32,48,0.45); backdrop-filter: blur(2px);
+  }
+
   @media (max-width: 640px) {
-    :root { --rail-w: 64px; }
-    .rail-btn { width: 48px; height: 48px; }
-    .rail-btn svg { width: 23px; height: 23px; }
-    .rail-brand { width: 42px; height: 42px; }
-    .rail-brand svg { width: 28px; height: 28px; }
+    :root { --rail-w: 0px; }
+    #navHamburger { display: flex; }
+    #navBackdrop.show { display: block; }
+    .x-follow { display: none; }
+    .side-rail {
+      width: 240px; height: 100vh; padding: 16px 12px; gap: 4px;
+      align-items: stretch;
+      transform: translateX(-100%); transition: transform .25s ease;
+    }
+    .side-rail.open { transform: translateX(0); box-shadow: 4px 0 32px rgba(0,0,0,0.28); }
+    .rail-brand { width: auto; height: 46px; justify-content: flex-start; gap: 11px; padding: 0 10px; margin-bottom: 14px; }
+    .rail-brand svg { width: 30px; height: 30px; }
+    .rail-brand::after { content: 'INSIDERTAPE'; font-family: 'Inter', sans-serif; font-weight: 800; letter-spacing: 2px; font-size: 15px; color: var(--text); }
+    .rail-spacer { flex: 0 0 8px; }
+    .rail-btn { width: 100%; height: 50px; justify-content: flex-start; gap: 14px; padding: 0 14px; border-radius: 10px; }
+    .rail-btn svg { width: 23px; height: 23px; flex-shrink: 0; }
+    .rail-tip {
+      position: static; opacity: 1; transform: none; width: auto;
+      background: transparent; color: inherit; box-shadow: none;
+      padding: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.2px;
+    }
+    .rail-tip::before { display: none; }
   }
 
   .logo {
@@ -562,7 +594,7 @@
     #authHeaderBtn { order: 1; margin-left: auto; flex-shrink: 0; }
     .search-wrap { order: 2; width: 100%; max-width: 100%; flex: none; }
     #authHeaderBtn { order: 1; flex-shrink: 0; }
-    main { padding-top: 120px; }
+    main { padding-top: 104px; margin-left: 0; }
     /* Padding so filter toggle isn't covered by fixed header */
     #mobFilterToggle { margin-top: 10px; }
     .screener-layout { padding-top: 8px; }
@@ -1000,7 +1032,11 @@
     <span class="rail-tip">Learn</span>
   </button>
 </nav>
+<div id="navBackdrop" onclick="closeMobileNav()"></div>
 <header>
+  <button id="navHamburger" onclick="toggleMobileNav()" aria-label="Menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
   <div class="logo" onclick="switchView('screener')" style="cursor:pointer">INSIDER<span>TAPE</span></div>
   <div class="search-wrap" style="position:relative">
     <svg class="search-icon" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -1292,6 +1328,28 @@ function setActiveNav(view) {
   document.querySelectorAll('.rail-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('rail-' + view)?.classList.add('active');
 }
+
+// ── Mobile nav drawer ──────────────────────────────────────────
+function toggleMobileNav() {
+  const open = document.querySelector('.side-rail').classList.toggle('open');
+  document.getElementById('navBackdrop').classList.toggle('show', open);
+}
+function closeMobileNav() {
+  document.querySelector('.side-rail').classList.remove('open');
+  document.getElementById('navBackdrop').classList.remove('show');
+}
+// Tapping any rail item on mobile closes the drawer after navigating
+function _wireMobileNav() {
+  const rail = document.querySelector('.side-rail');
+  if (rail && !rail._navWired) {
+    rail._navWired = true;
+    rail.addEventListener('click', e => {
+      if (e.target.closest('.rail-btn, .rail-brand') && window.innerWidth <= 640) closeMobileNav();
+    });
+  }
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireMobileNav);
+else _wireMobileNav();
 
 function switchView(view, btn, opts={}) {
   window.scrollTo(0, 0);
