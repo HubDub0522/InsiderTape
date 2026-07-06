@@ -9704,6 +9704,45 @@ function showPremiumOverlay(featureName) {
   document.body.appendChild(overlay);
 }
 
+// ── Timed trial promo — shows once per session to logged-out visitors ──
+function showTrialPromo() {
+  // Never show to logged-in users or if already shown this session
+  if (auth.loggedIn) return;
+  if (sessionStorage.getItem('trialPromoSeen')) return;
+  if (document.getElementById('trialPromo')) return;
+  sessionStorage.setItem('trialPromoSeen', '1');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'trialPromo';
+  overlay.style.cssText = `
+    position:fixed;inset:0;z-index:8500;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(26,32,48,0.55);backdrop-filter:blur(6px);
+    animation:trialPromoFade .3s ease;
+  `;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <style>
+      @keyframes trialPromoFade { from { opacity:0 } to { opacity:1 } }
+      @keyframes trialPromoPop { from { opacity:0; transform:translateY(12px) scale(.98) } to { opacity:1; transform:none } }
+    </style>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:40px 36px;max-width:440px;width:90%;text-align:center;position:relative;box-shadow:0 20px 60px rgba(26,32,48,0.25);animation:trialPromoPop .35s ease">
+      <button onclick="document.getElementById('trialPromo').remove()" style="position:absolute;top:14px;right:18px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;line-height:1">✕</button>
+      <div style="font-size:34px;margin-bottom:14px">📈</div>
+      <div style="font-family:Inter,sans-serif;font-size:24px;font-weight:700;letter-spacing:1px;color:var(--text);margin-bottom:10px">Try InsiderTape <span style="color:var(--accent)">free</span> for 7 days</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px;line-height:1.7">Unlock every signal — extended screener, cluster detection, insider scoring, real-time alerts, and the full analysis suite.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:26px;line-height:1.6">No charge for 7 days. Cancel anytime. Just <span style="color:var(--text);font-weight:600">\$14.99/mo</span> after.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="document.getElementById('trialPromo').remove();switchView('premium',null)" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:14px;font-family:Inter,sans-serif;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%">START FREE TRIAL →</button>
+        <button onclick="document.getElementById('trialPromo').remove()" style="background:transparent;color:var(--muted);border:none;padding:8px;font-family:Inter,sans-serif;font-size:11px;cursor:pointer;width:100%">Maybe later</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+// Fire the promo 60s after load for logged-out visitors
+setTimeout(showTrialPromo, 60000);
+
 // ── Screener filter guard (30D+ requires premium) ────────────
 function requirePremiumForPeriod(days) {
   if (days <= 7) return true;
