@@ -19,7 +19,7 @@ const FROM_EMAIL = (() => {
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || /^.+<[^\s@]+@[^\s@]+\.[^\s@]+>$/.test(v);
   return valid ? v : 'InsiderTape <noreply@insidertape.com>';
 })();
-const SITE_URL       = process.env.SITE_URL            || 'https://insidertape.com';
+const SITE_URL       = process.env.SITE_URL            || 'https://www.insidertape.com';
 const STRIPE_SECRET         = process.env.STRIPE_SECRET_KEY    || '';
 const STRIPE_PRICE_MONTHLY  = process.env.STRIPE_PRICE_ID       || '';
 const STRIPE_PRICE_ANNUAL   = process.env.STRIPE_PRICE_ID_ANNUAL|| '';
