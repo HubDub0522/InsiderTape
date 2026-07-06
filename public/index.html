@@ -14,7 +14,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>InsiderTape | Insider Trading Tracker, Minus the Noise</title>
+<title>InsiderTape | Insider Trading Tracker, Without the Noise</title>
 <!-- Favicon -->
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
@@ -28,13 +28,13 @@
 <!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://www.insidertape.com/">
-<meta property="og:title" content="InsiderTape | Insider Trading Tracker, Minus the Noise">
+<meta property="og:title" content="InsiderTape | Insider Trading Tracker, Without the Noise">
 <meta property="og:description" content="InsiderTape filters SEC insider filings down to real open-market conviction and cuts the noise. Spot cluster buying, first buys in years, pre-earnings insider trades, and more.">
 <meta property="og:image" content="https://www.insidertape.com/og-image.png">
 <!-- Twitter/X Card -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@insidertape">
-<meta name="twitter:title" content="InsiderTape | Insider Trading Tracker, Minus the Noise">
+<meta name="twitter:title" content="InsiderTape | Insider Trading Tracker, Without the Noise">
 <meta name="twitter:description" content="InsiderTape filters SEC insider filings down to real open-market conviction and cuts the noise. Spot cluster buying, first buys in years, pre-earnings insider trades, and more.">
 <meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
 <!-- Preconnect to critical external origins to reduce latency -->
@@ -344,7 +344,7 @@
 
   .filter-panel {
     background: var(--bg2); border-right: 1px solid var(--border);
-    padding: 2px 16px 20px; position: sticky; top: var(--header-h);
+    padding: 0 16px 20px; position: sticky; top: var(--header-h);
     height: calc(100vh - var(--header-h)); overflow-y: auto;
   }
   .filter-section { margin-bottom: 24px; }
@@ -362,7 +362,7 @@
   .apply-btn { width: 100%; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; padding: 10px; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; transition: background .2s; margin-top: 8px; }
   .apply-btn:hover { background: #33ddff; }
 
-  .screener-content { padding: 6px 20px 20px; min-height: 60vh; }
+  .screener-content { padding: 0 20px 20px; min-height: 60vh; }
   .screener-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   .screener-title { font-family: 'Inter', sans-serif; font-size: 22px; letter-spacing: 2px; color: var(--text); }
   .screener-meta { font-family: 'Inter', sans-serif; font-size: 11px; color: var(--muted); }
@@ -964,7 +964,7 @@
      the app code queries, so nothing can accidentally overwrite it.
      ───────────────────────────────────────────────────────────────── -->
 <div class="seo-content" aria-hidden="false">
-  <h1>InsiderTape: SEC Insider Trading Tracker, Minus the Noise</h1>
+  <h1>InsiderTape: SEC Insider Trading Tracker, Without the Noise</h1>
   <p>Most insider trackers just dump raw SEC filings on you, and the vast majority is meaningless: stock awards, exercised options, tax-related sales, and automatic dividend-reinvestment buys. InsiderTape filters all of that out, leaving only real open-market trades where an insider chose to put their own money in or take it out. Then it goes further, running every trade through signal detection: cluster buys where multiple insiders pile into the same stock, first purchases after years of silence, conviction buys timed just before earnings, and exit warnings when executives head for the door. The result is a clean, ranked view of where the smart money is actually moving, not a firehose of filings.</p>
   <h2>What You Can Do on InsiderTape</h2>
   <ul>
@@ -1130,7 +1130,7 @@
     <div class="screener-content">
 
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:16px">
-        <div style="font-family:Inter,sans-serif;font-size:16px;font-weight:700;color:var(--text);margin-bottom:5px">Insider trading, minus the noise.</div>
+        <div style="font-family:Inter,sans-serif;font-size:16px;font-weight:700;color:var(--text);margin-bottom:5px">Insider trading, without the noise.</div>
         <div style="font-size:12.5px;color:var(--muted);line-height:1.65;max-width:760px">We track every SEC insider filing, then strip out the junk (options exercises, awards, tax withholdings, automatic plan buys) so you only see genuine open-market conviction. Then we highlight activity with high potential to move stocks, like cluster buying, first purchases in years, trades timed heading into earnings, and several others.</div>
       </div>
 
