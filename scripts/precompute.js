@@ -321,6 +321,85 @@ async function cleanupPlanClusters() {
   log(`Plan-cluster cleanup: removed ${removed.rowsAffected} trades`);
 }
 
+// Pre-compute the Insider Sentiment index (heavy 120-month aggregation + S&P 500)
+async function computeInsiderSentiment() {
+  log('Computing insider-sentiment...');
+  const months = 120;
+  const rows = await dbQuery(`
+    SELECT strftime('%Y-%m', trade_date) AS month,
+           strftime('%Y-%m', trade_date) || '-01' AS month_date,
+           SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+           SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
+           COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count
+    FROM trades
+    WHERE trade_date >= date('now', '-' || ? || ' months') AND trade_date <= date('now')
+      AND TRIM(type) IN ('P','S','S-') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND COALESCE(value, 0) >= 10000
+    GROUP BY month HAVING buy_val + sell_val > 0 ORDER BY month ASC
+  `, [months]);
+
+  const monthly = rows.map(r => ({
+    date: r.month_date, buyPct: r.buy_val / (r.buy_val + r.sell_val),
+    buyVal: r.buy_val, sellVal: r.sell_val, buyCount: r.buy_count, sellCount: r.sell_count,
+  }));
+  const smoothed = monthly.map((m, i) => {
+    const sl = monthly.slice(Math.max(0, i - 2), i + 1);
+    return { ...m, smoothedBuyPct: sl.reduce((s, x) => s + x.buyPct, 0) / sl.length };
+  });
+  const vals = smoothed.map(m => m.smoothedBuyPct).sort((a, b) => a - b);
+  const p = n => vals[Math.floor(vals.length * n)] || 0;
+  const thresholds = { p10: p(0.10), p25: p(0.25), median: p(0.50), p75: p(0.75), p90: p(0.90) };
+
+  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - months * 31 * 86400;
+  let spxData = [];
+  try {
+    const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1mo&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (resp.ok) {
+      const d = await resp.json();
+      const r = d?.chart?.result?.[0];
+      if (r?.timestamp) {
+        const q = r.indicators.quote[0];
+        spxData = r.timestamp.map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(0, 7) + '-01', close: q.close?.[i] || null })).filter(x => x.close);
+      }
+    }
+  } catch(_) {}
+
+  const result = { insider: smoothed, spx: spxData, thresholds };
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-sentiment', ?, ?)`, [JSON.stringify(result), Date.now()]);
+  log(`insider-sentiment cached: ${smoothed.length} months, ${spxData.length} S&P points`);
+}
+
+// Pre-warm the price cache for the most-active tickers so their charts load instantly
+async function prewarmPrices() {
+  log('Pre-warming price cache...');
+  await client.execute(`CREATE TABLE IF NOT EXISTS price_cache (symbol TEXT PRIMARY KEY, bars_json TEXT NOT NULL, fetched_at INTEGER NOT NULL)`);
+  const rows = await dbQuery(`
+    SELECT ticker FROM trades
+    WHERE TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-365 days')
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+    GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 150
+  `);
+  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 365 * 86400;
+  let warmed = 0;
+  for (const { ticker } of rows) {
+    try {
+      const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!resp.ok) continue;
+      const d = await resp.json();
+      const r = d?.chart?.result?.[0];
+      if (!r?.timestamp) continue;
+      const q = r.indicators.quote[0];
+      const bars = r.timestamp.map((t, i) => ({ time: new Date(t * 1000).toISOString().slice(0, 10), open: q.open?.[i] || 0, high: q.high?.[i] || 0, low: q.low?.[i] || 0, close: q.close?.[i] || 0, volume: q.volume?.[i] || 0 })).filter(b => b.close > 0);
+      if (bars.length < 2) continue;
+      await dbRun(`INSERT OR REPLACE INTO price_cache (symbol, bars_json, fetched_at) VALUES (?,?,?)`, [ticker, JSON.stringify(bars), Date.now()]);
+      warmed++;
+    } catch(_) {}
+    await new Promise(r => setTimeout(r, 120)); // gentle on Yahoo
+  }
+  log(`Price cache pre-warmed: ${warmed}/${rows.length} tickers`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
@@ -333,7 +412,10 @@ async function main() {
     computeProximity(),
     computeMonitorSentiment(),
     computeScreener90(),
+    computeInsiderSentiment(),
   ]);
+  // Price pre-warm runs last (it's the longest — many external Yahoo calls)
+  await prewarmPrices();
   log('=== precompute done ===');
 }
 

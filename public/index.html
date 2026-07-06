@@ -1008,9 +1008,9 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5"/></svg>
     <span class="rail-tip">Insider</span>
   </button>
-  <button class="rail-btn" id="rail-analysis" onclick="switchView('analysis')" aria-label="Analysis">
+  <button class="rail-btn" id="rail-analysis" onclick="switchView('analysis')" aria-label="Radar">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><line x1="12" y1="12" x2="18.5" y2="7"/></svg>
-    <span class="rail-tip">Analysis</span>
+    <span class="rail-tip">Radar</span>
   </button>
   <button class="rail-btn" id="rail-monitor" onclick="switchView('monitor')" aria-label="Monitor">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5 7 5-14 2.5 7h4"/></svg>
@@ -1452,7 +1452,7 @@ function switchView(view, btn, opts={}) {
 }
 
 function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Analysis', monitor:'INSIDERTAPE — Monitor', sectors:'INSIDERTAPE — Sectors', compare:'INSIDERTAPE — Compare', watchlist:'INSIDERTAPE — Watchlist', premium:'INSIDERTAPE — Premium', signup:'INSIDERTAPE — Sign In', account:'INSIDERTAPE — Account'};
+  const titles = {screener:'INSIDERTAPE — Screener', stock:'INSIDERTAPE — Stock View', insider:'INSIDERTAPE — Insider', analysis:'INSIDERTAPE — Radar', monitor:'INSIDERTAPE — Monitor', sectors:'INSIDERTAPE — Sectors', compare:'INSIDERTAPE — Compare', watchlist:'INSIDERTAPE — Watchlist', premium:'INSIDERTAPE — Premium', signup:'INSIDERTAPE — Sign In', account:'INSIDERTAPE — Account'};
   document.title = extra ? `INSIDERTAPE — ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function globalSearch() {
@@ -2193,7 +2193,7 @@ function proxFilter(type) {
 function renderProximitySubpage() {
   window.scrollTo(0, 0);
   const body    = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
 
   if (_proximityCache) { _renderProximityResults(body, backBtn, _proximityCache); return; }
   if (_proximityRunning) {
@@ -5425,7 +5425,7 @@ function renderAnalysisDashboard() {
     body.innerHTML = `
   <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     <div style="margin-bottom:28px">
-      <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">ANALYSIS</div>
+      <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">RADAR</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
@@ -5494,7 +5494,7 @@ function renderAnalysisSubpage(id, opts={}) {
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
 
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
 
   if (id === 'ranker') {
     renderRankerSubpage();
@@ -5559,7 +5559,7 @@ function renderRegimeShiftSubpage(opts={}) {
   window.scrollTo(0, 0);
   if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'regimeshift'}, '', '/analysis/regimeshift');
   const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
 
   // Show loading state while long trades fetch if needed
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
@@ -5964,7 +5964,7 @@ function renderTopScoresSubpage(opts={}) {
   window.scrollTo(0, 0);
   if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'topscores'}, '', '/analysis/topscores');
   const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
   if (_insiderScoreCache === null) computeLeaderboardScores();
   const loading = _insiderScoreCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
@@ -5997,7 +5997,7 @@ function renderTimingLeadersSubpage(opts={}) {
   window.scrollTo(0, 0);
   if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'timing'}, '', '/analysis/timing');
   const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
   if (_timingAlphaCache === null) computeLeaderboardScores();
   const loading = _timingAlphaCache === null;
   body.innerHTML = `<div style="max-width:900px;margin:0 auto;padding:6px 20px 24px">
@@ -6030,7 +6030,7 @@ async function renderRankerSubpage(opts={}) {
   window.scrollTo(0, 0);
   if (!opts.fromPopstate) history.pushState({view:'analysis', subpage:'ranker'}, '', '/analysis/ranker');
   const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
 
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
@@ -6380,7 +6380,7 @@ async function renderExitWarningSubpage() {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const trades = _analysisData || [];
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
 
   // Show loading while fetching price highs
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading price context…</span></div></div>`;
@@ -6684,7 +6684,7 @@ const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
 async function renderFirstBuySubpage() {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
-  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← ANALYSIS</button>`;
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
 
   // Controls
   const [minGap, lookback] = [
@@ -10301,7 +10301,7 @@ function loadPremiumPage() {
       mock: screenerMockup
     },
     {
-      icon: '📊', title: 'ANALYSIS DASHBOARD',
+      icon: '📊', title: 'RADAR DASHBOARD',
       desc: 'Nine signal tools running across corporate insider activity: Opportunity Ranker, Cluster Detection, Exit Warning, Regime Shift Detector, First Buy Signals, Event Proximity — plus an Insider Scoreboard with timing alpha rankings.',
       mock: analysisMockup
     },

@@ -354,6 +354,20 @@ async function getPC(sym) {
   return null;
 }
 
+// Returns cached bars regardless of age (for stale-while-revalidate).
+async function getPCAny(sym) {
+  const m = _priceCache[sym];
+  if (m && m.bars.length > 0) return m.bars;
+  try {
+    const row = await queryOne('SELECT bars_json, fetched_at FROM price_cache WHERE symbol = ?', [sym]);
+    if (row) {
+      const bars = JSON.parse(row.bars_json);
+      if (bars.length > 0) { _priceCache[sym] = { bars, fetchedAt: row.fetched_at }; return bars; }
+    }
+  } catch(e) {}
+  return null;
+}
+
 async function setPC(sym, bars) {
   const fetchedAt = Date.now();
   _priceCache[sym] = { bars, fetchedAt };
@@ -381,14 +395,13 @@ function parseYahoo(body) {
   } catch(_) { return null; }
 }
 
-async function fetchPriceBars(sym) {
-  const cached = await getPC(sym);
-  if (cached) return cached;
-
+// Always fetch fresh bars from Yahoo and update the cache (ignores existing cache).
+const _priceRefreshInFlight = new Set();
+async function refreshPriceBars(sym) {
+  if (_priceRefreshInFlight.has(sym)) return null; // already refreshing
+  _priceRefreshInFlight.add(sym);
   const endTs   = Math.floor(Date.now() / 1000);
   const startTs = endTs - 365 * 86400;
-
-  // Try Yahoo Finance both endpoints in parallel — first valid result wins
   try {
     const bars = await Promise.any([
       httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
@@ -403,7 +416,15 @@ async function fetchPriceBars(sym) {
     return sanitized;
   } catch(_) {
     return null;
+  } finally {
+    _priceRefreshInFlight.delete(sym);
   }
+}
+
+async function fetchPriceBars(sym) {
+  const cached = await getPC(sym);
+  if (cached) return cached;
+  return refreshPriceBars(sym);
 }
 
 // ─── SCREENER ─────────────────────────────────────────────────────────────────
@@ -572,8 +593,21 @@ app.get('/api/price', async (req, res) => {
   if (req.query.bust === '1') {
     delete _priceCache[sym];
     try { await run('DELETE FROM price_cache WHERE symbol = ?', [sym]); } catch(_) {}
+    const fresh = await refreshPriceBars(sym);
+    if (!res.headersSent) res.json(fresh || []);
+    return;
   }
-  const bars = await fetchPriceBars(sym);
+  // Fresh cache hit — instant
+  const fresh = await getPC(sym);
+  if (fresh) return res.json(fresh);
+  // Stale-while-revalidate: return stale cache instantly, refresh in background
+  const stale = await getPCAny(sym);
+  if (stale) {
+    refreshPriceBars(sym).catch(() => {}); // fire-and-forget
+    return res.json(stale);
+  }
+  // Cold: no cache at all — must fetch now
+  const bars = await refreshPriceBars(sym);
   if (res.headersSent) return;
   res.json(bars || []);
 });
@@ -613,6 +647,16 @@ let _sentimentCache = null, _sentimentCacheTime = 0;
 app.get('/api/insider-sentiment', async (req, res) => {
   try {
     if (_sentimentCache && Date.now() - _sentimentCacheTime < 3600000) return res.json(_sentimentCache);
+    // Serve from precomputed cache (populated by GitHub Actions) — avoids the heavy
+    // 120-month aggregation + live S&P fetch on every cold serverless instance.
+    try {
+      const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-sentiment'");
+      if (cached && Date.now() - cached.computed_at < 6 * 3600000) {
+        _sentimentCache = JSON.parse(cached.value_json);
+        _sentimentCacheTime = cached.computed_at;
+        return res.json(_sentimentCache);
+      }
+    } catch(_) {}
     const months = 120;
     const rows = await query(`
       SELECT strftime('%Y-%m', trade_date) AS month,
