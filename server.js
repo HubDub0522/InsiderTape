@@ -12,7 +12,13 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 const RESEND_KEY     = process.env.RESEND_KEY          || '';
-const FROM_EMAIL     = process.env.FROM_EMAIL          || 'noreply@insidertape.com';
+// Sanitize FROM_EMAIL — strip wrapping quotes/whitespace and fall back if malformed.
+// Resend requires "email@domain" or "Name <email@domain>".
+const FROM_EMAIL = (() => {
+  let v = (process.env.FROM_EMAIL || '').trim().replace(/^["']|["']$/g, '').trim();
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || /^.+<[^\s@]+@[^\s@]+\.[^\s@]+>$/.test(v);
+  return valid ? v : 'InsiderTape <noreply@insidertape.com>';
+})();
 const SITE_URL       = process.env.SITE_URL            || 'https://insidertape.com';
 const STRIPE_SECRET         = process.env.STRIPE_SECRET_KEY    || '';
 const STRIPE_PRICE_MONTHLY  = process.env.STRIPE_PRICE_ID       || '';
