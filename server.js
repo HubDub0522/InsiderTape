@@ -402,7 +402,7 @@ const _priceRefreshInFlight = new Map();
 function refreshPriceBars(sym) {
   if (_priceRefreshInFlight.has(sym)) return _priceRefreshInFlight.get(sym);
   const endTs   = Math.floor(Date.now() / 1000);
-  const startTs = endTs - 365 * 86400;
+  const startTs = endTs - 1830 * 86400; // ~5 years
   const p = (async () => {
     try {
       const bars = await Promise.any([

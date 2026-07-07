@@ -394,7 +394,7 @@ async function prewarmPrices() {
       AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
     GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 150
   `);
-  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 365 * 86400;
+  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 1830 * 86400; // ~5 years
   let warmed = 0;
   for (const { ticker } of rows) {
     try {

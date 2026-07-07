@@ -2714,10 +2714,11 @@ async function loadStockView(ticker, opts={}) {
       <div class="chart-area">
         <div class="chart-controls" style="flex-wrap:wrap;gap:6px 0;">
           <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
-          <button class="tf-btn" onclick="setRange(30,this)">1M</button>
           <button class="tf-btn" onclick="setRange(90,this)">3M</button>
           <button class="tf-btn" onclick="setRange(180,this)">6M</button>
           <button class="tf-btn active" onclick="setRange(365,this)">1Y</button>
+          <button class="tf-btn" onclick="setRange(730,this)">2Y</button>
+          <button class="tf-btn" onclick="setRange(1825,this)">5Y</button>
           <div style="margin-left:auto" class="chart-legend">
             <div class="legend-item"><div class="legend-dot" style="background:var(--buy)"></div>Buy</div>
             <div class="legend-item"><div class="legend-dot" style="background:var(--sell)"></div>Sell</div>
