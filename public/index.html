@@ -399,7 +399,7 @@
   .page-btn:hover, .page-btn.active { border-color: var(--accent); color: var(--accent); }
   .page-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-  .stock-layout { display: grid; grid-template-columns: 1fr 320px; grid-template-rows: auto 1fr; gap: 0; min-height: calc(100vh - var(--header-h)); }
+  .stock-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: auto 1fr; gap: 0; min-height: calc(100vh - var(--header-h)); }
   .stock-header-bar { grid-column: 1 / -1; background: var(--bg2); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: flex-start; gap: 32px; flex-wrap: wrap; }
   .stock-ticker-big { font-family: 'Inter', sans-serif; font-size: 42px; line-height: 1; color: var(--accent); letter-spacing: 1.5px; }
   .stock-name-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
@@ -2908,8 +2908,7 @@ async function buildChart(priceData, trades) {
   const h = container.clientHeight || getChartH();
   const chart = LightweightCharts.createChart(container, {
     attributionLogo: false,
-    width: w,
-    height: h,
+    autoSize: true,
     layout:{background:{type:'solid',color:'#132440'},textColor:'#8fb0c8'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
