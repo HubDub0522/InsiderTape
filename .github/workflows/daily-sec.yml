@@ -49,3 +49,6 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          # Manual runs always do a FULL precompute (heavy aggregates + leaderboard),
+          # regardless of time of day. Scheduled runs use the once-a-day hour gate.
+          FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}

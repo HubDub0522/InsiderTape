@@ -515,7 +515,7 @@ async function main() {
   // The heavy full-history aggregates (5-year sentiment, deep first-buy scans) barely
   // change intraday and are the biggest Turso-read consumers, so run them only once
   // per day (the morning run). Everything else runs every ingestion.
-  const heavyRun = new Date().getUTCHours() <= 14;
+  const heavyRun = process.env.FORCE_FULL === '1' || new Date().getUTCHours() <= 14;
   log(`Mode: ${heavyRun ? 'FULL (heavy aggregates included)' : 'LIGHT (recent-data only)'}`);
 
   // Cleanup + prune first so caches reflect filtered, in-range data
