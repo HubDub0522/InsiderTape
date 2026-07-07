@@ -23,6 +23,19 @@ async function dbRun(sql, args = []) {
   return client.execute({ sql, args });
 }
 
+// Timing Alpha (0–100): blends 30d magnitude (diminishing past ~15%), 30d win rate,
+// and 90d durability (penalizes reversals), shrinking small samples toward neutral.
+// Must stay identical to computeTimingAlpha() in server.js.
+function computeTimingAlpha(avgRet30, avgRet90, win30Rate, tradeCount) {
+  if (avgRet30 === null || avgRet30 === undefined) return null;
+  const mag  = avgRet30 >= 0 ? 38 * (1 - Math.exp(-avgRet30 / 10)) : Math.max(-30, avgRet30 * 1.2);
+  const cons = (win30Rate !== null && win30Rate !== undefined) ? (win30Rate - 50) * 0.5 : 0;
+  const dur  = Math.max(-22, Math.min(14, (avgRet90 || 0) * 0.35));
+  let raw = 45 + mag * 0.7 + cons * 0.5 + dur;
+  raw = 45 + (raw - 45) * Math.min(1, (tradeCount || 0) / 12);
+  return Math.round(Math.max(0, Math.min(100, raw)));
+}
+
 async function computeStockLists() {
   log('Computing stock-lists...');
   const [mostActive, hotBuys, clusterBuys, freshBuys, heavySells] = await Promise.all([
@@ -490,7 +503,7 @@ async function computeInsiderLeaderboard() {
     const accuracyScore = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
     const tier = accuracyScore >= 75 ? 'ELITE' : accuracyScore >= 55 ? 'STRONG' : accuracyScore >= 35 ? 'AVERAGE' : 'WEAK';
     const win30Rate = rets30.length ? Math.round(rets30.filter(r => r > 0).length / rets30.length * 100) : null;
-    const timingAlpha = avgRet30 !== null ? Math.round(Math.min(100, Math.max(0, (avgRet30 + 10) * 5))) : null;
+    const timingAlpha = computeTimingAlpha(avgRet30, avgRet90, win30Rate, completed.length);
     const tickers3 = tickers.slice(0, 3).join(', ');
 
     if (accuracyScore >= 35) accuracy.push({ name: c.name, title: c.title || '', accuracyScore, tier, winRate, avgRet90, avgRet30, tradeCount: completed.length, tickers: tickers3 });
@@ -503,7 +516,7 @@ async function computeInsiderLeaderboard() {
     }
   }
   accuracy.sort((a, b) => b.accuracyScore - a.accuracyScore);
-  timing.sort((a, b) => b.avgRet30 - a.avgRet30);
+  timing.sort((a, b) => b.timingAlpha - a.timingAlpha);
   await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-leaderboard', ?, ?)`, [JSON.stringify({ accuracy, timing }), Date.now()]);
   log(`insider-leaderboard cached: ${accuracy.length} accuracy, ${timing.length} timing`);
 }

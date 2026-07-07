@@ -1125,6 +1125,23 @@ app.get('/api/insider-leaderboard', async (req, res) => {
 });
 
 // ─── INSIDER SCORE ────────────────────────────────────────────────────────────
+// Timing Alpha (0–100): how reliably a stock rises shortly after this insider buys.
+// Blends three factors instead of the old single-metric formula that saturated at 100:
+//   • Magnitude  — average 30-day return, with diminishing returns past ~15% so a
+//                  couple of small-cap moonshots don't peg everyone at 100.
+//   • Consistency— 30-day win rate (how often buys were up), centered at 50%.
+//   • Durability — 90-day return, which penalizes "pop then reverse" patterns.
+// Small samples are shrunk toward a neutral 45 so 4-trade records aren't over-trusted.
+function computeTimingAlpha(avgRet30, avgRet90, win30Rate, tradeCount) {
+  if (avgRet30 === null || avgRet30 === undefined) return null;
+  const mag  = avgRet30 >= 0 ? 38 * (1 - Math.exp(-avgRet30 / 10)) : Math.max(-30, avgRet30 * 1.2);
+  const cons = (win30Rate !== null && win30Rate !== undefined) ? (win30Rate - 50) * 0.5 : 0;
+  const dur  = Math.max(-22, Math.min(14, (avgRet90 || 0) * 0.35));
+  let raw = 45 + mag * 0.7 + cons * 0.5 + dur;
+  raw = 45 + (raw - 45) * Math.min(1, (tradeCount || 0) / 12);
+  return Math.round(Math.max(0, Math.min(100, raw)));
+}
+
 const _insiderScoreCache = new Map();
 const INSIDER_SCORE_TTL = 30 * 60000;
 
@@ -1180,7 +1197,7 @@ app.get('/api/insider-score', async (req, res) => {
     const accuracyScore = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
     const tier = accuracyScore >= 75 ? 'ELITE' : accuracyScore >= 55 ? 'STRONG' : accuracyScore >= 35 ? 'AVERAGE' : 'WEAK';
     const win30Rate = rets30.length ? Math.round(rets30.filter(r => r > 0).length / rets30.length * 100) : null;
-    const timingAlpha = avgRet30 !== null ? Math.round(Math.min(100, Math.max(0, (avgRet30 + 10) * 5))) : null;
+    const timingAlpha = computeTimingAlpha(avgRet30, avgRet90, win30Rate, completed.length);
 
     const payload = { name, winRate, avgRet90, avgRet30, win30Rate, tradeCount: completed.length, accuracyScore, timingAlpha, tier, tickers: tickers.slice(0, 3).join(', ') };
     _insiderScoreCache.set(ck, { data: payload, t: Date.now() });
