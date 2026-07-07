@@ -396,29 +396,34 @@ function parseYahoo(body) {
 }
 
 // Always fetch fresh bars from Yahoo and update the cache (ignores existing cache).
-const _priceRefreshInFlight = new Set();
-async function refreshPriceBars(sym) {
-  if (_priceRefreshInFlight.has(sym)) return null; // already refreshing
-  _priceRefreshInFlight.add(sym);
+// Concurrent callers for the same symbol share one in-flight promise so nobody
+// gets a null just because another request was already fetching it.
+const _priceRefreshInFlight = new Map();
+function refreshPriceBars(sym) {
+  if (_priceRefreshInFlight.has(sym)) return _priceRefreshInFlight.get(sym);
   const endTs   = Math.floor(Date.now() / 1000);
   const startTs = endTs - 365 * 86400;
-  try {
-    const bars = await Promise.any([
-      httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
-        .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
-      httpGet(`https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
-        .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
-    ]);
-    const sanitized = bars
-      .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
-      .filter((b, i, arr) => i === 0 || b.time !== arr[i - 1].time);
-    await setPC(sym, sanitized);
-    return sanitized;
-  } catch(_) {
-    return null;
-  } finally {
-    _priceRefreshInFlight.delete(sym);
-  }
+  const p = (async () => {
+    try {
+      const bars = await Promise.any([
+        httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
+          .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
+        httpGet(`https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&period1=${startTs}&period2=${endTs}`, 10000)
+          .then(({ status, body }) => { if (status !== 200) throw new Error('404'); const b = parseYahoo(body); if (!b) throw new Error('no data'); return b; }),
+      ]);
+      const sanitized = bars
+        .sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))
+        .filter((b, i, arr) => i === 0 || b.time !== arr[i - 1].time);
+      await setPC(sym, sanitized);
+      return sanitized;
+    } catch(_) {
+      return null;
+    } finally {
+      _priceRefreshInFlight.delete(sym);
+    }
+  })();
+  _priceRefreshInFlight.set(sym, p);
+  return p;
 }
 
 async function fetchPriceBars(sym) {
@@ -813,23 +818,19 @@ app.get('/api/monitor-sentiment', async (req, res) => {
 const _firstBuysCache = new Map();
 app.get('/api/firstbuys', async (req, res) => {
   try {
-    const minGapDays   = parseInt(req.query.mingap   || '180');
+    const minGapDays   = parseInt(req.query.mingap   || '365');
     const lookbackDays = parseInt(req.query.lookback || '90');
     const limit        = parseInt(req.query.limit    || '100');
 
-    // Serve from computed_cache for known param sets pre-computed by GitHub Actions
-    const cacheKey = minGapDays === 730 && lookbackDays === 92 && limit === 100 ? 'firstbuys-monitor'
-                   : minGapDays === 180 && lookbackDays === 90 && limit === 100  ? 'firstbuys'
+    // Standard tiles are served entirely from precomputed cache — the live CTE is
+    // too heavy for a serverless request and was timing out.
+    const cacheKey = (minGapDays === 730 && lookbackDays === 92) ? 'firstbuys-monitor'
+                   : (minGapDays === 365 && lookbackDays === 90) ? 'firstbuys'
                    : null;
     if (cacheKey) {
-      const cached = await queryOne(`SELECT value_json, computed_at FROM computed_cache WHERE key = '${cacheKey}'`);
-      if (cached && Date.now() - cached.computed_at < 4 * 3600000) return res.json(JSON.parse(cached.value_json));
-    }
-    if (minGapDays === 180 && lookbackDays === 90 && limit === 100) {
-      const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'firstbuys'");
-      if (cached && Date.now() - cached.computed_at < 4 * 3600000) {
-        return res.json(JSON.parse(cached.value_json));
-      }
+      const cached = await queryOne('SELECT value_json FROM computed_cache WHERE key = ?', [cacheKey]);
+      if (cached) return res.json(JSON.parse(cached.value_json));
+      return res.json([]); // not computed yet — client falls back gracefully
     }
     const fbKey = `${minGapDays}|${lookbackDays}|${limit}`;
     const fbCached = _firstBuysCache.get(fbKey);
@@ -1111,6 +1112,16 @@ app.get('/api/scoreboard', async (req, res) => {
     }
     res.json(_sbCandidatesCache.data);
   } catch(e) { res.status(500).json({ error: e.message, candidates: [] }); }
+});
+
+// Pre-scored leaderboard (Top Insider Scores + Best Timing) — served from cache
+// so the client never has to score dozens of insiders live (which was timing out).
+app.get('/api/insider-leaderboard', async (req, res) => {
+  try {
+    const cached = await queryOne("SELECT value_json FROM computed_cache WHERE key = 'insider-leaderboard'");
+    if (cached) return res.json(JSON.parse(cached.value_json));
+    return res.json({ accuracy: [], timing: [], computing: true });
+  } catch(e) { res.status(500).json({ error: e.message, accuracy: [], timing: [] }); }
 });
 
 // ─── INSIDER SCORE ────────────────────────────────────────────────────────────

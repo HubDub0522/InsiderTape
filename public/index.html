@@ -5782,10 +5782,24 @@ async function scoreInsiderLikeProfile(name) {
 }
 
 async function computeLeaderboardScores() {
-  // Pulls per-insider scores from /api/insider-score — the SAME endpoint the
-  // profile page uses. Scores on the analysis leaderboard are guaranteed to
-  // match the scores shown on each insider's profile exactly, because they
-  // come from the same code path.
+  // The leaderboard is now pre-scored server-side (GitHub Actions) and served from
+  // cache via /api/insider-leaderboard. This replaces the old per-insider scoring
+  // loop that made dozens of /api/insider-score calls and timed out at scale.
+  try {
+    const data = await apiFetch('/api/insider-leaderboard');
+    _insiderScoreCache = Array.isArray(data.accuracy) ? data.accuracy : [];
+    _timingAlphaCache  = Array.isArray(data.timing)   ? data.timing   : [];
+    updateLeaderboardUI(true);
+    return;
+  } catch(e) {
+    console.warn('leaderboard fetch failed:', e);
+    if (_insiderScoreCache === null) _insiderScoreCache = [];
+    if (_timingAlphaCache  === null) _timingAlphaCache  = [];
+    updateLeaderboardUI(true);
+    return;
+  }
+
+  // ---- legacy per-insider scoring (unreachable, kept for reference) ----
   try {
     const data = await apiFetch('/api/scoreboard');
     const candidates = Array.isArray(data.candidates) ? data.candidates : [];
@@ -5796,7 +5810,6 @@ async function computeLeaderboardScores() {
       return;
     }
 
-    // Seed the caches as empty arrays (not null) so tiles stop showing "…"
     _insiderScoreCache = [];
     _timingAlphaCache  = [];
     updateLeaderboardUI();

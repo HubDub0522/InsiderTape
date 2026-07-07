@@ -89,7 +89,8 @@ async function ensureComputedCacheTable() {
 
 async function computeFirstBuys() {
   log('Computing first-buys...');
-  const lookbackDays = 90, minGapDays = 180, limit = 100;
+  // Match the Radar tile's request (365-day gap, 90-day lookback)
+  const lookbackDays = 90, minGapDays = 365, limit = 100;
   const rows = await dbQuery(`
     WITH recent_buys AS (
       SELECT DISTINCT insider, ticker FROM trades
@@ -406,6 +407,107 @@ async function prune5yr() {
   if (r.rowsAffected) log(`Pruned ${r.rowsAffected} trades older than 5 years`);
 }
 
+// Pre-score the insider leaderboard (Top Insider Scores + Best Timing Insiders).
+// This replaces the client's slow per-insider scoring loop (which was timing out).
+async function computeInsiderLeaderboard() {
+  log('Computing insider leaderboard...');
+  const candidates = await dbQuery(`
+    SELECT insider AS name, MAX(title) AS title, COUNT(*) AS total_buys
+    FROM trades WHERE insider IS NOT NULL AND TRIM(type)='P' AND price > 0
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND insider IN (
+        SELECT DISTINCT insider FROM trades
+        WHERE TRIM(type)='P' AND price > 0 AND COALESCE(value,0) >= 10000
+          AND trade_date >= date('now','-90 days')
+      )
+    GROUP BY insider HAVING total_buys >= 4 ORDER BY MAX(value) DESC LIMIT 80
+  `);
+  if (!candidates.length) {
+    await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-leaderboard', ?, ?)`, [JSON.stringify({ accuracy: [], timing: [] }), Date.now()]);
+    log('insider-leaderboard: no candidates'); return;
+  }
+
+  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 3 * 365 * 86400; // 3yr of bars for forward returns
+  const priceCache = {};
+  async function getBars(ticker) {
+    if (priceCache[ticker] !== undefined) return priceCache[ticker];
+    try {
+      const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (resp.ok) {
+        const d = await resp.json(); const r = d?.chart?.result?.[0];
+        if (r?.timestamp) {
+          const q = r.indicators.quote[0];
+          priceCache[ticker] = r.timestamp.map((t, i) => ({ time: new Date(t * 1000).toISOString().slice(0, 10), close: q.close?.[i] || 0 })).filter(b => b.close > 0);
+          await new Promise(rr => setTimeout(rr, 100));
+          return priceCache[ticker];
+        }
+      }
+    } catch(_) {}
+    priceCache[ticker] = null;
+    await new Promise(rr => setTimeout(rr, 100));
+    return null;
+  }
+
+  const CAP = 100, cap = r => Math.max(-CAP, Math.min(CAP, r));
+  const today = new Date().toISOString().slice(0, 10);
+  const addDays = (ds, n) => { const d = new Date(ds + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+
+  const accuracy = [], timing = [];
+  for (const c of candidates) {
+    const rows = await dbQuery(`
+      SELECT ticker, trade_date AS trade, COALESCE(price,0) AS price
+      FROM trades WHERE UPPER(insider) LIKE UPPER(?) AND TRIM(type)='P' AND price > 0
+      ORDER BY trade_date DESC LIMIT 500`, [c.name]);
+    if (rows.length < 4) continue;
+    const tickers = [...new Set(rows.map(r => r.ticker))];
+    for (const t of tickers) await getBars(t);
+
+    const scored = rows.map(t => {
+      const bars = priceCache[t.ticker];
+      if (!bars || !bars.length) return null;
+      const buyDate = t.trade.slice(0, 10);
+      const buyPrice = t.price || bars.find(b => b.time >= buyDate)?.close || 0;
+      if (!buyPrice) return null;
+      if (today < addDays(buyDate, 90)) return null;
+      const barMap = {}; bars.forEach(b => { barMap[b.time] = b.close; });
+      const priceOn = ds => { for (let d = 0; d <= 5; d++) { const s = addDays(ds, d); if (barMap[s] != null) return barMap[s]; } return null; };
+      const p30 = priceOn(addDays(buyDate, 30)), p90 = priceOn(addDays(buyDate, 90));
+      return { ret30: p30 ? cap((p30 - buyPrice) / buyPrice * 100) : null, ret90: p90 ? cap((p90 - buyPrice) / buyPrice * 100) : null };
+    }).filter(Boolean);
+
+    const completed = scored.filter(s => s.ret90 !== null);
+    if (completed.length < 4) continue;
+    const rets90 = completed.map(s => s.ret90), rets30 = completed.filter(s => s.ret30 !== null).map(s => s.ret30);
+    const winRate = Math.round(rets90.filter(r => r > 0).length / rets90.length * 100);
+    const avgRet90 = +(rets90.reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
+    const avgRet30 = rets30.length ? +(rets30.reduce((a, b) => a + b, 0) / rets30.length).toFixed(1) : null;
+    const avgMag = +(rets90.map(Math.abs).reduce((a, b) => a + b, 0) / rets90.length).toFixed(1);
+    const median = [...rets90].sort((a, b) => a - b)[Math.floor(rets90.length / 2)];
+    const consist = Math.round(Math.min(100, Math.max(0, (median / Math.max(avgMag, 1) + 1) * 50)));
+    const timingAvg30 = rets30.length ? rets30.reduce((a, b) => a + b, 0) / rets30.length : 0;
+    const timingBonus = Math.round(Math.min(20, Math.max(0, (timingAvg30 + 8) / 16 * 20)));
+    const baseScore = winRate * 0.40 + Math.min(35, Math.max(0, avgRet90 / 20 * 35)) + consist * 0.15 + Math.min(10, completed.length * 1.2);
+    const accuracyScore = Math.round(Math.min(100, Math.max(0, baseScore * 0.80 + timingBonus)));
+    const tier = accuracyScore >= 75 ? 'ELITE' : accuracyScore >= 55 ? 'STRONG' : accuracyScore >= 35 ? 'AVERAGE' : 'WEAK';
+    const win30Rate = rets30.length ? Math.round(rets30.filter(r => r > 0).length / rets30.length * 100) : null;
+    const timingAlpha = avgRet30 !== null ? Math.round(Math.min(100, Math.max(0, (avgRet30 + 10) * 5))) : null;
+    const tickers3 = tickers.slice(0, 3).join(', ');
+
+    if (accuracyScore >= 35) accuracy.push({ name: c.name, title: c.title || '', accuracyScore, tier, winRate, avgRet90, avgRet30, tradeCount: completed.length, tickers: tickers3 });
+    if (avgRet30 !== null) {
+      const verdict = avgRet30 >= 8 ? 'Buys trigger immediate upward moves'
+                    : avgRet30 >= 3 ? 'Above-average short-term reaction'
+                    : avgRet30 >= 0 ? 'Mixed short-term price reaction'
+                    : 'Buys often followed by weakness';
+      timing.push({ name: c.name, title: c.title || '', timingAlpha, avgRet30, avgRet90, win30Rate, verdict, tradeCount: completed.length, tickers: tickers3 });
+    }
+  }
+  accuracy.sort((a, b) => b.accuracyScore - a.accuracyScore);
+  timing.sort((a, b) => b.avgRet30 - a.avgRet30);
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-leaderboard', ?, ?)`, [JSON.stringify({ accuracy, timing }), Date.now()]);
+  log(`insider-leaderboard cached: ${accuracy.length} accuracy, ${timing.length} timing`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
@@ -433,6 +535,7 @@ async function main() {
   if (heavyRun) {
     await computeInsiderSentiment();
     await computeFirstBuys();
+    await computeInsiderLeaderboard();
   }
 
   // Price pre-warm runs last (longest — many external Yahoo calls, no Turso reads)
