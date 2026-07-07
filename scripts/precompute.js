@@ -384,6 +384,17 @@ async function computeInsiderSentiment() {
   log(`insider-sentiment cached: ${smoothed.length} months, ${spxData.length} S&P points`);
 }
 
+// One-time: clear the old 1-year price cache so everything refetches at 5 years.
+// Guarded by a marker so it only runs once, not every cycle.
+async function migratePriceCacheTo5yr() {
+  await client.execute(`CREATE TABLE IF NOT EXISTS price_cache (symbol TEXT PRIMARY KEY, bars_json TEXT NOT NULL, fetched_at INTEGER NOT NULL)`);
+  const marker = await dbQuery("SELECT 1 AS n FROM computed_cache WHERE key = 'price_5yr_migrated'");
+  if (marker.length) return;
+  await dbRun("DELETE FROM price_cache");
+  await dbRun("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('price_5yr_migrated', '1', ?)", [Date.now()]);
+  log('Cleared price cache for one-time 5-year migration');
+}
+
 // Pre-warm the price cache for the most-active tickers so their charts load instantly
 async function prewarmPrices() {
   log('Pre-warming price cache...');
@@ -552,6 +563,7 @@ async function main() {
   }
 
   // Price pre-warm runs last (longest — many external Yahoo calls, no Turso reads)
+  await migratePriceCacheTo5yr();
   await prewarmPrices();
   log('=== precompute done ===');
 }
