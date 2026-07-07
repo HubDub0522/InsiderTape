@@ -3325,7 +3325,12 @@ function setRange(days,btn) {
     const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - days);
     const cutStr = cutoff.toISOString().split('T')[0];
     visible = all.filter(d => d.time >= cutStr);
-    if (visible.length > 0) {
+    // If the requested window covers (nearly) all available data — e.g. 5Y on a
+    // 5-year dataset — fitContent is more reliable than a computed setVisibleRange.
+    if (visible.length >= all.length - 2) {
+      state.chart.timeScale().fitContent();
+      visible = all;
+    } else if (visible.length > 0) {
       try {
         // LightweightCharts requires epoch seconds (not date strings) when timeVisible:true
         const fromTs = Math.floor(new Date(visible[0].time + 'T00:00:00Z').getTime() / 1000);
