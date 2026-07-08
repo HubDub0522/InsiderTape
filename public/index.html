@@ -10539,19 +10539,19 @@ async function loadAccountPage() {
       <div style="font-family:Inter,sans-serif;font-size:32px;letter-spacing:3px;color:var(--text);margin-bottom:32px">MY ACCOUNT</div>
 
       <!-- Account info -->
-      <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">ACCOUNT</div>
         <div style="font-size:14px;color:var(--text);margin-bottom:4px">${auth.email}</div>
         <div style="font-size:11px;color:var(--muted)">Email account</div>
       </div>
 
       <!-- Plan -->
-      <div style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">PLAN</div>
         ${userIsPremium ? `
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
             <span style="font-size:14px;color:var(--text);font-weight:700">Premium</span>
-            <span style="font-size:9px;color:var(--accent);border:1px solid var(--accent)44;border-radius:3px;padding:2px 8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">ACTIVE</span>
+            <span style="font-size:9px;color:var(--accent);border:1px solid var(--accent);background:var(--accent)18;border-radius:3px;padding:2px 8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">ACTIVE</span>
           </div>
           <a href="/api/stripe/portal" style="display:inline-block;border:1px solid var(--border);border-radius:8px;padding:10px 20px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;color:var(--muted);text-decoration:none;cursor:pointer">Manage billing / Cancel →</a>
         ` : `
@@ -10561,7 +10561,7 @@ async function loadAccountPage() {
       </div>
 
       <!-- Email Alerts -->
-      <div id="alertsCard" style="background:#0d1421;border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px;position:relative">
+      <div id="alertsCard" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px;position:relative">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;letter-spacing:2px;color:var(--muted);margin-bottom:20px">EMAIL ALERTS</div>
         <div id="alertsBody">
           <div style="font-size:12px;color:var(--muted)">Loading alert settings…</div>
@@ -10588,11 +10588,11 @@ async function loadAlertPrefs() {
         <div style="filter:blur(3px);pointer-events:none;opacity:0.4;user-select:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
             <div style="font-size:12px;color:var(--muted)">Signal types · Sector · Role · Min value</div>
-            <div style="width:40px;height:22px;border-radius:11px;background:#1e2d3d"></div>
+            <div style="width:40px;height:22px;border-radius:11px;background:var(--border2)"></div>
           </div>
-          <div style="height:180px;background:#080b0f;border-radius:8px"></div>
+          <div style="height:180px;background:var(--bg3);border-radius:8px"></div>
         </div>
-        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border-radius:12px;background:rgba(8,11,15,0.6);backdrop-filter:blur(1px)">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;border-radius:12px;background:rgba(240,242,245,0.6);backdrop-filter:blur(1px)">
           <div style="font-size:13px;color:var(--muted);text-align:center;line-height:1.7;max-width:300px">
             Get notified within minutes of a CEO buying $500K+ in their own stock.<br>Filter by sector, role, and signal type.
           </div>
@@ -10661,8 +10661,8 @@ function renderAlertPrefs(p) {
         <div style="font-size:13px;color:var(--text);font-weight:600">Alerts ${enabled ? '<span style="font-size:10px;color:var(--accent);margin-left:6px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">ON</span>' : '<span style="font-size:10px;color:var(--muted);margin-left:6px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">OFF</span>'}</div>
 
       </div>
-      <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:${enabled?'var(--accent)':'#1e2d3d'};cursor:pointer;position:relative;transition:background 0.2s">
-        <div id="alertToggleKnob" style="position:absolute;top:3px;left:${enabled?'21':'3'}px;width:16px;height:16px;border-radius:50%;background:${enabled?'#000':'#4a6580'};transition:all 0.2s"></div>
+      <div id="alertToggle" onclick="toggleAlerts()" style="width:40px;height:22px;border-radius:11px;background:${enabled?'var(--accent)':'var(--border2)'};cursor:pointer;position:relative;transition:background 0.2s">
+        <div id="alertToggleKnob" style="position:absolute;top:3px;left:${enabled?'21':'3'}px;width:16px;height:16px;border-radius:50%;background:${enabled?'#fff':'var(--muted)'};transition:all 0.2s"></div>
       </div>
     </div>
 
