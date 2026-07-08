@@ -140,61 +140,193 @@ async function computeFirstBuys() {
   log(`first-buys cached: ${rows.length} results`);
 }
 
+// ── Yahoo earnings-calendar access ────────────────────────────────────────────
+// The chart API used for prices is unauthenticated, but earnings dates live behind
+// quoteSummary, which requires a crumb + session cookie. Resolve them once per run.
+const YF_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+let _yfAuth; // undefined = not tried, null = failed, {crumb,cookie} = ok
+async function getYahooAuth() {
+  if (_yfAuth !== undefined) return _yfAuth;
+  try {
+    const readCookies = (r) => (typeof r.headers.getSetCookie === 'function' ? r.headers.getSetCookie() : [])
+      .map(c => c.split(';')[0]).join('; ');
+    let cookie = readCookies(await fetch('https://fc.yahoo.com', { headers: { 'User-Agent': YF_UA } }));
+    if (!cookie) cookie = readCookies(await fetch('https://finance.yahoo.com', { headers: { 'User-Agent': YF_UA } }));
+    const r2 = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { 'User-Agent': YF_UA, 'Cookie': cookie },
+    });
+    const crumb = (await r2.text()).trim();
+    if (crumb && crumb.length < 40 && !crumb.includes('<')) {
+      _yfAuth = { crumb, cookie };
+      log('yahoo auth ok (earnings crumb acquired)');
+      return _yfAuth;
+    }
+    log('yahoo auth: unexpected crumb response');
+  } catch (e) { log('yahoo auth failed: ' + e.message); }
+  _yfAuth = null;
+  return _yfAuth;
+}
+
+// Returns { next:'YYYY-MM-DD'|null, past:['YYYY-MM-DD',...] } or null on failure.
+// `past` holds fiscal quarter-END dates (announcements land ~40 days later).
+async function fetchEarningsFromYahoo(ticker) {
+  const auth = await getYahooAuth();
+  if (!auth) return null;
+  try {
+    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}`
+      + `?modules=calendarEvents,earningsHistory&crumb=${encodeURIComponent(auth.crumb)}`;
+    const resp = await fetch(url, { headers: { 'User-Agent': YF_UA, 'Cookie': auth.cookie } });
+    if (!resp.ok) return null;
+    const d = await resp.json();
+    const res = d?.quoteSummary?.result?.[0];
+    if (!res) return null;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const dates = (res.calendarEvents?.earnings?.earningsDate || [])
+      .map(e => e?.raw).filter(Boolean)
+      .map(ts => new Date(ts * 1000).toISOString().slice(0, 10)).sort();
+    const next = dates.find(d => d >= todayStr) || dates[dates.length - 1] || null;
+    const past = (res.earningsHistory?.history || []).map(h => h.quarter?.fmt).filter(Boolean);
+    return { next, past };
+  } catch (e) { return null; }
+}
+
+async function ensureEarningsCacheTable() {
+  await dbRun(`CREATE TABLE IF NOT EXISTS earnings_cache (
+    ticker TEXT PRIMARY KEY, next_date TEXT, past_json TEXT, fetched_at INTEGER
+  )`);
+}
+
+// Add ~40 days to a fiscal quarter-end so it approximates the announcement date.
+function quarterEndToAnnounce(qEndStr) {
+  const d = new Date(qEndStr + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 40);
+  return d.toISOString().slice(0, 10);
+}
+
 async function computeProximity() {
   log('Computing proximity...');
-  const today = new Date().toISOString().slice(0, 10);
-  const since = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
+  await ensureEarningsCacheTable();
+  const now = Date.now();
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const since = new Date(now - 180 * 86400000).toISOString().slice(0, 10);
 
   const rows = await dbQuery(`
     SELECT t.ticker, t.company, t.insider, t.title,
-           t.trade_date AS buyDate, t.value AS buyVal, t.filing_date
+           t.trade_date AS buyDate, t.value AS buyVal
     FROM trades t
     WHERE TRIM(t.type)='P'
-      AND t.trade_date >= '${since}' AND t.trade_date <= '${today}'
+      AND t.trade_date >= '${since}' AND t.trade_date <= '${todayStr}'
       AND t.ticker GLOB '[A-Z]*' AND LENGTH(t.ticker) BETWEEN 1 AND 6
       AND t.value > 0
     ORDER BY t.trade_date DESC LIMIT 400
   `);
 
-  // Simple proximity: estimate earnings ~45 days after quarter end
-  function estimateNextEarnings(buyDate) {
-    const d = new Date(buyDate + 'T12:00:00Z');
-    const yr = d.getUTCFullYear();
-    const qEnds = [
-      new Date(Date.UTC(yr, 2, 31)), new Date(Date.UTC(yr, 5, 30)),
-      new Date(Date.UTC(yr, 8, 30)), new Date(Date.UTC(yr, 11, 31)),
-      new Date(Date.UTC(yr+1, 2, 31)),
-    ];
-    const nextQEnd = qEnds.find(e => e > d);
-    if (!nextQEnd) return null;
-    const est = new Date(nextQEnd);
-    est.setUTCDate(est.getUTCDate() + 45);
-    return est.toISOString().slice(0, 10);
-  }
-
-  const results = [], seen = new Set();
+  // Most recent buy per insider+ticker → candidate signals
+  const candidates = [], seen = new Set();
   for (const row of rows) {
     const key = `${row.ticker}|${row.insider}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const estDate = estimateNextEarnings(row.buyDate);
-    if (!estDate) continue;
-    const daysTo = Math.round((new Date(estDate + 'T12:00:00Z') - new Date()) / 86400000);
+    candidates.push(row);
+  }
+  const tickers = [...new Set(candidates.map(c => c.ticker))];
+
+  // Full buy history for these tickers (for repeat-pattern detection)
+  const buyHistory = {}; // 'ticker|insider' -> [buyDate,...]
+  if (tickers.length) {
+    const ph = tickers.map(() => '?').join(',');
+    const histRows = await dbQuery(
+      `SELECT ticker, insider, trade_date AS buyDate FROM trades
+       WHERE TRIM(type)='P' AND value > 0 AND ticker IN (${ph})`, tickers);
+    for (const h of histRows) {
+      const k = `${h.ticker}|${h.insider}`;
+      (buyHistory[k] || (buyHistory[k] = [])).push(h.buyDate);
+    }
+  }
+
+  // Earnings dates per ticker (Yahoo, cached 7 days). Only stale/new tickers hit Yahoo.
+  const EARN_TTL = 7 * 86400000;
+  const earningsByTicker = {};
+  let fetched = 0;
+  for (const tk of tickers) {
+    let cached = (await dbQuery(
+      'SELECT next_date, past_json, fetched_at FROM earnings_cache WHERE ticker = ?', [tk]))[0];
+    if (!cached || (now - (cached.fetched_at || 0)) > EARN_TTL) {
+      const e = await fetchEarningsFromYahoo(tk);
+      if (e) {
+        await dbRun('INSERT OR REPLACE INTO earnings_cache (ticker,next_date,past_json,fetched_at) VALUES (?,?,?,?)',
+          [tk, e.next || null, JSON.stringify(e.past || []), now]);
+        cached = { next_date: e.next, past_json: JSON.stringify(e.past || []) };
+      } else if (!cached) {
+        await dbRun('INSERT OR REPLACE INTO earnings_cache (ticker,next_date,past_json,fetched_at) VALUES (?,?,?,?)',
+          [tk, null, '[]', now]);
+        cached = { next_date: null, past_json: '[]' };
+      }
+      fetched++;
+      await new Promise(r => setTimeout(r, 150)); // gentle on Yahoo
+    }
+    let past = []; try { past = JSON.parse(cached.past_json || '[]'); } catch (_) {}
+    earningsByTicker[tk] = { next: cached.next_date || null, past };
+  }
+  log(`proximity: earnings for ${tickers.length} tickers (${fetched} fetched, rest cached)`);
+
+  // Fallback: estimate next earnings ~45 days after the next quarter end
+  function estimateNextEarnings(fromStr) {
+    const d = new Date(fromStr + 'T12:00:00Z');
+    const yr = d.getUTCFullYear();
+    const qEnds = [Date.UTC(yr,2,31), Date.UTC(yr,5,30), Date.UTC(yr,8,30), Date.UTC(yr,11,31), Date.UTC(yr+1,2,31)]
+      .map(ms => new Date(ms));
+    const nextQEnd = qEnds.find(e => e > d);
+    if (!nextQEnd) return null;
+    const est = new Date(nextQEnd); est.setUTCDate(est.getUTCDate() + 45);
+    return est.toISOString().slice(0, 10);
+  }
+
+  const results = [];
+  for (const c of candidates) {
+    const earn = earningsByTicker[c.ticker] || { next: null, past: [] };
+    const confirmed = !!earn.next && earn.next >= todayStr;
+    const nextDate = confirmed ? earn.next : estimateNextEarnings(todayStr);
+    if (!nextDate) continue;
+    const daysTo = Math.round((new Date(nextDate + 'T12:00:00Z') - now) / 86400000);
     if (daysTo < 0 || daysTo > 180) continue;
-    const isCsuite = /\b(CEO|CFO|COO|CTO|President|Chairman)\b/i.test(row.title || '');
-    let score = daysTo <= 7 ? 40 : daysTo <= 14 ? 28 : daysTo <= 30 ? 18 : 10;
-    score += 10; // quarterly event
-    if (isCsuite) score += 8;
-    if ((row.buyVal || 0) >= 5000000) score += 12;
-    else if ((row.buyVal || 0) >= 1000000) score += 8;
-    else if ((row.buyVal || 0) >= 500000) score += 5;
+
+    const isCsuite   = /\b(CEO|CFO|COO|CTO|President|Chair(man)?)\b/i.test(c.title || '');
+    const isDirector = /\bdirector\b/i.test(c.title || '');
+    const insiderRole = isCsuite || isDirector;
+
+    // Repeat pattern: 2+ prior buys by this insider landed shortly before an earnings
+    // event. Uses real past quarters (shifted to announce dates) plus estimated windows.
+    const priorBuys = (buyHistory[`${c.ticker}|${c.insider}`] || []).filter(d => d < c.buyDate);
+    const knownEvents = earn.past.map(quarterEndToAnnounce);
+    priorBuys.forEach(b => { const e = estimateNextEarnings(b); if (e) knownEvents.push(e); });
+    let priorHits = 0;
+    for (const b of priorBuys) {
+      const bt = new Date(b + 'T12:00:00Z').getTime();
+      if (knownEvents.some(ev => { const diff = (new Date(ev + 'T12:00:00Z').getTime() - bt) / 86400000; return diff >= 0 && diff <= 30; }))
+        priorHits++;
+    }
+    const repeatPattern = priorHits >= 2;
+
+    // Abnormal: near a CONFIRMED earnings date — 21d for anyone, 45d for an insider role.
+    const isAbnormal = confirmed && (daysTo <= 21 || (insiderRole && daysTo <= 45));
+
+    let score = daysTo <= 7 ? 40 : daysTo <= 14 ? 30 : daysTo <= 21 ? 22 : daysTo <= 45 ? 14 : 8;
+    if (confirmed) score += 10;
+    if (isCsuite)  score += 8;
+    if ((c.buyVal||0) >= 5000000) score += 12;
+    else if ((c.buyVal||0) >= 1000000) score += 8;
+    else if ((c.buyVal||0) >= 500000) score += 5;
+    if (repeatPattern) score += 12;
+    if (isAbnormal)    score += 8;
     score = Math.min(100, score);
+
     results.push({
-      ticker: row.ticker, company: row.company || row.ticker,
-      insider: row.insider || '—', title: row.title || '—',
-      buyDate: row.buyDate, buyVal: row.buyVal || 0, buyValue: row.buyVal || 0,
-      nextEvent: { date: estDate, type: 'QUARTERLY', label: 'Est. Earnings', predicted: true, confirmed: false, daysToFromToday: daysTo },
-      daysTo, score, isAbnormal: false, repeatPattern: false,
+      ticker: c.ticker, company: c.company || c.ticker,
+      insider: c.insider || '—', title: c.title || '—',
+      buyDate: c.buyDate, buyVal: c.buyVal || 0, buyValue: c.buyVal || 0,
+      nextEvent: { date: nextDate, type: 'EARNINGS', label: 'Earnings', predicted: !confirmed, confirmed, daysToFromToday: daysTo },
+      daysTo, score, isAbnormal, repeatPattern,
     });
   }
   results.sort((a, b) => b.score - a.score);
@@ -202,7 +334,7 @@ async function computeProximity() {
     `INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('proximity', ?, ?)`,
     [JSON.stringify(results), Date.now()]
   );
-  log(`proximity cached: ${results.length} results`);
+  log(`proximity cached: ${results.length} results (${results.filter(r=>r.nextEvent.confirmed).length} confirmed, ${results.filter(r=>r.isAbnormal).length} abnormal, ${results.filter(r=>r.repeatPattern).length} repeat)`);
 }
 
 async function computeMonitorSentiment() {

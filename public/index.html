@@ -2115,7 +2115,7 @@ function proxFilter(type) {
   if (type === 'abnormal') {
     filtered = results.filter(r => r.isAbnormal);
     sectionTitle = '⚠️ ABNORMAL TIMING FLAGS';
-    sectionSubtitle = `${filtered.length} C-suite or Director buy${filtered.length!==1?'s':''} within 30 days of est. earnings`;
+    sectionSubtitle = `${filtered.length} buy${filtered.length!==1?'s':''} close to confirmed earnings (≤21d, or an insider role ≤45d)`;
     sectionColor = 'var(--sell)';
   } else if (type === 'imminent') {
     filtered = results.filter(r => r.daysTo <= 21);
@@ -2183,7 +2183,7 @@ function proxFilter(type) {
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
         <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal||r.buyValue||0)}</span></div>
-        <div style="font-size:10px;color:var(--muted)">Est. earnings in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
+        <div style="font-size:10px;color:var(--muted)">${r.nextEvent?.confirmed?'Earnings':'Est. earnings'} in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
       </div>
     </div>`;
   };
@@ -2265,6 +2265,12 @@ function _renderProximityResults(body, backBtn, results) {
     </div>`;
     return;
   }
+
+  // Decorate each signal with presentation fields the cards expect
+  results.forEach(r => {
+    r.proximityColor = r.daysTo <= 14 ? 'var(--sell)' : r.daysTo <= 30 ? 'var(--option)' : r.daysTo <= 60 ? 'var(--accent)' : 'var(--muted)';
+    if (!r.allUpcoming && r.nextEvent) r.allUpcoming = [r.nextEvent];
+  });
 
   window._proxResults = results;  // store for filter tiles
   const abnormal = results.filter(r => r.isAbnormal);
@@ -2390,7 +2396,7 @@ function _renderProximityResults(body, backBtn, results) {
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🎯 INSIDER EVENT PROXIMITY SCANNER</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider buys within 30 days of estimated earnings window · Last 90D</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider buys ahead of upcoming earnings · Last 90D</div>
     </div>
 
     <!-- Summary strip — each tile is clickable to filter results -->
@@ -2398,7 +2404,7 @@ function _renderProximityResults(body, backBtn, results) {
       <div onclick="proxFilter('abnormal')" id="proxTile-abnormal" style="background:rgba(255,68,102,0.06);border:1px solid rgba(255,68,102,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(255,68,102,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(255,68,102,0.2)'">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:18px;font-weight:700;color:var(--sell)">${abnormal.length}</div>
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Abnormal flags</div>
-        ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">C-suite ≤30d</div>'}
+        ${abnormal.length ? '<div style="font-size:9px;color:var(--sell);margin-top:4px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">CLICK TO FILTER →</div>' : '<div style="font-size:9px;color:var(--muted);margin-top:4px">Near confirmed earnings</div>'}
       </div>
       <div onclick="proxFilter('imminent')" id="proxTile-imminent" style="background:rgba(154,110,0,0.06);border:1px solid rgba(154,110,0,0.2);border-radius:7px;padding:10px 16px;flex:1;min-width:100px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='rgba(154,110,0,0.5)'" onmouseout="if(!this.classList.contains('prox-active'))this.style.borderColor='rgba(154,110,0,0.2)'">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:18px;font-weight:700;color:var(--option)">${results.filter(r=>r.daysTo<=21).length}</div>
@@ -2421,7 +2427,7 @@ function _renderProximityResults(body, backBtn, results) {
       Scores insider buys by <span style="color:var(--text)">how many days before the next known event</span> they occurred.
       <span style="color:var(--sell)">Abnormal</span> = any buy within 21 days of confirmed earnings, or C-suite/Director within 45 days.
       <span style="color:var(--option)">Repeat pattern</span> = same insider has done this before prior events.
-      Event data: FMP earnings calendar + SEC 8-K filings.
+      Event data: Yahoo Finance earnings calendar.
     </div>
 
     <div id="proxResults">
@@ -2431,7 +2437,7 @@ function _renderProximityResults(body, backBtn, results) {
 
     <div style="font-size:10px;color:var(--muted);margin-top:16px;opacity:0.6;line-height:1.6">
       ⚠ This tool identifies statistical proximity, not insider knowledge. Insiders are legally prohibited from trading on material non-public information.
-      Corporate insider data sourced from SEC EDGAR (Form 4). Earnings calendar estimated from historical filing patterns.
+      Corporate insider data sourced from SEC EDGAR (Form 4). Earnings dates from Yahoo Finance, with an estimated quarterly window used only when a confirmed date is unavailable.
     </div>
   </div>`;
 }
