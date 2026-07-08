@@ -3160,8 +3160,8 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
       ctx.setLineDash([]);
       ctx.font = '700 9px Inter, monospace';
-      ctx.fillStyle = color; ctx.textAlign = 'right';
-      ctx.fillText('$' + level.toFixed(2), canvas.width - 4, y - 4);
+      ctx.fillStyle = color; ctx.textAlign = 'left';
+      ctx.fillText('$' + level.toFixed(2), 6, y - 4);
       ctx.restore();
     }
 
