@@ -3118,9 +3118,9 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
     const bars = priceData.slice(lo, hi + 1);
     if (bars.length < 10) return;
 
-    const radius = Math.max(3, Math.floor(bars.length / 30));
+    const radius = Math.max(2, Math.floor(bars.length / 45));
 
-    function cluster(vals, tol = 0.013) {
+    function cluster(vals, tol = 0.02) {
       if (!vals.length) return [];
       const sorted = [...vals].sort((a, b) => a - b);
       const zones = [];
@@ -3130,7 +3130,11 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
         else { zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length }); grp = [sorted[i]]; }
       }
       zones.push({ level: grp.reduce((a,b)=>a+b,0)/grp.length, strength: grp.length });
-      return zones.filter(z => z.strength >= 3);
+      // Prefer levels tested 2+ times; if none qualify, fall back to the strongest
+      // pivots so the overlay always shows something meaningful. Cap at 3 per side.
+      let strong = zones.filter(z => z.strength >= 2);
+      if (!strong.length) strong = zones;
+      return strong.sort((a, b) => b.strength - a.strength).slice(0, 3);
     }
 
     const pivotHighs = [], pivotLows = [];
