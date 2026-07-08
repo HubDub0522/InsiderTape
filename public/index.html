@@ -9503,32 +9503,32 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
 </script>
 
 <!-- ── LEGAL MODALS ──────────────────────────────────────────── -->
-<div id="legalModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.75);backdrop-filter:blur(4px);overflow-y:auto" onclick="if(event.target===this)closeLegalModal()">
-  <div style="max-width:760px;margin:40px auto;background:#0d1421;border:1px solid #1e2d3d;border-radius:12px;overflow:hidden">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #1e2d3d;background:#080b0f">
-      <div id="legalModalTitle" style="font-family:Inter,sans-serif;font-size:18px;letter-spacing:2px;color:#e0e8f0"></div>
-      <button onclick="closeLegalModal()" style="background:none;border:none;color:#4a6580;cursor:pointer;font-size:20px;line-height:1;padding:0 4px">✕</button>
+<div id="legalModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(26,32,48,0.45);backdrop-filter:blur(4px);overflow-y:auto" onclick="if(event.target===this)closeLegalModal()">
+  <div style="max-width:760px;margin:40px auto;background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 8px 40px rgba(26,32,48,0.18)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--border);background:var(--bg3)">
+      <div id="legalModalTitle" style="font-family:Inter,sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)"></div>
+      <button onclick="closeLegalModal()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;line-height:1;padding:0 4px">✕</button>
     </div>
-    <div id="legalModalBody" style="padding:28px 28px 36px;font-size:13px;color:#8ba4bc;line-height:1.75;max-height:72vh;overflow-y:auto"></div>
+    <div id="legalModalBody" style="padding:28px 28px 36px;font-size:13px;color:var(--text);line-height:1.75;max-height:72vh;overflow-y:auto"></div>
   </div>
 </div>
 
-<footer style="background:#080b0f;border-top:1px solid #1e2d3d;padding:24px 20px;text-align:center;margin-top:0">
+<footer style="background:var(--bg2);border-top:1px solid var(--border);padding:24px 20px;text-align:center;margin-top:0">
   <div style="max-width:1200px;margin:0 auto">
-    <div style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:2px;color:#2a3d52;margin-bottom:10px">INSIDER<span style="color:#1a2d40">TAPE</span></div>
-    <div style="font-size:11px;color:#2e4055;line-height:1.7;max-width:680px;margin:0 auto 14px">
+    <div style="font-family:Inter,sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);margin-bottom:10px">INSIDER<span style="color:var(--accent)">TAPE</span></div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.7;max-width:680px;margin:0 auto 14px">
       InsiderTape tracks SEC Form 4 corporate insider trades in real time — cluster buys, conviction signals, and insider activity.
       Nothing on this platform constitutes financial advice, a solicitation, or a recommendation to buy or sell any security.
     </div>
     <div style="display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;margin-bottom:14px">
-      <button onclick="showTerms()" style="background:none;border:none;color:#3a5570;font-size:11px;cursor:pointer;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Terms &amp; Conditions</button>
-      <span style="color:#1e2d3d">·</span>
-      <button onclick="showPrivacy()" style="background:none;border:none;color:#3a5570;font-size:11px;cursor:pointer;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Privacy Policy</button>
-      <span style="color:#1e2d3d">·</span>
-      <span style="font-size:11px;color:#2e4055;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">DATA: SEC EDGAR</span>
+      <button onclick="showTerms()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Terms &amp; Conditions</button>
+      <span style="color:var(--border2)">·</span>
+      <button onclick="showPrivacy()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:0.5px;padding:0;text-decoration:underline;text-underline-offset:3px">Privacy Policy</button>
+      <span style="color:var(--border2)">·</span>
+      <span style="font-size:11px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">DATA: SEC EDGAR</span>
     </div>
-    <div style="font-size:10px;color:#1e3040;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
-    <div style="font-size:9px;color:#1a2535;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-top:6px">build 2026-03-11.1</div>
+    <div style="font-size:10px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
+    <div style="font-size:9px;color:var(--border2);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-top:6px">build 2026-03-11.1</div>
   </div>
 </footer>
 
@@ -9548,29 +9548,29 @@ function openLegalModal(title, html) {
   document.getElementById('legalModalBody').scrollTop = 0;
 }
 
-function h2(t) { return `<div style="font-family:Inter,sans-serif;font-size:15px;letter-spacing:1.5px;color:#c0d4e8;margin:22px 0 8px">${t}</div>`; }
+function h2(t) { return `<div style="font-family:Inter,sans-serif;font-size:15px;letter-spacing:1.5px;color:var(--text);margin:22px 0 8px">${t}</div>`; }
 function p(t)  { return `<p style="margin:0 0 10px">${t}</p>`; }
 function li(t) { return `<li style="margin-bottom:5px">${t}</li>`; }
 
 function showTerms() {
   openLegalModal('TERMS & CONDITIONS', `
-    <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:16px">LAST UPDATED: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div>
+    <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:1px;color:var(--muted);margin-bottom:16px">LAST UPDATED: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div>
 
     ${p('Please read these Terms and Conditions ("Terms") carefully before using InsiderTape ("the Platform," "we," "us," or "our"). By accessing or using InsiderTape, you agree to be bound by these Terms. If you do not agree, do not use this Platform.')}
 
     ${h2('1. NOT FINANCIAL ADVICE')}
-    ${p('<strong style="color:#e0e8f0">InsiderTape is a data aggregation and informational tool only.</strong> Nothing on this Platform constitutes financial advice, investment advice, trading advice, or any other form of advice. No content, data, score, indicator, signal, or analysis displayed on InsiderTape should be construed as a recommendation to buy, sell, or hold any security, cryptocurrency, commodity, or other financial instrument.')}
+    ${p('<strong style="color:var(--text)">InsiderTape is a data aggregation and informational tool only.</strong> Nothing on this Platform constitutes financial advice, investment advice, trading advice, or any other form of advice. No content, data, score, indicator, signal, or analysis displayed on InsiderTape should be construed as a recommendation to buy, sell, or hold any security, cryptocurrency, commodity, or other financial instrument.')}
     ${p('You acknowledge that all investment decisions you make are solely your own responsibility. InsiderTape and its operators shall not be liable for any losses, damages, or adverse outcomes resulting from decisions made in reliance on information displayed on this Platform.')}
 
     ${h2('2. NO INVESTMENT SOLICITATION')}
     ${p('InsiderTape does not solicit investments, broker securities transactions, or act as a registered investment advisor. We are not registered with the U.S. Securities and Exchange Commission (SEC), the Financial Industry Regulatory Authority (FINRA), or any other financial regulatory body in any jurisdiction. Nothing on this Platform constitutes an offer to sell or a solicitation of an offer to buy any securities.')}
 
     ${h2('3. DATA SOURCES AND ACCURACY')}
-    ${p('Data displayed on InsiderTape is sourced from SEC Form 4 filings submitted to the SEC\u2019s EDGAR system. While we make reasonable efforts to display data accurately, we make <strong style="color:#e0e8f0">no representations or warranties</strong> — express or implied — regarding the completeness, accuracy, reliability, suitability, or timeliness of any data.')}
+    ${p('Data displayed on InsiderTape is sourced from SEC Form 4 filings submitted to the SEC\u2019s EDGAR system. While we make reasonable efforts to display data accurately, we make <strong style="color:var(--text)">no representations or warranties</strong> — express or implied — regarding the completeness, accuracy, reliability, suitability, or timeliness of any data.')}
     ${p('SEC filings may contain errors, omissions, or delays. Insider transactions may be reported late, amended, or restated. Price data is obtained from third-party providers and may not reflect real-time market conditions. You should independently verify all data before relying on it.')}
 
     ${h2('4. PAST PERFORMANCE')}
-    ${p('Historical data, scores, return calculations, and pattern analysis shown on InsiderTape are based on past performance. <strong style="color:#e0e8f0">Past performance is not indicative of future results.</strong> Insider buying or selling activity does not guarantee any particular outcome for a security\'s price. All investing involves risk, including the possible loss of principal.')}
+    ${p('Historical data, scores, return calculations, and pattern analysis shown on InsiderTape are based on past performance. <strong style="color:var(--text)">Past performance is not indicative of future results.</strong> Insider buying or selling activity does not guarantee any particular outcome for a security\'s price. All investing involves risk, including the possible loss of principal.')}
 
     ${h2('5. LIMITATION OF LIABILITY')}
     ${p('To the fullest extent permitted by applicable law, InsiderTape, its owners, operators, employees, and affiliates shall not be liable for any direct, indirect, incidental, special, consequential, punitive, or exemplary damages arising from or related to your use of the Platform, including but not limited to: investment losses, lost profits, loss of data, or any other pecuniary or non-pecuniary loss, even if advised of the possibility of such damages.')}
@@ -9597,7 +9597,7 @@ function showTerms() {
     ${h2('13. ENTIRE AGREEMENT')}
     ${p('These Terms, together with our Privacy Policy, constitute the entire agreement between you and InsiderTape with respect to your use of the Platform and supersede all prior agreements, understandings, and representations.')}
 
-    <div style="margin-top:24px;padding:14px 16px;background:rgba(255,68,102,0.06);border:1px solid rgba(255,68,102,0.2);border-radius:6px;font-size:11px;color:#ff8899">
+    <div style="margin-top:24px;padding:14px 16px;background:rgba(176,48,48,0.06);border:1px solid rgba(176,48,48,0.25);border-radius:6px;font-size:11px;color:var(--sell)">
       ⚠ <strong>Important Reminder:</strong> InsiderTape displays public filing data for research purposes only. It is not a financial advisor. Always do your own due diligence and consult a licensed financial professional before making investment decisions.
     </div>
   `);
@@ -9605,15 +9605,15 @@ function showTerms() {
 
 function showPrivacy() {
   openLegalModal('PRIVACY POLICY', `
-    <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:1px;color:#4a6580;margin-bottom:16px">LAST UPDATED: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div>
+    <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:1px;color:var(--muted);margin-bottom:16px">LAST UPDATED: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}).toUpperCase()}</div>
 
     ${p('InsiderTape ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains what information we collect, how we use it, and your rights with respect to that information.')}
 
     ${h2('1. INFORMATION WE COLLECT')}
     <ul style="margin:0 0 12px;padding-left:20px">
-      ${li('<strong style="color:#e0e8f0">Usage Data:</strong> We may automatically collect non-personally identifiable information about how you interact with the Platform, including pages visited, features used, browser type, operating system, and general geographic region (country/region level). This data is used solely for improving the Platform.')}
-      ${li('<strong style="color:#e0e8f0">Technical Data:</strong> IP addresses, access timestamps, and referrer URLs may be recorded in standard server logs for security and operational purposes.')}
-      ${li('<strong style="color:#e0e8f0">No Account Data:</strong> InsiderTape does not currently require account registration. We do not collect your name, email address, or payment information in connection with basic Platform use unless explicitly provided through a contact form or subscription service.')}
+      ${li('<strong style="color:var(--text)">Usage Data:</strong> We may automatically collect non-personally identifiable information about how you interact with the Platform, including pages visited, features used, browser type, operating system, and general geographic region (country/region level). This data is used solely for improving the Platform.')}
+      ${li('<strong style="color:var(--text)">Technical Data:</strong> IP addresses, access timestamps, and referrer URLs may be recorded in standard server logs for security and operational purposes.')}
+      ${li('<strong style="color:var(--text)">No Account Data:</strong> InsiderTape does not currently require account registration. We do not collect your name, email address, or payment information in connection with basic Platform use unless explicitly provided through a contact form or subscription service.')}
     </ul>
 
     ${h2('2. INFORMATION WE DO NOT COLLECT')}
@@ -9650,7 +9650,7 @@ function showPrivacy() {
     ${h2('12. CONTACT')}
     ${p('If you have questions about this Privacy Policy or our privacy practices, you may contact us through the Platform interface. We will make reasonable efforts to respond in a timely manner.')}
 
-    <div style="margin-top:24px;padding:14px 16px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.15);border-radius:6px;font-size:11px;color:#4ab8d0">
+    <div style="margin-top:24px;padding:14px 16px;background:rgba(36,120,204,0.06);border:1px solid rgba(36,120,204,0.2);border-radius:6px;font-size:11px;color:var(--accent)">
       InsiderTape collects minimal data, does not sell your information, and does not use advertising tracking. Our core product is public government filing data — not your personal information.
     </div>
   `);
