@@ -419,7 +419,7 @@
   /* Maximized chart — fills the browser window */
   .chart-area.chart-maximized { position: fixed; inset: 0; z-index: 6000; margin: 0; padding: 12px 16px 16px; overflow: hidden; background: var(--bg); }
   .chart-area.chart-maximized #chartContainer, .chart-area.chart-maximized .chart-container-sized { flex: 1 1 auto; height: auto !important; min-height: 0; }
-  .chart-area.chart-maximized #tradeMarkerList, .chart-area.chart-maximized #sc13-signal-badge { display: none; }
+  .chart-area.chart-maximized #tradeMarkerList, .chart-area.chart-maximized #sc13-signal-badge { display: none !important; }
   #chartMaxBtn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
   .insider-sidebar { background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; height: calc(100vh - var(--header-h) - 110px); overflow: hidden; }
   .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
