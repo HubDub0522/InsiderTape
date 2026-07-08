@@ -416,6 +416,11 @@
   .tf-btn:hover { color: var(--text); }
   .tf-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
   #chartContainer, .chart-container-sized { width: 100%; height: 480px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+  /* Maximized chart — fills the browser window */
+  .chart-area.chart-maximized { position: fixed; inset: 0; z-index: 6000; margin: 0; padding: 12px 16px 16px; overflow: hidden; background: var(--bg); }
+  .chart-area.chart-maximized #chartContainer, .chart-area.chart-maximized .chart-container-sized { flex: 1 1 auto; height: auto !important; min-height: 0; }
+  .chart-area.chart-maximized #tradeMarkerList, .chart-area.chart-maximized #sc13-signal-badge { display: none; }
+  #chartMaxBtn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.08); }
   .insider-sidebar { background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; height: calc(100vh - var(--header-h) - 110px); overflow: hidden; }
   .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .sidebar-tab { flex: 1; padding: 12px 8px; text-align: center; font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 1px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; text-transform: uppercase; }
@@ -1355,6 +1360,9 @@ else _wireMobileNav();
 
 function switchView(view, btn, opts={}) {
   window.scrollTo(0, 0);
+  // Reset any maximized-chart state so navigation never leaves the page scroll-locked
+  document.querySelectorAll('.chart-area.chart-maximized').forEach(a => a.classList.remove('chart-maximized'));
+  document.body.style.overflow = '';
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   const memberViews = new Set(['analysis','monitor','sectors','compare','watchlist']);
   document.getElementById('view-' + view).classList.add('active');
@@ -2750,6 +2758,11 @@ async function loadStockView(ticker, opts={}) {
               </button>
               <button id="chartTypeLine" onclick="setChartType('line')" class="tf-btn ct-btn" title="Line chart" style="padding:4px 10px;font-size:13px">📈</button>
               <button id="srToggleBtn" onclick="toggleSR(this)" class="tf-btn ct-btn" title="Support &amp; Resistance" style="padding:4px 8px;font-size:10px;font-family:Inter,sans-serif;font-weight:600;letter-spacing:0.3px">S/R</button>
+              <button id="chartMaxBtn" onclick="toggleChartMaximize(this)" class="tf-btn ct-btn" title="Maximize chart" style="padding:4px 8px" aria-label="Maximize chart">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block">
+                  <path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
             </div>
           </div>
         </div>
@@ -2995,7 +3008,7 @@ async function buildChart(priceData, trades) {
   // Sync our marker canvas width and redraw when container size changes
   new ResizeObserver(() => {
     const cv = document.getElementById('markerCanvas');
-    if (cv && container.clientWidth > 0) cv.width = container.clientWidth;
+    if (cv && container.clientWidth > 0) { cv.width = container.clientWidth; cv.height = container.clientHeight; }
     if (state.drawCircles) setTimeout(state.drawCircles, 50);
   }).observe(container);
 }
@@ -3005,6 +3018,41 @@ function toggleSR(btn) {
   btn.classList.toggle('active', _srEnabled);
   if (state.drawCircles) state.drawCircles();
 }
+
+// Expand/restore SVG icons for the maximize button
+const _MAX_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block"><path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const _MIN_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block"><path d="M5 2v3H2M9 2v3h3M5 12V9H2M9 12V9h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function toggleChartMaximize(btn) {
+  const area = document.querySelector('.chart-area');
+  if (!area) return;
+  const maxed = area.classList.toggle('chart-maximized');
+  document.body.style.overflow = maxed ? 'hidden' : '';
+  if (btn) {
+    btn.classList.toggle('active', maxed);
+    btn.title = maxed ? 'Minimize chart' : 'Maximize chart';
+    btn.innerHTML = maxed ? _MIN_ICON : _MAX_ICON;
+  }
+  // Let the layout settle, then resync the overlay canvas + pressure bar to the
+  // new size. (LightweightCharts autoSize handles the main price chart itself;
+  // the pressure chart uses a fixed width, so it needs an explicit resize.)
+  setTimeout(() => {
+    const container = document.getElementById('chartContainer');
+    const cv = document.getElementById('markerCanvas');
+    if (container && cv) { cv.width = container.clientWidth; cv.height = container.clientHeight; }
+    const pc = document.getElementById('pressureContainer');
+    if (state.pressureChart && pc) { try { state.pressureChart.applyOptions({ width: pc.clientWidth }); } catch(e) {} }
+    if (state.drawCircles) state.drawCircles();
+  }, 130);
+}
+
+// Esc exits the maximized chart view
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const area = document.querySelector('.chart-area.chart-maximized');
+    if (area) toggleChartMaximize(document.getElementById('chartMaxBtn'));
+  }
+});
 
 function setChartType(type) {
   if (_chartType === type) return;
