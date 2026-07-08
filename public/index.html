@@ -2181,7 +2181,7 @@ function proxFilter(type) {
           <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:${r.proximityColor};margin-top:4px">${r.daysTo <= 30 ? '🔴 IMMINENT' : r.daysTo <= 60 ? '🟡 SOON' : '🔵 UPCOMING'}</div>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid ${r.buyVal>=0?'rgba(42,171,92,0.35)':'rgba(176,48,48,0.35)'};background:${r.buyVal>=0?'rgba(42,171,92,0.10)':'rgba(176,48,48,0.10)'}">
         <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal||r.buyValue||0)}</span></div>
         <div style="font-size:10px;color:var(--muted)">${r.nextEvent?.confirmed?'Earnings':'Est. earnings'} in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
       </div>
@@ -2357,7 +2357,7 @@ function _renderProximityResults(body, backBtn, results) {
       </div>
 
       <!-- Footer stats -->
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,0.15)">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid ${r.buyVal>=0?'rgba(42,171,92,0.35)':'rgba(176,48,48,0.35)'};background:${r.buyVal>=0?'rgba(42,171,92,0.10)':'rgba(176,48,48,0.10)'}">
         <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal || r.buyValue || 0)}</span></div>
         <div style="font-size:10px;color:var(--muted)">${r.nextEvent?.confirmed?'<span style="color:var(--buy);font-size:9px">✓ CONFIRMED</span>':'<span style="color:var(--muted);font-size:9px">EST.</span>'} <span style="color:${r.proximityColor}">${evtLabel}</span> in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
       </div>
