@@ -980,7 +980,7 @@
     <li><strong>Score individual insiders</strong> — Every Form 4 insider is scored on actual forward returns: win rate, average 30-day and 90-day returns, consistency, and timing alpha. Find the insiders whose buys have historically preceded upward moves.</li>
     <li><strong>Monitor first-buy signals</strong> — Detect insiders making their first open-market purchase after years of inactivity on a stock. One of the rarest and most deliberate signals in Form 4 data.</li>
     <li><strong>Compare stock insider activity</strong> — Look up any ticker and see a year of insider buying and selling plotted directly on the price chart, alongside Form 4 trade history for that name.</li>
-    <li><strong>Spot exit warnings</strong> — Identify tickers where executives are selling concurrently, selling volume is accelerating, or the sell-to-buy ratio has turned sharply negative.</li>
+    <li><strong>Spot exit warnings</strong> — Identify tickers where multiple insiders, especially executives, are selling concurrently or selling volume is accelerating.</li>
   </ul>
   <h2>Data Sources</h2>
   <p>Corporate insider trading data is pulled directly from <strong>SEC EDGAR Form 4 filings</strong>, which Section 16 officers (corporate insiders owning more than 10% of a class of stock, plus directors and executive officers) are required to file within two business days of any transaction in their company's securities. InsiderTape ingests new filings throughout every trading day.</p>
@@ -5350,7 +5350,7 @@ function renderAnalysisDashboard() {
       id: 'exitwarning',
       icon: '🔴',
       name: 'Insider Exit Warning',
-      desc: 'Detects when multiple insiders, especially executives, are selling concurrently, selling volume accelerates, or the sell/buy ratio is heavily skewed. ',
+      desc: 'Flags coordinated insider exits — multiple insiders (especially executives) selling concurrently, or selling volume accelerating. Ignores the sell/buy ratio, so tickers with only routine selling are not flagged. ',
       count: (() => { try { const _ew = detectExitWarnings(trades, window._exitWarningPriceHighs||{}); window._exitWarningTileCache = _ew; return _ew.length; } catch(e) { return 0; } })(),
       countLabel: 'warnings active',
       top3: (() => { try { return (window._exitWarningTileCache || detectExitWarnings(trades, window._exitWarningPriceHighs||{})).slice(0,3).map(w => ({
@@ -6455,37 +6455,20 @@ async function renderExitWarningSubpage() {
   const trades = _analysisData || [];
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
 
-  // Show loading while fetching price highs
-  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">${backBtn}<div class="loading-state"><div class="spinner"></div><span>Loading price context…</span></div></div>`;
-
-  // Fetch 52-week highs — use short timeout so it never blocks the render
-  const sellTickers = [...new Set(trades.filter(t => t.type === 'S' || t.type === 'S-').map(t => t.ticker))];
-  let priceHighs = {};
-  try {
-    if (sellTickers.length) {
-      const phPromise = fetch('/api/price-highs?tickers=' + sellTickers.slice(0, 50).join(','));
-      const timeoutPromise = new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 4000));
-      const resp = await Promise.race([phPromise, timeoutPromise]);
-      if (resp.ok) priceHighs = await resp.json();
-    }
-  } catch(_) {}
-
-  window._exitWarningPriceHighs = priceHighs;
-  const warnings = detectExitWarnings(trades, priceHighs);
+  window._exitWarningPriceHighs = {};
+  const warnings = detectExitWarnings(trades);
 
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:8px">
       <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔴 INSIDER EXIT WARNING SYSTEM</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">Multi-factor top detection · Last 30D</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Coordinated selling &amp; volume acceleration · Last 30D</div>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:700px">
-      Insider selling alone isn't a signal — executives sell for many reasons. This system only flags when
-      <span style="color:var(--text)">multiple insiders sell near the 52-week high</span>,
-      <span style="color:var(--text)">selling accelerates</span> vs recent pace,
-      <span style="color:var(--text)">executives are among the sellers</span>,
-      or <span style="color:var(--text)">sell volume heavily outweighs buying</span>.
-      Selling near lows reduces the score. High scores warrant caution. Not a short signal — a <em>caution flag</em>.
+      Insider selling alone isn't a signal — executives sell for many reasons, and a ticker with no buying isn't automatically bearish. This system flags only <span style="color:var(--text)">coordinated exits</span>:
+      <span style="color:var(--text)">multiple insiders selling concurrently</span> (weighted toward <span style="color:var(--text)">C-suite executives</span>),
+      and <span style="color:var(--text)">accelerating sell volume</span> vs the recent pace.
+      It deliberately ignores the sell/buy ratio, and concurrent insider buying reduces the score. High scores warrant caution. Not a short signal — a <em>caution flag</em>.
     </div>
     ${warnings.length === 0
       ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No exit warnings detected in the last 30 days.<br><span style="font-size:11px">This is actually a bullish sign — insiders aren't rushing for the exits.</span></div>`
@@ -6495,140 +6478,78 @@ async function renderExitWarningSubpage() {
 }
 
 function detectExitWarnings(trades, priceHighs={}) {
-  // Detect insider exit warning signals
+  // Flags COORDINATED insider exits. Deliberately ignores the sell/buy ratio —
+  // a ticker with only routine selling and no buying should NOT be flagged just
+  // for the absence of buys. Score is driven by concurrency (multiple insiders,
+  // especially executives) and selling-volume dynamics (acceleration + size).
+  // Concurrent BUYING is still used, but only as a counterfactual that DAMPENS
+  // the score; it can never add to it.
   if (!trades || !trades.length) return [];
 
   const sells = trades.filter(t => (t.type === 'S' || t.type === 'S-') && (t.trade || t.filing));
-  const buys  = trades.filter(t => t.type === 'P');
   if (!sells.length) return [];
 
-  // Group sells by ticker
-  const sellsByTicker = {};
-  sells.forEach(t => {
-    if (!sellsByTicker[t.ticker]) sellsByTicker[t.ticker] = [];
-    sellsByTicker[t.ticker].push(t);
-  });
+  const sellsByTicker = {}, buysByTicker = {};
+  sells.forEach(t => { (sellsByTicker[t.ticker] || (sellsByTicker[t.ticker] = [])).push(t); });
+  trades.filter(t => t.type === 'P').forEach(t => { (buysByTicker[t.ticker] || (buysByTicker[t.ticker] = [])).push(t); });
 
-  // Also group all trades by ticker for buy/sell ratio context
-  const allByTicker = {};
-  trades.forEach(t => {
-    if (!allByTicker[t.ticker]) allByTicker[t.ticker] = [];
-    allByTicker[t.ticker].push(t);
-  });
-
+  const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
   const warnings = [];
 
   Object.entries(sellsByTicker).forEach(([ticker, tickerSells]) => {
-    const allTicker = allByTicker[ticker] || [];
-    const tickerBuys = allTicker.filter(t => t.type === 'P');
+    const tickerBuys = buysByTicker[ticker] || [];
     let score = 0;
     const signals = [];
     const context = [];
 
-    // ── FACTOR 1: Seller count — multiple insiders selling (up to 25pts) ──
+    // ── FACTOR 1: Concurrent sellers — multiple insiders selling at once ──
     const sellerNames = [...new Set(tickerSells.map(t => t.insider).filter(Boolean))];
     const sellerCount = sellerNames.length;
-    if (sellerCount >= 4)      { score += 25; signals.push(`${sellerCount} distinct insiders selling`); }
-    else if (sellerCount === 3) { score += 18; signals.push(`3 insiders selling concurrently`); }
-    else if (sellerCount === 2) { score += 10; signals.push(`2 insiders selling in same window`); }
-    else                        { score += 2; }
+    if (sellerCount >= 5)       { score += 40; signals.push(`${sellerCount} distinct insiders selling concurrently`); }
+    else if (sellerCount === 4) { score += 33; signals.push(`4 insiders selling concurrently`); }
+    else if (sellerCount === 3) { score += 25; signals.push(`3 insiders selling concurrently`); }
+    else if (sellerCount === 2) { score += 15; signals.push(`2 insiders selling in the same window`); }
 
-    // ── FACTOR 2: Executive roles — C-suite selling is a stronger signal (up to 15pts) ──
-    const execRoles = ['CEO','CFO','PRESIDENT','COO','CHAIRMAN','FOUNDER'];
+    // ── FACTOR 2: Executives among the sellers — a stronger exit signal ──
     const execSellers = sellerNames.filter(name => {
       const titles = tickerSells.filter(t => t.insider === name).map(t => (t.title||'').toUpperCase());
       return execRoles.some(r => titles.some(ti => ti.includes(r)));
     });
-    if (execSellers.length >= 2) { score += 15; signals.push(`${execSellers.length} C-suite sellers (highest signal)`); }
+    if (execSellers.length >= 3)       { score += 25; signals.push(`${execSellers.length} C-suite executives selling`); }
+    else if (execSellers.length === 2) { score += 20; signals.push(`2 C-suite executives selling`); }
     else if (execSellers.length === 1) {
       const title = tickerSells.find(t => t.insider === execSellers[0])?.title || 'Executive';
-      score += 8; signals.push(`${title} among sellers`);
+      score += 10; signals.push(`${title} among the sellers`);
     }
 
-    // ── FACTOR 3: Sell/buy ratio imbalance — sells overwhelm buys (up to 20pts) ──
-    const totalSellVal = tickerSells.reduce((s,t) => s + (t.value||0), 0);
-    const totalBuyVal  = tickerBuys.reduce((s,t) => s + (t.value||0), 0);
-    const ratio = totalBuyVal > 0 ? totalSellVal / totalBuyVal : 99;
-    if (ratio >= 10 || (totalSellVal > 0 && totalBuyVal === 0)) {
-      score += 20; signals.push(`Sells massively outweigh buys (${totalBuyVal === 0 ? 'no buying at all' : ratio.toFixed(0)+'x sell ratio'})`);
-    } else if (ratio >= 4) {
-      score += 12; signals.push(`${ratio.toFixed(1)}x more selling than buying by value`);
-    } else if (ratio >= 2) {
-      score += 5; signals.push(`Selling outpaces buying ${ratio.toFixed(1)}:1`);
-    }
-    if (totalBuyVal > 0 && ratio < 1) {
-      context.push(`Buying still present — ${fmt(totalBuyVal)} in buys vs ${fmt(totalSellVal)} in sells`);
-    }
-
-    // ── FACTOR 4: Selling acceleration — more sells in recent 7d vs prior 23d (up to 20pts) ──
-    const now = new Date();
-    const cutoff7ms  = now.getTime() - 7  * 86400000;
-    const cutoff30ms = now.getTime() - 30 * 86400000;
-    const recent7  = tickerSells.filter(t => {
-      const ds = (t.trade||t.filing||'').slice(0,10);
-      return ds && new Date(ds+'T12:00:00Z').getTime() >= cutoff7ms;
-    });
-    const prior23  = tickerSells.filter(t => {
-      const ds = (t.trade||t.filing||'').slice(0,10);
-      if (!ds) return false;
-      const ms = new Date(ds+'T12:00:00Z').getTime();
-      return ms >= cutoff30ms && ms < cutoff7ms;
-    });
+    // ── FACTOR 3: Selling volume accelerating — recent 7d vs prior 23d pace ──
+    const now = Date.now();
+    const cutoff7ms  = now - 7  * 86400000;
+    const cutoff30ms = now - 30 * 86400000;
+    const tms = t => { const ds = (t.trade||t.filing||'').slice(0,10); return ds ? new Date(ds+'T12:00:00Z').getTime() : 0; };
+    const recent7 = tickerSells.filter(t => tms(t) >= cutoff7ms);
+    const prior23 = tickerSells.filter(t => { const m = tms(t); return m >= cutoff30ms && m < cutoff7ms; });
     const recent7Val = recent7.reduce((s,t) => s+(t.value||0), 0);
     const prior23Val = prior23.reduce((s,t) => s+(t.value||0), 0);
-    // Normalise prior to 7-day equivalent
-    const prior7Equiv = prior23Val / (23/7);
+    const prior7Equiv = prior23Val / (23/7); // prior pace normalised to a 7-day window
     if (recent7Val > 0 && prior7Equiv > 0) {
       const accel = recent7Val / prior7Equiv;
-      if (accel >= 4)      { score += 20; signals.push(`Selling accelerated ${accel.toFixed(0)}x in last 7 days`); }
-      else if (accel >= 2) { score += 12; signals.push(`Selling pace doubled in last 7 days`); }
-      else if (accel >= 1.3){ score += 5; signals.push(`Slight selling acceleration recently`); }
+      if (accel >= 4)        { score += 30; signals.push(`Selling volume accelerated ${accel.toFixed(0)}x in the last 7 days`); }
+      else if (accel >= 2)   { score += 20; signals.push(`Selling volume roughly doubled in the last 7 days`); }
+      else if (accel >= 1.3) { score += 10; signals.push(`Selling volume picking up recently`); }
     } else if (recent7.length >= 2 && prior23.length === 0) {
-      score += 15; signals.push(`All selling concentrated in last 7 days — sudden onset`);
+      score += 22; signals.push(`Selling concentrated entirely in the last 7 days — sudden onset`);
     }
 
-    // ── FACTOR 5: Selling near 52-week high — bearish context (up to 25pts) ──
-    // Uses actual 52-week high from price cache. Only fires when sell price
-    // is within the upper 25% of the 52-week range — meaningful proximity to highs.
-    const ph = priceHighs[ticker];
-    if (ph && ph.high52 > 0 && ph.low52 > 0) {
-      const range52 = ph.high52 - ph.low52 || 1;
-      // Average sell price from Form 4 filings
-      const sellPrices52 = tickerSells.map(t => t.price).filter(p => p > 0);
-      if (sellPrices52.length) {
-        const avgSellPrice = sellPrices52.reduce((a,b)=>a+b,0) / sellPrices52.length;
-        // How close is avg sell price to the 52w high? 0=at low, 1=at high
-        const nearHighPct = (avgSellPrice - ph.low52) / range52;
-        // pctFromHigh: 0=at high, 1=at low (from the endpoint)
-        const pctFromHigh = ph.pctFromHigh;
+    // ── FACTOR 4: Selling-volume magnitude — unusually large individual exits ──
+    const totalSellVal  = tickerSells.reduce((s,t) => s+(t.value||0), 0);
+    const avgPerInsider = totalSellVal / Math.max(sellerCount, 1);
+    if (avgPerInsider >= 5000000)      { score += 12; signals.push(`Avg ${fmt(avgPerInsider)} sold per insider — unusually large exits`); }
+    else if (avgPerInsider >= 1000000) { score += 6;  signals.push(`Avg ${fmt(avgPerInsider)} sold per insider`); }
 
-        if (nearHighPct >= 0.75) {
-          // Selling in upper 25% of 52w range — near highs
-          score += 25;
-          signals.push(`Selling near 52w high — avg sell $\${avgSellPrice.toFixed(2)} vs 52w high $\${ph.high52}`);
-        } else if (nearHighPct >= 0.55) {
-          score += 12;
-          signals.push(`Sell prices in upper range ($\${avgSellPrice.toFixed(2)}, 52w: $\${ph.low52}–$\${ph.high52})`);
-        } else if (nearHighPct < 0.35) {
-          // Selling near 52w lows — reduce score, weak distribution signal
-          score -= 15;
-          context.push(`Selling near 52w lows ($\${avgSellPrice.toFixed(2)} vs high $\${ph.high52}) — weaker exit signal`);
-        }
-        // Middle zone (0.35–0.55) — neutral, no adjustment
-      }
-    }
-
-    // ── FACTOR 6: Deviates from normal pattern — no selling in prior window (up to 10pts) ──
-    // We only have 30d of data, so "normal" is approximated:
-    // if sell volume is > 3x the per-insider average historical sell for this ticker
-    const insiderSellAvg = totalSellVal / Math.max(sellerCount, 1);
-    if (insiderSellAvg >= 5000000) {
-      score += 10; signals.push(`Avg ${fmt(insiderSellAvg)} per insider — unusually large individual exits`);
-    } else if (insiderSellAvg >= 1000000) {
-      score += 5; signals.push(`Avg ${fmt(insiderSellAvg)} per insider selling`);
-    }
-
-    // Counterfactual: reduce score if there's heavy concurrent buying (mixed signal)
+    // ── Counterfactual: concurrent BUYING dampens the warning (mixed signal) ──
+    // Buying can only REDUCE the score. The absence of buying never adds to it.
+    const totalBuyVal = tickerBuys.reduce((s,t) => s+(t.value||0), 0);
     const concurrentBuyers = [...new Set(tickerBuys.map(t => t.insider).filter(Boolean))];
     if (concurrentBuyers.length >= 2 && totalBuyVal > totalSellVal * 0.3) {
       score -= 10;
@@ -6636,7 +6557,10 @@ function detectExitWarnings(trades, priceHighs={}) {
     }
 
     score = Math.min(100, Math.max(1, Math.round(score)));
-    if (score < 30 || signals.length < 2 || sellerCount < 2) return; // require 2+ sellers and multi-factor
+    // Require genuine concurrency (2+ sellers) and a meaningful score. Strong
+    // concurrency (4+ sellers) clears the bar on its own; 2–3 sellers need an
+    // executive, acceleration, or size factor to corroborate.
+    if (sellerCount < 2 || score < 33) return;
 
     // Severity label
     let severity, severityColor, severityBg, severityBorder;
@@ -6649,10 +6573,9 @@ function detectExitWarnings(trades, priceHighs={}) {
       company: tickerSells[0]?.company || ticker,
       score, signals, context, severity, severityColor, severityBg, severityBorder,
       sellerCount, execSellers: execSellers.length,
-      totalSellVal, totalBuyVal,
+      totalSellVal, totalBuyVal, avgPerInsider, recent7Val,
       sellerNames: sellerNames.slice(0, 5),
       govSellers: [],
-      sellPriceRange: null,
       latestSell: [...tickerSells].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0],
       topSignal: signals[0] || '',
     });
@@ -6698,10 +6621,10 @@ function renderExitWarningCard(w) {
     <!-- Stats row -->
     <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto">
       ${[
-        { label:'TOTAL SOLD',   val: fmt(w.totalSellVal),   color:'var(--sell)' },
-        { label:'TOTAL BOUGHT', val: w.totalBuyVal > 0 ? fmt(w.totalBuyVal) : 'None', color: w.totalBuyVal > 0 ? 'var(--buy)' : 'var(--muted)' },
-        { label:'SELL/BUY',     val: w.totalBuyVal > 0 ? (w.totalSellVal/w.totalBuyVal).toFixed(1)+'x' : '∞', color:'var(--sell)' },
-        { label:'PRICE RANGE',  val: w.sellPriceRange ? '$' + w.sellPriceRange.lo.toFixed(2) + '–$' + w.sellPriceRange.hi.toFixed(2) : '—', color:'var(--text)' },
+        { label:'TOTAL SOLD',    val: fmt(w.totalSellVal),                       color:'var(--sell)' },
+        { label:'AVG / INSIDER', val: fmt(w.avgPerInsider || 0),                 color:'var(--sell)' },
+        { label:'LAST 7 DAYS',   val: w.recent7Val > 0 ? fmt(w.recent7Val) : '—', color: w.recent7Val > 0 ? 'var(--sell)' : 'var(--muted)' },
+        { label:'SELLERS',       val: `${w.sellerCount}${w.execSellers ? ` · ${w.execSellers} exec` : ''}`, color:'var(--text)' },
       ].map(s => `
         <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
           <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${s.label}</div>
