@@ -100,7 +100,7 @@ async function initSchema() {
     `CREATE TABLE IF NOT EXISTS alert_prefs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL UNIQUE,
-      enabled INTEGER NOT NULL DEFAULT 1,
+      enabled INTEGER NOT NULL DEFAULT 0,
       min_score INTEGER NOT NULL DEFAULT 70,
       min_value INTEGER NOT NULL DEFAULT 0,
       types TEXT NOT NULL DEFAULT 'conviction,cluster,first_buy,exit_warning',
@@ -1705,7 +1705,7 @@ app.get('/api/alerts/prefs', async (req, res) => {
   if (!req.isPremium) return res.status(403).json({ error: 'Premium required' });
   try {
     let prefs = await queryOne('SELECT * FROM alert_prefs WHERE user_id = ?', [req.session.user_id]);
-    if (!prefs) prefs = { enabled: 1, min_score: 70, min_value: 0, types: 'conviction,cluster,first_buy,exit_warning', tickers: '', sectors: '', roles: '', frequency: 'immediate' };
+    if (!prefs) prefs = { enabled: 0, min_score: 70, min_value: 0, types: 'conviction,cluster,first_buy,exit_warning', tickers: '', sectors: '', roles: '', frequency: 'immediate' };
     res.json(prefs);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
