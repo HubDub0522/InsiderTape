@@ -5350,7 +5350,7 @@ function renderAnalysisDashboard() {
       id: 'exitwarning',
       icon: '🔴',
       name: 'Insider Exit Warning',
-      desc: 'Flags coordinated insider exits - multiple insiders (especially executives) selling concurrently, or selling volume accelerating. Ignores the sell/buy ratio, so tickers with only routine selling are not flagged. ',
+      desc: 'Flags coordinated insider exits - multiple insiders (especially executives) selling concurrently, or selling volume accelerating. ',
       count: (() => { try { const _ew = detectExitWarnings(trades, window._exitWarningPriceHighs||{}); window._exitWarningTileCache = _ew; return _ew.length; } catch(e) { return 0; } })(),
       countLabel: 'warnings active',
       top3: (() => { try { return (window._exitWarningTileCache || detectExitWarnings(trades, window._exitWarningPriceHighs||{})).slice(0,3).map(w => ({
