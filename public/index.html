@@ -5481,6 +5481,25 @@ function renderAnalysisDashboard() {
     accentBorder: 'rgba(255,68,102,0.2)',
   };
 
+  // Fintwit Catnip - ranks the most tweet-worthy insider BUYING stories
+  const catnipTool = {
+    id: 'catnip',
+    icon: '🐱',
+    name: 'Fintwit Catnip',
+    desc: 'The most tweet-worthy insider buys right now: whole C-suites buying together, whale-sized single purchases, and relentless repeat accumulation. Ranked by how much of a story they tell.',
+    count: (() => { try { const _cn = detectCatnip(trades); window._catnipTileCache = _cn; return _cn.length; } catch(e) { return 0; } })(),
+    countLabel: 'stories ranked',
+    top3: (() => { try { return (window._catnipTileCache || detectCatnip(trades)).slice(0,3).map(c => ({
+      ticker: c.ticker,
+      label: `Score ${c.score}`,
+      sub: c.headline,
+      color: c.score >= 75 ? 'var(--buy)' : c.score >= 55 ? 'var(--accent)' : 'var(--option)',
+    })); } catch(e) { return []; } })(),
+    accentColor: '#e0669a',
+    accentBg: 'rgba(224,102,154,0.06)',
+    accentBorder: 'rgba(224,102,154,0.28)',
+  };
+
   try {
     body.innerHTML = `
   <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
@@ -5489,7 +5508,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[tools[0], catnipTool, ...tools.slice(1), proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5589,6 +5608,10 @@ function renderAnalysisSubpage(id, opts={}) {
 
   else if (id === 'exitwarning') {
     renderExitWarningSubpage();
+  }
+
+  else if (id === 'catnip') {
+    renderCatnipSubpage();
   }
 
   else if (id === 'topscores') {
@@ -6474,6 +6497,152 @@ async function renderExitWarningSubpage() {
       ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No exit warnings detected in the last 30 days.<br><span style="font-size:11px">This is actually a bullish sign - insiders aren't rushing for the exits.</span></div>`
       : `<div style="display:flex;flex-direction:column;gap:16px">${warnings.map(w => renderExitWarningCard(w)).join('')}</div>`
     }
+  </div>`;
+}
+
+// ── FINTWIT CATNIP ────────────────────────────────────────────────────────
+// Ranks the insider BUYING stories most likely to grab attention on X/FinTwit:
+// whole C-suites buying together, whale-sized single purchases, and relentless
+// repeat accumulation. Buys only (one motive, defensible). Score is a pure
+// "how much of a story is this" heuristic, not a return prediction.
+function detectCatnip(trades) {
+  if (!trades || !trades.length) return [];
+  const buys = trades.filter(t => t.type === 'P' && (t.value || 0) > 0);
+  if (!buys.length) return [];
+
+  const execRe = /\b(CEO|CFO|COO|CTO|President|Chair(man)?|Founder|Chief Executive|Chief Financial|Chief Operating)\b/i;
+  const ceoRe  = /\b(CEO|Chief Executive)\b/i;
+  const cfoRe  = /\b(CFO|Chief Financial)\b/i;
+
+  const byTicker = {};
+  buys.forEach(t => { (byTicker[t.ticker] || (byTicker[t.ticker] = [])).push(t); });
+
+  const out = [];
+  Object.entries(byTicker).forEach(([ticker, tks]) => {
+    const buyers   = [...new Set(tks.map(t => t.insider).filter(Boolean))];
+    const totalVal = tks.reduce((s,t) => s + (t.value||0), 0);
+    const maxBuy   = Math.max(...tks.map(t => t.value||0));
+    const buyCount = tks.length;
+    const execBuyers = buyers.filter(n => tks.some(t => t.insider === n && execRe.test(t.title||'')));
+    const hasCEO = tks.some(t => ceoRe.test(t.title||''));
+    const hasCFO = tks.some(t => cfoRe.test(t.title||''));
+
+    const days = tks.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean).sort();
+    const daySpan = days.length ? Math.round((new Date(days[days.length-1]) - new Date(days[0])) / 86400000) : 0;
+
+    const perInsider = {};
+    tks.forEach(t => { perInsider[t.insider] = (perInsider[t.insider]||0) + 1; });
+    const maxInsiderBuys = Math.max(0, ...Object.values(perInsider));
+
+    let score = 0;
+    const reasons = [];
+
+    // Cluster of distinct buyers (with a same-day bonus)
+    const sameDay = buyers.length >= 3 && daySpan <= 1;
+    if (buyers.length >= 5)      { score += 32; reasons.push(`${buyers.length} insiders buying${sameDay ? ' the same day' : ''}`); }
+    else if (buyers.length >= 3) { score += 22; reasons.push(`${buyers.length} insiders buying${sameDay ? ' the same day' : ''}`); }
+    else if (buyers.length === 2){ score += 10; reasons.push(`2 insiders buying`); }
+    if (sameDay) score += 8;
+
+    // Executive involvement (CEO + CFO together is the strongest look)
+    if (hasCEO && hasCFO)          { score += 22; reasons.push(`CEO and CFO both buying`); }
+    else if (execBuyers.length >= 2){ score += 16; reasons.push(`${execBuyers.length} executives buying`); }
+    else if (hasCEO)               { score += 12; reasons.push(`CEO buying own stock`); }
+    else if (execBuyers.length === 1){ score += 8; reasons.push(`Executive buying`); }
+
+    // Whale-sized purchases
+    if (maxBuy >= 50000000)      { score += 30; reasons.push(`${fmt(maxBuy)} single buy`); }
+    else if (maxBuy >= 10000000) { score += 20; reasons.push(`${fmt(maxBuy)} single buy`); }
+    else if (totalVal >= 10000000){ score += 14; reasons.push(`${fmt(totalVal)} in insider buys`); }
+    else if (totalVal >= 2000000){ score += 8;  reasons.push(`${fmt(totalVal)} in insider buys`); }
+
+    // Relentless repeat accumulation by a single insider
+    if (maxInsiderBuys >= 20)     { score += 32; reasons.push(`One insider bought ${maxInsiderBuys} times`); }
+    else if (maxInsiderBuys >= 8) { score += 16; reasons.push(`Repeated buying (${maxInsiderBuys}x)`); }
+
+    score = Math.min(100, Math.round(score));
+    // Only genuinely tweet-worthy stories: real score AND real money (filters
+    // token community-bank clusters where many directors buy tiny amounts).
+    if (score < 35 || totalVal < 250000) return;
+
+    const latestBuy = [...tks].sort((a,b) => new Date(b.trade||b.filing) - new Date(a.trade||a.filing))[0];
+    out.push({
+      ticker, company: tks[0]?.company || ticker, score,
+      buyers: buyers.length, execCount: execBuyers.length,
+      totalVal, maxBuy, buyCount, maxInsiderBuys, hasCEO, hasCFO, daySpan,
+      reasons, headline: reasons[0] || 'Notable insider buying', latestBuy,
+    });
+  });
+
+  return out.sort((a,b) => b.score - a.score);
+}
+
+function renderCatnipSubpage() {
+  window.scrollTo(0, 0);
+  // History/URL is handled centrally by renderAnalysisSubpage
+  const body = document.getElementById('analysisViewBody');
+  const trades = _analysisData || [];
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
+  const items = detectCatnip(trades);
+
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🐱 FINTWIT CATNIP</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">The most tweet-worthy insider buying right now · Last 30D</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:720px">
+      Ranks the insider buys most likely to grab attention: <span style="color:var(--text)">whole C-suites buying together</span>, <span style="color:var(--text)">whale-sized single purchases</span>, and <span style="color:var(--text)">relentless repeat accumulation</span>. These are buying stories, scored purely on how much of a story they tell. Always sanity-check the filing (open-market vs placement, 10b5-1) before you post.
+    </div>
+    ${items.length === 0
+      ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No standout stories in the last 30 days.</div>`
+      : `<div style="display:flex;flex-direction:column;gap:16px">${items.map(renderCatnipCard).join('')}</div>`}
+  </div>`;
+}
+
+function renderCatnipCard(c) {
+  const color  = c.score >= 75 ? 'var(--buy)' : c.score >= 55 ? 'var(--accent)' : 'var(--option)';
+  const bg     = c.score >= 75 ? 'rgba(42,171,92,0.08)' : c.score >= 55 ? 'rgba(0,212,255,0.06)' : 'rgba(154,110,0,0.06)';
+  const border = c.score >= 75 ? 'rgba(42,171,92,0.3)'  : c.score >= 55 ? 'rgba(0,212,255,0.25)' : 'rgba(154,110,0,0.25)';
+  const stats = [
+    { label:'BUYERS',       val: c.buyers,          color:'var(--text)' },
+    { label:'EXECS',        val: c.execCount,       color: c.execCount ? color : 'var(--muted)' },
+    { label:'TOTAL BOUGHT', val: fmt(c.totalVal),   color:'var(--buy)' },
+    { label:'BUYS',         val: c.buyCount,        color:'var(--text)' },
+  ];
+  return `
+  <div onclick="openTickerFromScreener('${c.ticker}',{rangeDays:365,srEnabled:false})"
+       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+       onmouseover="this.style.borderColor='${border}'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="height:3px;background:var(--border)"><div style="height:100%;width:${c.score}%;background:${color}"></div></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
+        <div style="flex-shrink:0">
+          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;color:var(--accent)">${c.ticker}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text);font-style:italic;min-width:0;overflow:hidden;text-overflow:ellipsis">“${c.headline}”</div>
+      </div>
+      <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0;min-width:78px">
+        <div style="font-family:Inter,sans-serif;font-size:26px;line-height:1;color:${color}">${c.score}</div>
+        <div style="font-size:8px;letter-spacing:1.5px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:${color};margin-top:2px">CATNIP</div>
+      </div>
+    </div>
+    <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto">
+      ${stats.map(s => `
+        <div style="padding:10px 14px;flex:1;min-width:70px;border-right:1px solid var(--border)">
+          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${s.label}</div>
+          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:${s.color};white-space:nowrap">${s.val}</div>
+        </div>`).join('')}
+    </div>
+    <div style="padding:14px 18px">
+      <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:1.5px;color:${color};margin-bottom:8px">WHY IT TRAVELS</div>
+      ${c.reasons.map(r => `
+        <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
+          <span style="color:${color};flex-shrink:0;font-size:11px;margin-top:1px">▸</span>
+          <span style="font-size:11px;color:var(--text);line-height:1.5">${r}</span>
+        </div>`).join('')}
+    </div>
   </div>`;
 }
 
