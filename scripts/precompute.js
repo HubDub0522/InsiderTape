@@ -531,15 +531,30 @@ async function migratePriceCacheTo5yr() {
 async function prewarmPrices() {
   log('Pre-warming price cache...');
   await client.execute(`CREATE TABLE IF NOT EXISTS price_cache (symbol TEXT PRIMARY KEY, bars_json TEXT NOT NULL, fetched_at INTEGER NOT NULL)`);
+  // Cover (a) recent open-market buy tickers first - these power the Radar
+  // price-context tiles (Buying at the Lows / Recent Winners) and are often small
+  // caps outside the top-by-volume set - then (b) generally active tickers.
   const rows = await dbQuery(`
-    SELECT ticker FROM trades
-    WHERE TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-365 days')
-      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-    GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 150
+    SELECT ticker,
+           MAX(CASE WHEN TRIM(type)='P' AND trade_date >= date('now','-35 days')
+                     AND COALESCE(value,0) >= 50000 THEN 1 ELSE 0 END) AS recent_buy
+    FROM trades
+    WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND ( (TRIM(type)='P' AND trade_date >= date('now','-35 days') AND COALESCE(value,0) >= 50000)
+            OR (TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-365 days')) )
+    GROUP BY ticker
+    ORDER BY recent_buy DESC, COUNT(*) DESC
+    LIMIT 500
   `);
+  // Skip tickers already cached in the last ~20h so the larger list stays cheap on
+  // Yahoo (first run warms everything, later runs only refresh stale entries).
+  const fresh = new Set((await dbQuery(
+    `SELECT symbol FROM price_cache WHERE fetched_at >= ?`, [Date.now() - 20 * 3600000]
+  )).map(r => r.symbol));
   const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 1830 * 86400; // ~5 years
   let warmed = 0;
   for (const { ticker } of rows) {
+    if (fresh.has(ticker)) continue;
     try {
       const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       if (!resp.ok) continue;
@@ -554,7 +569,7 @@ async function prewarmPrices() {
     } catch(_) {}
     await new Promise(r => setTimeout(r, 120)); // gentle on Yahoo
   }
-  log(`Price cache pre-warmed: ${warmed}/${rows.length} tickers`);
+  log(`Price cache pre-warmed: ${warmed} fetched, ${fresh.size} already fresh, ${rows.length} candidates`);
 }
 
 // Keep the table to ~5 years so scans stay small and Turso reads stay low.

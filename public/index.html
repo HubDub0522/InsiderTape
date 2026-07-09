@@ -5306,6 +5306,16 @@ function renderAnalysisDashboard() {
     }).catch((e) => { console.warn('firstbuys fetch failed, using client fallback:', e); applyFallback(); });
   }
 
+  // Kick off price context (52w high/low + current) for the Buying at the Lows
+  // and Recent Winners tiles. Both show a loading state until this resolves.
+  if (!_tilePriceHighsDone && !_tilePriceHighsLoading) {
+    _tilePriceHighsLoading = true;
+    ensureTilePriceHighs(trades, () => {
+      _tilePriceHighsLoading = false;
+      const body = document.getElementById('analysisViewBody');
+      if (body && body.querySelector('.analysis-tool-grid')) renderAnalysisDashboard();
+    });
+  }
 
   const rankerTop3 = _rankerCache ? _rankerCache.slice(0, 3) : [];
   const rankerLoading = !_rankerCache;
@@ -5481,6 +5491,46 @@ function renderAnalysisDashboard() {
     accentBorder: 'rgba(255,68,102,0.2)',
   };
 
+  // Buying at the Lows - insiders buying near the 52-week low
+  const buyLowsTool = {
+    id: 'buylows',
+    icon: '🛒',
+    name: 'Buying at the Lows',
+    desc: 'Insiders stepping in while the stock trades in the lower quarter of its 52-week range. Conviction at a discount - the classic contrarian setup.',
+    count: _tilePriceHighsDone ? (window._buyLowsCache = detectBuyingAtLows(trades, _tilePriceHighs)).length : '…',
+    countLabel: 'signals found',
+    loading: !_tilePriceHighsDone,
+    top3: (_tilePriceHighsDone ? (window._buyLowsCache || detectBuyingAtLows(trades, _tilePriceHighs)) : []).slice(0,3).map(r => ({
+      ticker: r.ticker,
+      label: `+${r.pctOffLow}% off low`,
+      sub: `${r.buyers} buyer${r.buyers>1?'s':''} · ${fmt(r.totalVal)}`,
+      color: 'var(--buy)',
+    })),
+    accentColor: '#2aab5c',
+    accentBg: 'rgba(42,171,92,0.06)',
+    accentBorder: 'rgba(42,171,92,0.25)',
+  };
+
+  // Recent Winners - recent insider buys already up since
+  const recentWinnersTool = {
+    id: 'recentwinners',
+    icon: '📈',
+    name: 'Recent Winners',
+    desc: 'Recent insider buys where the stock is already up since the insiders bought. Return measured from their volume-weighted cost. A read on which signals are working.',
+    count: _tilePriceHighsDone ? (window._recentWinnersCache = detectRecentWinners(trades, _tilePriceHighs)).length : '…',
+    countLabel: 'winners',
+    loading: !_tilePriceHighsDone,
+    top3: (_tilePriceHighsDone ? (window._recentWinnersCache || detectRecentWinners(trades, _tilePriceHighs)) : []).slice(0,3).map(r => ({
+      ticker: r.ticker,
+      label: `+${r.ret}%`,
+      sub: `${r.buyers} buyer${r.buyers>1?'s':''} · ${r.daysSince}d ago`,
+      color: 'var(--buy)',
+    })),
+    accentColor: '#b8940a',
+    accentBg: 'rgba(180,140,0,0.06)',
+    accentBorder: 'rgba(180,140,0,0.25)',
+  };
+
   // Social Catnip - ranks the most tweet-worthy insider BUYING stories
   const catnipTool = {
     id: 'catnip',
@@ -5508,7 +5558,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool, catnipTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool, buyLowsTool, recentWinnersTool, catnipTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5612,6 +5662,14 @@ function renderAnalysisSubpage(id, opts={}) {
 
   else if (id === 'catnip') {
     renderCatnipSubpage();
+  }
+
+  else if (id === 'buylows') {
+    renderBuyLowsSubpage();
+  }
+
+  else if (id === 'recentwinners') {
+    renderRecentWinnersSubpage();
   }
 
   else if (id === 'topscores') {
@@ -6497,6 +6555,185 @@ async function renderExitWarningSubpage() {
       ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No exit warnings detected in the last 30 days.<br><span style="font-size:11px">This is actually a bullish sign - insiders aren't rushing for the exits.</span></div>`
       : `<div style="display:flex;flex-direction:column;gap:16px">${warnings.map(w => renderExitWarningCard(w)).join('')}</div>`
     }
+  </div>`;
+}
+
+// ── PRICE-CONTEXT TILES (Buying at the Lows / Recent Winners) ──────────────
+// Both need 52-week high/low + current price. Load once per dashboard visit from
+// the batched /api/price-highs endpoint (cached server-side), then re-render.
+let _tilePriceHighs = {};        // ticker -> { high52, low52, current, pctFromHigh }
+let _tilePriceHighsDone = false; // whether the batch for the current dataset finished
+let _tilePriceHighsLoading = false;
+
+function ensureTilePriceHighs(trades, onDone) {
+  const buys = trades.filter(t => t.type === 'P' && (t.value||0) > 0);
+  const byVal = {};
+  buys.forEach(t => { byVal[t.ticker] = (byVal[t.ticker]||0) + (t.value||0); });
+  // Fetch the most meaningful buy tickers we don't already have (by total buy value)
+  const need = Object.entries(byVal).sort((a,b) => b[1]-a[1]).map(e => e[0])
+    .filter(tk => !(tk in _tilePriceHighs)).slice(0, 90);
+  if (!need.length) { _tilePriceHighsDone = true; onDone && onDone(); return; }
+  const chunks = [];
+  for (let i = 0; i < need.length; i += 50) chunks.push(need.slice(i, i + 50));
+  Promise.all(chunks.map(ch => apiFetch('/api/price-highs?tickers=' + ch.join(',')).catch(() => ({}))))
+    .then(results => {
+      results.forEach(r => Object.assign(_tilePriceHighs, r || {}));
+      _tilePriceHighsDone = true;
+      onDone && onDone();
+    })
+    .catch(() => { _tilePriceHighsDone = true; onDone && onDone(); });
+}
+
+// Insiders buying while the stock sits in the lower quarter of its 52-week range.
+function detectBuyingAtLows(trades, ph) {
+  const buys = trades.filter(t => t.type === 'P' && (t.value||0) > 0);
+  const byTicker = {};
+  buys.forEach(t => { (byTicker[t.ticker] || (byTicker[t.ticker] = [])).push(t); });
+  const out = [];
+  Object.entries(byTicker).forEach(([ticker, tks]) => {
+    const p = ph[ticker];
+    if (!p || !p.low52 || !p.high52 || !p.current) return;
+    const range = (p.high52 - p.low52) || 1;
+    const posFromLow = (p.current - p.low52) / range; // 0 = at low, 1 = at high
+    if (posFromLow > 0.25) return; // lower quarter of the 52-week range only
+    const totalVal = tks.reduce((s,t) => s + (t.value||0), 0);
+    if (totalVal < 100000) return;
+    const buyers = [...new Set(tks.map(t => t.insider).filter(Boolean))].length;
+    const pctOffLow = +(((p.current - p.low52) / p.low52) * 100).toFixed(1);
+    let score = Math.round((1 - posFromLow) * 60 + Math.min(buyers, 5) / 5 * 20 + Math.min(totalVal / 5000000, 1) * 20);
+    score = Math.max(1, Math.min(100, score));
+    out.push({ ticker, company: tks[0]?.company || ticker, score, buyers, totalVal,
+      current: p.current, low52: p.low52, high52: p.high52, posFromLow, pctOffLow });
+  });
+  return out.sort((a,b) => b.score - a.score);
+}
+
+// Recent insider buys where the stock is already up since (the tape called it).
+function detectRecentWinners(trades, ph) {
+  const buys = trades.filter(t => t.type === 'P' && (t.value||0) > 0 && (t.price||0) > 0);
+  const byTicker = {};
+  buys.forEach(t => { (byTicker[t.ticker] || (byTicker[t.ticker] = [])).push(t); });
+  const now = Date.now();
+  const out = [];
+  Object.entries(byTicker).forEach(([ticker, tks]) => {
+    const p = ph[ticker];
+    if (!p || !p.current) return;
+    const totalVal = tks.reduce((s,t) => s + (t.value||0), 0);
+    if (totalVal < 100000) return;
+    const wSum = tks.reduce((s,t) => s + ((t.price||0) * (t.value||0)), 0);
+    const avgBuyPrice = totalVal > 0 ? wSum / totalVal : 0;
+    if (!avgBuyPrice) return;
+    const ret = ((p.current - avgBuyPrice) / avgBuyPrice) * 100;
+    if (ret < 5) return; // winners only
+    const buyers = [...new Set(tks.map(t => t.insider).filter(Boolean))].length;
+    const days = tks.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean).sort();
+    const daysSince = days.length ? Math.max(0, Math.round((now - new Date(days[0] + 'T12:00:00Z')) / 86400000)) : 0;
+    out.push({ ticker, company: tks[0]?.company || ticker, ret: +ret.toFixed(1),
+      avgBuyPrice: +avgBuyPrice.toFixed(2), current: p.current, buyers, totalVal, daysSince });
+  });
+  return out.sort((a,b) => b.ret - a.ret);
+}
+
+function renderBuyLowsSubpage() {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('analysisViewBody');
+  const trades = _analysisData || [];
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
+  const items = detectBuyingAtLows(trades, _tilePriceHighs);
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🛒 BUYING AT THE LOWS</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insiders buying near the 52-week low · Last 30D</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:720px">
+      Tickers where insiders are buying while the stock trades in the <span style="color:var(--text)">lower quarter of its 52-week range</span>. Buying weakness is the classic contrarian conviction signal: insiders deploying capital at a discount to recent prices. Price context from the latest close.
+    </div>
+    ${items.length === 0
+      ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No insider buying near 52-week lows right now.</div>`
+      : `<div style="display:flex;flex-direction:column;gap:14px">${items.map(renderBuyLowsCard).join('')}</div>`}
+  </div>`;
+}
+
+function renderBuyLowsCard(r) {
+  const posPct = (Math.max(0, Math.min(1, r.posFromLow)) * 100).toFixed(1);
+  return `
+  <div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})"
+       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+       onmouseover="this.style.borderColor='rgba(42,171,92,0.3)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;gap:12px;flex-wrap:wrap">
+      <div style="min-width:0">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;color:var(--accent)">${r.ticker}</span>
+          <span style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${r.company}</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">${r.buyers} insider${r.buyers>1?'s':''} buying · ${fmt(r.totalVal)}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-family:Inter,sans-serif;font-size:20px;color:var(--buy);line-height:1">+${r.pctOffLow}%</div>
+        <div style="font-size:8px;letter-spacing:1px;color:var(--muted);margin-top:2px">OFF 52W LOW</div>
+      </div>
+    </div>
+    <div style="padding:0 18px 16px">
+      <div style="position:relative;height:6px;background:linear-gradient(90deg, rgba(42,171,92,0.35), rgba(154,110,0,0.15) 50%, rgba(255,68,102,0.25));border-radius:3px">
+        <div style="position:absolute;top:-3px;left:${posPct}%;transform:translateX(-50%);width:3px;height:12px;background:var(--text);border-radius:2px"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:9px;color:var(--muted);font-family:Inter,monospace">
+        <span>52w low $${r.low52}</span><span style="color:var(--text)">now $${r.current}</span><span>52w high $${r.high52}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderRecentWinnersSubpage() {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('analysisViewBody');
+  const trades = _analysisData || [];
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
+  const items = detectRecentWinners(trades, _tilePriceHighs);
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">📈 RECENT WINNERS</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider buys already in the green · Last 30D</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:720px">
+      Recent insider buys where the stock has <span style="color:var(--text)">already moved up</span> since the insiders stepped in. Return is measured from the insiders' volume-weighted cost to the latest close. A read on which signals are working right now.
+    </div>
+    ${items.length === 0
+      ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No recent insider buys are in the green yet.</div>`
+      : `<div style="display:flex;flex-direction:column;gap:14px">${items.map(renderRecentWinnersCard).join('')}</div>`}
+  </div>`;
+}
+
+function renderRecentWinnersCard(r) {
+  return `
+  <div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})"
+       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
+       onmouseover="this.style.borderColor='rgba(180,140,0,0.35)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;gap:12px;flex-wrap:wrap">
+      <div style="min-width:0">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;color:var(--accent)">${r.ticker}</span>
+          <span style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${r.company}</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">${r.buyers} insider${r.buyers>1?'s':''} bought ${r.daysSince}d ago · ${fmt(r.totalVal)}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-family:Inter,sans-serif;font-size:20px;color:var(--buy);line-height:1">+${r.ret}%</div>
+        <div style="font-size:8px;letter-spacing:1px;color:var(--muted);margin-top:2px">SINCE BUY</div>
+      </div>
+    </div>
+    <div style="display:flex;border-top:1px solid var(--border)">
+      <div style="padding:9px 16px;flex:1;border-right:1px solid var(--border)">
+        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:3px">INSIDER COST</div>
+        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text)">$${r.avgBuyPrice}</div>
+      </div>
+      <div style="padding:9px 16px;flex:1">
+        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:3px">NOW</div>
+        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--buy)">$${r.current}</div>
+      </div>
+    </div>
   </div>`;
 }
 
