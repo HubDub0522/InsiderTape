@@ -6617,14 +6617,17 @@ function detectRecentWinners(trades, ph) {
   const out = [];
   Object.entries(byTicker).forEach(([ticker, tks]) => {
     const p = ph[ticker];
-    if (!p || !p.current) return;
+    if (!p || !p.current || !p.low52 || !p.high52) return;
     const totalVal = tks.reduce((s,t) => s + (t.value||0), 0);
     if (totalVal < 100000) return;
     const wSum = tks.reduce((s,t) => s + ((t.price||0) * (t.value||0)), 0);
     const avgBuyPrice = totalVal > 0 ? wSum / totalVal : 0;
     if (!avgBuyPrice) return;
+    // Guard against bad Form 4 price data (ADR unit ratios, penny-stock/split
+    // artifacts): the insider's price must sit within a sane band of the 52w range.
+    if (avgBuyPrice < p.low52 * 0.5 || avgBuyPrice > p.high52 * 1.5) return;
     const ret = ((p.current - avgBuyPrice) / avgBuyPrice) * 100;
-    if (ret < 5) return; // winners only
+    if (ret < 5 || ret > 300) return; // winners only; cap absurd returns (likely bad price)
     const buyers = [...new Set(tks.map(t => t.insider).filter(Boolean))].length;
     const days = tks.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean).sort();
     const daysSince = days.length ? Math.max(0, Math.round((now - new Date(days[0] + 'T12:00:00Z')) / 86400000)) : 0;
