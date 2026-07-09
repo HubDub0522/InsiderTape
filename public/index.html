@@ -5481,11 +5481,11 @@ function renderAnalysisDashboard() {
     accentBorder: 'rgba(255,68,102,0.2)',
   };
 
-  // Fintwit Catnip - ranks the most tweet-worthy insider BUYING stories
+  // Social Catnip - ranks the most tweet-worthy insider BUYING stories
   const catnipTool = {
     id: 'catnip',
     icon: '🐱',
-    name: 'Fintwit Catnip',
+    name: 'Social Catnip',
     desc: 'The most tweet-worthy insider buys right now: whole C-suites buying together, whale-sized single purchases, and relentless repeat accumulation. Ranked by how much of a story they tell.',
     count: (() => { try { const _cn = detectCatnip(trades); window._catnipTileCache = _cn; return _cn.length; } catch(e) { return 0; } })(),
     countLabel: 'stories ranked',
@@ -5508,7 +5508,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[tools[0], catnipTool, ...tools.slice(1), proximityTool, regimeTool, firstBuyTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, proximityTool, regimeTool, firstBuyTool, catnipTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -6500,7 +6500,7 @@ async function renderExitWarningSubpage() {
   </div>`;
 }
 
-// ── FINTWIT CATNIP ────────────────────────────────────────────────────────
+// ── SOCIAL CATNIP ─────────────────────────────────────────────────────────
 // Ranks the insider BUYING stories most likely to grab attention on X/FinTwit:
 // whole C-suites buying together, whale-sized single purchases, and relentless
 // repeat accumulation. Buys only (one motive, defensible). Score is a pure
@@ -6588,7 +6588,7 @@ function renderCatnipSubpage() {
   body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     ${backBtn}
     <div style="margin-bottom:8px">
-      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🐱 FINTWIT CATNIP</div>
+      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🐱 SOCIAL CATNIP</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">The most tweet-worthy insider buying right now · Last 30D</div>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:24px;line-height:1.7;max-width:720px">
