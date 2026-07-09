@@ -12,7 +12,7 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 const RESEND_KEY     = process.env.RESEND_KEY          || '';
-// Sanitize FROM_EMAIL — strip wrapping quotes/whitespace and fall back if malformed.
+// Sanitize FROM_EMAIL - strip wrapping quotes/whitespace and fall back if malformed.
 // Resend requires "email@domain" or "Name <email@domain>".
 const FROM_EMAIL = (() => {
   let v = (process.env.FROM_EMAIL || '').trim().replace(/^["']|["']$/g, '').trim();
@@ -40,7 +40,7 @@ process.on('uncaughtException',  e => slog('UNCAUGHT: '  + e.message));
 process.on('unhandledRejection', e => slog('UNHANDLED: ' + (e?.message || e)));
 
 // ─── DB SCHEMA INIT ───────────────────────────────────────────────────────────
-// Only called explicitly (e.g. via /api/admin/init-schema) — NOT on every cold start.
+// Only called explicitly (e.g. via /api/admin/init-schema) - NOT on every cold start.
 // The schema is bootstrapped once by the GitHub Actions init job.
 async function initSchema() {
   const stmts = [
@@ -153,7 +153,7 @@ async function initSchema() {
   slog('Schema ready');
 }
 
-// Schema is pre-created by GitHub Actions init job — no startup init needed.
+// Schema is pre-created by GitHub Actions init job - no startup init needed.
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors());
@@ -274,7 +274,7 @@ function authBruteGuard(req, res, next) {
   if (now - slot.firstAt > 3600000) slot = { count: 0, firstAt: now };
   slot.count++;
   _bruteStore.set(ip, slot);
-  if (slot.count > 5) { strike(ip, 2); return res.status(429).json({ error: 'Too many attempts — try again later' }); }
+  if (slot.count > 5) { strike(ip, 2); return res.status(429).json({ error: 'Too many attempts - try again later' }); }
   next();
 }
 
@@ -464,7 +464,7 @@ app.get('/api/screener', async (req, res) => {
 
     const count = await queryOne('SELECT COUNT(*) AS n FROM trades');
     const n = count?.n || 0;
-    if (n === 0) return res.json({ building: true, message: 'Loading SEC data — data is being ingested, check back in a few minutes.', trades: [] });
+    if (n === 0) return res.json({ building: true, message: 'Loading SEC data - data is being ingested, check back in a few minutes.', trades: [] });
 
     const days  = Math.min(Math.max(parseInt(req.query.days || '30'), 1), 1095);
     const defaultLimit = days <= 7 ? 5000 : days <= 30 ? 10000 : days <= 90 ? 20000 : 50000;
@@ -612,7 +612,7 @@ app.get('/api/price', async (req, res) => {
     if (!res.headersSent) res.json(fresh || []);
     return;
   }
-  // Fresh cache hit — instant
+  // Fresh cache hit - instant
   const fresh = await getPC(sym);
   if (fresh) return res.json(fresh);
   // Stale-while-revalidate: return stale cache instantly, refresh in background
@@ -621,7 +621,7 @@ app.get('/api/price', async (req, res) => {
     refreshPriceBars(sym).catch(() => {}); // fire-and-forget
     return res.json(stale);
   }
-  // Cold: no cache at all — must fetch now
+  // Cold: no cache at all - must fetch now
   const bars = await refreshPriceBars(sym);
   if (res.headersSent) return;
   res.json(bars || []);
@@ -662,7 +662,7 @@ let _sentimentCache = null, _sentimentCacheTime = 0;
 app.get('/api/insider-sentiment', async (req, res) => {
   try {
     if (_sentimentCache && Date.now() - _sentimentCacheTime < 3600000) return res.json(_sentimentCache);
-    // Serve from precomputed cache (populated by GitHub Actions) — avoids the heavy
+    // Serve from precomputed cache (populated by GitHub Actions) - avoids the heavy
     // 120-month aggregation + live S&P fetch on every cold serverless instance.
     try {
       const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-sentiment'");
@@ -822,7 +822,7 @@ app.get('/api/firstbuys', async (req, res) => {
     const lookbackDays = parseInt(req.query.lookback || '90');
     const limit        = parseInt(req.query.limit    || '100');
 
-    // Standard tiles are served entirely from precomputed cache — the live CTE is
+    // Standard tiles are served entirely from precomputed cache - the live CTE is
     // too heavy for a serverless request and was timing out.
     const cacheKey = (minGapDays === 730 && lookbackDays === 92) ? 'firstbuys-monitor'
                    : (minGapDays === 365 && lookbackDays === 90) ? 'firstbuys'
@@ -830,7 +830,7 @@ app.get('/api/firstbuys', async (req, res) => {
     if (cacheKey) {
       const cached = await queryOne('SELECT value_json FROM computed_cache WHERE key = ?', [cacheKey]);
       if (cached) return res.json(JSON.parse(cached.value_json));
-      return res.json([]); // not computed yet — client falls back gracefully
+      return res.json([]); // not computed yet - client falls back gracefully
     }
     const fbKey = `${minGapDays}|${lookbackDays}|${limit}`;
     const fbCached = _firstBuysCache.get(fbKey);
@@ -965,32 +965,32 @@ app.get('/api/stock-lists', async (req, res) => {
 
 // ─── SECTORS ──────────────────────────────────────────────────────────────────
 const TICKER_SECTOR_MAP = {
-  'AAPL':['Technology','Consumer Electronics'],'MSFT':['Technology','Software—Infrastructure'],
+  'AAPL':['Technology','Consumer Electronics'],'MSFT':['Technology','Software-Infrastructure'],
   'NVDA':['Technology','Semiconductors'],'GOOGL':['Communication Services','Internet Content & Information'],
   'AMZN':['Consumer Cyclical','Internet Retail'],'META':['Communication Services','Internet Content & Information'],
   'TSLA':['Consumer Cyclical','Auto Manufacturers'],'AVGO':['Technology','Semiconductors'],
-  'JPM':['Financial Services','Banks—Diversified'],'V':['Financial Services','Credit Services'],
+  'JPM':['Financial Services','Banks-Diversified'],'V':['Financial Services','Credit Services'],
   'MA':['Financial Services','Credit Services'],'UNH':['Healthcare','Healthcare Plans'],
-  'XOM':['Energy','Oil & Gas Integrated'],'LLY':['Healthcare','Drug Manufacturers—General'],
-  'JNJ':['Healthcare','Drug Manufacturers—General'],'PG':['Consumer Defensive','Household & Personal Products'],
-  'HD':['Consumer Cyclical','Home Improvement Retail'],'ABBV':['Healthcare','Drug Manufacturers—General'],
-  'MRK':['Healthcare','Drug Manufacturers—General'],'KO':['Consumer Defensive','Beverages—Non-Alcoholic'],
-  'PEP':['Consumer Defensive','Beverages—Non-Alcoholic'],'CVX':['Energy','Oil & Gas Integrated'],
-  'BAC':['Financial Services','Banks—Diversified'],'WFC':['Financial Services','Banks—Diversified'],
+  'XOM':['Energy','Oil & Gas Integrated'],'LLY':['Healthcare','Drug Manufacturers-General'],
+  'JNJ':['Healthcare','Drug Manufacturers-General'],'PG':['Consumer Defensive','Household & Personal Products'],
+  'HD':['Consumer Cyclical','Home Improvement Retail'],'ABBV':['Healthcare','Drug Manufacturers-General'],
+  'MRK':['Healthcare','Drug Manufacturers-General'],'KO':['Consumer Defensive','Beverages-Non-Alcoholic'],
+  'PEP':['Consumer Defensive','Beverages-Non-Alcoholic'],'CVX':['Energy','Oil & Gas Integrated'],
+  'BAC':['Financial Services','Banks-Diversified'],'WFC':['Financial Services','Banks-Diversified'],
   'COP':['Energy','Oil & Gas E&P'],'COST':['Consumer Defensive','Discount Stores'],
   'TMO':['Healthcare','Diagnostics & Research'],'CSCO':['Technology','Communication Equipment'],
   'ACN':['Technology','Information Technology Services'],'ABT':['Healthcare','Medical Devices'],
   'AMD':['Technology','Semiconductors'],'INTC':['Technology','Semiconductors'],
   'QCOM':['Technology','Semiconductors'],'TXN':['Technology','Semiconductors'],
-  'NEE':['Utilities','Utilities—Regulated Electric'],'HON':['Industrials','Conglomerates'],
+  'NEE':['Utilities','Utilities-Regulated Electric'],'HON':['Industrials','Conglomerates'],
   'CAT':['Industrials','Farm & Heavy Construction Machinery'],'DE':['Industrials','Farm & Heavy Construction Machinery'],
   'BA':['Industrials','Aerospace & Defense'],'RTX':['Industrials','Aerospace & Defense'],
   'GE':['Industrials','Specialty Industrial Machinery'],'LMT':['Industrials','Aerospace & Defense'],
   'UPS':['Industrials','Integrated Freight & Logistics'],'GS':['Financial Services','Capital Markets'],
   'MS':['Financial Services','Capital Markets'],'BLK':['Financial Services','Asset Management'],
-  'AMGN':['Healthcare','Drug Manufacturers—General'],'GILD':['Healthcare','Drug Manufacturers—General'],
-  'BIIB':['Healthcare','Drug Manufacturers—General'],'REGN':['Healthcare','Drug Manufacturers—General'],
-  'VRTX':['Healthcare','Drug Manufacturers—General'],'MDT':['Healthcare','Medical Devices'],
+  'AMGN':['Healthcare','Drug Manufacturers-General'],'GILD':['Healthcare','Drug Manufacturers-General'],
+  'BIIB':['Healthcare','Drug Manufacturers-General'],'REGN':['Healthcare','Drug Manufacturers-General'],
+  'VRTX':['Healthcare','Drug Manufacturers-General'],'MDT':['Healthcare','Medical Devices'],
   'SYK':['Healthcare','Medical Devices'],'BSX':['Healthcare','Medical Devices'],
   'EW':['Healthcare','Medical Devices'],'ZBH':['Healthcare','Medical Devices'],
   'ISRG':['Healthcare','Medical Devices'],'HCA':['Healthcare','Medical Care Facilities'],
@@ -1005,18 +1005,18 @@ const TICKER_SECTOR_MAP = {
   'HAL':['Energy','Oil & Gas Equipment & Services'],'SLB':['Energy','Oil & Gas Equipment & Services'],
   'DVN':['Energy','Oil & Gas E&P'],'EOG':['Energy','Oil & Gas E&P'],
   'OXY':['Energy','Oil & Gas E&P'],'MPC':['Energy','Oil & Gas Refining & Marketing'],
-  'AMT':['Real Estate','REIT—Specialty'],'PLD':['Real Estate','REIT—Industrial'],
-  'EQIX':['Real Estate','REIT—Specialty'],'SPG':['Real Estate','REIT—Retail'],
-  'CCI':['Real Estate','REIT—Specialty'],'WY':['Real Estate','REIT—Specialty'],
-  'SNOW':['Technology','Software—Application'],'CRM':['Technology','Software—Application'],
-  'ADBE':['Technology','Software—Application'],'NOW':['Technology','Software—Application'],
-  'INTU':['Technology','Software—Application'],'AMAT':['Technology','Semiconductor Equipment & Materials'],
-  'MU':['Technology','Semiconductors'],'PANW':['Technology','Software—Infrastructure'],
-  'CRWD':['Technology','Software—Infrastructure'],'ZS':['Technology','Software—Infrastructure'],
+  'AMT':['Real Estate','REIT-Specialty'],'PLD':['Real Estate','REIT-Industrial'],
+  'EQIX':['Real Estate','REIT-Specialty'],'SPG':['Real Estate','REIT-Retail'],
+  'CCI':['Real Estate','REIT-Specialty'],'WY':['Real Estate','REIT-Specialty'],
+  'SNOW':['Technology','Software-Application'],'CRM':['Technology','Software-Application'],
+  'ADBE':['Technology','Software-Application'],'NOW':['Technology','Software-Application'],
+  'INTU':['Technology','Software-Application'],'AMAT':['Technology','Semiconductor Equipment & Materials'],
+  'MU':['Technology','Semiconductors'],'PANW':['Technology','Software-Infrastructure'],
+  'CRWD':['Technology','Software-Infrastructure'],'ZS':['Technology','Software-Infrastructure'],
   'NFLX':['Communication Services','Entertainment'],'DIS':['Communication Services','Entertainment'],
   'CMCSA':['Communication Services','Telecom Services'],'T':['Communication Services','Telecom Services'],
   'VZ':['Communication Services','Telecom Services'],'TMUS':['Communication Services','Telecom Services'],
-  'PLTR':['Technology','Software—Application'],'COIN':['Financial Services','Capital Markets'],
+  'PLTR':['Technology','Software-Application'],'COIN':['Financial Services','Capital Markets'],
   'MSTR':['Financial Services','Capital Markets'],'HOOD':['Financial Services','Capital Markets'],
 };
 function getTickerSector(t) { return TICKER_SECTOR_MAP[t] || null; }
@@ -1070,7 +1070,7 @@ app.get('/api/sectors', async (req, res) => {
 app.get('/api/drift', async (req, res) => {
   try {
     const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'drift'");
-    if (!row) return res.json({ computing: true, message: 'Drift analysis is being computed — check back in a few minutes.' });
+    if (!row) return res.json({ computing: true, message: 'Drift analysis is being computed - check back in a few minutes.' });
     const age = (Date.now() - row.computed_at) / 3600000;
     if (age > 25) return res.json({ stale: true, message: 'Refreshing drift data…', data: JSON.parse(row.value_json) });
     res.json(JSON.parse(row.value_json));
@@ -1081,7 +1081,7 @@ app.get('/api/drift', async (req, res) => {
 app.get('/api/proximity', async (req, res) => {
   try {
     const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'proximity'");
-    if (!row) return res.json({ computing: true, message: 'Proximity analysis is being computed — check back shortly.' });
+    if (!row) return res.json({ computing: true, message: 'Proximity analysis is being computed - check back shortly.' });
     res.json(JSON.parse(row.value_json));
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -1114,7 +1114,7 @@ app.get('/api/scoreboard', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message, candidates: [] }); }
 });
 
-// Pre-scored leaderboard (Top Insider Scores + Best Timing) — served from cache
+// Pre-scored leaderboard (Top Insider Scores + Best Timing) - served from cache
 // so the client never has to score dozens of insiders live (which was timing out).
 app.get('/api/insider-leaderboard', async (req, res) => {
   try {
@@ -1127,10 +1127,10 @@ app.get('/api/insider-leaderboard', async (req, res) => {
 // ─── INSIDER SCORE ────────────────────────────────────────────────────────────
 // Timing Alpha (0–100): how reliably a stock rises shortly after this insider buys.
 // Blends three factors instead of the old single-metric formula that saturated at 100:
-//   • Magnitude  — average 30-day return, with diminishing returns past ~15% so a
+//   • Magnitude  - average 30-day return, with diminishing returns past ~15% so a
 //                  couple of small-cap moonshots don't peg everyone at 100.
-//   • Consistency— 30-day win rate (how often buys were up), centered at 50%.
-//   • Durability — 90-day return, which penalizes "pop then reverse" patterns.
+//   • Consistency- 30-day win rate (how often buys were up), centered at 50%.
+//   • Durability - 90-day return, which penalizes "pop then reverse" patterns.
 // Small samples are shrunk toward a neutral 45 so 4-trade records aren't over-trusted.
 function computeTimingAlpha(avgRet30, avgRet90, win30Rate, tradeCount) {
   if (avgRet30 === null || avgRet30 === undefined) return null;
@@ -1285,7 +1285,7 @@ app.get('/api/auth/me', async (req, res) => {
   });
 });
 
-// Magic link — anyone can request one (new users get a free trial on verify)
+// Magic link - anyone can request one (new users get a free trial on verify)
 app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
@@ -1306,7 +1306,7 @@ app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, r
       const { data, error } = await new Resend(RESEND_KEY).emails.send({
         from: FROM_EMAIL, to: email,
         subject: 'Your InsiderTape sign-in link',
-        text: `Sign in to InsiderTape\n\nClick the link below to sign in. It expires in 15 minutes.\n\n${link}\n\nIf you didn't request this, you can safely ignore this email.\n\nInsiderTape — insidertape.com`,
+        text: `Sign in to InsiderTape\n\nClick the link below to sign in. It expires in 15 minutes.\n\n${link}\n\nIf you didn't request this, you can safely ignore this email.\n\nInsiderTape - insidertape.com`,
         html: `
           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;background:#e3e6eb;padding:32px 16px;margin:0">
             <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #d0d4db;border-radius:12px;overflow:hidden">
@@ -1347,7 +1347,7 @@ app.get('/api/auth/verify', authBruteGuard, async (req, res) => {
     await run('INSERT OR IGNORE INTO users (email) VALUES (?)', [mt.email]);
     const user = await queryOne('SELECT * FROM users WHERE email = ?', [mt.email]);
 
-    // No internal trial — Stripe manages the 7-day trial with CC on file
+    // No internal trial - Stripe manages the 7-day trial with CC on file
 
     const sessionToken = generateToken();
     const expires = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -1362,7 +1362,7 @@ app.get('/api/auth/verify', authBruteGuard, async (req, res) => {
           || (sub.current_period_end && sub.current_period_end > new Date().toISOString())));
 
     if (alreadyPremium) return res.redirect('/?auth=1');
-    // New users go straight to Stripe — trial is handled there with CC on file
+    // New users go straight to Stripe - trial is handled there with CC on file
     return res.redirect('/api/stripe/checkout?session=' + sessionToken);
   } catch(e) { slog('verify error: ' + e.message); res.redirect('/signup?error=server_error'); }
 });
@@ -1444,7 +1444,7 @@ app.get('/api/stripe/portal', async (req, res) => {
 });
 
 // ── STRIPE WEBHOOK ────────────────────────────────────────────
-// Must use express.raw() — Stripe signature verification needs the raw body bytes.
+// Must use express.raw() - Stripe signature verification needs the raw body bytes.
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   if (!STRIPE_SECRET || !STRIPE_WEBHOOK_SECRET) return res.status(400).send('Webhook not configured');
   const sig = req.headers['stripe-signature'];
@@ -1523,7 +1523,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
       }
 
       case 'invoice.paid': {
-        // Renewal — keep subscription active and update period end
+        // Renewal - keep subscription active and update period end
         const sub    = obj.subscription ? await stripe.subscriptions.retrieve(obj.subscription) : null;
         const userId = await userIdFromCustomer(obj.customer);
         if (userId && sub) {

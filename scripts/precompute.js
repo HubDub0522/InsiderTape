@@ -1,6 +1,6 @@
 'use strict';
 
-// precompute.js — runs after daily-worker in GitHub Actions
+// precompute.js - runs after daily-worker in GitHub Actions
 // Pre-computes stock-lists and stores in computed_cache so Vercel
 // can serve them instantly without heavy SQL queries on every request.
 
@@ -308,7 +308,7 @@ async function computeProximity() {
     }
     const repeatPattern = priorHits >= 2;
 
-    // Abnormal: near a CONFIRMED earnings date — 21d for anyone, 45d for an insider role.
+    // Abnormal: near a CONFIRMED earnings date - 21d for anyone, 45d for an insider role.
     const isAbnormal = confirmed && (daysTo <= 21 || (insiderRole && daysTo <= 45));
 
     let score = daysTo <= 7 ? 40 : daysTo <= 14 ? 30 : daysTo <= 21 ? 22 : daysTo <= 45 ? 14 : 8;
@@ -323,7 +323,7 @@ async function computeProximity() {
 
     results.push({
       ticker: c.ticker, company: c.company || c.ticker,
-      insider: c.insider || '—', title: c.title || '—',
+      insider: c.insider || '-', title: c.title || '-',
       buyDate: c.buyDate, buyVal: c.buyVal || 0, buyValue: c.buyVal || 0,
       nextEvent: { date: nextDate, type: 'EARNINGS', label: 'Earnings', predicted: !confirmed, confirmed, daysToFromToday: daysTo },
       daysTo, score, isAbnormal, repeatPattern,
@@ -678,7 +678,7 @@ async function main() {
   await cleanupPlanClusters();
   await prune5yr();
 
-  // Light, recent-data caches — every run
+  // Light, recent-data caches - every run
   await Promise.all([
     computeStockLists(),
     computeFirstBuysMonitor(),
@@ -687,14 +687,14 @@ async function main() {
     computeScreener90(),
   ]);
 
-  // Heavy full-history caches — once per day
+  // Heavy full-history caches - once per day
   if (heavyRun) {
     await computeInsiderSentiment();
     await computeFirstBuys();
     await computeInsiderLeaderboard();
   }
 
-  // Price pre-warm runs last (longest — many external Yahoo calls, no Turso reads)
+  // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)
   await migratePriceCacheTo5yr();
   await prewarmPrices();
   log('=== precompute done ===');

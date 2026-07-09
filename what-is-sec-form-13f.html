@@ -109,7 +109,7 @@
 
   <div class="article-body">
 
-    <p>Every quarter, thousands of the world's largest investment managers — hedge funds, mutual funds, pension funds, family offices — are required to tell the SEC exactly what they own. The filing they use is called a <strong>Form 13F</strong>, and the data inside it is completely public.</p>
+    <p>Every quarter, thousands of the world's largest investment managers - hedge funds, mutual funds, pension funds, family offices - are required to tell the SEC exactly what they own. The filing they use is called a <strong>Form 13F</strong>, and the data inside it is completely public.</p>
 
     <p>This means that every 90 days, you can see exactly what Berkshire Hathaway added to its portfolio. What Citadel held at quarter-end. Which stocks Renaissance Technologies was building positions in. Most retail investors have no idea this data exists, let alone how to use it.</p>
 
@@ -126,10 +126,10 @@
       <li>Family offices managing large pools of capital</li>
     </ul>
 
-    <p>Passive index funds like Vanguard and BlackRock are included, but their 13Fs are largely routine — they mechanically hold every stock in proportion to the index, so their filings reflect index composition changes more than investment decisions. The more interesting signals come from active managers who are making discretionary bets.</p>
+    <p>Passive index funds like Vanguard and BlackRock are included, but their 13Fs are largely routine - they mechanically hold every stock in proportion to the index, so their filings reflect index composition changes more than investment decisions. The more interesting signals come from active managers who are making discretionary bets.</p>
 
     <div class="callout">
-      <p><strong>Scale of disclosure:</strong> More than 5,000 institutions file 13Fs each quarter. The combined portfolios disclosed represent trillions of dollars in equity holdings — essentially a map of where professional capital is concentrated at any given moment.</p>
+      <p><strong>Scale of disclosure:</strong> More than 5,000 institutions file 13Fs each quarter. The combined portfolios disclosed represent trillions of dollars in equity holdings - essentially a map of where professional capital is concentrated at any given moment.</p>
     </div>
 
     <h2>WHAT DOES A 13F ACTUALLY CONTAIN?</h2>
@@ -146,11 +146,11 @@
       <tbody>
         <tr>
           <td class="field-name">Issuer Name</td>
-          <td>The company whose shares are held. Identified by CUSIP (a unique security identifier), not ticker symbol — which is why CUSIP-to-ticker mapping is required to make the data usable.</td>
+          <td>The company whose shares are held. Identified by CUSIP (a unique security identifier), not ticker symbol - which is why CUSIP-to-ticker mapping is required to make the data usable.</td>
         </tr>
         <tr>
           <td class="field-name">Shares / Principal Amount</td>
-          <td>Number of shares held at quarter-end. This is the key number — compare it against the prior quarter to see whether the position grew, shrank, or was new.</td>
+          <td>Number of shares held at quarter-end. This is the key number - compare it against the prior quarter to see whether the position grew, shrank, or was new.</td>
         </tr>
         <tr>
           <td class="field-name">Market Value</td>
@@ -158,7 +158,7 @@
         </tr>
         <tr>
           <td class="field-name">Investment Discretion</td>
-          <td>Whether the manager has sole discretion over the position (SOLE), shared discretion (SHARED), or is advising without discretion (DFND). Sole discretion is the most meaningful signal — that's a real active bet.</td>
+          <td>Whether the manager has sole discretion over the position (SOLE), shared discretion (SHARED), or is advising without discretion (DFND). Sole discretion is the most meaningful signal - that's a real active bet.</td>
         </tr>
         <tr>
           <td class="field-name">Put / Call</td>
@@ -180,10 +180,10 @@
       <li>Q4 (Oct–Dec) filings due by February 14</li>
     </ul>
 
-    <p>The lag is important to understand. When Q4 13F data drops in mid-February, the positions it describes were as of December 31. A fund could have added a stock in October, held it through year-end for the 13F snapshot, and sold it entirely in January — and you'd never know. The 13F shows you what was held; it doesn't tell you what's being held right now.</p>
+    <p>The lag is important to understand. When Q4 13F data drops in mid-February, the positions it describes were as of December 31. A fund could have added a stock in October, held it through year-end for the 13F snapshot, and sold it entirely in January - and you'd never know. The 13F shows you what was held; it doesn't tell you what's being held right now.</p>
 
     <div class="callout orange">
-      <p><strong>The staleness problem:</strong> By the time you see a 13F, the information is 6-10 weeks old. Treat it as evidence of sustained conviction — a position held for a full quarter — rather than a live signal. The longer a manager has held a position across multiple quarters, the more meaningful it becomes.</p>
+      <p><strong>The staleness problem:</strong> By the time you see a 13F, the information is 6-10 weeks old. Treat it as evidence of sustained conviction - a position held for a full quarter - rather than a live signal. The longer a manager has held a position across multiple quarters, the more meaningful it becomes.</p>
     </div>
 
     <h2>HOW TO READ THE SIGNAL IN 13F DATA</h2>
@@ -203,7 +203,7 @@
     <p>The position drops to zero. The manager held it last quarter and doesn't hold it this quarter. If the exit comes after a long period of holding (multiple quarters), it means something changed in their analysis. Multiple simultaneous exits from previously committed holders is a strong signal worth tracking.</p>
 
     <div class="callout green">
-      <p><strong>Convergence is the real signal:</strong> Any individual fund's decision could be idiosyncratic — a fund flow need, a portfolio rebalancing, a bet size limit. But when multiple unrelated funds make the same decision in the same quarter independently, that convergence is hard to explain away. It suggests the investment case is widely understood and agreed upon across professional analysts.</p>
+      <p><strong>Convergence is the real signal:</strong> Any individual fund's decision could be idiosyncratic - a fund flow need, a portfolio rebalancing, a bet size limit. But when multiple unrelated funds make the same decision in the same quarter independently, that convergence is hard to explain away. It suggests the investment case is widely understood and agreed upon across professional analysts.</p>
     </div>
 
     <h2>WHAT 13F DATA DOESN'T TELL YOU</h2>
@@ -219,9 +219,9 @@
 
     <h2>HOW INSIDERTAPE USES 13F DATA</h2>
 
-    <p>InsiderTape processes 13F filings from thousands of institutions each quarter, compares them against the prior quarter's holdings, and surfaces only the changes — new positions, meaningful additions, reductions, and exits. Flat positions that didn't change are filtered out entirely.</p>
+    <p>InsiderTape processes 13F filings from thousands of institutions each quarter, compares them against the prior quarter's holdings, and surfaces only the changes - new positions, meaningful additions, reductions, and exits. Flat positions that didn't change are filtered out entirely.</p>
 
-    <p>On each stock page, institutional 13F changes appear as <strong>◆ diamonds</strong> on the price chart — cyan for quarters where institutions were net adding, magenta for quarters where they were net reducing. The sidebar shows which specific institutions changed their position that quarter, how many shares they added or removed, and whether it was a new position or an existing one being adjusted.</p>
+    <p>On each stock page, institutional 13F changes appear as <strong>◆ diamonds</strong> on the price chart - cyan for quarters where institutions were net adding, magenta for quarters where they were net reducing. The sidebar shows which specific institutions changed their position that quarter, how many shares they added or removed, and whether it was a new position or an existing one being adjusted.</p>
 
     <p>The Analysis page aggregates this data across all tickers to surface the broadest patterns: which stocks are seeing accumulation from the most institutions simultaneously, which are seeing the most exits, and where new institutional interest is forming for the first time.</p>
 
