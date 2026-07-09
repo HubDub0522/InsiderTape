@@ -645,7 +645,9 @@ app.get('/api/price-highs', async (req, res) => {
   if (!syms.length) return res.json({});
   const result = {};
   for (const sym of syms) {
-    const bars = await getPC(sym);
+    // Use getPCAny (stale-OK): 52-week highs/lows and the last daily close don't
+    // need real-time freshness, and getPC's short TTL would drop most tickers.
+    const bars = await getPCAny(sym);
     if (!bars || !bars.length) continue;
     const last = bars[bars.length - 1];
     const bars52 = bars.slice(-252);
