@@ -2931,7 +2931,7 @@ async function buildChart(priceData, trades) {
     layout:{background:{type:'solid',color:'#132440'},textColor:'#8fb0c8'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
-    rightPriceScale:{borderColor:'#1e2d3d',autoScale:true,scaleMargins:{top:0.08,bottom:0.18}},timeScale:{borderColor:'#1e2d3d',timeVisible:true,rightOffset:20},
+    rightPriceScale:{borderColor:'#1e2d3d',autoScale:true,scaleMargins:{top:0.08,bottom:0.18}},timeScale:{borderColor:'#1e2d3d',timeVisible:true},
   });
   // Store price data and trades for chart type switching
   state.currentChartPriceData = priceData;
@@ -2994,11 +2994,7 @@ async function buildChart(priceData, trades) {
     const cutStr=cutoff.toISOString().split('T')[0];
     const visible=cleanData.filter(d=>d.time>=cutStr);
     if (visible.length>0) {
-      try {
-        const fromTs = Math.floor(new Date(visible[0].time+'T00:00:00Z').getTime()/1000);
-        const toTs   = Math.floor(new Date(cleanData[cleanData.length-1].time+'T23:59:59Z').getTime()/1000);
-        chart.timeScale().setVisibleRange({from:fromTs,to:toTs});
-      } catch(e) { try { chart.timeScale().fitContent(); } catch(e2) {} }
+      setChartRangeWithGap(chart, cleanData.length, cleanData.length - visible.length);
     } else {
       try { chart.timeScale().fitContent(); } catch(e) {}
     }
@@ -3360,6 +3356,25 @@ function buildPressureChart(mainChart,trades,priceData) {
 }
 
 
+// Set a chart's visible range by bar INDEX, with a trailing pixel gap on the
+// right so the last bar (and its insider marker) isn't flush against the price
+// axis. rightOffset is unreliable here (fitContent ignores it), so we bake the
+// gap into the logical range. Falls back to fitContent on any error.
+const CHART_RIGHT_GAP_PX = 24;
+function setChartRangeWithGap(chart, totalBars, fromIdx) {
+  try {
+    const ts = chart.timeScale();
+    const plotW = ts.width() || 700;
+    const visCount = Math.max(1, totalBars - fromIdx);
+    const offBars = Math.max(1, (CHART_RIGHT_GAP_PX * visCount) / plotW);
+    ts.setVisibleLogicalRange({ from: fromIdx - 0.5, to: (totalBars - 1) + 0.5 + offBars });
+    return true;
+  } catch (e) {
+    try { chart.timeScale().fitContent(); } catch (e2) {}
+    return false;
+  }
+}
+
 function setRange(days,btn) {
   _activeRangeDays = days;
   // Update active button - but only for the RANGE row, not the SHOW row (cf-btns)
@@ -3377,26 +3392,20 @@ function setRange(days,btn) {
   // Determine the visible slice of price data
   let visible;
   if (days >= 9999) {
-    state.chart.timeScale().fitContent();
+    setChartRangeWithGap(state.chart, all.length, 0);
     visible = all;
   } else {
     const cutoff = new Date(); cutoff.setUTCDate(cutoff.getUTCDate() - days);
     const cutStr = cutoff.toISOString().split('T')[0];
     visible = all.filter(d => d.time >= cutStr);
-    // If the requested window covers (nearly) all available data - e.g. 5Y on a
-    // 5-year dataset - fitContent is more reliable than a computed setVisibleRange.
+    // If the requested window covers (nearly) all available data (e.g. 5Y on a
+    // 5-year dataset), show the whole set; otherwise show the tail slice. Range
+    // is set by bar index with a trailing gap so the last bar clears the axis.
     if (visible.length >= all.length - 2) {
-      state.chart.timeScale().fitContent();
+      setChartRangeWithGap(state.chart, all.length, 0);
       visible = all;
     } else if (visible.length > 0) {
-      try {
-        // LightweightCharts requires epoch seconds (not date strings) when timeVisible:true
-        const fromTs = Math.floor(new Date(visible[0].time + 'T00:00:00Z').getTime() / 1000);
-        const toTs   = Math.floor(new Date(all[all.length-1].time + 'T23:59:59Z').getTime() / 1000);
-        state.chart.timeScale().setVisibleRange({from: fromTs, to: toTs});
-      } catch(e) {
-        state.chart.timeScale().fitContent();
-      }
+      setChartRangeWithGap(state.chart, all.length, all.length - visible.length);
     }
   }
   setTimeout(() => { if(state.drawCircles) state.drawCircles(); }, 50);
