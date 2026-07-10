@@ -44,6 +44,10 @@ async function initSchema() {
     `CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`,
+    // Expression index on TRIM(type): queries filter WHERE TRIM(type)='P' etc,
+    // which the plain type index can't serve - this lets them seek by type+date
+    // instead of full-scanning the table (the main Turso rows-read driver).
+    `CREATE INDEX IF NOT EXISTS idx_trades_ttype_date ON trades(TRIM(type), trade_date)`,
     `CREATE TABLE IF NOT EXISTS daily_log (date TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), filings INTEGER, trades INTEGER)`,
     `CREATE TABLE IF NOT EXISTS seen_filings (accession TEXT PRIMARY KEY, seen_at TEXT DEFAULT (datetime('now')))`,
   ];
@@ -446,10 +450,10 @@ async function main() {
   log(`=== daily-worker v10 (Turso) start, daysBack=${daysBack} ===`);
   await initSchema();
 
-  // Light startup cleanup
-  await dbRun(`DELETE FROM trades WHERE trade_date < '2000-01-01' OR trade_date > '2030-12-31'`).catch(() => {});
-  await dbRun(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`).catch(() => {});
-  await dbRun(`DELETE FROM trades WHERE value > 5000000000 OR price > 1500000 OR qty > 500000000`).catch(() => {});
+  // NOTE: data-hygiene safety-net DELETEs (bad dates, non-P/S types, implausible
+  // values) used to run here every ingestion, but each full-scans the trades
+  // table (~1M rows) and was a major Turso rows-read cost. Moved to precompute's
+  // weekly pass - they rarely delete anything, so weekly is plenty.
 
   await runBackfill(daysBack);
   log('=== daily-worker done ===');

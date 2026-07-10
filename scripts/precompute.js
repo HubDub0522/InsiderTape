@@ -744,15 +744,27 @@ async function main() {
   // change intraday and are the biggest Turso-read consumers, so run them only once
   // per day (the morning run). Everything else runs every ingestion.
   const heavyRun = process.env.FORCE_FULL === '1' || new Date().getUTCHours() <= 14;
-  log(`Mode: ${heavyRun ? 'FULL (heavy aggregates included)' : 'LIGHT (recent-data only)'}`);
+  const dow = new Date().getUTCDay(); // 0=Sun .. 6=Sat
+  // Weekly = Monday's heavy pass. Sentiment is a slow-moving 5yr monthly aggregate
+  // that full-scans the table, so refresh it ~2x/week (Mon+Thu) instead of daily.
+  const weeklyRun    = process.env.FORCE_FULL === '1' || (heavyRun && dow === 1);
+  const sentimentRun = process.env.FORCE_FULL === '1' || (heavyRun && (dow === 1 || dow === 4));
+  log(`Mode: ${heavyRun ? 'FULL' : 'LIGHT'}${weeklyRun ? ' +weekly' : ''}${sentimentRun ? ' +sentiment' : ''}`);
 
-  // Prune always (cheap DELETE). The read-heavy cleanups scan trades + price bars,
-  // so run them only on the once/day heavy pass to conserve Turso rows-read; light
-  // runs still get clean data from the most recent heavy pass.
+  // Prune always (cheap, uses the trade_date index). The read-heavy cleanups scan
+  // trades + price bars, so run them only on the once/day heavy pass.
   await prune5yr();
   if (heavyRun) {
     await cleanupPlanClusters();
     await cleanupNonOpenMarket();
+  }
+  // Data-hygiene safety nets (bad dates, non-P/S types, implausible values). Each
+  // full-scans the table, so run weekly - they rarely delete anything. Moved here
+  // from daily-worker, where they ran on every ingestion.
+  if (weeklyRun) {
+    await dbRun(`DELETE FROM trades WHERE trade_date < '2000-01-01' OR trade_date > '2030-12-31'`).catch(() => {});
+    await dbRun(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`).catch(() => {});
+    await dbRun(`DELETE FROM trades WHERE value > 5000000000 OR price > 1500000 OR qty > 500000000`).catch(() => {});
   }
 
   // Light, recent-data caches - every run
@@ -764,9 +776,9 @@ async function main() {
     computeScreener90(),
   ]);
 
-  // Heavy full-history caches - once per day
+  // Heavy full-history caches - once per day (sentiment ~2x/week)
   if (heavyRun) {
-    await computeInsiderSentiment();
+    if (sentimentRun) await computeInsiderSentiment();
     await computeFirstBuys();
     await computeInsiderLeaderboard();
   }

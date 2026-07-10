@@ -61,6 +61,7 @@ async function initSchema() {
     `CREATE INDEX IF NOT EXISTS idx_ticker_type      ON trades(ticker, type, trade_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_trades_type_filing ON trades(type, filing_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_trades_type_trade  ON trades(type, trade_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_trades_ttype_date  ON trades(TRIM(type), trade_date)`,
     `CREATE INDEX IF NOT EXISTS idx_trades_filing_type ON trades(filing_date DESC, type, value)`,
     `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
