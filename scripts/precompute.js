@@ -467,6 +467,63 @@ async function cleanupPlanClusters() {
   log(`Plan-cluster cleanup: removed ${removed.rowsAffected} trades`);
 }
 
+// Remove "purchases" filed at a price far below the stock's actual trading range
+// on that date - warrant/option exercises and subscription/placement events that
+// come through as open-market "P" buys (e.g. an insider "buying" $BORR at $1.66
+// while it traded $4.25-$4.44 that day). These are impossible on the open market
+// and pollute every buy-based signal. We can only verify tickers that have cached
+// price bars; others are left untouched. Scoped to the last 180 days to cover the
+// signal windows and avoid split-adjustment false positives on old trades.
+async function cleanupNonOpenMarket() {
+  log('Cleaning non-open-market buys (price far below trading range)...');
+  const rows = await dbQuery(`
+    SELECT id, ticker, trade_date, price FROM trades
+    WHERE TRIM(type)='P' AND COALESCE(price,0) > 0
+      AND trade_date >= date('now','-180 days')
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+  `);
+  const byTicker = {};
+  rows.forEach(r => { (byTicker[r.ticker] || (byTicker[r.ticker] = [])).push(r); });
+  const tickers = Object.keys(byTicker);
+
+  // Batch-load the cached price bars for these tickers
+  const lowByTicker = {}; // ticker -> { 'YYYY-MM-DD': low }
+  for (let i = 0; i < tickers.length; i += 50) {
+    const chunk = tickers.slice(i, i + 50);
+    const cacheRows = await dbQuery(
+      `SELECT symbol, bars_json FROM price_cache WHERE symbol IN (${chunk.map(() => '?').join(',')})`, chunk);
+    for (const cr of cacheRows) {
+      try {
+        const map = {};
+        for (const b of JSON.parse(cr.bars_json)) map[b.time] = b.low;
+        lowByTicker[cr.symbol] = map;
+      } catch (_) {}
+    }
+  }
+
+  const shift = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const toDelete = [];
+  for (const [ticker, trs] of Object.entries(byTicker)) {
+    const lowMap = lowByTicker[ticker];
+    if (!lowMap) continue; // no cached bars - can't verify, leave it
+    for (const t of trs) {
+      const d = (t.trade_date || '').slice(0, 10);
+      let low = lowMap[d];
+      // Exact date may be a weekend/holiday/gap - check the nearest few days
+      for (let i = 1; i <= 3 && low == null; i++) low = lowMap[shift(d, -i)] ?? lowMap[shift(d, i)];
+      if (low != null && low > 0 && t.price < low * 0.7) toDelete.push(t.id);
+    }
+  }
+
+  let removed = 0;
+  for (let i = 0; i < toDelete.length; i += 200) {
+    const batch = toDelete.slice(i, i + 200);
+    const res = await dbRun(`DELETE FROM trades WHERE id IN (${batch.map(() => '?').join(',')})`, batch);
+    removed += res.rowsAffected || batch.length;
+  }
+  log(`Non-open-market cleanup: checked ${rows.length} buys across ${tickers.length} tickers, removed ${removed}`);
+}
+
 // Pre-compute the Insider Sentiment index (heavy 120-month aggregation + S&P 500)
 async function computeInsiderSentiment() {
   log('Computing insider-sentiment...');
@@ -691,6 +748,7 @@ async function main() {
 
   // Cleanup + prune first so caches reflect filtered, in-range data
   await cleanupPlanClusters();
+  await cleanupNonOpenMarket();
   await prune5yr();
 
   // Light, recent-data caches - every run
