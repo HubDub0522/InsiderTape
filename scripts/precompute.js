@@ -746,10 +746,14 @@ async function main() {
   const heavyRun = process.env.FORCE_FULL === '1' || new Date().getUTCHours() <= 14;
   log(`Mode: ${heavyRun ? 'FULL (heavy aggregates included)' : 'LIGHT (recent-data only)'}`);
 
-  // Cleanup + prune first so caches reflect filtered, in-range data
-  await cleanupPlanClusters();
-  await cleanupNonOpenMarket();
+  // Prune always (cheap DELETE). The read-heavy cleanups scan trades + price bars,
+  // so run them only on the once/day heavy pass to conserve Turso rows-read; light
+  // runs still get clean data from the most recent heavy pass.
   await prune5yr();
+  if (heavyRun) {
+    await cleanupPlanClusters();
+    await cleanupNonOpenMarket();
+  }
 
   // Light, recent-data caches - every run
   await Promise.all([
