@@ -526,8 +526,18 @@ async function cleanupNonOpenMarket() {
 
 // Pre-compute the Insider Sentiment index (heavy 120-month aggregation + S&P 500)
 async function computeInsiderSentiment() {
-  log('Computing insider-sentiment...');
-  const months = 120;
+  // Historical monthly sentiment is frozen - only the current month (and a buffer
+  // for late-filed Form 4s) changes. So we keep the cached history and re-aggregate
+  // only the last ~95 days, then merge. Full 120-month scan runs once, to bootstrap.
+  let prev = null;
+  try {
+    const row = (await dbQuery("SELECT value_json FROM computed_cache WHERE key = 'insider-sentiment'"))[0];
+    if (row) prev = JSON.parse(row.value_json);
+  } catch (_) {}
+  const haveHistory = prev && Array.isArray(prev.insider) && prev.insider.length > 6;
+  log(`Computing insider-sentiment (${haveHistory ? 'incremental ~95d scan' : 'bootstrap full scan'})...`);
+
+  const scanClause = haveHistory ? `trade_date >= date('now','-95 days')` : `trade_date >= date('now','-120 months')`;
   const rows = await dbQuery(`
     SELECT strftime('%Y-%m', trade_date) AS month,
            strftime('%Y-%m', trade_date) || '-01' AS month_date,
@@ -536,16 +546,24 @@ async function computeInsiderSentiment() {
            COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
            COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count
     FROM trades
-    WHERE trade_date >= date('now', '-' || ? || ' months') AND trade_date <= date('now')
+    WHERE ${scanClause} AND trade_date <= date('now')
       AND TRIM(type) IN ('P','S','S-') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       AND COALESCE(value, 0) >= 10000
     GROUP BY month HAVING buy_val + sell_val > 0 ORDER BY month ASC
-  `, [months]);
-
-  const monthly = rows.map(r => ({
+  `);
+  const fresh = rows.map(r => ({
     date: r.month_date, buyPct: r.buy_val / (r.buy_val + r.sell_val),
     buyVal: r.buy_val, sellVal: r.sell_val, buyCount: r.buy_count, sellCount: r.sell_count,
   }));
+
+  // Merge fresh recent months over the cached history (fresh wins for overlaps),
+  // then keep the most recent 120 months.
+  const byDate = {};
+  if (haveHistory) for (const m of prev.insider) byDate[m.date] = { date: m.date, buyPct: m.buyPct, buyVal: m.buyVal, sellVal: m.sellVal, buyCount: m.buyCount, sellCount: m.sellCount };
+  for (const m of fresh) byDate[m.date] = m;
+  const monthly = Object.values(byDate).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-120);
+
+  // Smoothing (3-month trailing) + percentile thresholds, all in memory (no DB reads)
   const smoothed = monthly.map((m, i) => {
     const sl = monthly.slice(Math.max(0, i - 2), i + 1);
     return { ...m, smoothedBuyPct: sl.reduce((s, x) => s + x.buyPct, 0) / sl.length };
@@ -554,19 +572,25 @@ async function computeInsiderSentiment() {
   const p = n => vals[Math.floor(vals.length * n)] || 0;
   const thresholds = { p10: p(0.10), p25: p(0.25), median: p(0.50), p75: p(0.75), p90: p(0.90) };
 
-  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - months * 31 * 86400;
-  let spxData = [];
+  // S&P: reuse cached history, refresh only the recent months (small Yahoo call).
+  let spxData = (haveHistory && Array.isArray(prev.spx)) ? prev.spx.slice() : [];
   try {
+    const endTs = Math.floor(Date.now() / 1000);
+    const startTs = haveHistory ? endTs - 120 * 86400 : endTs - 120 * 31 * 86400;
     const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1mo&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     if (resp.ok) {
       const d = await resp.json();
       const r = d?.chart?.result?.[0];
       if (r?.timestamp) {
         const q = r.indicators.quote[0];
-        spxData = r.timestamp.map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(0, 7) + '-01', close: q.close?.[i] || null })).filter(x => x.close);
+        const freshSpx = r.timestamp.map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(0, 7) + '-01', close: q.close?.[i] || null })).filter(x => x.close);
+        const spxByDate = {};
+        for (const s of spxData) spxByDate[s.date] = s;
+        for (const s of freshSpx) spxByDate[s.date] = s;
+        spxData = Object.values(spxByDate).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-120);
       }
     }
-  } catch(_) {}
+  } catch (_) {}
 
   const result = { insider: smoothed, spx: spxData, thresholds };
   await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-sentiment', ?, ?)`, [JSON.stringify(result), Date.now()]);
@@ -745,11 +769,9 @@ async function main() {
   // per day (the morning run). Everything else runs every ingestion.
   const heavyRun = process.env.FORCE_FULL === '1' || new Date().getUTCHours() <= 14;
   const dow = new Date().getUTCDay(); // 0=Sun .. 6=Sat
-  // Weekly = Monday's heavy pass. Sentiment is a slow-moving 5yr monthly aggregate
-  // that full-scans the table, so refresh it ~2x/week (Mon+Thu) instead of daily.
-  const weeklyRun    = process.env.FORCE_FULL === '1' || (heavyRun && dow === 1);
-  const sentimentRun = process.env.FORCE_FULL === '1' || (heavyRun && (dow === 1 || dow === 4));
-  log(`Mode: ${heavyRun ? 'FULL' : 'LIGHT'}${weeklyRun ? ' +weekly' : ''}${sentimentRun ? ' +sentiment' : ''}`);
+  // Weekly = Monday's heavy pass (for the full-scan hygiene DELETEs).
+  const weeklyRun = process.env.FORCE_FULL === '1' || (heavyRun && dow === 1);
+  log(`Mode: ${heavyRun ? 'FULL' : 'LIGHT'}${weeklyRun ? ' +weekly' : ''}`);
 
   // Prune always (cheap, uses the trade_date index). The read-heavy cleanups scan
   // trades + price bars, so run them only on the once/day heavy pass.
@@ -776,9 +798,10 @@ async function main() {
     computeScreener90(),
   ]);
 
-  // Heavy full-history caches - once per day (sentiment ~2x/week)
+  // Heavy caches - once per day. Sentiment is now incremental (~95d scan), so it
+  // is cheap to run daily.
   if (heavyRun) {
-    if (sentimentRun) await computeInsiderSentiment();
+    await computeInsiderSentiment();
     await computeFirstBuys();
     await computeInsiderLeaderboard();
   }
