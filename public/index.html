@@ -2931,7 +2931,7 @@ async function buildChart(priceData, trades) {
     layout:{background:{type:'solid',color:'#132440'},textColor:'#8fb0c8'},
     grid:{vertLines:{color:'#1e2d3d'},horzLines:{color:'#1e2d3d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#00d4ff66',labelBackgroundColor:'#0d1117'},horzLine:{color:'#00d4ff44',labelBackgroundColor:'#0d1117'}},
-    rightPriceScale:{borderColor:'#1e2d3d',autoScale:true,scaleMargins:{top:0.08,bottom:0.18}},timeScale:{borderColor:'#1e2d3d',timeVisible:true},
+    rightPriceScale:{borderColor:'#1e2d3d',autoScale:true,scaleMargins:{top:0.08,bottom:0.18}},timeScale:{borderColor:'#1e2d3d',timeVisible:true,rightOffset:3},
   });
   // Store price data and trades for chart type switching
   state.currentChartPriceData = priceData;
