@@ -3335,7 +3335,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   pc.addEventListener('mouseleave',()=>{pTooltip.style.display='none';});
   state.pressureChart=pChart;
   state.drawPressure=null;
-  try{const ir=mainChart.timeScale().getVisibleLogicalRange();if(ir)pChart.timeScale().setVisibleLogicalRange(ir);}catch(e){}
+  try{const ir=state._chartRange||mainChart.timeScale().getVisibleLogicalRange();if(ir)pChart.timeScale().setVisibleLogicalRange(ir);}catch(e){}
   mainChart.timeScale().subscribeVisibleLogicalRangeChange(range=>{if(range&&state.pressureChart)state.pressureChart.timeScale().setVisibleLogicalRange(range);});
 
   const legend=document.createElement('div');
@@ -3367,7 +3367,16 @@ function setChartRangeWithGap(chart, totalBars, fromIdx) {
     const plotW = ts.width() || 700;
     const visCount = Math.max(1, totalBars - fromIdx);
     const offBars = Math.max(1, (CHART_RIGHT_GAP_PX * visCount) / plotW);
-    ts.setVisibleLogicalRange({ from: fromIdx - 0.5, to: (totalBars - 1) + 0.5 + offBars });
+    const range = { from: fromIdx - 0.5, to: (totalBars - 1) + 0.5 + offBars };
+    ts.setVisibleLogicalRange(range);
+    // Lock the pressure histogram to the EXACT same logical range. Its normal
+    // sync reads getVisibleLogicalRange (data-clamped), which drops the trailing
+    // gap and drifts the two charts apart. This runs after the range-change
+    // subscription fires, so it wins.
+    state._chartRange = range;
+    if (state.pressureChart) {
+      try { state.pressureChart.timeScale().setVisibleLogicalRange(range); } catch (e) {}
+    }
     return true;
   } catch (e) {
     try { chart.timeScale().fitContent(); } catch (e2) {}
