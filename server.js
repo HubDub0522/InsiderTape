@@ -1781,6 +1781,26 @@ app.get('/api/admin/check-user', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/admin/stats', async (req, res) => {
+  if (requireAdminSecret(req, res)) return;
+  try {
+    const totalUsers = (await queryOne('SELECT COUNT(*) AS n FROM users'))?.n || 0;
+    const byStatus   = await query('SELECT status, COUNT(*) AS n FROM subscriptions GROUP BY status ORDER BY n DESC');
+    const recentSignups = await query('SELECT email, created_at FROM users ORDER BY id DESC LIMIT 25');
+    const recentSubs = await query(`
+      SELECT u.email, s.status, s.plan, s.current_period_end, s.updated_at
+      FROM subscriptions s JOIN users u ON u.id = s.user_id
+      ORDER BY s.updated_at DESC LIMIT 25`);
+    res.json({
+      totalUsers,
+      subscriptionsByStatus: Object.fromEntries(byStatus.map(r => [r.status || 'unknown', r.n])),
+      recentSignups,
+      recentSubscriptions: recentSubs,
+      note: "status trial/trialing = in 7-day trial; active = paying (or gifted/admin). Emails visible only with the admin secret.",
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/unban', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   const ip = req.query.ip;
