@@ -1834,6 +1834,7 @@ app.get('/sitemap.xml', async (req, res) => {
   const now = new Date().toISOString().slice(0, 10), base = 'https://www.insidertape.com';
   const staticPages = [
     { url: '/', priority: '1.0', freq: 'daily' },
+    { url: '/biggest-insider-buys', priority: '0.9', freq: 'daily' },
     { url: '/screener', priority: '0.9', freq: 'daily' },
     { url: '/stock', priority: '0.8', freq: 'daily' },
     { url: '/insider', priority: '0.8', freq: 'daily' },
@@ -1990,6 +1991,118 @@ app.get('/insider-trading/:ticker', async (req, res) => {
       FROM trades WHERE ticker = ? AND trade_date >= date('now','-365 days') AND TRIM(type) IN ('P','S','S-')`, [ticker]);
     const html = renderTickerPage(ticker, rows, st || {});
     _tickerPageCache.set(ticker, { html, t: Date.now() });
+    res.type('html').send(html);
+  } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── FREE SHAREABLE PAGE: BIGGEST INSIDER BUYS THIS WEEK ───────────────────────
+// Ungated, server-rendered, auto-updating link-bait: the largest open-market
+// insider purchases in the last 7 days, ranked by value. Great for sharing on
+// social and for SEO; links out to the per-ticker pages and into the trial.
+function renderBiggestBuysPage(rows) {
+  const today = new Date();
+  const updated = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const totalVal = rows.reduce((s, r) => s + (+r.buy_val || 0), 0);
+  const totalTrades = rows.reduce((s, r) => s + (+r.trades || 0), 0);
+  const url = 'https://www.insidertape.com/biggest-insider-buys';
+  const desc = `The biggest open-market insider buys this week: the ${rows.length} companies where executives and directors bought the most stock, ranked by dollar value. Updated daily from SEC Form 4 filings.`;
+
+  const tr = rows.map((r, i) => {
+    const co = _esc(r.company || r.ticker);
+    return `<tr>
+      <td class="rk">${i + 1}</td>
+      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${co}</span></a></td>
+      <td class="num">${r.insiders || 0}</td>
+      <td class="num">${r.trades || 0}</td>
+      <td class="num v">${_fmtV(r.buy_val)}</td>
+      <td class="dt">${_fmtDate(r.latest)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Biggest Insider Buys This Week | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="Biggest Insider Buys This Week">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: 'Biggest Insider Buys This Week', description: desc, url, dateModified: today.toISOString().slice(0, 10) })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--buy:#167a40}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:880px;margin:0 auto;padding:44px 24px 90px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(22,122,64,.08);border:1px solid rgba(22,122,64,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--buy);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+h1{font-size:clamp(28px,5vw,42px);font-weight:800;letter-spacing:-.5px;line-height:1.12;margin-bottom:12px}
+.sub{font-size:15px;color:#3a4555;line-height:1.7;margin-bottom:8px;max-width:620px}
+.upd{font-size:12px;color:var(--muted);margin-bottom:26px}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:30px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+.card .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}.card .v{font-size:22px;font-weight:800}.card .v.g{color:var(--buy)}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:14px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:12px 14px;border-bottom:2px solid var(--border)}
+td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(36,120,204,.03)}
+.rk{color:var(--muted);font-weight:700;width:38px;font-variant-numeric:tabular-nums}
+.tk a{text-decoration:none;color:inherit;display:flex;flex-direction:column}.tk strong{color:var(--accent);font-weight:700;font-size:15px}.tk .co{font-size:11px;color:var(--muted);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:#3a4555}.num.v{color:var(--buy);font-weight:700}
+.dt{text-align:right;white-space:nowrap;color:var(--muted);font-size:12px}
+.note{font-size:13px;color:var(--muted);margin:22px 0 0;line-height:1.7}.note a{color:var(--accent);text-decoration:none}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:38px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.soft{margin-top:12px}.soft a{font-size:12px;color:var(--muted);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.summary{grid-template-columns:1fr}table{font-size:12px}th,td{padding:9px 8px}.tk .co{max-width:130px}th:nth-child(4),td:nth-child(4){display:none}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Updated Daily &nbsp;·&nbsp; Free</div>
+  <h1>Biggest Insider Buys This Week</h1>
+  <p class="sub">The largest open-market insider purchases filed with the SEC over the past 7 days, ranked by dollar value. Only genuine open-market buys, with option exercises, grants, and plan sales stripped out.</p>
+  <div class="upd">Updated ${updated}</div>
+  <div class="summary">
+    <div class="card"><div class="k">Companies</div><div class="v">${rows.length}</div></div>
+    <div class="card"><div class="k">Buy Transactions</div><div class="v">${totalTrades}</div></div>
+    <div class="card"><div class="k">Total Insider Buying</div><div class="v g">${_fmtV(totalVal)}</div></div>
+  </div>
+  <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
+  <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. New to this? Read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
+  <div class="cta">
+    <h3>See these buys plotted on the chart</h3>
+    <p>InsiderTape tracks every SEC Form 4 in real time and flags cluster buys, CEO conviction, first buys in years, and buying at the lows the moment they file. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div class="soft"><a href="/">or explore the live screener free →</a></div>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
+</body></html>`;
+}
+
+let _biggestBuysCache = null;
+app.get('/biggest-insider-buys', async (req, res) => {
+  if (_biggestBuysCache && Date.now() - _biggestBuysCache.t < 2 * 3600000) { res.type('html'); return res.send(_biggestBuysCache.html); }
+  try {
+    const rows = await query(`
+      SELECT ticker, MAX(company) AS company,
+             COUNT(DISTINCT insider) AS insiders, COUNT(*) AS trades,
+             SUM(COALESCE(value,0)) AS buy_val, MAX(trade_date) AS latest
+      FROM trades
+      WHERE TRIM(type)='P' AND trade_date >= date('now','-7 days')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(value,0) >= 10000
+      GROUP BY ticker HAVING buy_val > 0
+      ORDER BY buy_val DESC LIMIT 30`);
+    const html = renderBiggestBuysPage(rows || []);
+    _biggestBuysCache = { html, t: Date.now() };
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
