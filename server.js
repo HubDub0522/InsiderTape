@@ -1844,8 +1844,8 @@ app.get('/sitemap.xml', async (req, res) => {
   const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}.html`, priority: '0.6', freq: 'monthly' }));
   let tickerPages = [];
   try {
-    const tickers = await query("SELECT ticker FROM trades WHERE ticker GLOB '[A-Z]*' AND trade_date >= date('now','-1825 days') GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 200");
-    tickerPages = tickers.map(r => ({ url: `/stock/${r.ticker}`, priority: '0.5', freq: 'daily' }));
+    const tickers = await query("SELECT ticker FROM trades WHERE ticker GLOB '[A-Z]*' AND trade_date >= date('now','-1825 days') GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 800");
+    tickerPages = tickers.map(r => ({ url: `/insider-trading/${r.ticker}`, priority: '0.5', freq: 'weekly' }));
   } catch(_) {}
   const allPages = [...staticPages, ...articlePages, ...tickerPages];
   const urls = allPages.map(p => `\n  <url><loc>${base}${p.url}</loc><lastmod>${now}</lastmod><changefreq>${p.freq}</changefreq><priority>${p.priority}</priority></url>`).join('');
@@ -1853,6 +1853,144 @@ app.get('/sitemap.xml', async (req, res) => {
   _sitemapCacheTime = Date.now();
   res.type('application/xml');
   res.send(_sitemapCache);
+});
+
+// ─── PROGRAMMATIC TICKER PAGES (SEO) ──────────────────────────────────────────
+// Server-rendered, indexable pages at /insider-trading/<TICKER>. Unlike the
+// client-rendered SPA stock view, these are static HTML Google can crawl, one
+// per ticker, targeting long-tail "<company> insider trading" searches. Rendered
+// HTML is cached in-memory per ticker to keep Turso rows-read low.
+function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function _fmtV(n) { n = +n || 0; const a = Math.abs(n); if (a >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M'; if (a >= 1e3) return '$' + Math.round(n / 1e3) + 'K'; return '$' + Math.round(n); }
+function _fmtQty(n) { n = +n || 0; const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M'; if (a >= 1e3) return (n / 1e3).toFixed(1) + 'K'; return String(Math.round(n)); }
+function _fmtDate(d) { if (!d) return ''; const dt = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); return isNaN(dt) ? String(d).slice(0, 10) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }); }
+
+function renderTickerPage(ticker, rows, stats) {
+  const company = (rows.find(r => r.company && r.company.trim()) || {}).company || ticker;
+  const co = _esc(company);
+  const url = `https://www.insidertape.com/insider-trading/${ticker}`;
+  const buys = stats.buys || 0, sells = stats.sells || 0;
+  const posture = buys > sells * 1.5 ? 'net buyers' : sells > buys * 1.5 ? 'net sellers' : 'mixed';
+  const intro = `Over the past 12 months, ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} at ${co} filed ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'} on ${ticker}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}. Insiders have been ${posture} over this period. The most recent filing was on ${_fmtDate(stats.latest)}.`;
+  const desc = `Latest insider trading activity for ${company} (${ticker}). Recent SEC Form 4 buys and sells by executives and directors, with dates, share counts, and dollar values.`;
+
+  const tableRows = rows.map(r => {
+    const isBuy = r.type === 'P', isSell = r.type === 'S' || r.type === 'S-';
+    const badge = isBuy ? '<span class="b buy">BUY</span>' : isSell ? '<span class="b sell">SELL</span>' : '<span class="b">' + _esc(r.type) + '</span>';
+    return `<tr>
+      <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
+      <td class="ins"><strong>${_esc(r.insider || 'Unknown')}</strong>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
+      <td>${badge}</td>
+      <td class="num">${_fmtQty(r.qty)}</td>
+      <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
+      <td class="num val ${isBuy ? 'g' : isSell ? 'r' : ''}">${_fmtV(r.value)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${ticker} Insider Trading - ${co} SEC Form 4 Activity | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="${ticker} Insider Trading - ${co}">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: `${ticker} Insider Trading - ${company}`, description: desc, url })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--buy:#167a40;--sell:#b03030}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:860px;margin:0 auto;padding:44px 24px 90px}
+.crumb{font-size:12px;color:var(--muted);margin-bottom:18px}.crumb a{color:var(--accent);text-decoration:none}
+h1{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:10px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:22px}
+.intro{font-size:16px;color:#3a4555;line-height:1.8;margin-bottom:28px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:32px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+.stat .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.stat .v{font-size:20px;font-weight:700}.v.g{color:var(--buy)}.v.r{color:var(--sell)}
+h2{font-size:18px;font-weight:700;margin:8px 0 14px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 14px;border-bottom:2px solid var(--border)}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:#3a4555}tr:last-child td{border-bottom:none}
+.dt{white-space:nowrap;color:var(--muted)}.ins strong{color:var(--text);font-weight:600;display:block}.ins .ti{font-size:11px;color:var(--muted)}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.val.g{color:var(--buy);font-weight:600}.val.r{color:var(--sell);font-weight:600}
+.b{font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;background:#eee;color:var(--muted)}.b.buy{background:rgba(22,122,64,.1);color:var(--buy)}.b.sell{background:rgba(176,48,48,.1);color:var(--sell)}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.rel{margin-top:40px;font-size:13px;color:var(--muted)}.rel a{color:var(--accent);text-decoration:none}.rel li{margin:6px 0}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; Insider Trading &nbsp;/&nbsp; ${ticker}</div>
+  <h1>${co} (${ticker}) Insider Trading Activity</h1>
+  <div class="sub">SEC Form 4 open-market purchases and sales by corporate insiders &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
+  <p class="intro">${_esc(intro)}</p>
+  <div class="stats">
+    <div class="stat"><div class="k">Buys (1Y)</div><div class="v g">${buys}</div></div>
+    <div class="stat"><div class="k">Sells (1Y)</div><div class="v r">${sells}</div></div>
+    <div class="stat"><div class="k">Buy Value</div><div class="v g">${_fmtV(stats.buyval)}</div></div>
+    <div class="stat"><div class="k">Insiders</div><div class="v">${stats.insiders || 0}</div></div>
+  </div>
+  <h2>Recent ${ticker} insider trades</h2>
+  <table><thead><tr><th>Date</th><th>Insider</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
+  <div class="cta">
+    <h3>See ${ticker} insider trades on the chart</h3>
+    <p>InsiderTape plots every ${co} insider buy and sell directly on the price chart, with buy/sell pressure and the full trade history.</p>
+    <a class="btn" href="/stock/${ticker}">OPEN ${ticker} ON INSIDERTAPE →</a>
+  </div>
+  <div class="rel">
+    <strong>Learn more about insider trading signals:</strong>
+    <ul>
+      <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
+      <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
+      <li><a href="/articles/what-is-cluster-buying.html">What is cluster buying and why it matters</a></li>
+    </ul>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
+</body></html>`;
+}
+
+const _tickerPageCache = new Map(); // ticker -> { html, t }
+app.get('/insider-trading/:ticker', async (req, res) => {
+  const ticker = (req.params.ticker || '').toUpperCase().replace(/[^A-Z0-9.\-]/g, '').slice(0, 10);
+  if (!ticker || !/^[A-Z]/.test(ticker)) return res.redirect(302, '/');
+  const hit = _tickerPageCache.get(ticker);
+  if (hit && Date.now() - hit.t < 12 * 3600000) { res.type('html'); return res.send(hit.html); }
+  try {
+    const rows = await query(`
+      SELECT company, insider, title, trade_date AS trade, filing_date AS filing,
+             TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price, MAX(value) AS value
+      FROM trades WHERE ticker = ? AND TRIM(type) IN ('P','S','S-')
+      GROUP BY insider, trade_date, TRIM(type)
+      ORDER BY trade_date DESC, filing_date DESC LIMIT 50`, [ticker]);
+    if (!rows.length) {
+      res.status(404).type('html');
+      return res.send(`<!DOCTYPE html><html><head><meta name="robots" content="noindex"><title>${ticker} | InsiderTape</title><meta http-equiv="refresh" content="0;url=/"></head><body>No insider trading data for ${ticker}. <a href="/">InsiderTape</a></body></html>`);
+    }
+    const st = await queryOne(`
+      SELECT COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buys,
+             COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sells,
+             SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buyval,
+             SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sellval,
+             COUNT(DISTINCT insider) AS insiders, MAX(trade_date) AS latest
+      FROM trades WHERE ticker = ? AND trade_date >= date('now','-365 days') AND TRIM(type) IN ('P','S','S-')`, [ticker]);
+    const html = renderTickerPage(ticker, rows, st || {});
+    _tickerPageCache.set(ticker, { html, t: Date.now() });
+    res.type('html').send(html);
+  } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
 
 // ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
