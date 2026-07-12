@@ -1840,7 +1840,7 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/premium', priority: '0.7', freq: 'monthly' },
     { url: '/articles/', priority: '0.7', freq: 'weekly' },
   ];
-  const articleSlugs = ['is-insider-buying-bullish','what-it-means-when-a-ceo-buys-stock','insider-buying-near-52-week-lows','cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
+  const articleSlugs = ['is-insider-buying-bullish','what-it-means-when-a-ceo-buys-stock','insider-buying-near-52-week-lows','what-is-a-10b5-1-plan','first-insider-buy-in-years','real-insider-buys-vs-option-exercises','cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
   const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}.html`, priority: '0.6', freq: 'monthly' }));
   let tickerPages = [];
   try {
@@ -1946,9 +1946,10 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <h2>Recent ${ticker} insider trades</h2>
   <table><thead><tr><th>Date</th><th>Insider</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
   <div class="cta">
-    <h3>See ${ticker} insider trades on the chart</h3>
-    <p>InsiderTape plots every ${co} insider buy and sell directly on the price chart, with buy/sell pressure and the full trade history.</p>
-    <a class="btn" href="/stock/${ticker}">OPEN ${ticker} ON INSIDERTAPE →</a>
+    <h3>Track ${ticker} insider trades in real time</h3>
+    <p>InsiderTape plots every ${co} insider buy and sell on the price chart, with buy/sell pressure, cluster detection, and alerts the moment new Form 4s hit. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/stock/${ticker}" style="font-size:12px;color:var(--muted);text-decoration:none">or open ${ticker} on InsiderTape →</a></div>
   </div>
   <div class="rel">
     <strong>Learn more about insider trading signals:</strong>

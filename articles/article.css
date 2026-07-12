@@ -1,0 +1,35 @@
+:root{
+  --bg:#e3e6eb;--bg2:#f0f2f5;--bg3:#eaecf0;--border:#d0d4db;--border2:#b8bdc8;
+  --text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--buy:#167a40;--sell:#b03030;--header-h:64px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg2);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.75}
+header{position:sticky;top:0;z-index:100;height:var(--header-h);background:rgba(240,242,245,.97);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:space-between;padding:0 24px;gap:16px}
+.logo{font-size:18px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+nav{display:flex;gap:4px}
+nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px;transition:all .2s}
+nav a:hover{color:var(--text);border-color:var(--border)}
+nav a.active{color:var(--accent);border-color:var(--accent);background:rgba(36,120,204,.08)}
+.article-wrap{max-width:720px;margin:0 auto;padding:64px 24px 100px}
+.article-tag{display:inline-block;padding:3px 10px;background:rgba(36,120,204,.08);border:1px solid rgba(36,120,204,.2);border-radius:20px;font-size:10px;font-weight:600;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-bottom:20px}
+.article-tag.green{background:rgba(22,122,64,.08);border-color:rgba(22,122,64,.2);color:var(--buy)}
+h1{font-size:clamp(28px,4vw,44px);font-weight:700;letter-spacing:-.5px;color:var(--text);line-height:1.15;margin-bottom:20px}
+.article-meta{font-size:12px;color:var(--muted);margin-bottom:40px;padding-bottom:32px;border-bottom:1px solid var(--border)}
+.article-body p{margin-bottom:24px;font-size:16px;line-height:1.8;color:#3a4555}
+.article-body h2{font-size:22px;font-weight:700;letter-spacing:-.3px;color:var(--text);margin:48px 0 16px}
+.article-body h3{font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--accent);text-transform:uppercase;margin:32px 0 12px}
+.article-body strong{color:var(--text);font-weight:600}.article-body em{color:var(--muted);font-style:italic}
+.article-body a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(36,120,204,.3)}.article-body a:hover{border-bottom-color:var(--accent)}
+.article-body ul,.article-body ol{margin:0 0 24px 20px}.article-body li{margin-bottom:8px;color:#3a4555;line-height:1.75}
+.callout{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:18px 20px;margin:32px 0}
+.callout.green{border-left-color:var(--buy)}.callout.red{border-left-color:var(--sell)}
+.callout p{margin:0;font-size:14px;color:var(--muted)}.callout strong{color:var(--text)}
+.article-figure{margin:36px 0}
+.article-figure img,.article-figure svg{width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--border)}
+.article-figure figcaption{font-size:12px;color:var(--muted);text-align:center;margin-top:10px;line-height:1.5}
+.back-link{display:inline-flex;align-items:center;gap:8px;color:var(--muted);text-decoration:none;font-size:12px;font-weight:500;margin-bottom:40px;transition:color .2s}.back-link:hover{color:var(--text)}
+.cta-box{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:32px;text-align:center;margin-top:56px}
+.cta-box h3{font-size:22px;font-weight:700;color:var(--text);margin-bottom:10px}.cta-box p{color:var(--muted);font-size:14px;margin-bottom:20px}
+.cta-btn{display:inline-block;background:var(--accent);color:#fff!important;padding:11px 28px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;transition:background .2s}.cta-btn:hover{background:var(--accent2)}
+footer{border-top:1px solid var(--border);padding:32px 24px;text-align:center;background:var(--bg2)}footer p{font-size:11px;color:var(--muted)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.article-wrap{padding:40px 16px 80px}}
