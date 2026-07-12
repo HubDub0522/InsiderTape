@@ -142,6 +142,14 @@
   <div class="article-tag">Strategy</div>
   <h1>INSIDER BUYING VS ANALYST UPGRADES: WHICH PREDICTS STOCK PERFORMANCE BETTER</h1>
   <div class="article-meta">9 min read &nbsp;·&nbsp; InsiderTape</div>
+  <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 36px">
+    <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
+    <a href="#" onclick="return sx('x')" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;line-height:1;font-family:inherit">Post on X</a>
+    <a href="#" onclick="return sx('reddit')" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;line-height:1;font-family:inherit">Reddit</a>
+    <a href="#" onclick="return sx('linkedin')" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;line-height:1;font-family:inherit">LinkedIn</a>
+    <button type="button" onclick="sx('copy',this)" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;line-height:1;font-family:inherit">Copy link</button>
+  </div>
+
   <div class="article-body">
 
     <p>When a Wall Street analyst upgrades a stock, it often moves immediately. market participants react, retail investors follow the headlines, and the stock can jump several percent in a single session. When a CEO quietly buys $500,000 worth of shares through an SEC Form 4 filing, the market often barely notices in the short term.</p>
@@ -265,5 +273,6 @@
 <footer>
   <p><a href="/articles/">← Back to Articles</a> &nbsp;·&nbsp; Data sourced from SEC EDGAR &nbsp;·&nbsp; Not financial advice</p>
 </footer>
+  <script>function sx(k,el){var u=encodeURIComponent(location.href.split('#')[0]);var t=encodeURIComponent((document.title||'').split('|')[0].trim());var m={x:'https://twitter.com/intent/tweet?text='+t+'&url='+u,reddit:'https://www.reddit.com/submit?url='+u+'&title='+t,linkedin:'https://www.linkedin.com/sharing/share-offsite/?url='+u};if(k==='copy'){try{navigator.clipboard.writeText(location.href.split('#')[0]);}catch(e){}if(el){var o=el.textContent;el.textContent='Copied!';setTimeout(function(){el.textContent=o;},1500);}return false;}window.open(m[k],'_blank','noopener,noreferrer,width=600,height=520');return false;}</script>
 </body>
 </html>

@@ -2069,6 +2069,13 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <h1>Biggest Insider Buys This Week</h1>
   <p class="sub">The largest open-market insider purchases filed with the SEC over the past 7 days, ranked by dollar value. Only genuine open-market buys, with option exercises, grants, and plan sales stripped out.</p>
   <div class="upd">Updated ${updated}</div>
+  <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 26px">
+    <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
+    <a href="#" onclick="return sx('x')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">Post on X</a>
+    <a href="#" onclick="return sx('reddit')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">Reddit</a>
+    <a href="#" onclick="return sx('linkedin')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">LinkedIn</a>
+    <button type="button" onclick="sx('copy',this)" style="font-size:12px;font-weight:600;color:#1a2030;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit">Copy link</button>
+  </div>
   <div class="summary">
     <div class="card"><div class="k">Companies</div><div class="v">${rows.length}</div></div>
     <div class="card"><div class="k">Buy Transactions</div><div class="v">${totalTrades}</div></div>
@@ -2084,6 +2091,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   </div>
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
+<script>function sx(k,el){var u=encodeURIComponent(location.href.split('#')[0]);var t=encodeURIComponent((document.title||'').split('|')[0].trim());var m={x:'https://twitter.com/intent/tweet?text='+t+'&url='+u,reddit:'https://www.reddit.com/submit?url='+u+'&title='+t,linkedin:'https://www.linkedin.com/sharing/share-offsite/?url='+u};if(k==='copy'){try{navigator.clipboard.writeText(location.href.split('#')[0]);}catch(e){}if(el){var o=el.textContent;el.textContent='Copied!';setTimeout(function(){el.textContent=o;},1500);}return false;}window.open(m[k],'_blank','noopener,noreferrer,width=600,height=520');return false;}</script>
 </body></html>`;
 }
 
