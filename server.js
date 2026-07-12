@@ -1840,7 +1840,7 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/premium', priority: '0.7', freq: 'monthly' },
     { url: '/articles/', priority: '0.7', freq: 'weekly' },
   ];
-  const articleSlugs = ['cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
+  const articleSlugs = ['is-insider-buying-bullish','what-it-means-when-a-ceo-buys-stock','insider-buying-near-52-week-lows','cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
   const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}.html`, priority: '0.6', freq: 'monthly' }));
   let tickerPages = [];
   try {
@@ -1859,9 +1859,12 @@ app.get('/sitemap.xml', async (req, res) => {
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   if (req.path.startsWith('/articles')) {
-    const articlePath = req.path === '/articles' || req.path === '/articles/'
+    const rel = req.path.replace('/articles/', '');
+    // Serve files that already have an extension (e.g. img/*.png) as-is; only
+    // append .html for extension-less article slugs.
+    const articlePath = (req.path === '/articles' || req.path === '/articles/')
       ? path.join(__dirname, 'articles', 'index.html')
-      : path.join(__dirname, 'articles', req.path.replace('/articles/', '') + (req.path.endsWith('.html') ? '' : '.html'));
+      : path.join(__dirname, 'articles', /\.[a-z0-9]+$/i.test(rel) ? rel : rel + '.html');
     if (require('fs').existsSync(articlePath)) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       return res.sendFile(articlePath);
