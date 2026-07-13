@@ -2699,14 +2699,14 @@ async function loadStockView(ticker, opts={}) {
           <div class="stock-price">${last?'$'+last.close.toFixed(2):'-'}</div>
           <div class="stock-change" style="color:${chgColor}">${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today</div>
         </div>
-        <div class="stat-grid" style="flex-wrap:wrap">
+        <div class="stat-grid" style="flex-wrap:wrap;order:1">
           <div class="stat-item"><div class="stat-label" id="statHighLabel">1Y High</div><div class="stat-val" id="statHigh">$${h52.toFixed(2)}</div></div>
           <div class="stat-item"><div class="stat-label" id="statLowLabel">1Y Low</div><div class="stat-val" id="statLow">${l52===Infinity?'-':'$'+l52.toFixed(2)}</div></div>
           <div class="stat-item"><div class="stat-label" id="statBuysLabel">Buys (1Y)</div><div class="stat-val" style="color:var(--buy)" id="statBuys">${buys}</div></div>
           <div class="stat-item"><div class="stat-label" id="statSellsLabel">Sells (1Y)</div><div class="stat-val" style="color:var(--sell)" id="statSells">${sells}</div></div>
           <div class="stat-item"><div class="stat-label" id="statValLabel">Insider Value (1Y)</div><div class="stat-val" id="statVal">${fmt(totalVal)}</div></div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <div id="stockActionBtns" style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;align-self:center">
           <button id="watchlistBtn" onclick="toggleWatchlist('${ticker}', this)" style="
             background:transparent;border:1px solid var(--border);border-radius:6px;
             padding:7px 14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;
@@ -2724,11 +2724,11 @@ async function loadStockView(ticker, opts={}) {
             ⚖️ COMPARE
           </button>
           <button onclick="shareStock('${ticker}', event)" style="
-            background:transparent;border:1px solid var(--border);border-radius:6px;
-            padding:7px 14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;
-            color:var(--muted);cursor:pointer;transition:all .15s;white-space:nowrap"
-            onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
-            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+            background:var(--accent);border:1px solid var(--accent);border-radius:6px;
+            padding:7px 14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;font-weight:600;
+            color:#fff;cursor:pointer;transition:all .15s;white-space:nowrap"
+            onmouseover="this.style.background='var(--accent2)';this.style.borderColor='var(--accent2)'"
+            onmouseout="this.style.background='var(--accent)';this.style.borderColor='var(--accent)'">
             🔗 SHARE
           </button>
         </div>
@@ -2775,6 +2775,12 @@ async function loadStockView(ticker, opts={}) {
               <button id="chartMaxBtn" onclick="toggleChartMaximize(this)" class="tf-btn ct-btn" title="Maximize chart" style="padding:4px 8px" aria-label="Maximize chart">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block">
                   <path d="M2 5V2h3M12 5V2H9M2 9v3h3M12 9v3H9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button id="chartShotBtn" onclick="screenshotStock('${ticker}', this)" class="tf-btn ct-btn" title="Download a screenshot of the chart and data" style="padding:4px 8px" aria-label="Screenshot">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="3.5"/>
                 </svg>
               </button>
             </div>
@@ -8546,6 +8552,38 @@ function _openShareMenu(url, title, anchor) {
   setTimeout(function(){
     document.addEventListener('click', function h(e){ if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', h); } });
   }, 0);
+}
+
+// Download a high-res screenshot of the stock page (header stats + chart +
+// recent trades) as a single branded PNG. Lazy-loads html2canvas on first use.
+async function screenshotStock(ticker, btn) {
+  const target = document.querySelector('.stock-layout');
+  if (!target) return;
+  try {
+    if (btn) { btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none'; }
+    if (!window.html2canvas) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        s.onload = resolve; s.onerror = () => reject(new Error('load failed'));
+        document.head.appendChild(s);
+      });
+    }
+    const bg = getComputedStyle(document.body).backgroundColor || '#e3e6eb';
+    const canvas = await html2canvas(target, {
+      scale: 2, backgroundColor: bg, useCORS: true, logging: false,
+      ignoreElements: el => ['shareMenu', 'stockActionBtns', 'chartShotBtn'].indexOf(el.id) !== -1,
+    });
+    const link = document.createElement('a');
+    link.download = ticker + '-insidertape.png';
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link); link.click(); link.remove();
+  } catch (e) {
+    console.warn('screenshot failed:', e);
+    alert('Sorry, the screenshot could not be generated. Please try again.');
+  } finally {
+    if (btn) { btn.style.opacity = ''; btn.style.pointerEvents = ''; }
+  }
 }
 
 function openCompareWith(ticker) {
