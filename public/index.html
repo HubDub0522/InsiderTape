@@ -8554,36 +8554,100 @@ function _openShareMenu(url, title, anchor) {
   }, 0);
 }
 
-// Download a high-res screenshot of the stock page (header stats + chart +
-// recent trades) as a single branded PNG. Lazy-loads html2canvas on first use.
-async function screenshotStock(ticker, btn) {
+// TradingView-style chart snapshot. The camera button opens a dropdown
+// (Download / Copy image / Copy link / Open in new tab / Tweet). Captures the
+// header stats + chart (with insider circles + pressure) + the right-side
+// trades panel, but NOT the big transactions table or the activity summary.
+function screenshotStock(ticker, btn) { _openShotMenu(ticker, btn); }
+
+function _loadHtml2Canvas() {
+  if (window.html2canvas) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = resolve; s.onerror = () => reject(new Error('load failed'));
+    document.head.appendChild(s);
+  });
+}
+
+async function _buildStockShot() {
   const target = document.querySelector('.stock-layout');
-  if (!target) return;
+  if (!target) throw new Error('chart not found');
+  await _loadHtml2Canvas();
+  const bg = getComputedStyle(document.body).backgroundColor || '#e3e6eb';
+  const SKIP = ['tradeMarkerList', 'sc13-signal-badge', 'insiderActivityAnalysis', 'stockActionBtns', 'chartShotBtn', 'shareMenu', 'shotMenu'];
+  return html2canvas(target, {
+    scale: 2.5, backgroundColor: bg, useCORS: true, logging: false,
+    ignoreElements: el => SKIP.indexOf(el.id) !== -1 || (el.classList && el.classList.contains('stock-trades-section')),
+  });
+}
+function _canvasToBlob(c) { return new Promise(res => c.toBlob(res, 'image/png')); }
+function _toast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg2);padding:9px 16px;border-radius:8px;font-family:Inter,sans-serif;font-size:12px;z-index:100000;box-shadow:0 4px 16px rgba(0,0,0,0.25)';
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.transition = 'opacity .3s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 1700);
+}
+async function _shotDownload(ticker) {
+  const c = await _buildStockShot();
+  const a = document.createElement('a');
+  a.download = ticker + '-insidertape.png';
+  a.href = c.toDataURL('image/png');
+  document.body.appendChild(a); a.click(); a.remove();
+  _toast('Image downloaded');
+}
+async function _shotCopy(ticker) {
   try {
-    if (btn) { btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none'; }
-    if (!window.html2canvas) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-        s.onload = resolve; s.onerror = () => reject(new Error('load failed'));
-        document.head.appendChild(s);
-      });
-    }
-    const bg = getComputedStyle(document.body).backgroundColor || '#e3e6eb';
-    const canvas = await html2canvas(target, {
-      scale: 2, backgroundColor: bg, useCORS: true, logging: false,
-      ignoreElements: el => ['shareMenu', 'stockActionBtns', 'chartShotBtn'].indexOf(el.id) !== -1,
-    });
-    const link = document.createElement('a');
-    link.download = ticker + '-insidertape.png';
-    link.href = canvas.toDataURL('image/png');
-    document.body.appendChild(link); link.click(); link.remove();
-  } catch (e) {
-    console.warn('screenshot failed:', e);
-    alert('Sorry, the screenshot could not be generated. Please try again.');
-  } finally {
-    if (btn) { btn.style.opacity = ''; btn.style.pointerEvents = ''; }
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': _buildStockShot().then(_canvasToBlob) })]);
+    _toast('Image copied to clipboard');
+  } catch (e) { await _shotDownload(ticker); }
+}
+function _shotCopyLink(ticker) {
+  const url = 'https://www.insidertape.com/insider-trading/' + encodeURIComponent(ticker);
+  try { navigator.clipboard.writeText(url); _toast('Link copied'); } catch (e) { _toast(url); }
+}
+async function _shotOpen(ticker) {
+  const c = await _buildStockShot();
+  const blob = await _canvasToBlob(c);
+  window.open(URL.createObjectURL(blob), '_blank');
+}
+async function _shotTweet(ticker) {
+  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': _buildStockShot().then(_canvasToBlob) })]); _toast('Image copied - paste it into your tweet'); } catch (e) {}
+  const url = encodeURIComponent('https://www.insidertape.com/insider-trading/' + ticker);
+  const text = encodeURIComponent(ticker + ' insider trading on InsiderTape');
+  window.open('https://twitter.com/intent/tweet?text=' + text + '&url=' + url, '_blank', 'noopener');
+}
+function _openShotMenu(ticker, anchor) {
+  const ex = document.getElementById('shotMenu'); if (ex) { ex.remove(); return; }
+  const menu = document.createElement('div');
+  menu.id = 'shotMenu';
+  menu.style.cssText = 'position:absolute;z-index:99999;background:var(--bg2);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,0.22);padding:6px;min-width:200px;font-family:Inter,sans-serif';
+  const head = document.createElement('div');
+  head.textContent = 'CHART SNAPSHOT';
+  head.style.cssText = 'font-size:9px;letter-spacing:1px;color:var(--muted);font-weight:600;padding:6px 12px 8px';
+  menu.appendChild(head);
+  const mk = (label, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label;
+    b.style.cssText = 'display:block;width:100%;text-align:left;background:none;border:none;padding:9px 12px;font-size:12px;color:var(--text);cursor:pointer;border-radius:5px;font-family:inherit';
+    b.onmouseover = () => b.style.background = 'var(--bg3)';
+    b.onmouseout = () => b.style.background = 'none';
+    b.onclick = async () => { menu.remove(); try { await fn(ticker); } catch (e) { console.warn('snapshot:', e); _toast('Could not generate the image'); } };
+    return b;
+  };
+  menu.appendChild(mk('Download image', _shotDownload));
+  menu.appendChild(mk('Copy image', _shotCopy));
+  menu.appendChild(mk('Copy link', _shotCopyLink));
+  menu.appendChild(mk('Open in new tab', _shotOpen));
+  menu.appendChild(mk('Tweet image', _shotTweet));
+  document.body.appendChild(menu);
+  if (anchor && anchor.getBoundingClientRect) {
+    const r = anchor.getBoundingClientRect();
+    menu.style.top = (r.bottom + window.scrollY + 6) + 'px';
+    menu.style.left = Math.max(8, Math.min(r.right + window.scrollX - menu.offsetWidth, window.innerWidth - 210)) + 'px';
   }
+  setTimeout(() => document.addEventListener('click', function h(e) { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', h); } }), 0);
 }
 
 function openCompareWith(ticker) {
