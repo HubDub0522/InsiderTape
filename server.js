@@ -56,6 +56,7 @@ async function initSchema() {
     `CREATE INDEX IF NOT EXISTS idx_trade_date       ON trades(trade_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_filing_date      ON trades(filing_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_insider          ON trades(insider)`,
+    `CREATE INDEX IF NOT EXISTS idx_insider_upper    ON trades(UPPER(insider))`,
     `CREATE INDEX IF NOT EXISTS idx_ticker_date_price ON trades(ticker, trade_date, price)`,
     `CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON trades(insider, ticker, trade_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_ticker_type      ON trades(ticker, type, trade_date DESC)`,
@@ -1848,7 +1849,16 @@ app.get('/sitemap.xml', async (req, res) => {
     const tickers = await query("SELECT ticker FROM trades WHERE ticker GLOB '[A-Z]*' AND trade_date >= date('now','-1825 days') GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 800");
     tickerPages = tickers.map(r => ({ url: `/insider-trading/${r.ticker}`, priority: '0.5', freq: 'weekly' }));
   } catch(_) {}
-  const allPages = [...staticPages, ...articlePages, ...tickerPages];
+  let insiderPages = [];
+  try {
+    const ins = await query("SELECT insider, COUNT(*) AS n FROM trades WHERE insider IS NOT NULL AND insider != '' AND TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-1825 days') GROUP BY insider ORDER BY n DESC LIMIT 600");
+    const seen = new Set();
+    for (const r of ins) {
+      const slug = _insiderSlug(r.insider);
+      if (slug && slug.length >= 2 && !seen.has(slug)) { seen.add(slug); insiderPages.push({ url: `/insider-profile/${slug}`, priority: '0.4', freq: 'weekly' }); }
+    }
+  } catch(_) {}
+  const allPages = [...staticPages, ...articlePages, ...tickerPages, ...insiderPages];
   const urls = allPages.map(p => `\n  <url><loc>${base}${p.url}</loc><lastmod>${now}</lastmod><changefreq>${p.freq}</changefreq><priority>${p.priority}</priority></url>`).join('');
   _sitemapCache = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}\n</urlset>`;
   _sitemapCacheTime = Date.now();
@@ -1880,7 +1890,7 @@ function renderTickerPage(ticker, rows, stats) {
     const badge = isBuy ? '<span class="b buy">BUY</span>' : isSell ? '<span class="b sell">SELL</span>' : '<span class="b">' + _esc(r.type) + '</span>';
     return `<tr>
       <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
-      <td class="ins"><strong>${_esc(r.insider || 'Unknown')}</strong>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
+      <td class="ins">${r.insider ? `<a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${_esc(_displayName(r.insider))}</strong></a>` : '<strong>Unknown</strong>'}${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
       <td>${badge}</td>
       <td class="num">${_fmtQty(r.qty)}</td>
       <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
@@ -1922,7 +1932,7 @@ h2{font-size:18px;font-weight:700;margin:8px 0 14px}
 table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px}
 th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 14px;border-bottom:2px solid var(--border)}
 td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:#3a4555}tr:last-child td{border-bottom:none}
-.dt{white-space:nowrap;color:var(--muted)}.ins strong{color:var(--text);font-weight:600;display:block}.ins .ti{font-size:11px;color:var(--muted)}
+.dt{white-space:nowrap;color:var(--muted)}.ins a{text-decoration:none}.ins a:hover strong{color:var(--accent)}.ins strong{color:var(--text);font-weight:600;display:block}.ins .ti{font-size:11px;color:var(--muted)}
 .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.val.g{color:var(--buy);font-weight:600}.val.r{color:var(--sell);font-weight:600}
 .b{font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;background:#eee;color:var(--muted)}.b.buy{background:rgba(22,122,64,.1);color:var(--buy)}.b.sell{background:rgba(176,48,48,.1);color:var(--sell)}
 .cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
@@ -2161,8 +2171,8 @@ app.get('/insider-profile/:name', async (req, res) => {
     GROUP BY ticker, trade_date, TRIM(type)
     ORDER BY trade_date DESC, filing_date DESC LIMIT 60`;
   try {
-    let rows = await query(rowSql('insider = ?'), [spaced]);
-    if (!rows.length) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [spaced]);
+    // Indexed via idx_insider_upper (expression index on UPPER(insider)).
+    let rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [spaced]);
     // Fall back to the raw slug (with hyphens kept) for genuinely hyphenated surnames.
     if (!rows.length && raw !== spaced) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [raw]);
     if (!rows.length) {
