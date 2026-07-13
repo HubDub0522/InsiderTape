@@ -2723,6 +2723,14 @@ async function loadStockView(ticker, opts={}) {
             onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
             ⚖️ COMPARE
           </button>
+          <button onclick="shareStock('${ticker}', event)" style="
+            background:transparent;border:1px solid var(--border);border-radius:6px;
+            padding:7px 14px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;
+            color:var(--muted);cursor:pointer;transition:all .15s;white-space:nowrap"
+            onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+            onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">
+            🔗 SHARE
+          </button>
         </div>
       </div>
       <div class="chart-area">
@@ -8507,6 +8515,39 @@ async function fetchCompareData(ticker) {
 }
 
 // Also expose a way to jump into Compare with a pre-loaded ticker
+// Share a ticker via its PUBLIC page (/insider-trading/<T>) so recipients see
+// real data + a signup CTA, not the paywall. Native share sheet on mobile,
+// a small X / Reddit / Copy menu on desktop.
+function shareStock(ticker, evt) {
+  if (evt) { try { evt.stopPropagation(); } catch(_){} }
+  const url = 'https://www.insidertape.com/insider-trading/' + encodeURIComponent(ticker);
+  const title = ticker + ' insider trading activity on InsiderTape';
+  if (navigator.share) { navigator.share({ title, text: title, url }).catch(function(){}); return; }
+  _openShareMenu(url, title, evt && evt.currentTarget);
+}
+
+function _openShareMenu(url, title, anchor) {
+  const existing = document.getElementById('shareMenu'); if (existing) existing.remove();
+  const u = encodeURIComponent(url), t = encodeURIComponent(title);
+  const menu = document.createElement('div');
+  menu.id = 'shareMenu';
+  menu.style.cssText = 'position:absolute;z-index:99999;background:var(--bg2);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,0.2);padding:6px;min-width:160px;font-family:Inter,sans-serif';
+  const item = (label, js) => `<button onclick="${js}" style="display:block;width:100%;text-align:left;background:none;border:none;padding:9px 12px;font-size:12px;color:var(--text);cursor:pointer;border-radius:5px;font-family:inherit" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='none'">${label}</button>`;
+  menu.innerHTML =
+    item('Post on X', `window.open('https://twitter.com/intent/tweet?text=${t}&url=${u}','_blank','noopener');var m=document.getElementById('shareMenu');if(m)m.remove();`) +
+    item('Share on Reddit', `window.open('https://www.reddit.com/submit?url=${u}&title=${t}','_blank','noopener');var m=document.getElementById('shareMenu');if(m)m.remove();`) +
+    item('Copy link', `try{navigator.clipboard.writeText('${url}');}catch(e){}this.textContent='Copied!';setTimeout(function(){var m=document.getElementById('shareMenu');if(m)m.remove();},900);`);
+  document.body.appendChild(menu);
+  if (anchor && anchor.getBoundingClientRect) {
+    const r = anchor.getBoundingClientRect();
+    menu.style.top = (r.bottom + window.scrollY + 6) + 'px';
+    menu.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.innerWidth - 180)) + 'px';
+  } else { menu.style.top = '80px'; menu.style.left = '20px'; }
+  setTimeout(function(){
+    document.addEventListener('click', function h(e){ if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', h); } });
+  }, 0);
+}
+
 function openCompareWith(ticker) {
   if (!_compareTickers.includes(ticker)) {
     _compareTickers.push(ticker);
