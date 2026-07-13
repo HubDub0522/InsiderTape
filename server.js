@@ -2007,11 +2007,13 @@ function _titleCaseName(s) {
     return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
   }).join(' ').replace(/\bMc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase()).replace(/\bO'([a-z])/g, (m, c) => "O'" + c.toUpperCase());
 }
+// Pretty, lowercase-hyphen URL slug for an insider name ("MUSK ELON" -> "musk-elon").
+function _insiderSlug(n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
 
 function renderInsiderPage(name, rows, stats) {
   const displayName = _titleCaseName(name);
   const dn = _esc(displayName);
-  const url = `https://www.insidertape.com/insider-profile/${encodeURIComponent(name)}`;
+  const url = `https://www.insidertape.com/insider-profile/${_insiderSlug(name)}`;
   const buys = stats.buys || 0, sells = stats.sells || 0;
   const companies = stats.companies || 0;
   // Most frequent non-empty title as their headline role.
@@ -2086,6 +2088,20 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <h1>${dn} Insider Trading Activity</h1>
   <div class="sub">${role ? _esc(role) + ' &nbsp;·&nbsp; ' : ''}SEC Form 4 open-market purchases and sales &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
   <p class="intro">${_esc(intro)}</p>
+  <div class="cta" style="margin-top:8px">
+    <h3>Follow ${dn}'s trades in real time</h3>
+    <p>InsiderTape plots every Form 4 on the price chart and flags cluster buys, CEO conviction, and first buys in years the moment they file. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/insider/${encodeURIComponent(name)}" style="font-size:12px;color:var(--muted);text-decoration:none">or open ${dn}'s full profile on InsiderTape →</a></div>
+  </div>
+  <div class="rel" style="margin-top:28px;margin-bottom:8px">
+    <strong>Learn how to read insider signals:</strong>
+    <ul>
+      <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
+      <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
+      <li><a href="/articles/real-insider-buys-vs-option-exercises.html">Real insider buys vs option exercises</a></li>
+    </ul>
+  </div>
   <div class="stats">
     <div class="stat"><div class="k">Buys</div><div class="v g">${buys}</div></div>
     <div class="stat"><div class="k">Sells</div><div class="v r">${sells}</div></div>
@@ -2094,20 +2110,6 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   </div>
   <h2>${dn}'s recent insider trades</h2>
   <table><thead><tr><th>Date</th><th>Company</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
-  <div class="cta">
-    <h3>Follow ${dn}'s trades in real time</h3>
-    <p>InsiderTape plots every Form 4 on the price chart and flags cluster buys, CEO conviction, and first buys in years the moment they file. Start a free 7-day trial, cancel anytime.</p>
-    <a class="btn" href="/premium">START FREE TRIAL →</a>
-    <div style="margin-top:12px"><a href="/insider/${encodeURIComponent(name)}" style="font-size:12px;color:var(--muted);text-decoration:none">or open ${dn}'s full profile on InsiderTape →</a></div>
-  </div>
-  <div class="rel">
-    <strong>Learn how to read insider signals:</strong>
-    <ul>
-      <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
-      <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
-      <li><a href="/articles/real-insider-buys-vs-option-exercises.html">Real insider buys vs option exercises</a></li>
-    </ul>
-  </div>
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
 </body></html>`;
@@ -2115,11 +2117,14 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 
 const _insiderPageCache = new Map(); // upper(name) -> { html, t }
 app.get('/insider-profile/:name', async (req, res) => {
-  let name = req.params.name || '';
-  try { name = decodeURIComponent(name); } catch (_) {}
-  name = name.replace(/[^A-Za-z0-9 .,'&\/\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
-  if (name.length < 2) return res.redirect(302, '/');
-  const key = name.toUpperCase();
+  let raw = req.params.name || '';
+  try { raw = decodeURIComponent(raw); } catch (_) {}
+  raw = raw.replace(/[^A-Za-z0-9 .,'&\/\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (raw.length < 2) return res.redirect(302, '/');
+  // URLs use lowercase-hyphen slugs (musk-elon); convert back to a spaced name for lookup.
+  const spaced = raw.replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  const name = spaced;
+  const key = spaced.toUpperCase();
   const hit = _insiderPageCache.get(key);
   if (hit && Date.now() - hit.t < 12 * 3600000) { res.type('html'); return res.send(hit.html); }
   const rowSql = where => `
@@ -2130,8 +2135,10 @@ app.get('/insider-profile/:name', async (req, res) => {
     GROUP BY ticker, trade_date, TRIM(type)
     ORDER BY trade_date DESC, filing_date DESC LIMIT 60`;
   try {
-    let rows = await query(rowSql('insider = ?'), [name]);
-    if (!rows.length) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [name]);
+    let rows = await query(rowSql('insider = ?'), [spaced]);
+    if (!rows.length) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [spaced]);
+    // Fall back to the raw slug (with hyphens kept) for genuinely hyphenated surnames.
+    if (!rows.length && raw !== spaced) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [raw]);
     if (!rows.length) {
       res.status(404).type('html');
       return res.send(`<!DOCTYPE html><html><head><meta name="robots" content="noindex"><title>${_esc(name)} | InsiderTape</title><meta http-equiv="refresh" content="0;url=/"></head><body>No insider trading data for ${_esc(name)}. <a href="/">InsiderTape</a></body></html>`);
