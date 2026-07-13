@@ -2009,9 +2009,35 @@ function _titleCaseName(s) {
 }
 // Pretty, lowercase-hyphen URL slug for an insider name ("MUSK ELON" -> "musk-elon").
 function _insiderSlug(n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
+// SEC stores owner names last-first ("MUSK ELON"). For DISPLAY only, flip simple
+// person names to natural first-last ("Elon Musk") so titles/headings match how
+// people actually search. Entities (funds, corps) and ambiguous names are left as
+// filed. Stored data, URLs, and DB lookups stay last-first.
+const _ENTITY_RE = /\b(inc|incorporated|llc|llp|lp|ltd|limited|plc|trust|group|partners|partnership|fund|funds|capital|holdings?|management|advisors?|advisers?|corp|corporation|company|ventures?|associates|bank|systems?|technolog\w*|labs?|international|global|financial|securities|investments?|properties|realty|resources|enterprises?|gmbh|ag|nv|foundation|pension|retirement)\b/i;
+function _displayName(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return s;
+  if (_ENTITY_RE.test(s)) return _titleCaseName(s); // fund/company: leave order as filed
+  // "Last, First Middle" comma form -> "First Middle Last"
+  if (s.includes(',')) {
+    const [lastPart, restPart = ''] = s.split(',');
+    return _titleCaseName(((restPart.trim() + ' ' + lastPart.trim()).trim()) || s);
+  }
+  let toks = s.split(/\s+/).filter(Boolean);
+  const SUFFIX = /^(jr|sr|ii|iii|iv|v)\.?$/i;
+  let suffix = '';
+  if (toks.length > 2 && SUFFIX.test(toks[toks.length - 1])) suffix = toks.pop();
+  // Only reorder unambiguous 2- or 3-token person names; leave the rest as filed
+  // (avoids mangling multi-word surnames like "Van Der Beek").
+  if (toks.length === 2 || toks.length === 3) {
+    const ordered = [...toks.slice(1), toks[0]].join(' ') + (suffix ? ' ' + suffix : '');
+    return _titleCaseName(ordered);
+  }
+  return _titleCaseName(s);
+}
 
 function renderInsiderPage(name, rows, stats) {
-  const displayName = _titleCaseName(name);
+  const displayName = _displayName(name);
   const dn = _esc(displayName);
   const url = `https://www.insidertape.com/insider-profile/${_insiderSlug(name)}`;
   const buys = stats.buys || 0, sells = stats.sells || 0;
