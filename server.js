@@ -2084,11 +2084,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 </style></head><body>
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
-  <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; Insiders &nbsp;/&nbsp; ${dn}</div>
-  <h1>${dn} Insider Trading Activity</h1>
-  <div class="sub">${role ? _esc(role) + ' &nbsp;·&nbsp; ' : ''}SEC Form 4 open-market purchases and sales &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
-  <p class="intro">${_esc(intro)}</p>
-  <div class="cta" style="margin-top:8px">
+  <div class="cta" style="margin-top:0">
     <h3>Follow ${dn}'s trades in real time</h3>
     <p>InsiderTape plots every Form 4 on the price chart and flags cluster buys, CEO conviction, and first buys in years the moment they file. Start a free 7-day trial, cancel anytime.</p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
@@ -2102,6 +2098,10 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
       <li><a href="/articles/real-insider-buys-vs-option-exercises.html">Real insider buys vs option exercises</a></li>
     </ul>
   </div>
+  <div class="crumb" style="margin-top:34px"><a href="/">Home</a> &nbsp;/&nbsp; Insiders &nbsp;/&nbsp; ${dn}</div>
+  <h1>${dn} Insider Trading Activity</h1>
+  <div class="sub">${role ? _esc(role) + ' &nbsp;·&nbsp; ' : ''}SEC Form 4 open-market purchases and sales &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
+  <p class="intro">${_esc(intro)}</p>
   <div class="stats">
     <div class="stat"><div class="k">Buys</div><div class="v g">${buys}</div></div>
     <div class="stat"><div class="k">Sells</div><div class="v r">${sells}</div></div>
