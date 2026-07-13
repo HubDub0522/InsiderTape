@@ -8612,12 +8612,6 @@ async function _shotOpen(ticker) {
   const blob = await _canvasToBlob(c);
   window.open(URL.createObjectURL(blob), '_blank');
 }
-async function _shotTweet(ticker) {
-  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': _buildStockShot().then(_canvasToBlob) })]); _toast('Image copied - paste it into your tweet'); } catch (e) {}
-  const url = encodeURIComponent('https://www.insidertape.com/insider-trading/' + ticker);
-  const text = encodeURIComponent(ticker + ' insider trading on InsiderTape');
-  window.open('https://twitter.com/intent/tweet?text=' + text + '&url=' + url, '_blank', 'noopener');
-}
 function _openShotMenu(ticker, anchor) {
   const ex = document.getElementById('shotMenu'); if (ex) { ex.remove(); return; }
   const menu = document.createElement('div');
@@ -8640,7 +8634,6 @@ function _openShotMenu(ticker, anchor) {
   menu.appendChild(mk('Copy image', _shotCopy));
   menu.appendChild(mk('Copy link', _shotCopyLink));
   menu.appendChild(mk('Open in new tab', _shotOpen));
-  menu.appendChild(mk('Tweet image', _shotTweet));
   document.body.appendChild(menu);
   if (anchor && anchor.getBoundingClientRect) {
     const r = anchor.getBoundingClientRect();
