@@ -1995,6 +1995,164 @@ app.get('/insider-trading/:ticker', async (req, res) => {
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
 
+// ─── PROGRAMMATIC INSIDER PROFILE PAGES (SEO) ─────────────────────────────────
+// Server-rendered, indexable pages at /insider-profile/<NAME>. One per corporate
+// insider, showing their public open-market Form 4 history as an SEO teaser that
+// links into the richer client-rendered profile at /insider/<NAME> and the trial.
+// Distinct path from the SPA's /insider/ route so it does not shadow it.
+function _titleCaseName(s) {
+  return String(s || '').toLowerCase().split(/\s+/).map(w => {
+    if (/^(ii|iii|iv|v|vi|vii)$/.test(w)) return w.toUpperCase();
+    if (/^(jr|sr)$/.test(w)) return w.charAt(0).toUpperCase() + w.slice(1);
+    return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+  }).join(' ').replace(/\bMc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase()).replace(/\bO'([a-z])/g, (m, c) => "O'" + c.toUpperCase());
+}
+
+function renderInsiderPage(name, rows, stats) {
+  const displayName = _titleCaseName(name);
+  const dn = _esc(displayName);
+  const url = `https://www.insidertape.com/insider-profile/${encodeURIComponent(name)}`;
+  const buys = stats.buys || 0, sells = stats.sells || 0;
+  const companies = stats.companies || 0;
+  // Most frequent non-empty title as their headline role.
+  const tc = {};
+  rows.forEach(r => { const t = (r.title || '').trim(); if (t) tc[t] = (tc[t] || 0) + 1; });
+  const role = Object.keys(tc).sort((a, b) => tc[b] - tc[a])[0] || '';
+  const posture = buys > sells * 1.5 ? 'a net buyer' : sells > buys * 1.5 ? 'a net seller' : 'a mix of buying and selling';
+  const span = stats.first && stats.latest && stats.first !== stats.latest ? `from ${_fmtDate(stats.first)} to ${_fmtDate(stats.latest)}` : `on ${_fmtDate(stats.latest)}`;
+  const intro = `${displayName}${role ? `, ${role.toLowerCase().includes('director') || role.toLowerCase().includes('officer') || /ceo|cfo|chief|president|chair/i.test(role) ? '' : 'a '}${role},` : ''} is a corporate insider tracked by InsiderTape across ${companies} ${companies === 1 ? 'company' : 'companies'}. The public record shows ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}, reported ${span}. Over this period they have been ${posture}.`;
+  const desc = `Insider trading history for ${displayName}${role ? `, ${role}` : ''}. Recorded SEC Form 4 open-market buys and sells across ${companies} ${companies === 1 ? 'company' : 'companies'}, with dates, share counts, and dollar values.`;
+
+  const tableRows = rows.map(r => {
+    const isBuy = r.type === 'P', isSell = r.type === 'S' || r.type === 'S-';
+    const badge = isBuy ? '<span class="b buy">BUY</span>' : isSell ? '<span class="b sell">SELL</span>' : '<span class="b">' + _esc(r.type) + '</span>';
+    return `<tr>
+      <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
+      <td class="ins"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong></a>${r.company ? `<span class="ti">${_esc(r.company)}</span>` : ''}</td>
+      <td>${badge}</td>
+      <td class="num">${_fmtQty(r.qty)}</td>
+      <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
+      <td class="num val ${isBuy ? 'g' : isSell ? 'r' : ''}">${_fmtV(r.value)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${dn} Insider Trading - SEC Form 4 History | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="profile"><meta property="og:url" content="${url}">
+<meta property="og:title" content="${dn} Insider Trading Activity">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'ProfilePage', mainEntity: { '@type': 'Person', name: displayName, jobTitle: role || undefined }, description: desc, url })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--buy:#167a40;--sell:#b03030}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:860px;margin:0 auto;padding:44px 24px 90px}
+.crumb{font-size:12px;color:var(--muted);margin-bottom:18px}.crumb a{color:var(--accent);text-decoration:none}
+h1{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:10px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:22px}
+.intro{font-size:16px;color:#3a4555;line-height:1.8;margin-bottom:28px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:32px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+.stat .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.stat .v{font-size:20px;font-weight:700}.v.g{color:var(--buy)}.v.r{color:var(--sell)}
+h2{font-size:18px;font-weight:700;margin:8px 0 14px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 14px;border-bottom:2px solid var(--border)}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:#3a4555}tr:last-child td{border-bottom:none}
+.dt{white-space:nowrap;color:var(--muted)}.ins a{text-decoration:none}.ins strong{color:var(--accent);font-weight:700;display:block}.ins .ti{font-size:11px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.val.g{color:var(--buy);font-weight:600}.val.r{color:var(--sell);font-weight:600}
+.b{font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;background:#eee;color:var(--muted)}.b.buy{background:rgba(22,122,64,.1);color:var(--buy)}.b.sell{background:rgba(176,48,48,.1);color:var(--sell)}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.rel{margin-top:40px;font-size:13px;color:var(--muted)}.rel a{color:var(--accent);text-decoration:none}.rel li{margin:6px 0}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; Insiders &nbsp;/&nbsp; ${dn}</div>
+  <h1>${dn} Insider Trading Activity</h1>
+  <div class="sub">${role ? _esc(role) + ' &nbsp;·&nbsp; ' : ''}SEC Form 4 open-market purchases and sales &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
+  <p class="intro">${_esc(intro)}</p>
+  <div class="stats">
+    <div class="stat"><div class="k">Buys</div><div class="v g">${buys}</div></div>
+    <div class="stat"><div class="k">Sells</div><div class="v r">${sells}</div></div>
+    <div class="stat"><div class="k">Buy Value</div><div class="v g">${_fmtV(stats.buyval)}</div></div>
+    <div class="stat"><div class="k">Companies</div><div class="v">${companies}</div></div>
+  </div>
+  <h2>${dn}'s recent insider trades</h2>
+  <table><thead><tr><th>Date</th><th>Company</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
+  <div class="cta">
+    <h3>Follow ${dn}'s trades in real time</h3>
+    <p>InsiderTape plots every Form 4 on the price chart and flags cluster buys, CEO conviction, and first buys in years the moment they file. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/insider/${encodeURIComponent(name)}" style="font-size:12px;color:var(--muted);text-decoration:none">or open ${dn}'s full profile on InsiderTape →</a></div>
+  </div>
+  <div class="rel">
+    <strong>Learn how to read insider signals:</strong>
+    <ul>
+      <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
+      <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
+      <li><a href="/articles/real-insider-buys-vs-option-exercises.html">Real insider buys vs option exercises</a></li>
+    </ul>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
+</body></html>`;
+}
+
+const _insiderPageCache = new Map(); // upper(name) -> { html, t }
+app.get('/insider-profile/:name', async (req, res) => {
+  let name = req.params.name || '';
+  try { name = decodeURIComponent(name); } catch (_) {}
+  name = name.replace(/[^A-Za-z0-9 .,'&\/\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (name.length < 2) return res.redirect(302, '/');
+  const key = name.toUpperCase();
+  const hit = _insiderPageCache.get(key);
+  if (hit && Date.now() - hit.t < 12 * 3600000) { res.type('html'); return res.send(hit.html); }
+  const rowSql = where => `
+    SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+           trade_date AS trade, MAX(filing_date) AS filing, TRIM(type) AS type,
+           MAX(qty) AS qty, MAX(price) AS price, MAX(value) AS value
+    FROM trades WHERE ${where} AND TRIM(type) IN ('P','S','S-') AND COALESCE(value,0) <= 5000000000
+    GROUP BY ticker, trade_date, TRIM(type)
+    ORDER BY trade_date DESC, filing_date DESC LIMIT 60`;
+  try {
+    let rows = await query(rowSql('insider = ?'), [name]);
+    if (!rows.length) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [name]);
+    if (!rows.length) {
+      res.status(404).type('html');
+      return res.send(`<!DOCTYPE html><html><head><meta name="robots" content="noindex"><title>${_esc(name)} | InsiderTape</title><meta http-equiv="refresh" content="0;url=/"></head><body>No insider trading data for ${_esc(name)}. <a href="/">InsiderTape</a></body></html>`);
+    }
+    const canonical = rows[0].insider || name;
+    const st = await queryOne(`
+      SELECT SUM(CASE WHEN type='P' THEN 1 ELSE 0 END) AS buys,
+             SUM(CASE WHEN type IN ('S','S-') THEN 1 ELSE 0 END) AS sells,
+             SUM(CASE WHEN type='P' THEN val ELSE 0 END) AS buyval,
+             SUM(CASE WHEN type IN ('S','S-') THEN val ELSE 0 END) AS sellval,
+             COUNT(DISTINCT ticker) AS companies, MAX(latest) AS latest, MIN(first) AS first
+      FROM (SELECT ticker, TRIM(type) AS type, MAX(COALESCE(value,0)) AS val,
+                   MAX(trade_date) AS latest, MIN(trade_date) AS first
+            FROM trades WHERE insider = ? AND TRIM(type) IN ('P','S','S-') AND COALESCE(value,0) <= 5000000000
+            GROUP BY ticker, trade_date, TRIM(type))`, [canonical]);
+    const html = renderInsiderPage(canonical, rows, st || {});
+    _insiderPageCache.set(key, { html, t: Date.now() });
+    res.type('html').send(html);
+  } catch (e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
 // ─── FREE SHAREABLE PAGE: BIGGEST INSIDER BUYS THIS WEEK ───────────────────────
 // Ungated, server-rendered, auto-updating link-bait: the largest open-market
 // insider purchases in the last 7 days, ranked by value. Great for sharing on
