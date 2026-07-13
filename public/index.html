@@ -1368,9 +1368,8 @@ function switchView(view, btn, opts={}) {
   document.getElementById('view-' + view).classList.add('active');
   setActiveNav(view);
 
-  // ── Premium gate - only the Screener (7D/30D) and Learn pages are free ──
+  // ── Premium gate - Stock View is now open (chart itself stays locked in loadStockView) ──
   const GATED_VIEWS = {
-    stock:     ['stockContent',      'STOCK VIEW',       'See insider trades plotted on the price chart, buy/sell pressure, and trade history for any ticker.'],
     insider:   ['insiderViewBody',   'INSIDER PROFILES', 'Look up any insider and see their trade history, timing accuracy, and forward-return scores.'],
     analysis:  ['analysisViewBody',  'ANALYSIS',         'Nine signal engines - cluster detection, opportunity ranker, event proximity, first-buy signals and more.'],
     monitor:   ['monitorViewBody',   'MONITOR',          'Every notable insider signal, ranked and refreshed throughout the trading day.'],
@@ -2632,13 +2631,9 @@ async function loadStockView(ticker, opts={}) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-stock').classList.add('active');
   setActiveNav('stock');
-  // Premium gate - Stock View is members-only
-  if (!auth.isPremium) {
-    if (!opts.fromPopstate) { history.pushState({view:'stock'}, '', '/stock'); }
-    updateTitle('stock');
-    showBlurGate('stockContent', 'STOCK VIEW', 'See insider trades plotted on the price chart, buy/sell pressure, and trade history for ' + ticker + '.', 'STOCK VIEW');
-    return;
-  }
+  // Stock View is open to everyone; only the plotted price chart + trade
+  // markers stay behind the paywall (locked below for non-premium users).
+  const chartLocked = !auth.isPremium;
   // Cancel any in-flight load - increment sequence so old calls abort themselves
   const mySeq = ++_loadStockViewSeq;
   _loadStockViewInFlight = ticker;
@@ -2820,9 +2815,14 @@ async function loadStockView(ticker, opts={}) {
   renderTradeMarkerList(insiderData);
   renderInsiderActivityAnalysis(ticker, insiderData, []);
 
-  // Show a chart loading spinner while price data arrives
+  // Show a chart loading spinner while price data arrives (or lock the chart for non-premium)
   const cc = document.getElementById('chartContainer');
-  if (cc) cc.innerHTML = `<div class="loading-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:Inter,sans-serif;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted)">Loading price data…</span></div>`;
+  if (chartLocked) {
+    lockStockChart(ticker);
+  } else if (cc) {
+    const _scc = document.getElementById('stockContent'); if (_scc) _scc.dataset.chartLocked = '';
+    cc.innerHTML = `<div class="loading-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px"><div class="spinner"></div><span style="font-family:Inter,sans-serif;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted)">Loading price data…</span></div>`;
+  }
 
   // ── PHASE 2: Await price data first - render chart immediately ───────────────
   priceData = await pricePromise;
@@ -2834,7 +2834,13 @@ async function loadStockView(ticker, opts={}) {
   renderSidebarGated(state.tickerTrades || []);
   renderStockTradesTable(state.tickerTrades || []);
 
-  if (priceData.length) {
+  // Fill the header price stats whenever we have price data - shown to everyone,
+  // premium or not (only the plotted chart itself is locked).
+  if (priceData.length) updateStockHeaderStats(priceData);
+
+  if (chartLocked) {
+    // Chart stays locked for non-premium; header stats + trade tables are visible.
+  } else if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
     await buildChart(priceData, insiderData, []);
 
@@ -2852,22 +2858,6 @@ async function loadStockView(ticker, opts={}) {
         else if (!_initSR && _srEnabled) { const b = document.getElementById('srToggleBtn'); if (b) toggleSR(b); }
       }, 200);
     }
-
-    // Update stat bar and price header with real price data
-    const last    = priceData[priceData.length-1];
-    const prev    = priceData[priceData.length-2];
-    const chg     = last&&prev ? last.close-prev.close : 0;
-    const chgPct  = prev ? (chg/prev.close*100) : 0;
-    const chgColor= chg>=0 ? 'var(--buy)' : 'var(--sell)';
-    const last252 = priceData.slice(-252);
-    const h52 = last252.reduce((m,d)=>d.high>m?d.high:m,0);
-    const l52 = last252.reduce((m,d)=>d.low<m?d.low:m,Infinity);
-    const elP = document.querySelector('.stock-price');
-    if (elP && last) elP.textContent = '$'+last.close.toFixed(2);
-    const elC = document.querySelector('.stock-change');
-    if (elC) { elC.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today`; elC.style.color=chgColor; }
-    const elH = document.getElementById('statHigh'); if(elH) elH.textContent = h52>0?'$'+h52.toFixed(2):'-';
-    const elL = document.getElementById('statLow');  if(elL) elL.textContent = l52<Infinity?'$'+l52.toFixed(2):'-';
   } else {
     // Price unavailable - show the same "unavailable" state as before
     if (cc) cc.innerHTML = `<div class="empty-state" style="height:100%;min-height:280px;flex-direction:column;gap:10px">
@@ -2879,16 +2869,75 @@ async function loadStockView(ticker, opts={}) {
       <button onclick="loadStockViewBust('${ticker}')" style="margin-top:8px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);padding:6px 16px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;cursor:pointer">&#x21BA; RETRY</button>
     </div>`;
   }
-  // Reset filters to default (buys+sells, all roles) on new ticker load
-  chartActiveFilters.clear(); ['P','S'].forEach(g => chartActiveFilters.add(g));
-  chartActiveRoles.clear(); chartActiveRoles.add('all');
-  document.querySelectorAll('.cf-btn').forEach(btn => {
-    const isActive = btn.dataset.role ? btn.dataset.role === 'all' : chartActiveFilters.has(btn.id?.replace('chartFilter-',''));
-    btn.classList.toggle('active', isActive);
-    btn.style.color      = isActive ? (btn.dataset.color||'var(--accent)') : 'var(--muted)';
-    btn.style.borderColor= isActive ? (btn.dataset.color||'var(--accent)') : 'var(--border)';
-  });
+  // Reset filters to default (buys+sells, all roles) on new ticker load - chart only
+  if (!chartLocked) {
+    chartActiveFilters.clear(); ['P','S'].forEach(g => chartActiveFilters.add(g));
+    chartActiveRoles.clear(); chartActiveRoles.add('all');
+    document.querySelectorAll('.cf-btn').forEach(btn => {
+      const isActive = btn.dataset.role ? btn.dataset.role === 'all' : chartActiveFilters.has(btn.id?.replace('chartFilter-',''));
+      btn.classList.toggle('active', isActive);
+      btn.style.color      = isActive ? (btn.dataset.color||'var(--accent)') : 'var(--muted)';
+      btn.style.borderColor= isActive ? (btn.dataset.color||'var(--accent)') : 'var(--border)';
+    });
+  }
   _loadStockViewInFlight = null;
+}
+
+// Fill the stock header price stats (price, change, 52W hi/lo) from price data.
+// Shared by the premium (chart) path and the locked path so free users still
+// see live price context around the paywalled chart.
+function updateStockHeaderStats(priceData) {
+  if (!priceData || !priceData.length) return;
+  const last    = priceData[priceData.length-1];
+  const prev    = priceData[priceData.length-2];
+  const chg     = last&&prev ? last.close-prev.close : 0;
+  const chgPct  = prev ? (chg/prev.close*100) : 0;
+  const chgColor= chg>=0 ? 'var(--buy)' : 'var(--sell)';
+  const last252 = priceData.slice(-252);
+  const h52 = last252.reduce((m,d)=>d.high>m?d.high:m,0);
+  const l52 = last252.reduce((m,d)=>d.low<m?d.low:m,Infinity);
+  const elP = document.querySelector('.stock-price');
+  if (elP && last) elP.textContent = '$'+last.close.toFixed(2);
+  const elC = document.querySelector('.stock-change');
+  if (elC) { elC.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today`; elC.style.color=chgColor; }
+  const elH = document.getElementById('statHigh'); if(elH) elH.textContent = h52>0?'$'+h52.toFixed(2):'-';
+  const elL = document.getElementById('statLow');  if(elL) elL.textContent = l52<Infinity?'$'+l52.toFixed(2):'-';
+}
+
+// Replace the price chart region with a locked upsell panel for non-premium users.
+// Header price stats and the insider trade tables remain fully visible; only the
+// plotted chart + trade markers + buy/sell pressure are gated.
+function lockStockChart(ticker) {
+  const scc = document.getElementById('stockContent'); if (scc) scc.dataset.chartLocked = '1';
+  const area = document.querySelector('.stock-layout .chart-area');
+  if (!area) return;
+  const controls = area.querySelector('.chart-controls'); if (controls) controls.style.display = 'none';
+  const pw = document.getElementById('pressureWrapper'); if (pw) pw.style.display = 'none';
+  const tml = document.getElementById('tradeMarkerList'); if (tml) { tml.style.display = 'none'; tml.innerHTML = ''; }
+  const sc = document.getElementById('sc13-signal-badge'); if (sc) sc.style.display = 'none';
+  const cc = document.getElementById('chartContainer');
+  if (!cc) return;
+  cc.style.borderRadius = '6px';
+  cc.style.border = '1px solid var(--border)';
+  const h = (typeof getChartH === 'function' ? getChartH() : 420);
+  cc.innerHTML = `
+    <div style="position:relative;width:100%;height:${h}px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+      <svg viewBox="0 0 100 40" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.28">
+        <defs><linearGradient id="lockFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00d4ff" stop-opacity="0.5"/><stop offset="1" stop-color="#00d4ff" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,30 L8,26 L16,28 L24,20 L32,23 L40,15 L48,18 L56,11 L64,14 L72,8 L80,12 L88,6 L100,9 L100,40 L0,40 Z" fill="url(#lockFill)"/>
+        <path d="M0,30 L8,26 L16,28 L24,20 L32,23 L40,15 L48,18 L56,11 L64,14 L72,8 L80,12 L88,6 L100,9" fill="none" stroke="#00d4ff" stroke-width="0.7"/>
+      </svg>
+      <div style="position:relative;z-index:2;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px 30px;max-width:380px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.35)">
+        <div style="font-size:26px;margin-bottom:10px">🔒</div>
+        <div style="font-family:Inter,sans-serif;font-size:18px;font-weight:700;letter-spacing:0.5px;color:var(--text);margin-bottom:8px">Unlock the price chart</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:6px">See every insider buy and sell for ${ticker} plotted right on the price chart, with buy/sell pressure and trade markers.</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Start a <span style="color:var(--text);font-weight:600">7-day free trial</span> - cancel anytime.</div>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <button onclick="switchView('premium',null)" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:13px;font-family:Inter,sans-serif;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px;width:100%">START FREE TRIAL →</button>
+          ${!auth.loggedIn ? `<button onclick="switchView('signup',null)" style="background:transparent;color:var(--accent);border:1px solid var(--border);border-radius:8px;padding:11px;font-family:Inter,sans-serif;font-size:11px;cursor:pointer;width:100%">SIGN IN</button>` : ''}
+        </div>
+      </div>
+    </div>`;
 }
 
 // ── CHART ─────────────────────────────────────────────────────────
@@ -10319,6 +10368,14 @@ async function loadAuth() {
       if (viewStock && viewStock.classList.contains('active')) {
         renderStockLanding(_stockListsCache);
       }
+    }
+
+    // If a stock detail rendered a locked chart before auth resolved, reload it
+    // now that the user is confirmed premium so the real chart appears.
+    if (stockContent && stockContent.dataset.chartLocked === '1') {
+      stockContent.dataset.chartLocked = '';
+      const t = state.currentTicker || _tickerFromPath(location.pathname);
+      if (t) loadStockView(t, { fromPopstate: true });
     }
 
     // Re-render insider profile if it loaded before auth resolved
