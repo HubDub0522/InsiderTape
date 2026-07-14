@@ -1888,7 +1888,9 @@ app.get('/sitemap.xml', async (req, res) => {
   } catch(_) {}
   const sectorPages = Object.keys(SECTOR_SLUGS).map(s => ({ url: `/insider-trading/sector/${s}`, priority: '0.5', freq: 'weekly' }));
   const rolePages = Object.keys(ROLE_DEFS).map(s => ({ url: `/insider-trading/role/${s}`, priority: '0.6', freq: 'daily' }));
-  const allPages = [...staticPages, ...articlePages, ...tickerPages, ...insiderPages, ...sectorPages, ...rolePages];
+  const reportPages = []; let _rw = _reportLatest();
+  for (let i = 0; i < 12; i++) { reportPages.push({ url: `/insider-buying-report/${_ymd(_rw)}`, priority: i === 0 ? '0.7' : '0.5', freq: i === 0 ? 'daily' : 'monthly' }); _rw = new Date(_rw); _rw.setUTCDate(_rw.getUTCDate() - 7); }
+  const allPages = [...staticPages, ...articlePages, ...tickerPages, ...insiderPages, ...sectorPages, ...rolePages, ...reportPages];
   const urls = allPages.map(p => `\n  <url><loc>${base}${p.url}</loc><lastmod>${now}</lastmod><changefreq>${p.freq}</changefreq><priority>${p.priority}</priority></url>`).join('');
   _sitemapCache = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}\n</urlset>`;
   _sitemapCacheTime = Date.now();
@@ -2317,7 +2319,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="card"><div class="k">Total Insider Buying</div><div class="v g">${_fmtV(totalVal)}</div></div>
   </div>
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
-  <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. New to this? Read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
+  <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. See the <a href="/insider-buying-report">weekly insider buying report</a> for the full breakdown, or read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
   <div class="cta">
     <h3>See these buys plotted on the chart</h3>
     <p>InsiderTape tracks every SEC Form 4 in real time and flags cluster buys, CEO conviction, first buys in years, and buying at the lows the moment they file. Start a free 7-day trial, cancel anytime.</p>
@@ -2629,6 +2631,186 @@ app.get('/insider-trading/role/:slug', async (req, res) => {
             GROUP BY ticker, insider, trade_date)`);
     const html = renderRolePage(slug, def, rows || [], st || {});
     _rolePageCache.set(slug, { html, t: Date.now() });
+    res.type('html').send(html);
+  } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── WEEKLY INSIDER BUYING REPORT (SEO + shareable, backlink asset) ────────────
+// Permanent dated pages at /insider-buying-report/<YYYY-MM-DD> (week ending that
+// Sunday), computed on demand from historical Form 4 data. Public data only:
+// biggest buys, most-bought stocks, sector breakdown, headline stats. No premium
+// signals (no cluster buying, no first-buy-in-years).
+function _ymd(d) { return new Date(d).toISOString().slice(0, 10); }
+function _reportSunday(d) { const x = new Date(d); x.setUTCHours(12, 0, 0, 0); x.setUTCDate(x.getUTCDate() - x.getUTCDay()); return x; }
+function _reportLatest() { return _reportSunday(new Date()); }
+function _ymdAdd(ymd, days) { const d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + days); return _ymd(d); }
+function _humanRange(startYmd, endYmd) {
+  const s = new Date(startYmd + 'T12:00:00Z'), e = new Date(endYmd + 'T12:00:00Z');
+  const sMonth = s.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+  const eMonth = e.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+  const sDay = s.getUTCDate(), eDay = e.getUTCDate(), y = e.getUTCFullYear();
+  return sMonth === eMonth ? `${sMonth} ${sDay}–${eDay}, ${y}` : `${sMonth} ${sDay} – ${eMonth} ${eDay}, ${y}`;
+}
+function _weekLabel(endYmd) { return _humanRange(_ymdAdd(endYmd, -6), endYmd); }
+
+function renderReportPage(endYmd, startYmd, data) {
+  const rangeLabel = _humanRange(startYmd, endYmd);
+  const url = `https://www.insidertape.com/insider-buying-report/${endYmd}`;
+  const desc = `Insider buying report for the week of ${rangeLabel}: the biggest open-market insider purchases, most-bought stocks, and which sectors insiders bought, from SEC Form 4 filings. ${data.companies} companies, ${_fmtV(data.buyval)} in insider buying.`;
+  const posture = data.buys > 0 ? `Insiders bought ${_fmtV(data.buyval)} of stock across ${data.companies} ${data.companies === 1 ? 'company' : 'companies'}` : 'Insider buying was quiet';
+  const topSector = data.sectors[0];
+  const intro = data.buys > 0
+    ? `${posture} the week of ${rangeLabel}, in ${data.buys} open-market purchase${data.buys === 1 ? '' : 's'} by ${data.buyers} insider${data.buyers === 1 ? '' : 's'}.${topSector ? ` The ${topSector.sector} sector saw the most insider buying, at ${_fmtV(topSector.buyval)}.` : ''} These are genuine open-market buys filed on SEC Form 4, with option exercises and awards stripped out.`
+    : `Open-market insider buying was light the week of ${rangeLabel}. These figures cover genuine open-market purchases filed on SEC Form 4, with option exercises and awards stripped out.`;
+
+  const bigRows = data.biggest.map((r, i) => `<tr>
+      <td class="rk">${i + 1}</td>
+      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}">${_esc(_displayName(r.insider))}</a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
+      <td class="dt">${_fmtDate(r.trade_date)}</td>
+      <td class="num v">${_fmtV(r.value)}</td>
+    </tr>`).join('');
+
+  const mostRows = data.mostBought.map(t => `<tr>
+      <td class="tk"><a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span></a></td>
+      <td class="num">${t.buyers}</td>
+      <td class="num">${t.buys}</td>
+      <td class="num v">${_fmtV(t.buyval)}</td>
+    </tr>`).join('');
+
+  const sectorRows = data.sectors.map(s => `<tr>
+      <td><a href="/insider-trading/sector/${Object.keys(SECTOR_SLUGS).find(k => SECTOR_SLUGS[k] === s.sector) || ''}" style="color:var(--accent);text-decoration:none">${_esc(s.sector)}</a></td>
+      <td class="num">${s.buys}</td>
+      <td class="num v">${_fmtV(s.buyval)}</td>
+    </tr>`).join('');
+
+  // Recent weeks nav (last 10 weeks from latest), for internal linking.
+  const weeks = []; let wd = _reportLatest();
+  for (let i = 0; i < 10; i++) { const y = _ymd(wd); weeks.push(y); wd = new Date(wd); wd.setUTCDate(wd.getUTCDate() - 7); }
+  const weeksNav = weeks.map(y => y === endYmd ? `<strong style="color:var(--text)">${_weekLabel(y)}</strong>` : `<a href="/insider-buying-report/${y}">${_weekLabel(y)}</a>`).join(' &nbsp;·&nbsp; ');
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Insider Buying Report: Week of ${rangeLabel} | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="article"><meta property="og:url" content="${url}">
+<meta property="og:title" content="Insider Buying Report: Week of ${rangeLabel}">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `Insider Buying Report: Week of ${rangeLabel}`, description: desc, url, datePublished: endYmd, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Report', item: 'https://www.insidertape.com/insider-buying-report' }, { '@type': 'ListItem', position: 3, name: `Week of ${rangeLabel}`, item: url }] })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--buy:#167a40;--sell:#b03030}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:900px;margin:0 auto;padding:44px 24px 90px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(22,122,64,.08);border:1px solid rgba(22,122,64,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--buy);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+.crumb{font-size:12px;color:var(--muted);margin-bottom:14px}.crumb a{color:var(--accent);text-decoration:none}
+h1{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:12px}
+.intro{font-size:16px;color:#3a4555;line-height:1.8;margin-bottom:28px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:34px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+.stat .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.stat .v{font-size:20px;font-weight:800}.v.g{color:var(--buy)}
+h2{font-size:18px;font-weight:700;margin:34px 0 14px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;margin-bottom:6px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 14px;border-bottom:2px solid var(--border)}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:#3a4555}tr:last-child td{border-bottom:none}
+.rk{color:var(--muted);font-weight:700;width:34px;font-variant-numeric:tabular-nums}
+.tk a,.ins a{text-decoration:none;color:inherit}.tk strong{color:var(--accent);font-weight:700;display:block}.tk .co{font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.ins a{color:var(--text);font-weight:600}.ins .ti{font-size:11px;color:var(--muted);display:block;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dt{white-space:nowrap;color:var(--muted);font-size:12px}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.num.v{color:var(--buy);font-weight:700}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.rel{margin-top:36px;font-size:13px;color:var(--muted);line-height:1.9}.rel a{color:var(--accent);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 9px}.tk .co{max-width:120px}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Weekly Report</div>
+  <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; <a href="/insider-buying-report">Insider Buying Report</a> &nbsp;/&nbsp; ${rangeLabel}</div>
+  <h1>Insider Buying Report: ${rangeLabel}</h1>
+  <p class="intro">${_esc(intro)}</p>
+  <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 30px">
+    <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
+    <a href="#" onclick="return sx('x')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">Post on X</a>
+    <a href="#" onclick="return sx('reddit')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">Reddit</a>
+    <a href="#" onclick="return sx('linkedin')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">LinkedIn</a>
+    <button type="button" onclick="sx('copy',this)" style="font-size:12px;font-weight:600;color:#1a2030;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit">Copy link</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="k">Total Insider Buying</div><div class="v g">${_fmtV(data.buyval)}</div></div>
+    <div class="stat"><div class="k">Open-Market Buys</div><div class="v">${data.buys}</div></div>
+    <div class="stat"><div class="k">Companies</div><div class="v">${data.companies}</div></div>
+    <div class="stat"><div class="k">Insiders Buying</div><div class="v">${data.buyers}</div></div>
+  </div>
+  ${data.biggest.length ? `<h2>Biggest insider buys</h2>
+  <table><thead><tr><th>#</th><th>Company</th><th>Insider</th><th class="dt">Date</th><th class="num">Value</th></tr></thead><tbody>${bigRows}</tbody></table>` : ''}
+  ${data.mostBought.length ? `<h2>Most-bought stocks</h2>
+  <table><thead><tr><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${mostRows}</tbody></table>` : ''}
+  ${data.sectors.length ? `<h2>Insider buying by sector</h2>
+  <table><thead><tr><th>Sector</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${sectorRows}</tbody></table>` : ''}
+  <div class="cta">
+    <h3>See these buys plotted on the chart</h3>
+    <p>InsiderTape tracks every SEC Form 4 in real time and shows each insider buy and sell right on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
+  </div>
+  <div class="rel">
+    <strong>Past reports:</strong><br>${weeksNav}
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
+<script>function sx(k,el){var u=encodeURIComponent(location.href.split('#')[0]);var t=encodeURIComponent((document.title||'').split('|')[0].trim());var m={x:'https://twitter.com/intent/tweet?text='+t+'&url='+u,reddit:'https://www.reddit.com/submit?url='+u+'&title='+t,linkedin:'https://www.linkedin.com/sharing/share-offsite/?url='+u};if(k==='copy'){try{navigator.clipboard.writeText(location.href.split('#')[0]);}catch(e){}if(el){var o=el.textContent;el.textContent='Copied!';setTimeout(function(){el.textContent=o;},1500);}return false;}window.open(m[k],'_blank','noopener,noreferrer,width=600,height=520');return false;}</script>
+</body></html>`;
+}
+
+const _reportCache = new Map(); // endYmd -> { html, t }
+app.get('/insider-buying-report', (req, res) => res.redirect(302, '/insider-buying-report/' + _ymd(_reportLatest())));
+app.get('/insider-buying-report/:date', async (req, res) => {
+  const raw = (req.params.date || '').slice(0, 10);
+  const d = new Date(raw + 'T12:00:00Z');
+  if (isNaN(d.getTime())) return res.redirect(302, '/insider-buying-report');
+  const sun = _reportSunday(d), latest = _reportLatest();
+  if (sun > latest) return res.redirect(302, '/insider-buying-report/' + _ymd(latest));
+  const endYmd = _ymd(sun);
+  if (endYmd !== raw) return res.redirect(301, '/insider-buying-report/' + endYmd); // canonical Sunday
+  const startYmd = _ymdAdd(endYmd, -6);
+  const isLatest = endYmd === _ymd(latest);
+  const hit = _reportCache.get(endYmd);
+  const ttl = isLatest ? 6 * 3600000 : 30 * 24 * 3600000;
+  if (hit && Date.now() - hit.t < ttl) { res.type('html'); return res.send(hit.html); }
+  try {
+    const rows = await query(`
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title, trade_date,
+             MAX(COALESCE(value,0)) AS value, MAX(qty) AS qty, MAX(price) AS price
+      FROM trades
+      WHERE TRIM(type)='P' AND trade_date BETWEEN ? AND ?
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(value,0) >= 10000
+      GROUP BY ticker, insider, trade_date`, [startYmd, endYmd]);
+    const buyval = rows.reduce((s, r) => s + (+r.value || 0), 0);
+    const companies = new Set(rows.map(r => r.ticker)).size;
+    const buyers = new Set(rows.map(r => r.insider)).size;
+    const biggest = [...rows].sort((a, b) => b.value - a.value).slice(0, 15);
+    const tk = {};
+    for (const r of rows) { const t = tk[r.ticker] || (tk[r.ticker] = { ticker: r.ticker, company: r.company, buyval: 0, buyers: new Set(), buys: 0 }); t.buyval += +r.value || 0; t.buyers.add(r.insider); t.buys++; }
+    const mostBought = Object.values(tk).map(t => ({ ...t, buyers: t.buyers.size })).sort((a, b) => b.buyval - a.buyval).slice(0, 10);
+    const sec = {};
+    for (const r of rows) { const info = getTickerSector(r.ticker); if (!info) continue; const s = sec[info[0]] || (sec[info[0]] = { sector: info[0], buyval: 0, buys: 0 }); s.buyval += +r.value || 0; s.buys++; }
+    const sectors = Object.values(sec).sort((a, b) => b.buyval - a.buyval).slice(0, 8);
+    const html = renderReportPage(endYmd, startYmd, { buys: rows.length, buyval, companies, buyers, biggest, mostBought, sectors });
+    _reportCache.set(endYmd, { html, t: Date.now() });
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
