@@ -770,15 +770,9 @@ async function computeInsiderStudy() {
   // days old (this version fetches prices market-wide, so it runs ~monthly).
   const STUDY_VERSION = 4;
   // The sweep does a heavy market-wide price fetch (thousands of Yahoo calls + a
-  // ~1M-row scan), so it ONLY (re)computes on a manual FORCE_FULL run - or the
-  // very first time, if never computed. Scheduled daily runs always skip it,
-  // keeping Turso reads and Yahoo calls off the automatic path.
-  if (process.env.FORCE_FULL !== '1') {
-    try {
-      const ex = (await dbQuery("SELECT 1 AS x FROM computed_cache WHERE key='insider-study'"))[0];
-      if (ex) { log('insider-study: skip (recomputes only on a manual FORCE_FULL run)'); return; }
-    } catch(_) {}
-  }
+  // ~1M-row scan), so it runs ONLY on a manual FORCE_FULL trigger. Every scheduled
+  // run skips it entirely - it never touches Turso or Yahoo on the automatic path.
+  if (process.env.FORCE_FULL !== '1') { log('insider-study: skip (manual FORCE_FULL run only)'); return; }
   log('Computing insider-study (market-wide signal sweep vs Russell 2000 + S&P 500)...');
 
   // Benchmarks: Russell 2000 (fairer for the small/mid-cap insider universe) AND
