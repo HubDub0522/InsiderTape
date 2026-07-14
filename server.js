@@ -2818,6 +2818,123 @@ app.get('/insider-buying-report/:date', async (req, res) => {
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
 
+// ─── DATA STUDY: WHAT STOCKS DO AFTER INSIDERS BUY (SEO + backlink asset) ──────
+// Evergreen analysis rendered from the precomputed 'insider-study' cache
+// (scripts/precompute.js computeInsiderStudy). Public data only.
+function renderStudyPage(s) {
+  const url = 'https://www.insidertape.com/insider-buying-study';
+  const sp = v => (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+  const w = s.windows || {}; const w6 = w['6M'] || {}; const w12 = w['12M'] || {};
+  const nBuys = (s.sample?.buys || 0).toLocaleString('en-US');
+  const fromYear = (s.sample?.from || '').slice(0, 4);
+  const desc = `We analyzed ${nBuys} open-market insider buys since ${fromYear}. The median stock returned ${sp(w6.medianRet || 0)} over the next 6 months and ${sp(w12.medianRet || 0)} over the next year, with ${w6.pctBeatMkt || 0}% beating the S&P 500.`;
+  const intro = `Corporate insiders buy their own stock for one reason: they think it is going up. But does the data back that up? We looked at ${nBuys} genuine open-market insider purchases (${_fmtV(s.sample?.minValue || 25000)}+) filed on SEC Form 4 between ${_fmtDate(s.sample?.from)} and ${_fmtDate(s.sample?.to)}, across ${s.sample?.tickers || 0} companies, and measured how each stock performed over the following year versus the S&P 500.`;
+
+  const winRow = k => { const x = w[k] || {}; return `<tr>
+      <td><strong>${k.replace('M', ' month' + (k === '1M' ? '' : 's'))}</strong></td>
+      <td class="num ${(x.medianRet || 0) >= 0 ? 'g' : 'r'}">${sp(x.medianRet || 0)}</td>
+      <td class="num">${x.pctPositive || 0}%</td>
+      <td class="num ${(x.medianExcess || 0) >= 0 ? 'g' : 'r'}">${sp(x.medianExcess || 0)}</td>
+      <td class="num">${x.pctBeatMkt || 0}%</td>
+      <td class="num" style="color:var(--muted)">${(x.n || 0).toLocaleString('en-US')}</td>
+    </tr>`; };
+  const roleRow = r => { const x = (s.byRole || {})[r] || {}; return `<tr><td><strong>${r}</strong></td><td class="num ${(x.medianRet||0)>=0?'g':'r'}">${sp(x.medianRet||0)}</td><td class="num">${x.pctPositive||0}%</td><td class="num" style="color:var(--muted)">${(x.n||0).toLocaleString('en-US')}</td></tr>`; };
+  const sizeLabels = { '25k-100k': '$25K–100K', '100k-1M': '$100K–1M', '1M+': '$1M+' };
+  const sizeRow = k => { const x = (s.bySize || {})[k] || {}; return `<tr><td><strong>${sizeLabels[k] || k}</strong></td><td class="num ${(x.medianRet||0)>=0?'g':'r'}">${sp(x.medianRet||0)}</td><td class="num">${x.pctPositive||0}%</td><td class="num" style="color:var(--muted)">${(x.n||0).toLocaleString('en-US')}</td></tr>`; };
+
+  const faq = [
+    { q: 'Do stocks go up after insiders buy?', a: `In this sample of ${nBuys} open-market insider buys, the median stock returned ${sp(w6.medianRet || 0)} over the six months after the purchase, and ${w6.pctPositive || 0}% were positive.` },
+    { q: 'Does insider buying beat the market?', a: `${w6.pctBeatMkt || 0}% of the buys outperformed the S&P 500 over the following six months, with a median excess return of ${sp(w6.medianExcess || 0)}.` },
+    { q: 'Do CEO buys outperform other insiders?', a: `Over six months, the median return following ${(s.byRole?.CEO?.n || 0).toLocaleString('en-US')} CEO buys was ${sp(s.byRole?.CEO?.medianRet || 0)}, versus ${sp(s.byRole?.Director?.medianRet || 0)} for directors.` },
+  ];
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What Happens After Insiders Buy? We Analyzed ${nBuys} Insider Buys | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="article"><meta property="og:url" content="${url}">
+<meta property="og:title" content="What Happens After Insiders Buy? We Analyzed ${nBuys} Insider Buys">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `What Happens After Insiders Buy? We Analyzed ${nBuys} Open-Market Insider Buys`, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Study', item: url }] })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--buy:#167a40;--sell:#b03030}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:820px;margin:0 auto;padding:44px 24px 90px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(36,120,204,.08);border:1px solid rgba(36,120,204,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+h1{font-size:clamp(26px,4.4vw,40px);font-weight:800;letter-spacing:-.5px;line-height:1.14;margin-bottom:12px}
+.meta{font-size:12px;color:var(--muted);margin-bottom:24px}
+.intro{font-size:17px;color:#3a4555;line-height:1.8;margin-bottom:20px}
+p{margin-bottom:16px;color:#3a4555}
+h2{font-size:20px;font-weight:700;margin:36px 0 14px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;margin-bottom:10px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 13px;border-bottom:2px solid var(--border)}
+td{padding:11px 13px;border-bottom:1px solid var(--border);vertical-align:middle;color:#3a4555}tr:last-child td{border-bottom:none}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:600}.num.g{color:var(--buy)}.num.r{color:var(--sell)}
+.callout{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:18px 20px;margin:20px 0;font-size:14px;color:#3a4555}
+.method{font-size:13px;color:var(--muted);line-height:1.8}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){table{font-size:12px}th,td{padding:9px 8px}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Data Study</div>
+  <h1>What Happens After Insiders Buy? We Analyzed ${nBuys} Insider Buys</h1>
+  <div class="meta">InsiderTape research &nbsp;·&nbsp; Updated ${_fmtDate(s.generated)}</div>
+  <p class="intro">${_esc(intro)}</p>
+  <div class="callout">Across ${nBuys} open-market insider buys, the median stock returned <strong style="color:${(w6.medianRet||0)>=0?'var(--buy)':'var(--sell)'}">${sp(w6.medianRet||0)}</strong> over the next six months and <strong style="color:${(w12.medianRet||0)>=0?'var(--buy)':'var(--sell)'}">${sp(w12.medianRet||0)}</strong> over the next year. ${w6.pctPositive||0}% were positive after six months, and ${w6.pctBeatMkt||0}% beat the S&P 500.</div>
+  <h2>Forward returns after an insider buy</h2>
+  <table><thead><tr><th>Holding period</th><th class="num">Median return</th><th class="num">% positive</th><th class="num">vs S&amp;P 500</th><th class="num">% beat mkt</th><th class="num">Sample</th></tr></thead>
+  <tbody>${['1M','3M','6M','12M'].map(winRow).join('')}</tbody></table>
+  <p>Median returns are used rather than averages so a handful of huge winners do not distort the picture. "vs S&amp;P 500" is the median return above or below the index over the same dates.</p>
+  <h2>Does the insider's role matter?</h2>
+  <table><thead><tr><th>Role</th><th class="num">Median 6M return</th><th class="num">% positive</th><th class="num">Sample</th></tr></thead>
+  <tbody>${['CEO','CFO','Director','Other'].map(roleRow).join('')}</tbody></table>
+  <h2>Does the size of the buy matter?</h2>
+  <table><thead><tr><th>Buy size</th><th class="num">Median 6M return</th><th class="num">% positive</th><th class="num">Sample</th></tr></thead>
+  <tbody>${['25k-100k','100k-1M','1M+'].map(sizeRow).join('')}</tbody></table>
+  <h2>Methodology</h2>
+  <p class="method">We took every open-market purchase (SEC Form 4, transaction code P) of ${_fmtV(s.sample?.minValue || 25000)} or more between ${_fmtDate(s.sample?.from)} and ${_fmtDate(s.sample?.to)} for companies with daily price history, entered at the closing price on or just after the filing's transaction date, and measured the return 1, 3, 6, and 12 months later against the S&amp;P 500 over the same dates. Option exercises, grants, and other non-open-market transactions are excluded, as are obvious price-data errors. Sample sizes shrink for longer windows because the most recent buys have not completed a full year. This is analysis of past filings and is not a prediction or investment advice.</p>
+  <div class="cta">
+    <h3>Track insider buys as they happen</h3>
+    <p>InsiderTape flags open-market insider buying in real time and plots every purchase on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past performance does not predict future results.</footer>
+</body></html>`;
+}
+
+let _studyCache = { html: null, t: 0 };
+app.get('/insider-buying-study', async (req, res) => {
+  try {
+    const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-study'");
+    if (!row) {
+      return res.type('html').send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Insider Buying Study | InsiderTape</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{background:#f0f2f5;color:#1a2030;font-family:Inter,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}a{color:#2478cc}</style></head><body><div><h1 style="font-size:22px">Insider Buying Study</h1><p style="color:#6e7a8a">Our forward-returns analysis is being compiled and will appear here shortly.</p><p><a href="/">Back to InsiderTape</a></p></div></body></html>`);
+    }
+    if (_studyCache.html && _studyCache.t === row.computed_at) { res.type('html'); return res.send(_studyCache.html); }
+    const study = JSON.parse(row.value_json);
+    const html = renderStudyPage(study);
+    _studyCache = { html, t: row.computed_at };
+    res.type('html').send(html);
+  } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
 // ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });

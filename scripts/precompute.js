@@ -760,6 +760,98 @@ async function computeInsiderLeaderboard() {
   log(`insider-leaderboard cached: ${accuracy.length} accuracy, ${timing.length} timing`);
 }
 
+// Data study: measure how stocks performed AFTER open-market insider buys, using
+// cached daily price bars. Aggregate forward returns at 1M/3M/6M/12M vs the S&P
+// 500, plus cuts by insider role and buy size. Runs at most weekly (heavy scan).
+// Public/evergreen analysis - no premium signals.
+async function computeInsiderStudy() {
+  try {
+    const ex = (await dbQuery("SELECT computed_at FROM computed_cache WHERE key='insider-study'"))[0];
+    if (ex && Date.now() - ex.computed_at < 6 * 24 * 3600000 && process.env.FORCE_FULL !== '1') { log('insider-study fresh, skip'); return; }
+  } catch(_) {}
+  log('Computing insider-study (forward returns)...');
+
+  const priceRows = await dbQuery('SELECT symbol, bars_json FROM price_cache');
+  const barsByTicker = {};
+  for (const pr of priceRows) {
+    try {
+      const arr = JSON.parse(pr.bars_json).filter(b => b.close > 0).map(b => ({ t: b.time, c: b.close }));
+      arr.sort((a, b) => a.t < b.t ? -1 : 1);
+      if (arr.length > 30) barsByTicker[pr.symbol] = arr;
+    } catch(_) {}
+  }
+  const tickers = Object.keys(barsByTicker);
+  if (tickers.length < 20) { log('insider-study: insufficient price coverage, skip'); return; }
+
+  // Benchmark: S&P 500 daily closes.
+  const spxClose = {};
+  try {
+    const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 1830 * 86400;
+    const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const d = await resp.json(); const r = d?.chart?.result?.[0];
+    if (r?.timestamp) { const q = r.indicators.quote[0]; r.timestamp.forEach((t, i) => { const c = q.close?.[i]; if (c > 0) spxClose[new Date(t * 1000).toISOString().slice(0, 10)] = c; }); }
+  } catch(_) {}
+  const shiftDate = (ymd, n) => { const x = new Date(ymd + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  const spxOnOrBefore = date => { for (let i = 0; i <= 6; i++) { const dd = shiftDate(date, -i); if (spxClose[dd] != null) return spxClose[dd]; } return null; };
+
+  const buys = await dbQuery(`
+    SELECT ticker, MAX(title) AS title, trade_date, MAX(COALESCE(value,0)) AS value
+    FROM trades
+    WHERE TRIM(type)='P' AND COALESCE(value,0) >= 25000
+      AND trade_date <= date('now','-30 days') AND trade_date >= date('now','-1826 days')
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND ticker IN (${tickers.map(() => '?').join(',')})
+    GROUP BY ticker, insider, trade_date`, tickers);
+
+  const WIN = { '1M': 21, '3M': 63, '6M': 126, '12M': 252 };
+  const acc = {}; for (const k in WIN) acc[k] = { ret: [], exc: [], pos: 0, beat: 0, excN: 0, n: 0 };
+  const roleAcc = { CEO: [], CFO: [], Director: [], Other: [] };
+  const sizeAcc = { s1: [], s2: [], s3: [] };
+  let analyzed = 0; const usedTickers = new Set(); let minD = '9999', maxD = '0';
+  const roleOf = title => { const t = (title || '').toUpperCase(); if (t.includes('CEO') || t.includes('CHIEF EXECUTIVE')) return 'CEO'; if (t.includes('CFO') || t.includes('CHIEF FINANCIAL')) return 'CFO'; if (t.includes('DIRECTOR') && !t.includes('MANAGING DIRECTOR')) return 'Director'; return 'Other'; };
+
+  for (const b of buys) {
+    const bars = barsByTicker[b.ticker]; if (!bars) continue;
+    const d = (b.trade_date || '').slice(0, 10);
+    const ei = bars.findIndex(x => x.t >= d);
+    if (ei < 0) continue;
+    if (new Date(bars[ei].t) - new Date(d) > 6 * 86400000) continue; // entry must be near the buy
+    const entry = bars[ei].c; if (!(entry > 0)) continue;
+    const spxE = spxOnOrBefore(bars[ei].t);
+    let counted = false;
+    for (const [k, n] of Object.entries(WIN)) {
+      const fi = ei + n; if (fi >= bars.length) continue;
+      const fwd = bars[fi].c; if (!(fwd > 0)) continue;
+      const ret = fwd / entry - 1;
+      if (ret > 4 || ret < -0.95) continue; // data-error guard
+      const a = acc[k]; a.ret.push(ret); a.n++; if (ret > 0) a.pos++;
+      if (spxE) { const spxF = spxOnOrBefore(bars[fi].t); if (spxF) { const sret = spxF / spxE - 1; a.exc.push(ret - sret); a.excN++; if (ret > sret) a.beat++; } }
+      if (k === '6M') {
+        roleAcc[roleOf(b.title)].push(ret);
+        const v = +b.value || 0; (v < 100000 ? sizeAcc.s1 : v < 1000000 ? sizeAcc.s2 : sizeAcc.s3).push(ret);
+      }
+      counted = true;
+    }
+    if (counted) { analyzed++; usedTickers.add(b.ticker); if (d < minD) minD = d; if (d > maxD) maxD = d; }
+  }
+
+  const median = arr => { if (!arr.length) return 0; const s = [...arr].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const mean = arr => arr.length ? arr.reduce((x, y) => x + y, 0) / arr.length : 0;
+  const pct = x => Math.round(x * 1000) / 10;
+  const winStat = k => { const a = acc[k]; return { n: a.n, medianRet: pct(median(a.ret)), meanRet: pct(mean(a.ret)), pctPositive: a.n ? pct(a.pos / a.n) : 0, pctBeatMkt: a.excN ? pct(a.beat / a.excN) : 0, medianExcess: pct(median(a.exc)) }; };
+  const segStat = arr => ({ n: arr.length, medianRet: pct(median(arr)), pctPositive: arr.length ? pct(arr.filter(x => x > 0).length / arr.length) : 0 });
+
+  const result = {
+    generated: new Date().toISOString().slice(0, 10),
+    sample: { buys: analyzed, tickers: usedTickers.size, from: minD, to: maxD, minValue: 25000 },
+    windows: Object.fromEntries(Object.keys(WIN).map(k => [k, winStat(k)])),
+    byRole: Object.fromEntries(Object.keys(roleAcc).map(r => [r, segStat(roleAcc[r])])),
+    bySize: { '25k-100k': segStat(sizeAcc.s1), '100k-1M': segStat(sizeAcc.s2), '1M+': segStat(sizeAcc.s3) },
+  };
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-study', ?, ?)`, [JSON.stringify(result), Date.now()]);
+  log(`insider-study cached: ${analyzed} buys, ${usedTickers.size} tickers, 6M median ${result.windows['6M'].medianRet}%`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
@@ -804,6 +896,7 @@ async function main() {
     await computeInsiderSentiment();
     await computeFirstBuys();
     await computeInsiderLeaderboard();
+    await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
   }
 
   // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)
