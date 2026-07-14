@@ -666,11 +666,14 @@ let _sentimentCache = null, _sentimentCacheTime = 0;
 app.get('/api/insider-sentiment', async (req, res) => {
   try {
     if (_sentimentCache && Date.now() - _sentimentCacheTime < 3600000) return res.json(_sentimentCache);
-    // Serve from precomputed cache (populated by GitHub Actions) - avoids the heavy
-    // 120-month aggregation + live S&P fetch on every cold serverless instance.
+    // Serve from precomputed cache (refreshed daily by GitHub Actions). Insider
+    // sentiment is monthly data that barely moves intraday, so we serve the cached
+    // copy for up to 7 days rather than expiring it after a few hours and forcing
+    // every serverless request onto the heavy 120-month aggregation + live S&P fetch.
+    // The 7-day window is just a self-healing safety if the precompute pipeline breaks.
     try {
       const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-sentiment'");
-      if (cached && Date.now() - cached.computed_at < 6 * 3600000) {
+      if (cached && Date.now() - cached.computed_at < 7 * 24 * 3600000) {
         _sentimentCache = JSON.parse(cached.value_json);
         _sentimentCacheTime = cached.computed_at;
         return res.json(_sentimentCache);
