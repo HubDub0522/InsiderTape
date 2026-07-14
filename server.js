@@ -554,6 +554,9 @@ app.get('/api/insider', async (req, res) => {
   const exact = req.query.exact === '1';
   if (!name || name.length < 2) return res.status(400).json({ error: 'name required (min 2 chars)' });
   try {
+    // Exact lookups (the profile pages) use equality so the idx_insider_upper
+    // expression index kicks in; LIKE would full-scan the whole trades table.
+    const matchClause = exact ? 'UPPER(insider) = UPPER(?)' : 'UPPER(insider) LIKE UPPER(?)';
     const pattern = exact ? name : `%${name}%`;
     const limit   = exact ? 2000 : 500;
     const rows = await query(`
@@ -561,7 +564,7 @@ app.get('/api/insider', async (req, res) => {
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
              MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
-      FROM trades WHERE UPPER(insider) LIKE UPPER(?) AND TRIM(type) IN ('P','S','S-')
+      FROM trades WHERE ${matchClause} AND TRIM(type) IN ('P','S','S-')
         AND COALESCE(value, 0) <= 5000000000
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC LIMIT ?
