@@ -984,7 +984,11 @@ async function main() {
   // The heavy full-history aggregates (5-year sentiment, deep first-buy scans) barely
   // change intraday and are the biggest Turso-read consumers, so run them only once
   // per day (the morning run). Everything else runs every ingestion.
-  const heavyRun = process.env.FORCE_FULL === '1' || new Date().getUTCHours() <= 14;
+  const hour = new Date().getUTCHours();
+  const heavyRun = process.env.FORCE_FULL === '1' || hour <= 14;
+  // The leaderboard (Top Insider Scores) is cheap now, so also refresh it on the
+  // midday run (~noon ET = 16:00 UTC) - Top Scores update twice a day (morning + noon).
+  const runLeaderboard = heavyRun || hour === 16;
   const dow = new Date().getUTCDay(); // 0=Sun .. 6=Sat
   // Weekly = Monday's heavy pass (for the full-scan hygiene DELETEs).
   const weeklyRun = process.env.FORCE_FULL === '1' || (heavyRun && dow === 1);
@@ -1026,6 +1030,9 @@ async function main() {
   if (heavyRun) {
     await computeInsiderSentiment();
     await computeFirstBuys();
+  }
+  // Leaderboard refreshes on the morning heavy run AND the midday run (twice daily).
+  if (runLeaderboard) {
     await computeInsiderLeaderboard();
   }
 

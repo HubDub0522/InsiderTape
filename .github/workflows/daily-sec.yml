@@ -6,6 +6,7 @@ on:
     # Trimmed to 2 weekday runs to cut Turso rows-read: the morning run does the
     # full heavy precompute (hour <= 14 UTC), the after-close run is light-only.
     - cron: '0 14 * * 1-5'    # ~10:00 AM ET  (30 min after open, HEAVY)
+    - cron: '0 16 * * 1-5'    # ~12:00 PM ET  (midday, light + leaderboard refresh)
     - cron: '14 20 * * 1-5'   # ~4:14 PM ET   (just after close, light)
     - cron: '0 13 * * 0,6'    # ~9:00 AM ET   (once each weekend day)
   workflow_dispatch:
