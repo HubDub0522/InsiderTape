@@ -363,6 +363,8 @@
   .filter-range select:focus, .filter-range input:focus { border-color: var(--accent); }
   .apply-btn { width: 100%; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; padding: 10px; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; transition: background .2s; margin-top: 8px; }
   .apply-btn:hover { background: #33ddff; }
+  .clear-btn { width: 100%; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 9px; font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 1px; cursor: pointer; transition: all .2s; margin-top: 8px; }
+  .clear-btn:hover { border-color: var(--sell); color: var(--sell); }
 
   .screener-content { padding: 14px 20px 20px; min-height: 60vh; }
   .screener-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
@@ -636,6 +638,7 @@
     .filter-section { margin-bottom: 0; }
     .filter-section:last-of-type { grid-column: 1 / -1; }
     .apply-btn { width: 100%; grid-column: 1 / -1; margin-top: 4px; }
+    .clear-btn { width: 100%; grid-column: 1 / -1; margin-top: 6px; }
     /* Mobile filter toggle button */
     .mob-filter-toggle { display: none; }
     .mob-filter-toggle {
@@ -1125,6 +1128,7 @@
         <div id="tickerFilterTags" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px"></div>
       </div>
       <button class="apply-btn" onclick="loadScreener()">APPLY FILTERS</button>
+      <button class="clear-btn" onclick="clearScreenerFilters()">CLEAR FILTERS</button>
       </div><!-- end filter-panel-inner -->
       <div class="filter-data-source" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
         <span class="filter-label">Data Source</span>
@@ -1727,6 +1731,30 @@ function clearTickerFilter() {
   const tf = document.getElementById('tickerFilter');
   if (tf) tf.value = '';
   renderTickerFilterTags();
+  saveFilters();
+  loadScreener();
+}
+
+// Reset all screener filters to their defaults and reload.
+function clearScreenerFilters() {
+  state.activeTypes  = new Set(['P','S']);
+  state.activeRole   = 'all';
+  state.minVal       = 0;
+  state.days         = 7;
+  state.tickerFilter = new Set();
+
+  // Trade Type - both Buy and Sell active
+  document.querySelectorAll('.chip[data-type]').forEach(c => c.classList.add('active'));
+  // Insider Role - only "All" active
+  document.querySelectorAll('.chip[data-role]').forEach(c => c.classList.toggle('active', c.dataset.role === 'all'));
+  // Time Period - only 7D active
+  document.querySelectorAll('.chip[data-days]').forEach(c => c.classList.toggle('active', c.dataset.days === '7'));
+  // Min Transaction Value - Any amount
+  const mv = document.getElementById('minVal'); if (mv) mv.value = '0';
+  // Ticker filter input + tags
+  const tf = document.getElementById('tickerFilter'); if (tf) tf.value = '';
+  renderTickerFilterTags();
+
   saveFilters();
   loadScreener();
 }
