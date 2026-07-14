@@ -679,24 +679,17 @@ async function computeInsiderLeaderboard() {
     log('insider-leaderboard: no candidates'); return;
   }
 
-  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 3 * 365 * 86400; // 3yr of bars for forward returns
+  // Read daily bars from the prewarmed price_cache table rather than fetching
+  // Yahoo live per ticker (with 100ms throttles) - the live fetching, not the DB,
+  // was the real leaderboard bottleneck. Only tickers with cached bars get scored.
   const priceCache = {};
   async function getBars(ticker) {
     if (priceCache[ticker] !== undefined) return priceCache[ticker];
     try {
-      const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (resp.ok) {
-        const d = await resp.json(); const r = d?.chart?.result?.[0];
-        if (r?.timestamp) {
-          const q = r.indicators.quote[0];
-          priceCache[ticker] = r.timestamp.map((t, i) => ({ time: new Date(t * 1000).toISOString().slice(0, 10), close: q.close?.[i] || 0 })).filter(b => b.close > 0);
-          await new Promise(rr => setTimeout(rr, 100));
-          return priceCache[ticker];
-        }
-      }
+      const row = (await dbQuery('SELECT bars_json FROM price_cache WHERE symbol = ?', [ticker]))[0];
+      if (row) { priceCache[ticker] = JSON.parse(row.bars_json).filter(b => b.close > 0).map(b => ({ time: b.time, close: b.close })); return priceCache[ticker]; }
     } catch(_) {}
     priceCache[ticker] = null;
-    await new Promise(rr => setTimeout(rr, 100));
     return null;
   }
 
