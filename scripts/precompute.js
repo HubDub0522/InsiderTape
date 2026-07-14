@@ -814,9 +814,11 @@ async function computeInsiderStudy() {
     if ((u.includes('CEO') || u.includes('CHIEF EXECUTIVE')) && !u.includes('DEPUTY')) return 'ceo';
     if (u.includes('CFO') || u.includes('CHIEF FINANCIAL')) return 'cfo';
     if (u.includes('COO') || u.includes('CHIEF OPERATING')) return 'coo';
+    if (u.includes('CHAIRMAN') || u.includes('CHAIRPERSON')) return 'chairman';
     if (u.includes('PRESIDENT') && !u.includes('VICE PRESIDENT')) return 'president';
     if (u.includes('DIRECTOR') && !u.includes('MANAGING DIRECTOR')) return 'director';
     if (u.includes('10%') || u.includes('TEN PERCENT')) return 'tenpct';
+    if (u.includes('OFFICER')) return 'officer';
     return 'other';
   };
   const byTicker = {}, byInsider = {};
@@ -838,6 +840,7 @@ async function computeInsiderStudy() {
       const bound = end - CLUSTER_WIN * DAY;
       const seen = new Set();
       for (let j = i; j >= 0; j--) { const dj = new Date(list[j].d + 'T12:00:00Z').getTime(); if (dj < bound) break; seen.add(list[j].insider); }
+      list[i].csize = seen.size; // tag every buy with its trailing-30d distinct-insider count
       if (seen.size >= 2 && (last === null || end - last > COOLDOWN * DAY)) { evs.push({ d: list[i].d, size: seen.size }); last = end; }
     }
     if (evs.length) clusterEventsByTicker[ticker] = evs;
@@ -888,10 +891,12 @@ async function computeInsiderStudy() {
     }
     return any ? out : null;
   }
-  function isNearLow(bars, entryDate) {
-    const ei = bars.findIndex(x => x.t >= entryDate); if (ei < 0) return false;
+  function lowInfo(bars, entryDate) {
+    const ei = bars.findIndex(x => x.t >= entryDate); if (ei < 0) return { nl10: false, nl5: false };
     let lo = Infinity; for (let i = Math.max(0, ei - LOW_LOOKBACK); i <= ei; i++) if (bars[i].c < lo) lo = bars[i].c;
-    return lo < Infinity && bars[ei].c <= lo * (1 + NEAR_LOW);
+    if (lo === Infinity) return { nl10: false, nl5: false };
+    const entry = bars[ei].c;
+    return { nl10: entry <= lo * 1.10, nl5: entry <= lo * 1.05 };
   }
 
   const mkWin = () => Object.fromEntries(Object.keys(WIN).map(k => [k, { ret: [], pos: 0, n: 0, rut: { exc: [], beat: 0, excN: 0 }, spx: { exc: [], beat: 0, excN: 0 } }]));
@@ -907,21 +912,42 @@ async function computeInsiderStudy() {
     if (out['6M']) (entryDate < midDate ? a.h1 : a.h2).push(out['6M'].ret);
   }
 
+  // Per-buy scenarios (predicates over a computed tag object). Add freely here.
+  const BUY_SCENARIOS = [
+    ['all', () => true],
+    ['role_ceo', t => t.role === 'ceo'], ['role_cfo', t => t.role === 'cfo'], ['role_coo', t => t.role === 'coo'],
+    ['role_chairman', t => t.role === 'chairman'], ['role_president', t => t.role === 'president'],
+    ['role_director', t => t.role === 'director'], ['role_tenpct', t => t.role === 'tenpct'], ['role_officer', t => t.role === 'officer'],
+    ['size_1m_plus', t => t.value >= 1e6], ['size_100k_1m', t => t.value >= 1e5 && t.value < 1e6], ['size_under_100k', t => t.value < 1e5],
+    ['near_52w_low', t => t.nl10], ['at_52w_low', t => t.nl5],
+    ['first_buy_1y', t => t.gap >= 365], ['first_buy_2y', t => t.gap >= 730], ['first_buy_3y', t => t.gap >= 1095],
+    ['in_cluster_3', t => t.csize >= 3],
+    ['ceo_cluster', t => t.role === 'ceo' && t.csize >= 3],
+    ['cfo_cluster', t => t.role === 'cfo' && t.csize >= 3],
+    ['director_cluster', t => t.role === 'director' && t.csize >= 3],
+    ['ceo_near_low', t => t.role === 'ceo' && t.nl10],
+    ['cfo_near_low', t => t.role === 'cfo' && t.nl10],
+    ['director_near_low', t => t.role === 'director' && t.nl10],
+    ['ceo_1m_plus', t => t.role === 'ceo' && t.value >= 1e6],
+    ['director_1m_plus', t => t.role === 'director' && t.value >= 1e6],
+    ['ceo_first_buy', t => t.role === 'ceo' && t.gap >= 1095],
+    ['director_first_buy', t => t.role === 'director' && t.gap >= 1095],
+    ['cluster3_near_low', t => t.csize >= 3 && t.nl10],
+    ['big_buy_near_low', t => t.value >= 1e6 && t.nl10],
+    ['first_buy_near_low', t => t.gap >= 1095 && t.nl10],
+  ];
+
   let minD = '9999', maxD = '0';
   for (const ticker of Object.keys(byTicker)) {
     const bars = barsByTicker[ticker]; if (!bars) continue;
     for (const b of byTicker[ticker]) {
       const out = measure(bars, b.d); if (!out) continue;
       if (b.d < minD) minD = b.d; if (b.d > maxD) maxD = b.d;
-      tally('all', out, b.d);
-      tally('role_' + b.role, out, b.d);
-      tally(b.value >= 1e6 ? 'size_1m_plus' : b.value >= 1e5 ? 'size_100k_1m' : 'size_under_100k', out, b.d);
-      const nl = isNearLow(bars, b.d); if (nl) tally('near_52w_low', out, b.d);
       let prior = null; const hist = byInsider[b.insider];
       if (hist) for (let i = hist.length - 1; i >= 0; i--) { if (hist[i] < b.d) { prior = hist[i]; break; } }
-      const fb = prior && (new Date(b.d) - new Date(prior)) / DAY >= FIRSTBUY_GAP;
-      if (fb) tally('first_buy_3y', out, b.d);
-      if (b.role === 'ceo') { if (nl) tally('ceo_near_low', out, b.d); if (fb) tally('ceo_first_buy', out, b.d); }
+      const li = lowInfo(bars, b.d);
+      const t = { role: b.role, value: b.value, csize: b.csize || 1, nl10: li.nl10, nl5: li.nl5, gap: prior ? (new Date(b.d) - new Date(prior)) / DAY : 0 };
+      for (const [name, pred] of BUY_SCENARIOS) if (pred(t)) tally(name, out, b.d);
     }
     if (clusterEventsByTicker[ticker]) {
       for (const ev of clusterEventsByTicker[ticker]) {
@@ -929,6 +955,7 @@ async function computeInsiderStudy() {
         if (ev.size >= 2) tally('cluster_2plus', out, ev.d);
         if (ev.size >= 3) tally('cluster_3plus', out, ev.d);
         if (ev.size >= 4) tally('cluster_4plus', out, ev.d);
+        if (ev.size >= 5) tally('cluster_5plus', out, ev.d);
       }
     }
   }
