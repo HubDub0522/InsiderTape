@@ -961,11 +961,15 @@ async function main() {
   if (heavyRun) {
     await computeInsiderSentiment();
     await computeFirstBuys();
-    // Study + sitemap first (fast) so the heavier leaderboard can never block them.
-    await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
-    await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
     await computeInsiderLeaderboard();
   }
+
+  // These self-gate on their own version/age checks, so run them regardless of
+  // light/heavy mode. That way a manual run (or any scheduled run) keeps them
+  // current without depending on FORCE_FULL being set. They no-op quickly when
+  // already fresh (sitemap-lists ~weekly, insider-study ~monthly).
+  await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
+  await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
 
   // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)
   await migratePriceCacheTo5yr();
