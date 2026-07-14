@@ -1887,7 +1887,8 @@ app.get('/sitemap.xml', async (req, res) => {
     }
   } catch(_) {}
   const sectorPages = Object.keys(SECTOR_SLUGS).map(s => ({ url: `/insider-trading/sector/${s}`, priority: '0.5', freq: 'weekly' }));
-  const allPages = [...staticPages, ...articlePages, ...tickerPages, ...insiderPages, ...sectorPages];
+  const rolePages = Object.keys(ROLE_DEFS).map(s => ({ url: `/insider-trading/role/${s}`, priority: '0.6', freq: 'daily' }));
+  const allPages = [...staticPages, ...articlePages, ...tickerPages, ...insiderPages, ...sectorPages, ...rolePages];
   const urls = allPages.map(p => `\n  <url><loc>${base}${p.url}</loc><lastmod>${now}</lastmod><changefreq>${p.freq}</changefreq><priority>${p.priority}</priority></url>`).join('');
   _sitemapCache = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}\n</urlset>`;
   _sitemapCacheTime = Date.now();
@@ -2490,6 +2491,144 @@ app.get('/insider-trading/sector/:slug', async (req, res) => {
     }, { buys: 0, sells: 0, buyval: 0, sellval: 0, companies: 0 });
     const html = renderSectorPage(sector, slug, rows, stats);
     _sectorPageCache.set(slug, { html, t: Date.now() });
+    res.type('html').send(html);
+  } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── PROGRAMMATIC ROLE PAGES (SEO) ────────────────────────────────────────────
+// Server-rendered pages at /insider-trading/role/<slug> targeting "<role> buying
+// stocks" searches (e.g. "CEO insider buying"). Aggregates recent open-market
+// purchases across the whole database by insiders whose title matches the role.
+const ROLE_DEFS = {
+  'ceo':              { name: 'CEO',        plural: 'CEOs',            where: "(UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CHIEF EXECUTIVE%')" },
+  'cfo':              { name: 'CFO',        plural: 'CFOs',            where: "(UPPER(title) LIKE '%CFO%' OR UPPER(title) LIKE '%CHIEF FINANCIAL%')" },
+  'coo':              { name: 'COO',        plural: 'COOs',            where: "(UPPER(title) LIKE '%COO%' OR UPPER(title) LIKE '%CHIEF OPERATING%')" },
+  'president':        { name: 'President',  plural: 'presidents',      where: "(UPPER(title) LIKE '%PRESIDENT%' AND UPPER(title) NOT LIKE '%VICE PRESIDENT%')" },
+  'chairman':        { name: 'Chairman',   plural: 'chairs',          where: "(UPPER(title) LIKE '%CHAIRMAN%' OR UPPER(title) LIKE '%CHAIRPERSON%')" },
+  'director':        { name: 'Director',   plural: 'directors',       where: "(UPPER(title) LIKE '%DIRECTOR%' AND UPPER(title) NOT LIKE '%MANAGING DIRECTOR%')" },
+  '10-percent-owner': { name: '10% Owner',  plural: '10% owners',      where: "(UPPER(title) LIKE '%10%OWNER%' OR UPPER(title) LIKE '%TEN PERCENT%')" },
+};
+
+function renderRolePage(slug, def, rows, stats) {
+  const role = def.name;
+  const url = `https://www.insidertape.com/insider-trading/role/${slug}`;
+  const intro = `Over the past 90 days, ${stats.insiders || 0} ${def.plural} made ${stats.buys || 0} open-market purchase${stats.buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} across ${stats.companies || 0} ${stats.companies === 1 ? 'company' : 'companies'}. These are ${role} buys filed with the SEC on Form 4, with option exercises and awards stripped out so only genuine open-market conviction is shown.`;
+  const desc = `Which stocks ${def.plural} are buying: recent open-market ${role} insider purchases from SEC Form 4 filings, ranked by value. Company, insider, shares, and dollar value.`;
+
+  const tableRows = rows.map(r => `<tr>
+      <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
+      <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${_esc(_displayName(r.insider))}</strong></a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
+      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="num">${_fmtQty(r.qty)}</td>
+      <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
+      <td class="num v">${_fmtV(r.value)}</td>
+    </tr>`).join('');
+
+  const otherRoles = Object.keys(ROLE_DEFS).filter(s => s !== slug)
+    .map(s => `<a href="/insider-trading/role/${s}">${_esc(ROLE_DEFS[s].name)} buys</a>`).join(' &nbsp;·&nbsp; ');
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${role} Insider Buying - Stocks ${def.plural.charAt(0).toUpperCase() + def.plural.slice(1)} Are Buying | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="${role} Insider Buying - What ${def.plural} Are Buying">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: `${role} Insider Buying`, description: desc, url })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: `${role} Insider Buying`, item: url }] })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--buy:#167a40;--sell:#b03030}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:900px;margin:0 auto;padding:44px 24px 90px}
+.crumb{font-size:12px;color:var(--muted);margin-bottom:18px}.crumb a{color:var(--accent);text-decoration:none}
+h1{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:10px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:22px}
+.intro{font-size:16px;color:#3a4555;line-height:1.8;margin-bottom:28px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:32px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+.stat .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.stat .v{font-size:20px;font-weight:700}.v.g{color:var(--buy)}
+h2{font-size:18px;font-weight:700;margin:8px 0 14px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 14px;border-bottom:2px solid var(--border)}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:#3a4555}tr:last-child td{border-bottom:none}
+.dt{white-space:nowrap;color:var(--muted)}
+.ins a,.tk a{text-decoration:none;color:inherit}.ins strong{color:var(--text);font-weight:600;display:block}.ins .ti{font-size:11px;color:var(--muted);display:block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk strong{color:var(--accent);font-weight:700;display:block}.tk .co{font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.num.v{color:var(--buy);font-weight:700}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.rel{margin-top:40px;font-size:13px;color:var(--muted);line-height:1.9}.rel a{color:var(--accent);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){display:none}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="cta" style="margin-top:0">
+    <h3>Get ${role} buys the moment they file</h3>
+    <p>InsiderTape flags ${role} conviction buys, cluster buying, and first buys in years in real time, plotted on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/" style="font-size:12px;color:var(--muted);text-decoration:none">or explore the live screener free →</a></div>
+  </div>
+  <div class="crumb" style="margin-top:34px"><a href="/">Home</a> &nbsp;/&nbsp; Insider Trading &nbsp;/&nbsp; ${role} Buying</div>
+  <h1>${role} Insider Buying</h1>
+  <div class="sub">Recent open-market ${role} stock purchases from SEC Form 4 filings &nbsp;·&nbsp; Last 90 days</div>
+  <p class="intro">${_esc(intro)}</p>
+  <div class="stats">
+    <div class="stat"><div class="k">${role} Buys</div><div class="v g">${stats.buys || 0}</div></div>
+    <div class="stat"><div class="k">Total Value</div><div class="v g">${_fmtV(stats.buyval)}</div></div>
+    <div class="stat"><div class="k">Companies</div><div class="v">${stats.companies || 0}</div></div>
+    <div class="stat"><div class="k">${role}s</div><div class="v">${stats.insiders || 0}</div></div>
+  </div>
+  <h2>Recent ${role} open-market buys</h2>
+  ${rows.length ? `<table><thead><tr><th>Date</th><th>Insider</th><th>Company</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>`
+    : `<p style="color:var(--muted);font-size:14px">No open-market ${role} purchases recorded in the last 90 days.</p>`}
+  <div class="rel">
+    <strong>Insider buying by role:</strong><br>${otherRoles}
+    <div style="margin-top:18px"><strong>Learn more:</strong> <a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys stock</a> &nbsp;·&nbsp; <a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish?</a> &nbsp;·&nbsp; <a href="/biggest-insider-buys">Biggest insider buys this week</a></div>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
+</body></html>`;
+}
+
+const _rolePageCache = new Map(); // slug -> { html, t }
+app.get('/insider-trading/role/:slug', async (req, res) => {
+  const slug = (req.params.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const def = ROLE_DEFS[slug];
+  if (!def) return res.redirect(302, '/');
+  const hit = _rolePageCache.get(slug);
+  if (hit && Date.now() - hit.t < 12 * 3600000) { res.type('html'); return res.send(hit.html); }
+  try {
+    const rows = await query(`
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             trade_date AS trade, MAX(filing_date) AS filing,
+             MAX(qty) AS qty, MAX(price) AS price, MAX(value) AS value
+      FROM trades
+      WHERE TRIM(type)='P' AND ${def.where} AND trade_date >= date('now','-90 days')
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(value,0) >= 10000
+      GROUP BY ticker, insider, trade_date
+      ORDER BY value DESC LIMIT 40`);
+    const st = await queryOne(`
+      SELECT COUNT(*) AS buys, SUM(value) AS buyval, COUNT(DISTINCT ticker) AS companies, COUNT(DISTINCT insider) AS insiders
+      FROM (SELECT ticker, insider, trade_date, MAX(COALESCE(value,0)) AS value
+            FROM trades
+            WHERE TRIM(type)='P' AND ${def.where} AND trade_date >= date('now','-90 days')
+              AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND COALESCE(value,0) >= 10000
+            GROUP BY ticker, insider, trade_date)`);
+    const html = renderRolePage(slug, def, rows || [], st || {});
+    _rolePageCache.set(slug, { html, t: Date.now() });
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
