@@ -763,33 +763,23 @@ async function computeInsiderLeaderboard() {
 // 500, plus cuts by insider role and buy size. Runs at most weekly (heavy scan).
 // Public/evergreen analysis - no premium signals.
 async function computeInsiderStudy() {
-  // Recompute if the cached study lacks the new cluster structure or is >6 days old.
+  // Recompute if the cached study is missing, an older structure/version, or >25
+  // days old (this version fetches prices market-wide, so it runs ~monthly).
+  const STUDY_VERSION = 2;
   try {
     const ex = (await dbQuery("SELECT computed_at, value_json FROM computed_cache WHERE key='insider-study'"))[0];
     if (ex && process.env.FORCE_FULL !== '1') {
       let fresh = false;
-      try { const j = JSON.parse(ex.value_json); fresh = !!j.cluster && (Date.now() - ex.computed_at < 6 * 24 * 3600000); } catch(_) {}
+      try { const j = JSON.parse(ex.value_json); fresh = j.version === STUDY_VERSION && (Date.now() - ex.computed_at < 25 * 24 * 3600000); } catch(_) {}
       if (fresh) { log('insider-study fresh, skip'); return; }
     }
   } catch(_) {}
-  log('Computing insider-study (cluster forward returns)...');
-
-  const priceRows = await dbQuery('SELECT symbol, bars_json FROM price_cache');
-  const barsByTicker = {};
-  for (const pr of priceRows) {
-    try {
-      const arr = JSON.parse(pr.bars_json).filter(b => b.close > 0).map(b => ({ t: b.time, c: b.close }));
-      arr.sort((a, b) => a.t < b.t ? -1 : 1);
-      if (arr.length > 30) barsByTicker[pr.symbol] = arr;
-    } catch(_) {}
-  }
-  const tickers = Object.keys(barsByTicker);
-  if (tickers.length < 20) { log('insider-study: insufficient price coverage, skip'); return; }
+  log('Computing insider-study (market-wide cluster forward returns)...');
 
   // Benchmark: S&P 500 daily closes.
   const spxClose = {};
+  const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 1830 * 86400;
   try {
-    const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 1830 * 86400;
     const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const d = await resp.json(); const r = d?.chart?.result?.[0];
     if (r?.timestamp) { const q = r.indicators.quote[0]; r.timestamp.forEach((t, i) => { const c = q.close?.[i]; if (c > 0) spxClose[new Date(t * 1000).toISOString().slice(0, 10)] = c; }); }
@@ -797,25 +787,69 @@ async function computeInsiderStudy() {
   const shiftDate = (ymd, n) => { const x = new Date(ymd + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
   const spxOnOrBefore = date => { for (let i = 0; i <= 6; i++) { const dd = shiftDate(date, -i); if (spxClose[dd] != null) return spxClose[dd]; } return null; };
 
-  // Every open-market buy for cached tickers, old enough to have a forward window.
+  // Preload whatever price bars we already have cached.
+  const barsByTicker = {};
+  try {
+    const priceRows = await dbQuery('SELECT symbol, bars_json FROM price_cache');
+    for (const pr of priceRows) {
+      try { const arr = JSON.parse(pr.bars_json).filter(b => b.close > 0).map(b => ({ t: b.time, c: b.close })); arr.sort((a, b) => a.t < b.t ? -1 : 1); if (arr.length > 30) barsByTicker[pr.symbol] = arr; } catch(_) {}
+    }
+  } catch(_) {}
+
+  // Every open-market buy over 5 years, MARKET-WIDE (all tickers), old enough to
+  // have a forward window. (~1M rows read; runs ~monthly.)
   const buys = await dbQuery(`
-    SELECT ticker, insider, trade_date AS d, MAX(COALESCE(value,0)) AS value
+    SELECT ticker, insider, trade_date AS d
     FROM trades
     WHERE TRIM(type)='P' AND COALESCE(value,0) >= 10000
       AND trade_date <= date('now','-30 days') AND trade_date >= date('now','-1826 days')
       AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND insider IS NOT NULL AND insider != ''
-      AND ticker IN (${tickers.map(() => '?').join(',')})
-    GROUP BY ticker, insider, trade_date`, tickers);
-
+    GROUP BY ticker, insider, trade_date`);
   const byTicker = {};
-  for (const b of buys) { (byTicker[b.ticker] || (byTicker[b.ticker] = [])).push({ d: (b.d || '').slice(0, 10), insider: b.insider, value: +b.value || 0 }); }
+  for (const b of buys) { (byTicker[b.ticker] || (byTicker[b.ticker] = [])).push({ d: (b.d || '').slice(0, 10), insider: b.insider }); }
+
+  const CLUSTER_MIN = 3, WINDOW_DAYS = 30, COOLDOWN = 90, DAY = 86400000;
+  // Detect clusters across ALL tickers first (cheap, in memory).
+  const clusterEventsByTicker = {}; const clusterTickers = new Set();
+  for (const ticker of Object.keys(byTicker)) {
+    const list = byTicker[ticker].sort((a, b) => a.d < b.d ? -1 : 1);
+    let lastCluster = null; const evs = [];
+    for (let i = 0; i < list.length; i++) {
+      const end = new Date(list[i].d + 'T12:00:00Z').getTime();
+      const bound = end - WINDOW_DAYS * DAY;
+      const seen = new Set();
+      for (let j = i; j >= 0; j--) { const dj = new Date(list[j].d + 'T12:00:00Z').getTime(); if (dj < bound) break; seen.add(list[j].insider); }
+      if (seen.size >= CLUSTER_MIN && (lastCluster === null || end - lastCluster > COOLDOWN * DAY)) { evs.push(list[i].d); lastCluster = end; }
+    }
+    if (evs.length) { clusterEventsByTicker[ticker] = evs; clusterTickers.add(ticker); }
+  }
+
+  // Fetch daily bars for cluster tickers we do not already have cached (Yahoo,
+  // throttled, in memory - not persisted, so no Turso storage cost). Only cluster
+  // tickers are fetched (a bounded set), not the whole market.
+  const toFetch = [...clusterTickers].filter(t => !barsByTicker[t]);
+  let fetched = 0, gotBars = 0;
+  for (const ticker of toFetch) {
+    if (fetched >= 5000) break; // safety cap
+    fetched++;
+    try {
+      const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (resp.ok) {
+        const d = await resp.json(); const r = d?.chart?.result?.[0];
+        if (r?.timestamp) {
+          const q = r.indicators.quote[0];
+          const arr = r.timestamp.map((t, i) => ({ t: new Date(t * 1000).toISOString().slice(0, 10), c: q.close?.[i] || 0 })).filter(b => b.c > 0);
+          if (arr.length > 30) { arr.sort((a, b) => a.t < b.t ? -1 : 1); barsByTicker[ticker] = arr; gotBars++; }
+        }
+      }
+    } catch(_) {}
+    await new Promise(r => setTimeout(r, 200));
+  }
+  log(`insider-study: ${clusterTickers.size} cluster tickers, fetched ${gotBars}/${toFetch.length} new price series from Yahoo`);
 
   const WIN = { '1M': 21, '3M': 63, '6M': 126, '12M': 252 };
-  const CLUSTER_MIN = 3, WINDOW_DAYS = 30, COOLDOWN = 90, DAY = 86400000;
   const mk = () => Object.fromEntries(Object.keys(WIN).map(k => [k, { ret: [], exc: [], pos: 0, beat: 0, excN: 0, n: 0 }]));
   const clusterAcc = mk(), allAcc = mk();
-
-  // Score one entry (a ticker's bars + entry date) into an accumulator.
   function scoreEntry(bars, entryDate, accum) {
     const ei = bars.findIndex(x => x.t >= entryDate);
     if (ei < 0) return false;
@@ -835,25 +869,17 @@ async function computeInsiderStudy() {
   }
 
   let clusterEvents = 0, allScored = 0; const usedT = new Set(); let minD = '9999', maxD = '0';
+  // Cluster events (across all cluster tickers we obtained bars for).
+  for (const ticker of Object.keys(clusterEventsByTicker)) {
+    const bars = barsByTicker[ticker]; if (!bars) continue;
+    for (const d of clusterEventsByTicker[ticker]) {
+      if (scoreEntry(bars, d, clusterAcc)) { clusterEvents++; usedT.add(ticker); if (d < minD) minD = d; if (d > maxD) maxD = d; }
+    }
+  }
+  // Baseline: every individual buy for any ticker we have bars for.
   for (const ticker of Object.keys(byTicker)) {
     const bars = barsByTicker[ticker]; if (!bars) continue;
-    const list = byTicker[ticker].sort((a, b) => a.d < b.d ? -1 : 1);
-    // Baseline: every open-market buy.
-    for (const b of list) {
-      if (scoreEntry(bars, b.d, allAcc)) { allScored++; usedT.add(ticker); if (b.d < minD) minD = b.d; if (b.d > maxD) maxD = b.d; }
-    }
-    // Clusters: >= CLUSTER_MIN distinct insiders buying within a trailing WINDOW_DAYS,
-    // with a cooldown so a single buying wave is only counted once.
-    let lastCluster = null;
-    for (let i = 0; i < list.length; i++) {
-      const end = new Date(list[i].d + 'T12:00:00Z').getTime();
-      const bound = end - WINDOW_DAYS * DAY;
-      const seen = new Set();
-      for (let j = i; j >= 0; j--) { const dj = new Date(list[j].d + 'T12:00:00Z').getTime(); if (dj < bound) break; seen.add(list[j].insider); }
-      if (seen.size >= CLUSTER_MIN && (lastCluster === null || end - lastCluster > COOLDOWN * DAY)) {
-        if (scoreEntry(bars, list[i].d, clusterAcc)) { clusterEvents++; lastCluster = end; }
-      }
-    }
+    for (const b of byTicker[ticker]) { if (scoreEntry(bars, b.d, allAcc)) allScored++; }
   }
 
   const median = arr => { if (!arr.length) return 0; const s = [...arr].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
@@ -862,14 +888,15 @@ async function computeInsiderStudy() {
   const statsOf = acc => Object.fromEntries(Object.keys(WIN).map(k => [k, winStat(acc[k])]));
 
   const result = {
+    version: STUDY_VERSION,
     generated: new Date().toISOString().slice(0, 10),
     clusterMin: CLUSTER_MIN, windowDays: WINDOW_DAYS,
-    sample: { clusterEvents, allBuys: allScored, tickers: usedT.size, from: minD, to: maxD, minValue: 10000 },
+    sample: { clusterEvents, clusterTickers: usedT.size, allBuys: allScored, from: minD, to: maxD, minValue: 10000 },
     cluster: statsOf(clusterAcc),
     allBuys: statsOf(allAcc),
   };
   await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-study', ?, ?)`, [JSON.stringify(result), Date.now()]);
-  log(`insider-study cached: ${clusterEvents} clusters, ${allScored} buys, cluster 6M median ${result.cluster['6M'].medianRet}% vs all ${result.allBuys['6M'].medianRet}%`);
+  log(`insider-study cached: ${clusterEvents} clusters across ${usedT.size} tickers, ${allScored} baseline buys; cluster 6M median ${result.cluster['6M'].medianRet}% vs all ${result.allBuys['6M'].medianRet}%`);
 }
 
 // Precompute the sitemap's ticker + insider lists so the /sitemap.xml route reads
