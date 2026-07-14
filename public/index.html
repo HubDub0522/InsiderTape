@@ -1616,11 +1616,13 @@ async function apiFetch(path, opts={}) {
 }
 async function fetchInsiderForTicker(ticker) { return apiFetch(`/api/ticker?symbol=${encodeURIComponent(ticker)}`); }
 async function fetchInsiderByName(name) {
-  // First try exact match (fast, avoids pulling hundreds of irrelevant rows)
+  // First try exact match (indexed; also tries last-first/reversed orderings server-side)
   const exact = await apiFetch(`/api/insider?name=${encodeURIComponent(name)}&exact=1`);
   if (exact && exact.length) return exact;
-  // Exact failed - name may have extra whitespace or slight variation in DB.
-  // Fall back to fuzzy/contains search so profiles always load.
+  // The contains-search fallback is a full-table scan; only worth it for a single
+  // token (typo/partial). Multi-word names were already tried in several orderings,
+  // so skip the scan and return empty fast instead of risking a timeout.
+  if (name.trim().split(/\s+/).length > 1) return [];
   const fuzzy = await apiFetch(`/api/insider?name=${encodeURIComponent(name)}`);
   return fuzzy || [];
 }

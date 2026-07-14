@@ -554,11 +554,27 @@ app.get('/api/insider', async (req, res) => {
   const exact = req.query.exact === '1';
   if (!name || name.length < 2) return res.status(400).json({ error: 'name required (min 2 chars)' });
   try {
-    // Exact lookups (the profile pages) use equality so the idx_insider_upper
-    // expression index kicks in; LIKE would full-scan the whole trades table.
-    const matchClause = exact ? 'UPPER(insider) = UPPER(?)' : 'UPPER(insider) LIKE UPPER(?)';
-    const pattern = exact ? name : `%${name}%`;
-    const limit   = exact ? 2000 : 500;
+    // Exact lookups (the profile pages) use indexed equality so idx_insider_upper
+    // kicks in; LIKE would full-scan the whole trades table. SEC stores names
+    // last-first ("Austin Rudy Mitchell"), so we also try last-name-first and
+    // reversed orderings to tolerate first-last URLs without a scan.
+    const limit = exact ? 2000 : 500;
+    let matchClause, params;
+    if (exact) {
+      const toks = name.split(/\s+/).filter(Boolean);
+      const cands = [name];
+      if (toks.length >= 2) {
+        const lastFirst = [toks[toks.length - 1], ...toks.slice(0, -1)].join(' ');
+        const reversed  = [...toks].reverse().join(' ');
+        if (!cands.includes(lastFirst)) cands.push(lastFirst);
+        if (!cands.includes(reversed))  cands.push(reversed);
+      }
+      matchClause = `UPPER(insider) IN (${cands.map(() => 'UPPER(?)').join(',')})`;
+      params = cands;
+    } else {
+      matchClause = 'UPPER(insider) LIKE UPPER(?)';
+      params = [`%${name}%`];
+    }
     const rows = await query(`
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
@@ -568,7 +584,7 @@ app.get('/api/insider', async (req, res) => {
         AND COALESCE(value, 0) <= 5000000000
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC LIMIT ?
-    `, [pattern, limit]);
+    `, [...params, limit]);
     res.json(rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
