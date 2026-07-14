@@ -44,6 +44,7 @@ async function initSchema() {
     `CREATE INDEX IF NOT EXISTS idx_trade_date  ON trades(trade_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_filing_date ON trades(filing_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_insider     ON trades(insider)`,
+    `CREATE INDEX IF NOT EXISTS idx_insider_upper ON trades(UPPER(insider))`,
     // Expression index on TRIM(type): queries filter WHERE TRIM(type)='P' etc,
     // which the plain type index can't serve - this lets them seek by type+date
     // instead of full-scanning the table (the main Turso rows-read driver).

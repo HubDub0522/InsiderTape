@@ -855,6 +855,10 @@ async function computeInsiderStudy() {
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
+  // Build the case-insensitive insider index here (long-running env) - it is too
+  // large to reliably build during a serverless cold boot, which left insider
+  // lookups full-scanning the table and timing out.
+  try { await dbRun('CREATE INDEX IF NOT EXISTS idx_insider_upper ON trades(UPPER(insider))'); log('idx_insider_upper ensured'); } catch(e) { log('idx_insider_upper error: ' + e.message); }
 
   // The heavy full-history aggregates (5-year sentiment, deep first-buy scans) barely
   // change intraday and are the biggest Turso-read consumers, so run them only once

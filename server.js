@@ -191,6 +191,7 @@ app.use((req, res, next) => {
 // Per-request timeout
 app.use((req, res, next) => {
   const limit = req.path === '/api/scoreboard' ? 55000
+              : (req.path === '/api/insider' || req.path.startsWith('/insider')) ? 50000
               : (req.path === '/api/drift' || req.path === '/api/proximity') ? 45000
               : req.path === '/api/price' ? 35000
               : 25000;

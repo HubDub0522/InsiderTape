@@ -42,6 +42,7 @@ async function initSchema() {
     `CREATE INDEX IF NOT EXISTS idx_ticker     ON trades(ticker)`,
     `CREATE INDEX IF NOT EXISTS idx_trade_date ON trades(trade_date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_insider    ON trades(insider)`,
+    `CREATE INDEX IF NOT EXISTS idx_insider_upper ON trades(UPPER(insider))`,
     `CREATE TABLE IF NOT EXISTS sync_log (quarter TEXT PRIMARY KEY, synced_at TEXT DEFAULT (datetime('now')), rows INTEGER)`,
   ];
   for (const sql of stmts) try { await client.execute(sql); } catch(_) {}
