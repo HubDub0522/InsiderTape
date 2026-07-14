@@ -2844,52 +2844,50 @@ function renderStudyPage(s) {
   const url = 'https://www.insidertape.com/insider-buying-study';
   const sp = v => (v >= 0 ? '+' : '') + Number(v || 0).toFixed(1) + '%';
   const fdY = d => { if (!d) return ''; const dt = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); return isNaN(dt) ? String(d).slice(0, 10) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
-  const cl = s.cluster || {}, ab = s.allBuys || {};
-  const cl6 = cl['6M'] || {}, cl12 = cl['12M'] || {}, ab6 = ab['6M'] || {};
-  const nCl = (s.sample?.clusterEvents || 0).toLocaleString('en-US');
+  const cls = v => (v || 0) >= 0 ? 'g' : 'r';
+  const co = s.cohorts || {};
+  const COH = [['ceo', 'CEO buys'], ['cluster', 'Cluster buys'], ['allBuys', 'All insider buys']];
   const nAll = (s.sample?.allBuys || 0).toLocaleString('en-US');
-  const nTk = (s.sample?.clusterTickers || 0).toLocaleString('en-US');
+  const nCl = (s.sample?.clusterEvents || 0).toLocaleString('en-US');
+  const nCeo = (s.sample?.ceoBuys || 0).toLocaleString('en-US');
   const cmin = s.clusterMin || 3, wdays = s.windowDays || 30;
-  const fromYear = (s.sample?.from || '').slice(0, 4);
-  const desc = `We analyzed ${nCl} insider cluster buys across ${nTk} US companies (${cmin}+ insiders buying the same stock within ${wdays} days) since ${fromYear}. Median 6-month return ${sp(cl6.medianRet)}, ${sp(cl6.medianExcess)} vs the S&P 500, with ${cl6.pctBeatMkt || 0}% beating the market - versus ${sp(ab6.medianRet)} for a typical single insider buy.`;
-  const intro = `When several company insiders buy the same stock at once, it is one of the strongest signals in insider trading. Across the US market we identified ${nCl} cluster buys (${cmin} or more different insiders buying the same company within ${wdays} days) spanning ${nTk} companies between ${fdY(s.sample?.from)} and ${fdY(s.sample?.to)}, and measured how each stock performed afterward versus the S&P 500. For comparison, we ran the same test on all ${nAll} individual insider buys over the same period.`;
+  const fromY = (s.sample?.from || '').slice(0, 4);
+  const g = (key, win) => (co[key] || {})[win] || {};
+  const ceo6 = g('ceo', '6M'), cl6 = g('cluster', '6M'), all6 = g('allBuys', '6M');
+  const desc = `Market-wide study of ${nAll} insider buys over five years: how CEO buys, cluster buys, and all insider buys performed at 1, 3, 6, and 12 months versus the Russell 2000 and the S&P 500. Median and average returns plus win rates.`;
+  const intro = `We measured what stocks did after insiders bought, across ${nAll} open-market SEC Form 4 purchases market-wide since ${fromY}, split three ways: all insider buys, cluster buys (${cmin}+ insiders within ${wdays} days), and CEO buys (${nCeo} of them). Each is measured 1, 3, 6, and 12 months later against both the Russell 2000 (a fairer yardstick for the small and mid caps where insiders actually buy) and the S&P 500.`;
 
-  const clRow = k => { const x = cl[k] || {}; return `<tr>
-      <td><strong>${k.replace('M', ' month' + (k === '1M' ? '' : 's'))}</strong></td>
-      <td class="num ${(x.medianRet || 0) >= 0 ? 'g' : 'r'}">${sp(x.medianRet)}</td>
-      <td class="num">${x.pctPositive || 0}%</td>
-      <td class="num ${(x.medianExcess || 0) >= 0 ? 'g' : 'r'}">${sp(x.medianExcess)}</td>
-      <td class="num">${x.pctBeatMkt || 0}%</td>
+  const rowFor = win => ([key, label]) => { const x = g(key, win), r = x.rut || {}, p = x.spx || {}; return `<tr>
+      <td><strong>${label}</strong></td>
       <td class="num" style="color:var(--muted)">${(x.n || 0).toLocaleString('en-US')}</td>
+      <td class="num ${cls(x.medianRet)}">${sp(x.medianRet)}</td>
+      <td class="num ${cls(x.meanRet)}">${sp(x.meanRet)}</td>
+      <td class="num">${x.pctPositive || 0}%</td>
+      <td class="num ${cls(r.medianExcess)}">${sp(r.medianExcess)}</td>
+      <td class="num ${cls(p.medianExcess)}">${sp(p.medianExcess)}</td>
     </tr>`; };
-  const cmpRow = k => { const c = cl[k] || {}, a = ab[k] || {}; return `<tr>
-      <td><strong>${k.replace('M', ' month' + (k === '1M' ? '' : 's'))}</strong></td>
-      <td class="num ${(c.medianRet || 0) >= 0 ? 'g' : 'r'}">${sp(c.medianRet)}</td>
-      <td class="num ${(c.medianExcess || 0) >= 0 ? 'g' : 'r'}">${sp(c.medianExcess)}</td>
-      <td class="num ${(a.medianRet || 0) >= 0 ? 'g' : 'r'}">${sp(a.medianRet)}</td>
-      <td class="num ${(a.medianExcess || 0) >= 0 ? 'g' : 'r'}">${sp(a.medianExcess)}</td>
-    </tr>`; };
+  const tbl = win => `<table><thead><tr><th>Cohort</th><th class="num">Sample</th><th class="num">Median</th><th class="num">Mean</th><th class="num">% up</th><th class="num">vs Russell</th><th class="num">vs S&amp;P</th></tr></thead><tbody>${COH.map(rowFor(win)).join('')}</tbody></table>`;
 
   const faq = [
-    { q: 'Do insider cluster buys beat the market?', a: `In this sample of ${nCl} cluster buys, the median stock returned ${sp(cl6.medianRet)} over the next six months, ${sp(cl6.medianExcess)} versus the S&P 500, and ${cl6.pctBeatMkt || 0}% of clusters beat the market.` },
-    { q: 'What is an insider cluster buy?', a: `A cluster buy is when ${cmin} or more different insiders at the same company make open-market purchases within ${wdays} days of each other - a stronger signal than a single insider buying alone.` },
-    { q: 'Are cluster buys better than a single insider buying?', a: `Over six months the median cluster buy returned ${sp(cl6.medianRet)} versus ${sp(ab6.medianRet)} for a typical single insider buy, and ${sp(cl6.medianExcess)} vs ${sp(ab6.medianExcess)} against the S&P 500.` },
+    { q: 'Do stocks rise after insiders buy?', a: `Across ${nAll} insider buys, over the six months after the purchase the median stock returned ${sp(all6.medianRet)} and ${all6.pctPositive || 0}% were higher.` },
+    { q: 'Do CEO buys perform better than other insider buys?', a: `Over six months, CEO buys returned a median ${sp(ceo6.medianRet)} (${ceo6.pctPositive || 0}% positive) versus ${sp(all6.medianRet)} for all insider buys, and ${(ceo6.rut || {}).pctBeat || 0}% beat the Russell 2000.` },
+    { q: 'Do cluster buys beat a single insider buying?', a: `Over six months, cluster buys (${cmin}+ insiders within ${wdays} days) returned a median ${sp(cl6.medianRet)} versus ${sp(all6.medianRet)} for a typical single insider buy.` },
   ];
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Do Cluster Buys Beat the Market? We Analyzed ${nCl} Insider Cluster Buys | InsiderTape</title>
+<title>How Stocks Perform After Insiders Buy: CEO, Cluster &amp; All Buys | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
 <meta property="og:type" content="article"><meta property="og:url" content="${url}">
-<meta property="og:title" content="Do Cluster Buys Beat the Market? We Analyzed ${nCl} Insider Cluster Buys">
+<meta property="og:title" content="How Stocks Perform After Insiders Buy: CEO, Cluster &amp; All Buys">
 <meta property="og:description" content="${_esc(desc)}">
 <meta property="og:image" content="https://www.insidertape.com/og-image.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
-<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `Do Cluster Buys Beat the Market? We Analyzed ${nCl} Insider Cluster Buys`, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `How Stocks Perform After Insiders Buy: CEO, Cluster and All Buys`, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
-<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Cluster Buying Study', item: url }] })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Study', item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
@@ -2921,24 +2919,25 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Data Study</div>
-  <h1>Do Cluster Buys Beat the Market?</h1>
-  <div class="meta">InsiderTape research &nbsp;·&nbsp; Updated ${fdY(s.generated)}</div>
+  <h1>How Stocks Perform After Insiders Buy</h1>
+  <div class="meta">InsiderTape research &nbsp;·&nbsp; ${nAll} buys, ${fdY(s.sample?.from)} to ${fdY(s.sample?.to)} &nbsp;·&nbsp; Updated ${fdY(s.generated)}</div>
   <p class="intro">${_esc(intro)}</p>
-  <div class="callout">Across ${nCl} insider cluster buys, the median stock returned <strong style="color:${(cl6.medianRet||0)>=0?'var(--buy)':'var(--sell)'}">${sp(cl6.medianRet)}</strong> over the next six months (<strong style="color:${(cl6.medianExcess||0)>=0?'var(--buy)':'var(--sell)'}">${sp(cl6.medianExcess)}</strong> vs the S&P 500) and <strong style="color:${(cl12.medianRet||0)>=0?'var(--buy)':'var(--sell)'}">${sp(cl12.medianRet)}</strong> over the next year. ${cl6.pctBeatMkt||0}% of clusters beat the market over six months, versus ${ab6.pctBeatMkt||0}% for a typical single insider buy.</div>
-  <h2>Cluster buys: forward returns</h2>
-  <table><thead><tr><th>Holding period</th><th class="num">Median return</th><th class="num">% positive</th><th class="num">vs S&amp;P 500</th><th class="num">% beat mkt</th><th class="num">Sample</th></tr></thead>
-  <tbody>${['1M','3M','6M','12M'].map(clRow).join('')}</tbody></table>
-  <p>Median returns are used rather than averages so a few large winners do not distort the picture. "vs S&amp;P 500" is the median return above or below the index over the same dates.</p>
-  <h2>Cluster buys vs a typical single insider buy</h2>
-  <table><thead><tr><th>Holding period</th><th class="num">Cluster median</th><th class="num">Cluster vs S&amp;P</th><th class="num">Single-buy median</th><th class="num">Single-buy vs S&amp;P</th></tr></thead>
-  <tbody>${['1M','3M','6M','12M'].map(cmpRow).join('')}</tbody></table>
+  <div class="callout">Reading the tables: <strong>Median</strong> is the typical stock, <strong>Mean</strong> the average (pulled up by big winners), <strong>% up</strong> the share that rose. <strong>vs Russell / vs S&amp;P</strong> is the median return above or below that index over the same dates - positive means it beat the benchmark.</div>
+  <h2>Six months after the buy</h2>
+  ${tbl('6M')}
+  <h2>One month after the buy</h2>
+  ${tbl('1M')}
+  <h2>Three months after the buy</h2>
+  ${tbl('3M')}
+  <h2>One year after the buy</h2>
+  ${tbl('12M')}
   <h2>Methodology</h2>
-  <p class="method">Starting from every open-market purchase (SEC Form 4, code P) of ${_fmtV(s.sample?.minValue || 10000)} or more filed over the last five years across the US market, we flagged a "cluster" whenever ${cmin} or more different insiders bought the same company within ${wdays} days, counting each buying wave once. Each cluster (and, separately, each individual buy) was entered at the closing price on or just after the trigger date, and its return measured 1, 3, 6, and 12 months later against the S&amp;P 500 over the same dates. Option exercises, grants, and obvious price-data errors are excluded, as are the small number of tickers with no available daily price history. Longer windows have smaller samples because recent events have not completed a full year. This is analysis of past filings, not a prediction or investment advice.</p>
+  <p class="method">Starting from every open-market purchase (SEC Form 4, code P) of ${_fmtV(s.sample?.minValue || 10000)} or more filed over the last five years across the US market, we entered each at the closing price on or just after the transaction date and measured its return 1, 3, 6, and 12 months later against both the Russell 2000 and the S&amp;P 500 over the same dates. "Cluster buys" are cases where ${cmin} or more different insiders bought the same company within ${wdays} days (each wave counted once); "CEO buys" are purchases whose filed title identifies the buyer as the CEO. Option exercises, grants, and obvious price-data errors are excluded, as are tickers with no available daily price history. Longer windows have smaller samples because recent events have not completed a full year. This is analysis of past filings, not a prediction or investment advice.</p>
   <div class="cta">
-    <h3>Get cluster buys the moment they form</h3>
-    <p>InsiderTape flags cluster buying in real time and plots every insider purchase on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <h3>Track insider buys as they happen</h3>
+    <p>InsiderTape flags CEO buys, cluster buying, and first buys in years in real time, plotted on the price chart. Start a free 7-day trial, cancel anytime.</p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
-    <div style="margin-top:12px"><a href="/articles/what-is-cluster-buying.html" style="font-size:12px;color:var(--muted);text-decoration:none">or read what cluster buying means →</a></div>
+    <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
   </div>
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past performance does not predict future results.</footer>
@@ -2950,8 +2949,8 @@ app.get('/insider-buying-study', async (req, res) => {
   try {
     const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-study'");
     const study = row ? (() => { try { return JSON.parse(row.value_json); } catch(_) { return null; } })() : null;
-    // Show the placeholder until the new cluster-structured study has been computed.
-    if (!study || !study.cluster) {
+    // Show the placeholder until the new cohort-structured study has been computed.
+    if (!study || !study.cohorts) {
       return res.type('html').send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Cluster Buying Study | InsiderTape</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{background:#f0f2f5;color:#1a2030;font-family:Inter,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}a{color:#2478cc}</style></head><body><div><h1 style="font-size:22px">Cluster Buying Study</h1><p style="color:#6e7a8a">Our cluster-buy performance analysis is being compiled and will appear here shortly.</p><p><a href="/">Back to InsiderTape</a></p></div></body></html>`);
     }
     if (_studyCache.html && _studyCache.t === row.computed_at) { res.type('html'); return res.send(_studyCache.html); }
