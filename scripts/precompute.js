@@ -663,16 +663,17 @@ async function prune5yr() {
 // This replaces the client's slow per-insider scoring loop (which was timing out).
 async function computeInsiderLeaderboard() {
   log('Computing insider leaderboard...');
+  // Candidates = top recent buyers (last 90 days) by their largest recent buy.
+  // Restricting to a 90-day window uses idx_trades_ttype_date and stays small,
+  // instead of grouping all 5 years of P trades with an IN subquery (which scanned
+  // ~1M rows and stalled). The >=4 total-buys filter is applied per candidate below.
   const candidates = await dbQuery(`
-    SELECT insider AS name, MAX(title) AS title, COUNT(*) AS total_buys
-    FROM trades WHERE insider IS NOT NULL AND TRIM(type)='P' AND price > 0
-      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
-      AND insider IN (
-        SELECT DISTINCT insider FROM trades
-        WHERE TRIM(type)='P' AND price > 0 AND COALESCE(value,0) >= 10000
-          AND trade_date >= date('now','-90 days')
-      )
-    GROUP BY insider HAVING total_buys >= 4 ORDER BY MAX(value) DESC LIMIT 80
+    SELECT insider AS name, MAX(title) AS title, MAX(COALESCE(value,0)) AS mv
+    FROM trades
+    WHERE TRIM(type)='P' AND price > 0 AND COALESCE(value,0) >= 10000
+      AND trade_date >= date('now','-90 days')
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND insider IS NOT NULL
+    GROUP BY insider ORDER BY mv DESC LIMIT 120
   `);
   if (!candidates.length) {
     await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-leaderboard', ?, ?)`, [JSON.stringify({ accuracy: [], timing: [] }), Date.now()]);
@@ -687,9 +688,11 @@ async function computeInsiderLeaderboard() {
   const perCand = [];
   const allTickers = new Set();
   for (const c of candidates) {
+    // c.name is the exact stored insider string, so match the plain (indexed)
+    // insider column directly - no UPPER(), guaranteed to use idx_insider.
     const rows = await dbQuery(`
       SELECT ticker, trade_date AS trade, COALESCE(price,0) AS price
-      FROM trades WHERE UPPER(insider) = UPPER(?) AND TRIM(type)='P' AND price > 0
+      FROM trades WHERE insider = ? AND TRIM(type)='P' AND price > 0
       ORDER BY trade_date DESC LIMIT 500`, [c.name]);
     if (rows.length < 4) continue;
     perCand.push({ c, rows });
@@ -956,6 +959,12 @@ async function main() {
     computeScreener90(),
   ]);
 
+  // Self-gating caches (sitemap ~weekly, insider-study ~monthly). Run these
+  // BEFORE the heavy block - and regardless of light/heavy mode - so the slower
+  // leaderboard can never block the study, and a run does not depend on FORCE_FULL.
+  await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
+  await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
+
   // Heavy caches - once per day. Sentiment is now incremental (~95d scan), so it
   // is cheap to run daily.
   if (heavyRun) {
@@ -963,13 +972,6 @@ async function main() {
     await computeFirstBuys();
     await computeInsiderLeaderboard();
   }
-
-  // These self-gate on their own version/age checks, so run them regardless of
-  // light/heavy mode. That way a manual run (or any scheduled run) keeps them
-  // current without depending on FORCE_FULL being set. They no-op quickly when
-  // already fresh (sitemap-lists ~weekly, insider-study ~monthly).
-  await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
-  await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
 
   // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)
   await migratePriceCacheTo5yr();
