@@ -852,6 +852,21 @@ async function computeInsiderStudy() {
   log(`insider-study cached: ${analyzed} buys, ${usedTickers.size} tickers, 6M median ${result.windows['6M'].medianRet}%`);
 }
 
+// Precompute the sitemap's ticker + insider lists so the /sitemap.xml route reads
+// one small cached row instead of running two 5-year GROUP BY scans (~1M rows read
+// each) on request, which blew the request timeout. Refreshes at most weekly.
+async function computeSitemapLists() {
+  try {
+    const ex = (await dbQuery("SELECT computed_at FROM computed_cache WHERE key='sitemap-lists'"))[0];
+    if (ex && Date.now() - ex.computed_at < 6 * 24 * 3600000 && process.env.FORCE_FULL !== '1') { log('sitemap-lists fresh, skip'); return; }
+  } catch(_) {}
+  log('Computing sitemap-lists...');
+  const tickers = (await dbQuery("SELECT ticker FROM trades WHERE ticker GLOB '[A-Z]*' AND trade_date >= date('now','-1825 days') GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 800")).map(r => r.ticker);
+  const insiders = (await dbQuery("SELECT insider, COUNT(*) AS n FROM trades WHERE insider IS NOT NULL AND insider != '' AND TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-1825 days') GROUP BY insider ORDER BY n DESC LIMIT 600")).map(r => r.insider);
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('sitemap-lists', ?, ?)`, [JSON.stringify({ tickers, insiders }), Date.now()]);
+  log(`sitemap-lists cached: ${tickers.length} tickers, ${insiders.length} insiders`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
@@ -901,6 +916,7 @@ async function main() {
     await computeFirstBuys();
     await computeInsiderLeaderboard();
     await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
+    await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
   }
 
   // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)

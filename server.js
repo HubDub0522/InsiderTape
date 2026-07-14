@@ -1892,18 +1892,20 @@ app.get('/sitemap.xml', async (req, res) => {
   ];
   const articleSlugs = ['is-insider-buying-bullish','what-it-means-when-a-ceo-buys-stock','insider-buying-near-52-week-lows','what-is-a-10b5-1-plan','first-insider-buy-in-years','real-insider-buys-vs-option-exercises','cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
   const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}.html`, priority: '0.6', freq: 'monthly' }));
-  let tickerPages = [];
+  // Ticker + insider lists are precomputed by scripts/precompute.js
+  // (computeSitemapLists) and read from a single cached row here - running the
+  // 5-year GROUP BY scans live cost ~1M rows read each and blew the timeout.
+  let tickerPages = [], insiderPages = [];
   try {
-    const tickers = await query("SELECT ticker FROM trades WHERE ticker GLOB '[A-Z]*' AND trade_date >= date('now','-1825 days') GROUP BY ticker ORDER BY COUNT(*) DESC LIMIT 800");
-    tickerPages = tickers.map(r => ({ url: `/insider-trading/${r.ticker}`, priority: '0.5', freq: 'weekly' }));
-  } catch(_) {}
-  let insiderPages = [];
-  try {
-    const ins = await query("SELECT insider, COUNT(*) AS n FROM trades WHERE insider IS NOT NULL AND insider != '' AND TRIM(type) IN ('P','S','S-') AND trade_date >= date('now','-1825 days') GROUP BY insider ORDER BY n DESC LIMIT 600");
-    const seen = new Set();
-    for (const r of ins) {
-      const slug = _insiderSlug(r.insider);
-      if (slug && slug.length >= 2 && !seen.has(slug)) { seen.add(slug); insiderPages.push({ url: `/insider-profile/${slug}`, priority: '0.4', freq: 'weekly' }); }
+    const row = await queryOne("SELECT value_json FROM computed_cache WHERE key = 'sitemap-lists'");
+    if (row) {
+      const lists = JSON.parse(row.value_json);
+      tickerPages = (lists.tickers || []).map(t => ({ url: `/insider-trading/${t}`, priority: '0.5', freq: 'weekly' }));
+      const seen = new Set();
+      for (const name of (lists.insiders || [])) {
+        const slug = _insiderSlug(name);
+        if (slug && slug.length >= 2 && !seen.has(slug)) { seen.add(slug); insiderPages.push({ url: `/insider-profile/${slug}`, priority: '0.4', freq: 'weekly' }); }
+      }
     }
   } catch(_) {}
   const sectorPages = Object.keys(SECTOR_SLUGS).map(s => ({ url: `/insider-trading/sector/${s}`, priority: '0.5', freq: 'weekly' }));
