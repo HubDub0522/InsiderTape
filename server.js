@@ -1208,7 +1208,7 @@ app.get('/api/insider-score', async (req, res) => {
     const rows = await query(`
       SELECT ticker, trade_date AS trade, TRIM(type) AS type,
              COALESCE(price,0) AS price, COALESCE(value,0) AS value
-      FROM trades WHERE UPPER(insider) LIKE UPPER(?) AND TRIM(type)='P' AND price > 0
+      FROM trades WHERE UPPER(insider) = UPPER(?) AND TRIM(type)='P' AND price > 0
       ORDER BY trade_date DESC LIMIT 500
     `, [name]);
 

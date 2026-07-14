@@ -708,7 +708,7 @@ async function computeInsiderLeaderboard() {
   for (const c of candidates) {
     const rows = await dbQuery(`
       SELECT ticker, trade_date AS trade, COALESCE(price,0) AS price
-      FROM trades WHERE UPPER(insider) LIKE UPPER(?) AND TRIM(type)='P' AND price > 0
+      FROM trades WHERE UPPER(insider) = UPPER(?) AND TRIM(type)='P' AND price > 0
       ORDER BY trade_date DESC LIMIT 500`, [c.name]);
     if (rows.length < 4) continue;
     const tickers = [...new Set(rows.map(r => r.ticker))];
