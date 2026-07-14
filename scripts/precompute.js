@@ -679,34 +679,39 @@ async function computeInsiderLeaderboard() {
     log('insider-leaderboard: no candidates'); return;
   }
 
-  // Read daily bars from the prewarmed price_cache table rather than fetching
-  // Yahoo live per ticker (with 100ms throttles) - the live fetching, not the DB,
-  // was the real leaderboard bottleneck. Only tickers with cached bars get scored.
-  const priceCache = {};
-  async function getBars(ticker) {
-    if (priceCache[ticker] !== undefined) return priceCache[ticker];
-    try {
-      const row = (await dbQuery('SELECT bars_json FROM price_cache WHERE symbol = ?', [ticker]))[0];
-      if (row) { priceCache[ticker] = JSON.parse(row.bars_json).filter(b => b.close > 0).map(b => ({ time: b.time, close: b.close })); return priceCache[ticker]; }
-    } catch(_) {}
-    priceCache[ticker] = null;
-    return null;
-  }
-
   const CAP = 100, cap = r => Math.max(-CAP, Math.min(CAP, r));
   const today = new Date().toISOString().slice(0, 10);
   const addDays = (ds, n) => { const d = new Date(ds + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
-  const accuracy = [], timing = [];
+  // Pass 1: pull each candidate's buys (indexed exact match) and collect tickers.
+  const perCand = [];
+  const allTickers = new Set();
   for (const c of candidates) {
     const rows = await dbQuery(`
       SELECT ticker, trade_date AS trade, COALESCE(price,0) AS price
       FROM trades WHERE UPPER(insider) = UPPER(?) AND TRIM(type)='P' AND price > 0
       ORDER BY trade_date DESC LIMIT 500`, [c.name]);
     if (rows.length < 4) continue;
-    const tickers = [...new Set(rows.map(r => r.ticker))];
-    for (const t of tickers) await getBars(t);
+    perCand.push({ c, rows });
+    rows.forEach(r => allTickers.add(r.ticker));
+  }
 
+  // Batch-load daily bars from the prewarmed price_cache table (one query per 100
+  // tickers) instead of 300+ single-row round-trips - that was the bottleneck.
+  // Only tickers with cached bars get scored.
+  const priceCache = {};
+  const tickerArr = [...allTickers];
+  for (let i = 0; i < tickerArr.length; i += 100) {
+    const chunk = tickerArr.slice(i, i + 100);
+    const cacheRows = await dbQuery(`SELECT symbol, bars_json FROM price_cache WHERE symbol IN (${chunk.map(() => '?').join(',')})`, chunk);
+    for (const cr of cacheRows) {
+      try { priceCache[cr.symbol] = JSON.parse(cr.bars_json).filter(b => b.close > 0).map(b => ({ time: b.time, close: b.close })); } catch(_) {}
+    }
+  }
+
+  const accuracy = [], timing = [];
+  for (const { c, rows } of perCand) {
+    const tickers = [...new Set(rows.map(r => r.ticker))];
     const scored = rows.map(t => {
       const bars = priceCache[t.ticker];
       if (!bars || !bars.length) return null;
@@ -907,9 +912,10 @@ async function main() {
   if (heavyRun) {
     await computeInsiderSentiment();
     await computeFirstBuys();
-    await computeInsiderLeaderboard();
-    await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
+    // Study + sitemap first (fast) so the heavier leaderboard can never block them.
     await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
+    await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
+    await computeInsiderLeaderboard();
   }
 
   // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)
