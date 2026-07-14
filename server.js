@@ -2738,7 +2738,16 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 </style></head><body>
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
-  <div class="tag">Weekly Report</div>
+  <div class="cta" style="margin-top:0">
+    <h3>See these buys plotted on the chart</h3>
+    <p>InsiderTape tracks every SEC Form 4 in real time and shows each insider buy and sell right on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
+  </div>
+  <div class="rel" style="margin-top:28px;margin-bottom:6px">
+    <strong>Past reports:</strong><br>${weeksNav}
+  </div>
+  <div class="tag" style="margin-top:34px">Weekly Report</div>
   <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; <a href="/insider-buying-report">Insider Buying Report</a> &nbsp;/&nbsp; ${rangeLabel}</div>
   <h1>Insider Buying Report: ${rangeLabel}</h1>
   <p class="intro">${_esc(intro)}</p>
@@ -2761,15 +2770,6 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <table><thead><tr><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${mostRows}</tbody></table>` : ''}
   ${data.sectors.length ? `<h2>Insider buying by sector</h2>
   <table><thead><tr><th>Sector</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${sectorRows}</tbody></table>` : ''}
-  <div class="cta">
-    <h3>See these buys plotted on the chart</h3>
-    <p>InsiderTape tracks every SEC Form 4 in real time and shows each insider buy and sell right on the price chart. Start a free 7-day trial, cancel anytime.</p>
-    <a class="btn" href="/premium">START FREE TRIAL →</a>
-    <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
-  </div>
-  <div class="rel">
-    <strong>Past reports:</strong><br>${weeksNav}
-  </div>
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
 <script>function sx(k,el){var u=encodeURIComponent(location.href.split('#')[0]);var t=encodeURIComponent((document.title||'').split('|')[0].trim());var m={x:'https://twitter.com/intent/tweet?text='+t+'&url='+u,reddit:'https://www.reddit.com/submit?url='+u+'&title='+t,linkedin:'https://www.linkedin.com/sharing/share-offsite/?url='+u};if(k==='copy'){try{navigator.clipboard.writeText(location.href.split('#')[0]);}catch(e){}if(el){var o=el.textContent;el.textContent='Copied!';setTimeout(function(){el.textContent=o;},1500);}return false;}window.open(m[k],'_blank','noopener,noreferrer,width=600,height=520');return false;}</script>
