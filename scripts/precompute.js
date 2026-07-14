@@ -768,7 +768,7 @@ async function computeInsiderLeaderboard() {
 async function computeInsiderStudy() {
   // Recompute if the cached study is missing, an older structure/version, or >25
   // days old (this version fetches prices market-wide, so it runs ~monthly).
-  const STUDY_VERSION = 3;
+  const STUDY_VERSION = 4;
   try {
     const ex = (await dbQuery("SELECT computed_at, value_json FROM computed_cache WHERE key='insider-study'"))[0];
     if (ex && process.env.FORCE_FULL !== '1') {
@@ -777,7 +777,7 @@ async function computeInsiderStudy() {
       if (fresh) { log('insider-study fresh, skip'); return; }
     }
   } catch(_) {}
-  log('Computing insider-study (market-wide: all buys, clusters, CEO buys vs Russell 2000)...');
+  log('Computing insider-study (market-wide signal sweep vs Russell 2000 + S&P 500)...');
 
   // Benchmarks: Russell 2000 (fairer for the small/mid-cap insider universe) AND
   // the S&P 500 - we report excess/beat vs both.
@@ -804,39 +804,53 @@ async function computeInsiderStudy() {
     }
   } catch(_) {}
 
-  // Every open-market buy over 5 years, MARKET-WIDE, old enough for a forward
-  // window. Title lets us flag CEO buys. (~1M rows read; runs ~monthly.)
+  // Every open-market buy over 5 years, market-wide, old enough for a forward
+  // window. Title + value drive the scenario tags. (~1M rows read; runs ~monthly.)
   const buys = await dbQuery(`
-    SELECT ticker, insider, trade_date AS d, MAX(title) AS title
+    SELECT ticker, insider, trade_date AS d, MAX(title) AS title, MAX(COALESCE(value,0)) AS value
     FROM trades
     WHERE TRIM(type)='P' AND COALESCE(value,0) >= 10000
       AND trade_date <= date('now','-30 days') AND trade_date >= date('now','-1826 days')
       AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6 AND insider IS NOT NULL AND insider != ''
     GROUP BY ticker, insider, trade_date`);
-  const isCeo = t => { const u = (t || '').toUpperCase(); return (u.includes('CEO') || u.includes('CHIEF EXECUTIVE')) && !u.includes('DEPUTY') && !u.includes('DIVISION'); };
-  const byTicker = {};
-  for (const b of buys) { (byTicker[b.ticker] || (byTicker[b.ticker] = [])).push({ d: (b.d || '').slice(0, 10), insider: b.insider, ceo: isCeo(b.title) }); }
+  const roleOf = t => {
+    const u = (t || '').toUpperCase();
+    if ((u.includes('CEO') || u.includes('CHIEF EXECUTIVE')) && !u.includes('DEPUTY')) return 'ceo';
+    if (u.includes('CFO') || u.includes('CHIEF FINANCIAL')) return 'cfo';
+    if (u.includes('COO') || u.includes('CHIEF OPERATING')) return 'coo';
+    if (u.includes('PRESIDENT') && !u.includes('VICE PRESIDENT')) return 'president';
+    if (u.includes('DIRECTOR') && !u.includes('MANAGING DIRECTOR')) return 'director';
+    if (u.includes('10%') || u.includes('TEN PERCENT')) return 'tenpct';
+    return 'other';
+  };
+  const byTicker = {}, byInsider = {};
+  for (const b of buys) {
+    const d = (b.d || '').slice(0, 10);
+    (byTicker[b.ticker] || (byTicker[b.ticker] = [])).push({ d, insider: b.insider, role: roleOf(b.title), value: +b.value || 0 });
+    (byInsider[b.insider] || (byInsider[b.insider] = [])).push(d);
+  }
+  for (const k in byInsider) byInsider[k].sort();
 
-  const CLUSTER_MIN = 3, WINDOW_DAYS = 30, COOLDOWN = 90, DAY = 86400000;
-  // Detect clusters, and note which tickers need price coverage (clusters + CEO buys).
-  const clusterEventsByTicker = {}; const neededTickers = new Set();
+  const CLUSTER_WIN = 30, COOLDOWN = 90, DAY = 86400000, FIRSTBUY_GAP = 1095, LOW_LOOKBACK = 252, NEAR_LOW = 0.10;
+  // Deduped cluster waves per ticker, tagged with distinct-insider size.
+  const clusterEventsByTicker = {};
   for (const ticker of Object.keys(byTicker)) {
     const list = byTicker[ticker].sort((a, b) => a.d < b.d ? -1 : 1);
-    let lastCluster = null; const evs = [];
+    let last = null; const evs = [];
     for (let i = 0; i < list.length; i++) {
-      if (list[i].ceo) neededTickers.add(ticker);
       const end = new Date(list[i].d + 'T12:00:00Z').getTime();
-      const bound = end - WINDOW_DAYS * DAY;
+      const bound = end - CLUSTER_WIN * DAY;
       const seen = new Set();
       for (let j = i; j >= 0; j--) { const dj = new Date(list[j].d + 'T12:00:00Z').getTime(); if (dj < bound) break; seen.add(list[j].insider); }
-      if (seen.size >= CLUSTER_MIN && (lastCluster === null || end - lastCluster > COOLDOWN * DAY)) { evs.push(list[i].d); lastCluster = end; }
+      if (seen.size >= 2 && (last === null || end - last > COOLDOWN * DAY)) { evs.push({ d: list[i].d, size: seen.size }); last = end; }
     }
-    if (evs.length) { clusterEventsByTicker[ticker] = evs; neededTickers.add(ticker); }
+    if (evs.length) clusterEventsByTicker[ticker] = evs;
   }
 
-  // Fetch daily bars for needed tickers we do not already have cached (Yahoo,
-  // throttled, in memory - not persisted, so no Turso storage cost).
-  const toFetch = [...neededTickers].filter(t => !barsByTicker[t]);
+  // Price universe: all tickers with buys, most-active first, capped. Fetch the
+  // ones we do not already have cached (Yahoo, throttled, in memory - not persisted).
+  const allTk = Object.keys(byTicker).sort((a, b) => byTicker[b].length - byTicker[a].length);
+  const toFetch = allTk.filter(t => !barsByTicker[t]);
   let tried = 0, gotBars = 0;
   for (const ticker of toFetch) {
     if (tried >= 5000) break; // safety cap
@@ -852,41 +866,74 @@ async function computeInsiderStudy() {
         }
       }
     } catch(_) {}
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 180));
   }
-  log(`insider-study: ${neededTickers.size} needed tickers, fetched ${gotBars}/${toFetch.length} new price series from Yahoo`);
+  log(`insider-study: ${allTk.length} tickers with buys, fetched ${gotBars}/${toFetch.length} new price series (had ${allTk.length - toFetch.length} cached)`);
 
   const WIN = { '1M': 21, '3M': 63, '6M': 126, '12M': 252 };
-  const mk = () => Object.fromEntries(Object.keys(WIN).map(k => [k, { ret: [], pos: 0, n: 0, rut: { exc: [], beat: 0, excN: 0 }, spx: { exc: [], beat: 0, excN: 0 } }]));
-  const allAcc = mk(), clusterAcc = mk(), ceoAcc = mk();
-  function scoreEntry(bars, entryDate, accum) {
+  const today = new Date().toISOString().slice(0, 10);
+  const midDate = shiftDate(today, -912); // ~2.5y ago - first-half/second-half split for robustness
+  // Measure one entry once: returns per-window { ret, rx (Russell excess), sx (S&P excess) }.
+  function measure(bars, entryDate) {
     const ei = bars.findIndex(x => x.t >= entryDate);
-    if (ei < 0) return false;
-    if (new Date(bars[ei].t) - new Date(entryDate) > 6 * DAY) return false;
-    const entry = bars[ei].c; if (!(entry > 0)) return false;
+    if (ei < 0) return null;
+    if (new Date(bars[ei].t) - new Date(entryDate) > 6 * DAY) return null;
+    const entry = bars[ei].c; if (!(entry > 0)) return null;
     const rE = onOrBefore(rutClose, bars[ei].t), sE = onOrBefore(spxClose, bars[ei].t);
-    let counted = false;
+    const out = {}; let any = false;
     for (const [k, n] of Object.entries(WIN)) {
       const fi = ei + n; if (fi >= bars.length) continue;
       const fwd = bars[fi].c; if (!(fwd > 0)) continue;
       const ret = fwd / entry - 1; if (ret > 4 || ret < -0.95) continue;
-      const a = accum[k]; a.ret.push(ret); a.n++; if (ret > 0) a.pos++;
-      if (rE) { const rF = onOrBefore(rutClose, bars[fi].t); if (rF) { const s = rF / rE - 1; a.rut.exc.push(ret - s); a.rut.excN++; if (ret > s) a.rut.beat++; } }
-      if (sE) { const sF = onOrBefore(spxClose, bars[fi].t); if (sF) { const s = sF / sE - 1; a.spx.exc.push(ret - s); a.spx.excN++; if (ret > s) a.spx.beat++; } }
-      counted = true;
+      let rx = null, sx = null;
+      if (rE) { const rF = onOrBefore(rutClose, bars[fi].t); if (rF) rx = ret - (rF / rE - 1); }
+      if (sE) { const sF = onOrBefore(spxClose, bars[fi].t); if (sF) sx = ret - (sF / sE - 1); }
+      out[k] = { ret, rx, sx }; any = true;
     }
-    return counted;
+    return any ? out : null;
+  }
+  function isNearLow(bars, entryDate) {
+    const ei = bars.findIndex(x => x.t >= entryDate); if (ei < 0) return false;
+    let lo = Infinity; for (let i = Math.max(0, ei - LOW_LOOKBACK); i <= ei; i++) if (bars[i].c < lo) lo = bars[i].c;
+    return lo < Infinity && bars[ei].c <= lo * (1 + NEAR_LOW);
   }
 
-  let clusterEvents = 0, ceoBuys = 0, allScored = 0; let minD = '9999', maxD = '0';
+  const mkWin = () => Object.fromEntries(Object.keys(WIN).map(k => [k, { ret: [], pos: 0, n: 0, rut: { exc: [], beat: 0, excN: 0 }, spx: { exc: [], beat: 0, excN: 0 } }]));
+  const scen = {};
+  const acc = name => scen[name] || (scen[name] = { w: mkWin(), h1: [], h2: [] });
+  function tally(name, out, entryDate) {
+    const a = acc(name);
+    for (const [k, o] of Object.entries(out)) {
+      const w = a.w[k]; w.ret.push(o.ret); w.n++; if (o.ret > 0) w.pos++;
+      if (o.rx != null) { w.rut.exc.push(o.rx); w.rut.excN++; if (o.rx > 0) w.rut.beat++; }
+      if (o.sx != null) { w.spx.exc.push(o.sx); w.spx.excN++; if (o.sx > 0) w.spx.beat++; }
+    }
+    if (out['6M']) (entryDate < midDate ? a.h1 : a.h2).push(out['6M'].ret);
+  }
+
+  let minD = '9999', maxD = '0';
   for (const ticker of Object.keys(byTicker)) {
     const bars = barsByTicker[ticker]; if (!bars) continue;
     for (const b of byTicker[ticker]) {
-      if (scoreEntry(bars, b.d, allAcc)) { allScored++; if (b.d < minD) minD = b.d; if (b.d > maxD) maxD = b.d; }
-      if (b.ceo && scoreEntry(bars, b.d, ceoAcc)) ceoBuys++;
+      const out = measure(bars, b.d); if (!out) continue;
+      if (b.d < minD) minD = b.d; if (b.d > maxD) maxD = b.d;
+      tally('all', out, b.d);
+      tally('role_' + b.role, out, b.d);
+      tally(b.value >= 1e6 ? 'size_1m_plus' : b.value >= 1e5 ? 'size_100k_1m' : 'size_under_100k', out, b.d);
+      const nl = isNearLow(bars, b.d); if (nl) tally('near_52w_low', out, b.d);
+      let prior = null; const hist = byInsider[b.insider];
+      if (hist) for (let i = hist.length - 1; i >= 0; i--) { if (hist[i] < b.d) { prior = hist[i]; break; } }
+      const fb = prior && (new Date(b.d) - new Date(prior)) / DAY >= FIRSTBUY_GAP;
+      if (fb) tally('first_buy_3y', out, b.d);
+      if (b.role === 'ceo') { if (nl) tally('ceo_near_low', out, b.d); if (fb) tally('ceo_first_buy', out, b.d); }
     }
     if (clusterEventsByTicker[ticker]) {
-      for (const d of clusterEventsByTicker[ticker]) { if (scoreEntry(bars, d, clusterAcc)) clusterEvents++; }
+      for (const ev of clusterEventsByTicker[ticker]) {
+        const out = measure(bars, ev.d); if (!out) continue;
+        if (ev.size >= 2) tally('cluster_2plus', out, ev.d);
+        if (ev.size >= 3) tally('cluster_3plus', out, ev.d);
+        if (ev.size >= 4) tally('cluster_4plus', out, ev.d);
+      }
     }
   }
 
@@ -894,19 +941,25 @@ async function computeInsiderStudy() {
   const mean = arr => arr.length ? arr.reduce((x, y) => x + y, 0) / arr.length : 0;
   const pct = x => Math.round(x * 1000) / 10;
   const benchStat = b => ({ medianExcess: pct(median(b.exc)), pctBeat: b.excN ? pct(b.beat / b.excN) : 0 });
-  const winStat = a => ({ n: a.n, medianRet: pct(median(a.ret)), meanRet: pct(mean(a.ret)), pctPositive: a.n ? pct(a.pos / a.n) : 0, rut: benchStat(a.rut), spx: benchStat(a.spx) });
-  const statsOf = acc => Object.fromEntries(Object.keys(WIN).map(k => [k, winStat(acc[k])]));
+  const winStat = w => ({ n: w.n, medianRet: pct(median(w.ret)), meanRet: pct(mean(w.ret)), pctPositive: w.n ? pct(w.pos / w.n) : 0, rut: benchStat(w.rut), spx: benchStat(w.spx) });
+  const scenarios = {};
+  for (const [name, a] of Object.entries(scen)) {
+    scenarios[name] = {
+      windows: Object.fromEntries(Object.keys(WIN).map(k => [k, winStat(a.w[k])])),
+      robust6M: { h1Median: pct(median(a.h1)), h2Median: pct(median(a.h2)), h1n: a.h1.length, h2n: a.h2.length },
+    };
+  }
 
   const result = {
     version: STUDY_VERSION,
     benchmarks: ['Russell 2000', 'S&P 500'],
-    generated: new Date().toISOString().slice(0, 10),
-    clusterMin: CLUSTER_MIN, windowDays: WINDOW_DAYS,
-    sample: { allBuys: allScored, clusterEvents, ceoBuys, tickers: Object.keys(byTicker).filter(t => barsByTicker[t]).length, from: minD, to: maxD, minValue: 10000 },
-    cohorts: { allBuys: statsOf(allAcc), cluster: statsOf(clusterAcc), ceo: statsOf(ceoAcc) },
+    generated: today,
+    sample: { from: minD, to: maxD, midDate, minValue: 10000, tickersPriced: allTk.filter(t => barsByTicker[t]).length, tickersTotal: allTk.length },
+    scenarios,
   };
   await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-study', ?, ?)`, [JSON.stringify(result), Date.now()]);
-  log(`insider-study cached v${STUDY_VERSION}: all ${allScored}, clusters ${clusterEvents}, CEO ${ceoBuys}; 6M median all ${result.cohorts.allBuys['6M'].medianRet}% / cluster ${result.cohorts.cluster['6M'].medianRet}% / ceo ${result.cohorts.ceo['6M'].medianRet}%`);
+  const top = Object.entries(scenarios).map(([n, x]) => [n, x.windows['6M'].rut.pctBeat, x.windows['6M'].n]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  log(`insider-study cached v${STUDY_VERSION}: ${Object.keys(scenarios).length} scenarios, ${result.sample.tickersPriced}/${result.sample.tickersTotal} tickers priced. Top 6M %-beat-Russell: ${top.map(t => `${t[0]} ${t[1]}%(${t[2]})`).join(', ')}`);
 }
 
 // Precompute the sitemap's ticker + insider lists so the /sitemap.xml route reads

@@ -1850,6 +1850,32 @@ app.get('/api/admin/stats', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Review the insider signal sweep (scripts/precompute computeInsiderStudy v4).
+// Ranked by 6-month median excess return vs the Russell 2000, with a first-half /
+// second-half robustness split. Admin-only.
+app.get('/api/admin/signal-sweep', async (req, res) => {
+  if (requireAdminSecret(req, res)) return;
+  try {
+    const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-study'");
+    if (!row) return res.json({ error: 'not computed yet' });
+    const s = JSON.parse(row.value_json);
+    if (!s.scenarios) return res.json({ version: s.version, note: 'awaiting v4 sweep (old structure cached)', computed_at: row.computed_at });
+    const ranked = Object.entries(s.scenarios).map(([name, x]) => {
+      const w6 = x.windows['6M'] || {}, w1 = x.windows['1M'] || {}, w12 = x.windows['12M'] || {}, r = x.robust6M || {};
+      return {
+        scenario: name, n_6M: w6.n,
+        median_6M: w6.medianRet, mean_6M: w6.meanRet, pctUp_6M: w6.pctPositive,
+        vsRussell_6M: (w6.rut || {}).medianExcess, beatRussell_6M: (w6.rut || {}).pctBeat,
+        vsSP_6M: (w6.spx || {}).medianExcess, beatSP_6M: (w6.spx || {}).pctBeat,
+        median_1M: w1.medianRet, vsRussell_1M: (w1.rut || {}).medianExcess,
+        vsRussell_12M: (w12.rut || {}).medianExcess,
+        robust_1stHalf_6M: r.h1Median, robust_2ndHalf_6M: r.h2Median, h1n: r.h1n, h2n: r.h2n,
+      };
+    }).sort((a, b) => (b.vsRussell_6M ?? -999) - (a.vsRussell_6M ?? -999));
+    res.json({ version: s.version, generated: s.generated, computed_at: row.computed_at, sample: s.sample, benchmarks: s.benchmarks, ranked });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/unban', (req, res) => {
   if (requireAdminSecret(req, res)) return;
   const ip = req.query.ip;
