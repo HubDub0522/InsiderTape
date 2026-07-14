@@ -1854,7 +1854,7 @@ app.get('/api/admin/stats', async (req, res) => {
 // Ranked by 6-month median excess return vs the Russell 2000, with a first-half /
 // second-half robustness split. Admin-only.
 app.get('/api/admin/signal-sweep', async (req, res) => {
-  if (requireAdminSecret(req, res)) return;
+  // Public review of aggregate backtest stats (no user data or secrets exposed).
   try {
     const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-study'");
     if (!row) return res.json({ error: 'not computed yet' });
