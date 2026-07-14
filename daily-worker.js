@@ -106,7 +106,16 @@ function parseForm4(xml, filingDate, accession) {
   const ticker  = xmlGet(xml, 'issuerTradingSymbol').toUpperCase().trim().replace(/^[A-Z]+:/, '');
   const company = xmlGet(xml, 'issuerName').trim();
   const insider = xmlGet(xml, 'rptOwnerName').trim();
-  const title   = (xmlGet(xml, 'officerTitle') || xmlGet(xml, 'rptOwnerRelationship') || '').trim();
+  // Build a role/title from the officer title plus the relationship flags, so
+  // directors and 10% owners (who have no officerTitle) still get a usable role.
+  const _offTitle = xmlGet(xml, 'officerTitle').trim();
+  const _flag = t => /^(1|true)$/i.test(xmlGet(xml, t));
+  const _parts = [];
+  if (_offTitle) _parts.push(_offTitle);
+  if (_flag('isDirector')) _parts.push('Director');
+  if (_flag('isTenPercentOwner')) _parts.push('10% Owner');
+  if (!_parts.length) { if (_flag('isOfficer')) _parts.push('Officer'); else if (_flag('isOther')) _parts.push('Other'); }
+  const title   = _parts.join(', ');
   const period  = parseDate(xmlGet(xml, 'periodOfReport'));
   const INVALID = new Set(['NONE', 'NULL', 'N/A', 'NA', '--', '-', '.', '0', 'FALSE', 'TRUE']);
   if (!ticker || INVALID.has(ticker) || !/^[A-Z]/.test(ticker) || ticker.length > 10) return [];

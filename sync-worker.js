@@ -196,7 +196,9 @@ async function syncQuarter(year, q) {
   for (const o of tsvRows(ownerLines)) {
     const acc = o.ACCESSION_NUMBER || '';
     if (!acc || ownerMap[acc]) continue;
-    ownerMap[acc] = { name: (o.RPTOWNERNAME || '').trim(), title: (o.OFFICERTITLE || o.RPTOWNERRELATIONSHIP || '').trim() };
+    // SEC REPORTINGOWNER columns use underscores; the officer title is only set for
+    // officers, so fall back to the relationship (Director / 10% Owner / Officer).
+    ownerMap[acc] = { name: (o.RPTOWNERNAME || '').trim(), title: (o.RPTOWNER_TITLE || o.RPTOWNER_RELATIONSHIP || '').trim() };
   }
   ownerLines.length = 0;
   log(`${key}: ${Object.keys(ownerMap).length} owners`);

@@ -1,0 +1,29 @@
+name: Backfill Insider Titles
+
+# One-off: repopulate the trades.title column from SEC REPORTINGOWNER data.
+# Manual trigger only.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: sec-ingest
+  cancel-in-progress: true
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm install
+      - name: Backfill titles
+        run: node scripts/backfill-titles.js
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
