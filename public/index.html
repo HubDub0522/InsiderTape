@@ -5588,8 +5588,8 @@ function renderAnalysisDashboard() {
   const firstBuyTool = {
     id: 'firstbuy',
     icon: '🚨',
-    name: 'First Buy in Years',
-    desc: 'Detects insiders making their first open-market purchase after 3+ years of inactivity on a stock. A rare, deliberate signal - insiders who stayed inactive for years and then suddenly buy.',
+    name: 'First Buy in 1+ Years',
+    desc: 'Insiders making their first open-market purchase after a year or more of inactivity - a deliberate break from routine. In our backtest these were higher 58% of the time 90 days later (+3.4% median).',
     count: _firstBuyCache !== null ? _firstBuyCache.length : '…',
     countLabel: 'signals found',
     loading: _firstBuyCache === null,
@@ -5663,6 +5663,46 @@ function renderAnalysisDashboard() {
     accentBorder: 'rgba(224,102,154,0.28)',
   };
 
+  // CFO buys - strongest role signal in the backtest (beats the market at 30 & 90 days).
+  const cfoData = detectCfoBuys(trades);
+  const cfoTool = {
+    id: 'cfobuys',
+    icon: '💰',
+    name: 'CFO Buys',
+    desc: 'Open-market purchases by Chief Financial Officers - the people who know the numbers cold. The strongest role signal in our backtest: +2.8% median 90 days later, higher 57% of the time, and it beat the market.',
+    count: cfoData.length,
+    countLabel: 'CFO buys',
+    top3: cfoData.slice(0, 3).map(r => ({ ticker: r.ticker, label: fmt(r.totalVal), sub: r.insider ? r.insider.split(' ').slice(-1)[0] + ' · CFO' : 'CFO', color: 'var(--buy)' })),
+    accentColor: '#2aab5c', accentBg: 'rgba(42,171,92,0.06)', accentBorder: 'rgba(42,171,92,0.25)',
+  };
+
+  // 3+ insider clusters - robust, monotonic (more insiders = better) in the backtest.
+  const clusters3Data = detectClusters3(trades);
+  const clusters3Tool = {
+    id: 'clusters3',
+    icon: '👥',
+    name: '3+ Insider Clusters',
+    desc: 'Three or more different insiders buying the same stock together - the most robust signal in our backtest. Higher 61% of the time 90 days later (+4% median), and the more insiders, the better it did.',
+    count: clusters3Data.length,
+    countLabel: 'clusters (3+ buyers)',
+    top3: clusters3Data.slice(0, 3).map(r => ({ ticker: r.ticker, label: `${r.insiderCount} insiders`, sub: fmt(r.totalVal), color: 'var(--buy)' })),
+    accentColor: 'var(--accent)', accentBg: 'rgba(0,212,255,0.06)', accentBorder: 'rgba(0,212,255,0.2)',
+  };
+
+  // Cluster + near 52-week low - big-sample sweet spot in the backtest.
+  const clusterLowData = _tilePriceHighsDone ? detectClusterNearLow(trades, _tilePriceHighs) : [];
+  const clusterLowTool = {
+    id: 'clusterlow',
+    icon: '🎯',
+    name: 'Clusters at the Lows',
+    desc: 'Three or more insiders buying together while the stock sits in the lower quarter of its 52-week range - conviction, at a discount. Higher 58% of the time 90 days later (+3.2% median) in our backtest.',
+    count: _tilePriceHighsDone ? clusterLowData.length : '…',
+    countLabel: 'signals found',
+    loading: !_tilePriceHighsDone,
+    top3: clusterLowData.slice(0, 3).map(r => ({ ticker: r.ticker, label: `+${r.pctOffLow}% off low`, sub: `${r.insiderCount} insiders · ${fmt(r.totalVal)}`, color: 'var(--buy)' })),
+    accentColor: '#b8940a', accentBg: 'rgba(180,140,0,0.06)', accentBorder: 'rgba(180,140,0,0.25)',
+  };
+
   try {
     body.innerHTML = `
   <div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
@@ -5671,7 +5711,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, proximityTool, regimeTool, firstBuyTool, buyLowsTool, recentWinnersTool, catnipTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, cfoTool, clusters3Tool, clusterLowTool, proximityTool, firstBuyTool, recentWinnersTool, catnipTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5804,6 +5844,36 @@ function renderAnalysisSubpage(id, opts={}) {
 
   else if (id === 'firstbuy') {
     renderFirstBuySubpage();
+  }
+
+  else if (id === 'cfobuys') {
+    renderSignalListSubpage({
+      icon: '💰', title: 'CFO BUYS', subtitle: 'Open-market purchases by Chief Financial Officers · Last 30D',
+      blurb: 'CFOs know the numbers before anyone else. When they buy their own stock on the open market, it is one of the more informed signals available. In our five-year backtest, CFO buys returned a median +2.8% over the next 90 days, were higher 57% of the time, and beat the market - the strongest role signal we found.',
+      empty: 'No CFO open-market buys in the last 30 days.',
+      items: () => detectCfoBuys(_analysisData || []),
+      card: { hover: 'rgba(42,171,92,0.3)', metric: r => fmt(r.totalVal), metricLabel: 'TOTAL BOUGHT', sub: r => `${r.insider ? r.insider + ' · ' : ''}${r.title || 'CFO'} · ${r.buys} buy${r.buys > 1 ? 's' : ''}` },
+    });
+  }
+
+  else if (id === 'clusters3') {
+    renderSignalListSubpage({
+      icon: '👥', title: '3+ INSIDER CLUSTERS', subtitle: 'Three or more insiders buying the same stock · Last 30D',
+      blurb: 'When three or more different insiders buy the same company, it is the most robust signal we tested. Over the next 90 days these were higher 61% of the time (+4% median), and returns climbed steadily with the number of insiders buying together.',
+      empty: 'No 3+ insider clusters in the last 30 days.',
+      items: () => detectClusters3(_analysisData || []),
+      card: { hover: 'rgba(0,212,255,0.3)', metric: r => `${r.insiderCount}`, metricLabel: 'INSIDERS', metricColor: 'var(--accent)', sub: r => `${r.buys} buy${r.buys > 1 ? 's' : ''} · ${fmt(r.totalVal)}` },
+    });
+  }
+
+  else if (id === 'clusterlow') {
+    renderSignalListSubpage({
+      icon: '🎯', title: 'CLUSTERS AT THE LOWS', subtitle: '3+ insiders buying near the 52-week low · Last 30D',
+      blurb: 'Three or more insiders buying together while the stock trades in the lower quarter of its 52-week range - conviction, at a discount. In our backtest these were higher 58% of the time over the next 90 days (+3.2% median). Price context from the latest close.',
+      empty: 'No insider clusters near 52-week lows right now.',
+      items: () => detectClusterNearLow(_analysisData || [], _tilePriceHighs),
+      card: { hover: 'rgba(180,140,0,0.3)', metric: r => `+${r.pctOffLow}%`, metricLabel: 'OFF 52W LOW', sub: r => `${r.insiderCount} insiders · ${fmt(r.totalVal)}` },
+    });
   }
 
 }
@@ -6748,6 +6818,91 @@ function detectRecentWinners(trades, ph) {
       avgBuyPrice: +avgBuyPrice.toFixed(2), current: p.current, buyers, totalVal, daysSince });
   });
   return out.sort((a,b) => b.ret - a.ret);
+}
+
+// ── BACKTEST-VALIDATED SIGNAL TILES ────────────────────────────────────────
+// CFO buys, 3+ insider clusters, cluster + near-52-week-low. Each was the
+// strongest of its kind in the signal-sweep backtest (see /api/admin/signal-sweep).
+function detectCfoBuys(trades) {
+  const isCfo = t => t.type === 'P' && (t.value || 0) > 0 && /\bCFO\b|CHIEF FINANCIAL/i.test(t.title || '');
+  const byTicker = {};
+  trades.filter(isCfo).forEach(t => { (byTicker[t.ticker] || (byTicker[t.ticker] = [])).push(t); });
+  const out = [];
+  Object.entries(byTicker).forEach(([ticker, tks]) => {
+    const totalVal = tks.reduce((s, t) => s + (t.value || 0), 0);
+    const latest = tks.map(t => (t.trade || t.filing || '').slice(0, 10)).filter(Boolean).sort().pop() || '';
+    const top = [...tks].sort((a, b) => (b.value || 0) - (a.value || 0))[0];
+    out.push({ ticker, company: tks[0]?.company || ticker, totalVal, buys: tks.length, latest, insider: top?.insider || '', title: top?.title || 'CFO' });
+  });
+  return out.sort((a, b) => b.totalVal - a.totalVal);
+}
+
+function detectClusters3(trades) {
+  const byTicker = {};
+  trades.filter(t => t.type === 'P' && (t.value || 0) > 0).forEach(t => { (byTicker[t.ticker] || (byTicker[t.ticker] = [])).push(t); });
+  const out = [];
+  Object.entries(byTicker).forEach(([ticker, tks]) => {
+    const insiders = [...new Set(tks.map(t => t.insider).filter(Boolean))];
+    if (insiders.length < 3) return;
+    const totalVal = tks.reduce((s, t) => s + (t.value || 0), 0);
+    const latest = tks.map(t => (t.trade || t.filing || '').slice(0, 10)).filter(Boolean).sort().pop() || '';
+    out.push({ ticker, company: tks[0]?.company || ticker, insiderCount: insiders.length, buys: tks.length, totalVal, latest });
+  });
+  return out.sort((a, b) => b.insiderCount - a.insiderCount || b.totalVal - a.totalVal);
+}
+
+function detectClusterNearLow(trades, ph) {
+  const out = [];
+  detectClusters3(trades).forEach(c => {
+    const p = ph[c.ticker];
+    if (!p || !p.low52 || !p.high52 || !p.current) return;
+    const range = (p.high52 - p.low52) || 1;
+    const posFromLow = (p.current - p.low52) / range;
+    if (posFromLow > 0.25) return; // lower quarter of the 52-week range
+    const pctOffLow = +(((p.current - p.low52) / p.low52) * 100).toFixed(1);
+    out.push({ ...c, current: p.current, low52: p.low52, high52: p.high52, posFromLow, pctOffLow });
+  });
+  return out.sort((a, b) => a.posFromLow - b.posFromLow);
+}
+
+// Generic card for the CFO / cluster tiles (metric on the right, subtitle below).
+function renderSignalCard(r, opts) {
+  return `
+  <div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})"
+       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;padding:14px 18px"
+       onmouseover="this.style.borderColor='${opts.hover}'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="min-width:0">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;color:var(--accent)">${r.ticker}</span>
+          <span style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${r.company}</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">${opts.sub(r)}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-family:Inter,sans-serif;font-size:18px;color:${opts.metricColor || 'var(--buy)'};line-height:1">${opts.metric(r)}</div>
+        <div style="font-size:8px;letter-spacing:1px;color:var(--muted);margin-top:2px">${opts.metricLabel}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderSignalListSubpage(cfg) {
+  window.scrollTo(0, 0);
+  const body = document.getElementById('analysisViewBody');
+  const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
+  const items = cfg.items();
+  body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
+    ${backBtn}
+    <div style="margin-bottom:8px">
+      <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">${cfg.icon} ${cfg.title}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">${cfg.subtitle}</div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:22px;line-height:1.7;max-width:760px">${cfg.blurb}</div>
+    ${items.length === 0
+      ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">${cfg.empty}</div>`
+      : `<div style="display:flex;flex-direction:column;gap:14px">${items.map(r => renderSignalCard(r, cfg.card)).join('')}</div>`}
+  </div>`;
 }
 
 function renderBuyLowsSubpage() {
