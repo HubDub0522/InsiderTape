@@ -595,7 +595,9 @@ app.get('/api/insider', async (req, res) => {
 async function _siteSearch(q) {
   q = (q || '').trim();
   if (!q) return { tickers: [], insiders: [] };
-  if (!_searchIndex.length) await buildSearchIndex().catch(() => {});
+  // Fire-and-forget: the index build is a heavy full-table GROUP BY, so never
+  // block a request on it (awaiting it blows the request timeout on cold starts).
+  if (!_searchIndex.length) buildSearchIndex().catch(() => {});
   const upper = q.toUpperCase();
   const prefixMatches = [], companyMatches = [];
   for (const r of _searchIndex) {
@@ -605,11 +607,21 @@ async function _siteSearch(q) {
   }
   const seen = new Set(prefixMatches.map(r => r.ticker));
   const allTickers = [...prefixMatches, ...companyMatches.filter(r => !seen.has(r.ticker))].slice(0, 8);
-  const insiderRows = q.length >= 2 ? await query(`
-    SELECT insider, MAX(title) AS title, COUNT(*) AS n
-    FROM trades WHERE UPPER(insider) LIKE ? AND insider IS NOT NULL
-    GROUP BY insider ORDER BY n DESC LIMIT 6
-  `, ['%' + upper + '%']) : [];
+  // The insider lookup is a leading-wildcard LIKE (full scan); cap it so a slow
+  // scan degrades to "no insider matches" instead of timing out the request.
+  let insiderRows = [];
+  if (q.length >= 2) {
+    try {
+      insiderRows = await Promise.race([
+        query(`
+          SELECT insider, MAX(title) AS title, COUNT(*) AS n
+          FROM trades WHERE UPPER(insider) LIKE ? AND insider IS NOT NULL
+          GROUP BY insider ORDER BY n DESC LIMIT 6
+        `, ['%' + upper + '%']),
+        new Promise(resolve => setTimeout(() => resolve([]), 4000)),
+      ]);
+    } catch(_) { insiderRows = []; }
+  }
   return {
     tickers: allTickers.map(r => {
       let co = (r.company || r.ticker).split(/[\n\r]/)[0].trim();
@@ -3114,6 +3126,11 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 app.get('/search', async (req, res) => {
   const q = (req.query.q || '').toString().trim().slice(0, 60);
   try {
+    // Best-effort index warm-up so a cold instance still returns ticker matches,
+    // capped so it can never hang the request.
+    if (q && !_searchIndex.length) {
+      await Promise.race([buildSearchIndex(), new Promise(r => setTimeout(r, 3500))]);
+    }
     const results = q ? await _siteSearch(q) : { tickers: [], insiders: [] };
     res.type('html').send(renderSearchPage(q, results));
   } catch(e) {
