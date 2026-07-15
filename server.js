@@ -1869,7 +1869,7 @@ app.get('/api/admin/signal-sweep', async (req, res) => {
         // 30 days
         med_30d: w1.medianRet, mean_30d: w1.meanRet, up_30d: w1.pctPositive, vsRut_30d: rut(w1).medianExcess, beatRut_30d: rut(w1).pctBeat,
         // 60 days (populated after the next recompute)
-        med_60d: w2.medianRet, up_60d: w2.pctPositive, vsRut_60d: rut(w2).medianExcess, beatRut_60d: rut(w2).pctBeat,
+        med_60d: w2.medianRet, mean_60d: w2.meanRet, up_60d: w2.pctPositive, vsRut_60d: rut(w2).medianExcess, beatRut_60d: rut(w2).pctBeat,
         // 90 days
         med_90d: w3.medianRet, mean_90d: w3.meanRet, up_90d: w3.pctPositive, vsRut_90d: rut(w3).medianExcess, beatRut_90d: rut(w3).pctBeat, vsSP_90d: spx(w3).medianExcess,
         // 6-month reference
