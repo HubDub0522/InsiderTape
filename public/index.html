@@ -5382,7 +5382,7 @@ function renderAnalysisDashboard() {
 
   // Compute once and reuse - these iterate all trades so must not be called multiple times
   const _convData    = buildConvictionData(trades);
-  const _clusterData = detectAdvancedClusters(trades);
+  const _clusterData = detectAdvancedClusters(trades).filter(c => c.insiderCount >= 3);
   const _regimeData  = buildRegimeShiftData(longTrades, trades);
   // Always cache - if long data isn't loaded yet the subpage will rebuild with fresh long data,
   // but we still want the tile results to be immediately available if the user clicks through
@@ -5454,9 +5454,9 @@ function renderAnalysisDashboard() {
     },
     {
       id: 'clusters',
-      icon: '🔬',
-      name: 'Cluster Buy Detection',
-      desc: 'Advanced multi-factor engine detecting true cluster buys: multiple insiders, tight price range, short timeframe, after a decline, with no offsetting sells.',
+      icon: '👥',
+      name: '3+ Insider Clusters',
+      desc: 'Three or more different insiders buying the same stock together, scored on price range, timing, decline, and no offsetting sells. The most robust signal in our backtest: higher 61% of the time 90 days later (+4% median), and the more insiders, the better.',
       count: clusterDataBoosted.length,
       countLabel: 'clusters scored',
       top3: clusterTop3.map(c => ({
@@ -5676,19 +5676,6 @@ function renderAnalysisDashboard() {
     accentColor: '#2aab5c', accentBg: 'rgba(42,171,92,0.06)', accentBorder: 'rgba(42,171,92,0.25)',
   };
 
-  // 3+ insider clusters - robust, monotonic (more insiders = better) in the backtest.
-  const clusters3Data = detectClusters3(trades);
-  const clusters3Tool = {
-    id: 'clusters3',
-    icon: '👥',
-    name: '3+ Insider Clusters',
-    desc: 'Three or more different insiders buying the same stock together - the most robust signal in our backtest. Higher 61% of the time 90 days later (+4% median), and the more insiders, the better it did.',
-    count: clusters3Data.length,
-    countLabel: 'clusters (3+ buyers)',
-    top3: clusters3Data.slice(0, 3).map(r => ({ ticker: r.ticker, label: `${r.insiderCount} insiders`, sub: fmt(r.totalVal), color: 'var(--buy)' })),
-    accentColor: 'var(--accent)', accentBg: 'rgba(0,212,255,0.06)', accentBorder: 'rgba(0,212,255,0.2)',
-  };
-
   // Cluster + near 52-week low - big-sample sweet spot in the backtest.
   const clusterLowData = _tilePriceHighsDone ? detectClusterNearLow(trades, _tilePriceHighs) : [];
   const clusterLowTool = {
@@ -5711,7 +5698,7 @@ function renderAnalysisDashboard() {
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced signal detection · Cluster intelligence · Conviction scoring · Last 30 days</div>
     </div>
     <div class="analysis-tool-grid">
-      ${[...tools, cfoTool, clusters3Tool, clusterLowTool, proximityTool, firstBuyTool, recentWinnersTool, catnipTool].map(t => renderAnalysisTile(t)).join('')}
+      ${[...tools, cfoTool, clusterLowTool, proximityTool, firstBuyTool, recentWinnersTool, catnipTool].map(t => renderAnalysisTile(t)).join('')}
     </div>
   </div>`;
   } catch(e) {
@@ -5799,11 +5786,11 @@ function renderAnalysisSubpage(id, opts={}) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${backBtn}
       <div style="margin-bottom:12px">
-        <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔬 CLUSTER BUY DETECTION ENGINE</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">Advanced multi-factor cluster scoring · Last 30D</div>
+        <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">👥 3+ INSIDER CLUSTERS</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">Three or more insiders buying together · Last 30D</div>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.7">
-        Requires <span style="color:var(--text)">multiple distinct insiders</span>, buying within a <span style="color:var(--text)">tight price range</span>, in a <span style="color:var(--text)">short timeframe</span>, <span style="color:var(--text)">after a price decline</span>, with <span style="color:var(--text)">no offsetting sells</span>. Each cluster scored 1–100.
+        Requires <span style="color:var(--text)">three or more distinct insiders</span>, buying within a <span style="color:var(--text)">tight price range</span>, in a <span style="color:var(--text)">short timeframe</span>, <span style="color:var(--text)">after a price decline</span>, with <span style="color:var(--text)">no offsetting sells</span>. The most robust signal in our backtest - higher 61% of the time 90 days later (+4% median), improving with each added insider. Each cluster scored 1–100.
       </div>
       ${clusterHtml}
     </div>`;
@@ -5853,16 +5840,6 @@ function renderAnalysisSubpage(id, opts={}) {
       empty: 'No CFO open-market buys in the last 30 days.',
       items: () => detectCfoBuys(_analysisData || []),
       card: { hover: 'rgba(42,171,92,0.3)', metric: r => fmt(r.totalVal), metricLabel: 'TOTAL BOUGHT', sub: r => `${r.insider ? r.insider + ' · ' : ''}${r.title || 'CFO'} · ${r.buys} buy${r.buys > 1 ? 's' : ''}` },
-    });
-  }
-
-  else if (id === 'clusters3') {
-    renderSignalListSubpage({
-      icon: '👥', title: '3+ INSIDER CLUSTERS', subtitle: 'Three or more insiders buying the same stock · Last 30D',
-      blurb: 'When three or more different insiders buy the same company, it is the most robust signal we tested. Over the next 90 days these were higher 61% of the time (+4% median), and returns climbed steadily with the number of insiders buying together.',
-      empty: 'No 3+ insider clusters in the last 30 days.',
-      items: () => detectClusters3(_analysisData || []),
-      card: { hover: 'rgba(0,212,255,0.3)', metric: r => `${r.insiderCount}`, metricLabel: 'INSIDERS', metricColor: 'var(--accent)', sub: r => `${r.buys} buy${r.buys > 1 ? 's' : ''} · ${fmt(r.totalVal)}` },
     });
   }
 
@@ -7609,7 +7586,7 @@ function renderFirstBuyCard(s) {
 
 function renderClusterEngine(trades) {
   window.scrollTo(0, 0);
-  const clusters = detectAdvancedClusters(trades);
+  const clusters = detectAdvancedClusters(trades).filter(c => c.insiderCount >= 3);
   if (!clusters.length) return `<div style="color:var(--muted);font-size:12px;padding:20px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;text-align:center">No qualifying clusters detected in the last 30 days. Try a broader time window.</div>`;
 
   return `
