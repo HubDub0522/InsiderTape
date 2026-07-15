@@ -304,8 +304,21 @@ function httpGet(url, ms = 30000, opts = {}) {
 
 // ─── SEARCH INDEX (in-memory) ─────────────────────────────────────────────────
 let _searchIndex = [];
+let _searchIndexBuilding = null;
 async function buildSearchIndex() {
+  // Coalesce concurrent builds on the same instance.
+  if (_searchIndexBuilding) return _searchIndexBuilding;
+  _searchIndexBuilding = (async () => {
   try {
+    // Prefer the persisted cache so cold serverless instances skip the heavy
+    // full-table GROUP BY and load the index in a single fast row-read.
+    try {
+      const c = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'search-index'");
+      if (c && c.value_json && Date.now() - (c.computed_at || 0) < 7 * 24 * 3600000) {
+        const arr = JSON.parse(c.value_json);
+        if (Array.isArray(arr) && arr.length) { _searchIndex = arr; slog(`Search index: ${arr.length} tickers (cache)`); return; }
+      }
+    } catch(_) {}
     const rows = await query(`
       SELECT ticker,
         MIN(CASE WHEN company NOT LIKE '%Option%' AND company NOT LIKE '%Strike%'
@@ -323,8 +336,12 @@ async function buildSearchIndex() {
       if (/option|strike|expires|put|call/i.test(r.company) && r.company.length > 40) return false;
       return true;
     });
-    slog(`Search index: ${_searchIndex.length} tickers`);
+    slog(`Search index: ${_searchIndex.length} tickers (built)`);
+    // Persist so the next cold instance reads it instead of rebuilding.
+    try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('search-index', ?, ?)", [JSON.stringify(_searchIndex), Date.now()]); } catch(_) {}
   } catch(e) { slog('buildSearchIndex error: ' + e.message); }
+  })();
+  try { await _searchIndexBuilding; } finally { _searchIndexBuilding = null; }
 }
 // Built lazily on first /api/search request.
 
