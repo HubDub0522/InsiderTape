@@ -1861,17 +1861,21 @@ app.get('/api/admin/signal-sweep', async (req, res) => {
     const s = JSON.parse(row.value_json);
     if (!s.scenarios) return res.json({ version: s.version, note: 'awaiting v4 sweep (old structure cached)', computed_at: row.computed_at });
     const ranked = Object.entries(s.scenarios).map(([name, x]) => {
-      const w6 = x.windows['6M'] || {}, w1 = x.windows['1M'] || {}, w12 = x.windows['12M'] || {}, r = x.robust6M || {};
+      const g = k => x.windows[k] || {};
+      const w1 = g('1M'), w2 = g('2M'), w3 = g('3M'), w6 = g('6M');
+      const rut = w => (w.rut || {}), spx = w => (w.spx || {});
       return {
-        scenario: name, n_6M: w6.n,
-        median_6M: w6.medianRet, mean_6M: w6.meanRet, pctUp_6M: w6.pctPositive,
-        vsRussell_6M: (w6.rut || {}).medianExcess, beatRussell_6M: (w6.rut || {}).pctBeat,
-        vsSP_6M: (w6.spx || {}).medianExcess, beatSP_6M: (w6.spx || {}).pctBeat,
-        median_1M: w1.medianRet, vsRussell_1M: (w1.rut || {}).medianExcess,
-        vsRussell_12M: (w12.rut || {}).medianExcess,
-        robust_1stHalf_6M: r.h1Median, robust_2ndHalf_6M: r.h2Median, h1n: r.h1n, h2n: r.h2n,
+        scenario: name, n: w1.n,
+        // 30 days
+        med_30d: w1.medianRet, mean_30d: w1.meanRet, up_30d: w1.pctPositive, vsRut_30d: rut(w1).medianExcess, beatRut_30d: rut(w1).pctBeat,
+        // 60 days (populated after the next recompute)
+        med_60d: w2.medianRet, up_60d: w2.pctPositive, vsRut_60d: rut(w2).medianExcess, beatRut_60d: rut(w2).pctBeat,
+        // 90 days
+        med_90d: w3.medianRet, mean_90d: w3.meanRet, up_90d: w3.pctPositive, vsRut_90d: rut(w3).medianExcess, beatRut_90d: rut(w3).pctBeat, vsSP_90d: spx(w3).medianExcess,
+        // 6-month reference
+        med_6M: w6.medianRet, vsRut_6M: rut(w6).medianExcess,
       };
-    }).sort((a, b) => (b.vsRussell_6M ?? -999) - (a.vsRussell_6M ?? -999));
+    }).sort((a, b) => (b.vsRut_90d ?? -999) - (a.vsRut_90d ?? -999));
     res.json({ version: s.version, generated: s.generated, computed_at: row.computed_at, sample: s.sample, benchmarks: s.benchmarks, ranked });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });

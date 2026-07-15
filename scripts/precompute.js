@@ -869,7 +869,7 @@ async function computeInsiderStudy() {
   }
   log(`insider-study: ${allTk.length} tickers with buys, fetched ${gotBars}/${toFetch.length} new price series (had ${allTk.length - toFetch.length} cached)`);
 
-  const WIN = { '1M': 21, '3M': 63, '6M': 126, '12M': 252 };
+  const WIN = { '1M': 21, '2M': 42, '3M': 63, '6M': 126, '12M': 252 }; // ~30/60/90/180/365 days
   const today = new Date().toISOString().slice(0, 10);
   const midDate = shiftDate(today, -912); // ~2.5y ago - first-half/second-half split for robustness
   // Measure one entry once: returns per-window { ret, rx (Russell excess), sx (S&P excess) }.
