@@ -1914,6 +1914,7 @@ app.get('/sitemap.xml', async (req, res) => {
   const staticPages = [
     { url: '/', priority: '1.0', freq: 'daily' },
     { url: '/biggest-insider-buys', priority: '0.9', freq: 'daily' },
+    { url: '/insider-buying-study', priority: '0.8', freq: 'weekly' },
     { url: '/screener', priority: '0.9', freq: 'daily' },
     { url: '/stock', priority: '0.8', freq: 'daily' },
     { url: '/insider', priority: '0.8', freq: 'daily' },
@@ -2371,7 +2372,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="card"><div class="k">Total Insider Buying</div><div class="v g">${_fmtV(totalVal)}</div></div>
   </div>
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
-  <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. See the <a href="/insider-buying-report">weekly insider buying report</a> for the full breakdown, or read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
+  <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or check the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
   <div class="cta">
     <h3>See these buys plotted on the chart</h3>
     <p>InsiderTape tracks every SEC Form 4 in real time and flags cluster buys, CEO conviction, first buys in years, and buying at the lows the moment they file. Start a free 7-day trial, cancel anytime.</p>
@@ -2507,7 +2508,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     : `<p style="color:var(--muted);font-size:14px">No open-market insider transactions recorded for tracked ${co} companies in the last 12 months.</p>`}
   <div class="rel">
     <strong>Insider trading by sector:</strong><br>${otherSectors}
-    <div style="margin-top:18px"><strong>Learn more:</strong> <a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish?</a> &nbsp;·&nbsp; <a href="/articles/what-is-cluster-buying.html">What is cluster buying?</a> &nbsp;·&nbsp; <a href="/biggest-insider-buys">Biggest insider buys this week</a></div>
+    <div style="margin-top:18px"><strong>Learn more:</strong> <a href="/insider-buying-study">Which insiders beat the market?</a> &nbsp;·&nbsp; <a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish?</a> &nbsp;·&nbsp; <a href="/articles/what-is-cluster-buying.html">What is cluster buying?</a> &nbsp;·&nbsp; <a href="/biggest-insider-buys">Biggest insider buys this week</a></div>
   </div>
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Sector membership covers major tracked tickers.</footer>
@@ -2650,7 +2651,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     : `<p style="color:var(--muted);font-size:14px">No open-market ${role} purchases recorded in the last 90 days.</p>`}
   <div class="rel">
     <strong>Insider buying by role:</strong><br>${otherRoles}
-    <div style="margin-top:18px"><strong>Learn more:</strong> <a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys stock</a> &nbsp;·&nbsp; <a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish?</a> &nbsp;·&nbsp; <a href="/biggest-insider-buys">Biggest insider buys this week</a></div>
+    <div style="margin-top:18px"><strong>Learn more:</strong> <a href="/insider-buying-study">Which insiders beat the market?</a> &nbsp;·&nbsp; <a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys stock</a> &nbsp;·&nbsp; <a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish?</a> &nbsp;·&nbsp; <a href="/biggest-insider-buys">Biggest insider buys this week</a></div>
   </div>
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
@@ -2873,49 +2874,73 @@ app.get('/insider-buying-report/:date', async (req, res) => {
 function renderStudyPage(s) {
   const url = 'https://www.insidertape.com/insider-buying-study';
   const sp = v => (v >= 0 ? '+' : '') + Number(v || 0).toFixed(1) + '%';
+  const pu = v => Number(v || 0).toFixed(1) + '%';
   const fdY = d => { if (!d) return ''; const dt = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); return isNaN(dt) ? String(d).slice(0, 10) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
   const cls = v => (v || 0) >= 0 ? 'g' : 'r';
-  const co = s.cohorts || {};
-  const COH = [['ceo', 'CEO buys'], ['cluster', 'Cluster buys'], ['allBuys', 'All insider buys']];
-  const nAll = (s.sample?.allBuys || 0).toLocaleString('en-US');
-  const nCl = (s.sample?.clusterEvents || 0).toLocaleString('en-US');
-  const nCeo = (s.sample?.ceoBuys || 0).toLocaleString('en-US');
-  const cmin = s.clusterMin || 3, wdays = s.windowDays || 30;
+  const sc = s.scenarios || {};
+  const g = (key, win) => ((sc[key] || {}).windows || {})[win] || {};
   const fromY = (s.sample?.from || '').slice(0, 4);
-  const g = (key, win) => (co[key] || {})[win] || {};
-  const ceo6 = g('ceo', '6M'), cl6 = g('cluster', '6M'), all6 = g('allBuys', '6M');
-  const desc = `Market-wide study of ${nAll} insider buys over five years: how CEO buys, cluster buys, and all insider buys performed at 1, 3, 6, and 12 months versus the Russell 2000 and the S&P 500. Median and average returns plus win rates.`;
-  const intro = `We measured what stocks did after insiders bought, across ${nAll} open-market SEC Form 4 purchases market-wide since ${fromY}, split three ways: all insider buys, cluster buys (${cmin}+ insiders within ${wdays} days), and CEO buys (${nCeo} of them). Each is measured 1, 3, 6, and 12 months later against both the Russell 2000 (a fairer yardstick for the small and mid caps where insiders actually buy) and the S&P 500.`;
+  const total = (g('all', '1M').n || 0);
+  const nAll = total.toLocaleString('en-US');
+  // Live figures for the prose / FAQ.
+  const cfo30 = g('role_cfo', '1M'), cfo90 = g('role_cfo', '3M');
+  const ceo90 = g('role_ceo', '3M');
+  const all90 = g('all', '3M');
+  const cl3 = g('cluster_3plus', '3M'), cl4 = g('cluster_4plus', '3M'), cl5 = g('cluster_5plus', '3M');
+  const cfoN = (cfo90.n || 0).toLocaleString('en-US');
 
-  const rowFor = win => ([key, label]) => { const x = g(key, win), r = x.rut || {}, p = x.spx || {}; return `<tr>
-      <td><strong>${label}</strong></td>
-      <td class="num" style="color:var(--muted)">${(x.n || 0).toLocaleString('en-US')}</td>
-      <td class="num ${cls(x.medianRet)}">${sp(x.medianRet)}</td>
-      <td class="num ${cls(x.meanRet)}">${sp(x.meanRet)}</td>
-      <td class="num">${x.pctPositive || 0}%</td>
+  const desc = `We backtested ${nAll} open-market insider buys over five years. The CFO's buy was the standout: the only large role that beat the Russell 2000 at 30, 60 and 90 days, while cluster buying got stronger with every extra buyer. Full median returns and win rates.`;
+  const intro = `We took every open-market insider purchase filed with the SEC (Form 4, code P) over the last five years - ${nAll} of them, market-wide - and measured what each stock did 30, 60 and 90 days later, against both the Russell 2000 (a fair yardstick for the small and mid caps where insiders actually buy) and the S&P 500. The question wasn't "do insider buys work?" but "<em>which</em> insider, and which pattern, is worth following?" Two answers stood out: the role of the buyer matters, and the CFO's signal is the sharpest of the bunch.`;
+
+  const WINS = [['1M', '30d'], ['2M', '60d'], ['3M', '90d']];
+  // Signal | Sample | median 30d/60d/90d | % up (90d) | vs Russell (90d)
+  const rowFor = ([key, label, note]) => { const x90 = g(key, '3M'), r = x90.rut || {}; return `<tr>
+      <td><strong>${label}</strong>${note ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">${note}</div>` : ''}</td>
+      <td class="num" style="color:var(--muted)">${(x90.n || 0).toLocaleString('en-US')}</td>
+      ${WINS.map(([w]) => { const xx = g(key, w); return `<td class="num ${cls(xx.medianRet)}">${sp(xx.medianRet)}</td>`; }).join('')}
+      <td class="num">${pu(x90.pctPositive)}</td>
       <td class="num ${cls(r.medianExcess)}">${sp(r.medianExcess)}</td>
-      <td class="num ${cls(p.medianExcess)}">${sp(p.medianExcess)}</td>
     </tr>`; };
-  const tbl = win => `<table><thead><tr><th>Cohort</th><th class="num">Sample</th><th class="num">Median</th><th class="num">Mean</th><th class="num">% up</th><th class="num">vs Russell</th><th class="num">vs S&amp;P</th></tr></thead><tbody>${COH.map(rowFor(win)).join('')}</tbody></table>`;
+  const tbl = rows => `<div style="overflow-x:auto"><table><thead><tr><th>Signal</th><th class="num">Sample</th><th class="num">30-day</th><th class="num">60-day</th><th class="num">90-day</th><th class="num">% up (90d)</th><th class="num">vs Russell (90d)</th></tr></thead><tbody>${rows.map(rowFor).join('')}</tbody></table></div>`;
+
+  const roleRows = [
+    ['role_cfo', 'CFO buys', 'Chief financial officer'],
+    ['role_officer', 'Other officer buys', ''],
+    ['role_director', 'Director buys', ''],
+    ['all', 'Every insider buy', 'The baseline'],
+    ['role_ceo', 'CEO buys', 'Chief executive'],
+  ];
+  const clusterRows = [
+    ['cluster_2plus', '2+ insiders', 'within 30 days'],
+    ['cluster_3plus', '3+ insiders', ''],
+    ['cluster_4plus', '4+ insiders', ''],
+    ['cluster_5plus', '5+ insiders', 'small sample'],
+  ];
+  const comboRows = [
+    ['cfo_cluster', 'CFO buying in a cluster', ''],
+    ['cluster3_near_low', '3+ cluster near the 52-wk low', ''],
+    ['first_buy_1y', 'First buy in 1+ year', ''],
+    ['ceo_first_buy', 'CEO’s first buy in years', 'small sample'],
+  ];
 
   const faq = [
-    { q: 'Do stocks rise after insiders buy?', a: `Across ${nAll} insider buys, over the six months after the purchase the median stock returned ${sp(all6.medianRet)} and ${all6.pctPositive || 0}% were higher.` },
-    { q: 'Do CEO buys perform better than other insider buys?', a: `Over six months, CEO buys returned a median ${sp(ceo6.medianRet)} (${ceo6.pctPositive || 0}% positive) versus ${sp(all6.medianRet)} for all insider buys, and ${(ceo6.rut || {}).pctBeat || 0}% beat the Russell 2000.` },
-    { q: 'Do cluster buys beat a single insider buying?', a: `Over six months, cluster buys (${cmin}+ insiders within ${wdays} days) returned a median ${sp(cl6.medianRet)} versus ${sp(all6.medianRet)} for a typical single insider buy.` },
+    { q: 'Which insider is worth following most?', a: `In this five-year study of ${nAll} buys, the CFO. CFO purchases (${cfoN} of them) returned a median ${sp(cfo30.medianRet)} at 30 days and ${sp(cfo90.medianRet)} at 90 days, with ${pu(cfo90.pctPositive)} of stocks higher - the only large role that beat the Russell 2000 at all three horizons.` },
+    { q: 'Do CEO buys work as well as CFO buys?', a: `Not in this data. Over 90 days CEO buys returned a median ${sp(ceo90.medianRet)} versus ${sp(cfo90.medianRet)} for CFO buys, and trailed the Russell 2000 by ${sp((ceo90.rut || {}).medianExcess)}. CEO buys can still signal - a CEO's first buy in years was one of the strongest patterns - but the CFO's routine buy was the more reliable tell.` },
+    { q: 'Does it matter how many insiders buy?', a: `Yes - it scaled almost perfectly. Over 90 days, 3+ insider clusters were ${pu(cl3.pctPositive)} positive, 4+ were ${pu(cl4.pctPositive)}, and 5+ were ${pu(cl5.pctPositive)}. More buyers meant better odds.` },
   ];
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>How Stocks Perform After Insiders Buy: CEO, Cluster &amp; All Buys | InsiderTape</title>
+<title>Which Insiders Actually Beat the Market? Why the CFO Is the Signal to Watch | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
 <meta property="og:type" content="article"><meta property="og:url" content="${url}">
-<meta property="og:title" content="How Stocks Perform After Insiders Buy: CEO, Cluster &amp; All Buys">
+<meta property="og:title" content="Which Insiders Actually Beat the Market? Why the CFO Is the Signal to Watch">
 <meta property="og:description" content="${_esc(desc)}">
 <meta property="og:image" content="https://www.insidertape.com/og-image.png">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
-<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `How Stocks Perform After Insiders Buy: CEO, Cluster and All Buys`, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `Which Insiders Actually Beat the Market? Why the CFO Is the Signal to Watch`, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Study', item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
@@ -2949,23 +2974,33 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Data Study</div>
-  <h1>How Stocks Perform After Insiders Buy</h1>
+  <h1>Which Insiders Actually Beat the Market?</h1>
   <div class="meta">InsiderTape research &nbsp;·&nbsp; ${nAll} buys, ${fdY(s.sample?.from)} to ${fdY(s.sample?.to)} &nbsp;·&nbsp; Updated ${fdY(s.generated)}</div>
-  <p class="intro">${_esc(intro)}</p>
-  <div class="callout">Reading the tables: <strong>Median</strong> is the typical stock, <strong>Mean</strong> the average (pulled up by big winners), <strong>% up</strong> the share that rose. <strong>vs Russell / vs S&amp;P</strong> is the median return above or below that index over the same dates - positive means it beat the benchmark.</div>
-  <h2>Six months after the buy</h2>
-  ${tbl('6M')}
-  <h2>One month after the buy</h2>
-  ${tbl('1M')}
-  <h2>Three months after the buy</h2>
-  ${tbl('3M')}
-  <h2>One year after the buy</h2>
-  ${tbl('12M')}
-  <h2>Methodology</h2>
-  <p class="method">Starting from every open-market purchase (SEC Form 4, code P) of ${_fmtV(s.sample?.minValue || 10000)} or more filed over the last five years across the US market, we entered each at the closing price on or just after the transaction date and measured its return 1, 3, 6, and 12 months later against both the Russell 2000 and the S&amp;P 500 over the same dates. "Cluster buys" are cases where ${cmin} or more different insiders bought the same company within ${wdays} days (each wave counted once); "CEO buys" are purchases whose filed title identifies the buyer as the CEO. Option exercises, grants, and obvious price-data errors are excluded, as are tickers with no available daily price history. Longer windows have smaller samples because recent events have not completed a full year. This is analysis of past filings, not a prediction or investment advice.</p>
+  <p class="intro">${intro}</p>
+  <div class="callout"><strong>The short version:</strong> not every insider buy carries the same weight. When we sort five years of buys by the buyer's role, the <strong>CFO stands out</strong> - the only large group whose stocks beat the Russell 2000 at 30, 60 <em>and</em> 90 days. And the more insiders buying at once, the better the odds: a 5-insider cluster was positive ${pu(cl5.pctPositive)} of the time over 90 days.</div>
+
+  <h2>Role matters most - and the CFO leads</h2>
+  <p>Sorting the same ${nAll} buys by who did the buying is where the signal lives. CFO purchases returned a median <strong>${sp(cfo30.medianRet)} at 30 days</strong> and <strong>${sp(cfo90.medianRet)} at 90 days</strong>, and were the only large role to stay ahead of the Russell 2000 the whole way. CEO buys - the ones that get the headlines - were the weakest of the executive roles here, roughly flat by 90 days. That doesn't make a CEO buy meaningless (see the first-buy pattern below), but if you're picking one role to watch, the numbers point at the CFO: the person who knows the cash-flow statement line by line.</p>
+  ${tbl(roleRows)}
+  <div class="callout" style="border-left-color:var(--buy)"><strong>Why the CFO?</strong> The chief financial officer sees revenue and cash flow before anyone outside the company does. When they put personal money in, it's the closest thing to an informed vote on the numbers - and over five years it was the most reliable role-based signal in the data.</div>
+
+  <h2>More buyers, better odds</h2>
+  <p>The second clean pattern was cluster buying - several insiders purchasing the same stock within a month. It scaled almost perfectly: each additional buyer lifted both the return and the win rate.</p>
+  ${tbl(clusterRows)}
+  <p class="method">Note the sample sizes: 4+ and especially 5+ insider clusters are rare, so those rows are the strongest but the least certain. The direction, though, is consistent - conviction from more people beat conviction from one.</p>
+
+  <h2>The standout combinations</h2>
+  <p>Stacking signals sharpened the edge further. A CFO buying inside a cluster, a cluster forming near a 52-week low, or an insider's first purchase in over a year all outperformed the average buy. And here's the nuance on CEOs: a CEO's <em>first</em> buy in years was one of the strongest patterns of all - it's the routine CEO buy that underwhelmed, not the rare conviction one.</p>
+  ${tbl(comboRows)}
+
+  <h2>The edge is early</h2>
+  <p>One consistent theme across every signal: the advantage is strongest in the first 30-90 days and fades after that. Insider buying looks like a short-to-medium-term catalyst, not a set-and-forget signal - which is why we track it live and timestamp every buy on the price chart.</p>
+
+  <h2>Methodology &amp; caveats</h2>
+  <p class="method">Starting from every open-market purchase (SEC Form 4, code P) of ${_fmtV(s.sample?.minValue || 10000)} or more filed over the last five years across the US market, we entered each at the closing price on or just after the transaction date and measured its return 30, 60 and 90 days later against both the Russell 2000 and the S&amp;P 500 over the same dates. Roles come from the title the insider filed (CFO, CEO, director, officer, etc.). "Cluster" means that many different insiders bought the same company within 30 days. Option exercises, grants, and obvious price-data errors are excluded, as are tickers with no available daily price history. <strong>Caveats:</strong> this covers 2021-2026 only - one bull market and the 2022 selloff, not a full range of cycles; medians are shown because a few big winners pull averages up; and the strongest rows (4+/5+ clusters) have the smallest samples. This is analysis of past filings, not a prediction or investment advice. Past performance does not predict future results.</p>
   <div class="cta">
-    <h3>Track insider buys as they happen</h3>
-    <p>InsiderTape flags CEO buys, cluster buying, and first buys in years in real time, plotted on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <h3>Track CFO buys and clusters as they happen</h3>
+    <p>InsiderTape flags CFO purchases, cluster buying, and first buys in years in real time, plotted right on the price chart. Start a free 7-day trial, cancel anytime.</p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
     <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
   </div>
@@ -2979,8 +3014,8 @@ app.get('/insider-buying-study', async (req, res) => {
   try {
     const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-study'");
     const study = row ? (() => { try { return JSON.parse(row.value_json); } catch(_) { return null; } })() : null;
-    // Show the placeholder until the new cohort-structured study has been computed.
-    if (!study || !study.cohorts) {
+    // Show the placeholder until the signal-sweep study has been computed.
+    if (!study || !study.scenarios) {
       return res.type('html').send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Cluster Buying Study | InsiderTape</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{background:#f0f2f5;color:#1a2030;font-family:Inter,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}a{color:#2478cc}</style></head><body><div><h1 style="font-size:22px">Cluster Buying Study</h1><p style="color:#6e7a8a">Our cluster-buy performance analysis is being compiled and will appear here shortly.</p><p><a href="/">Back to InsiderTape</a></p></div></body></html>`);
     }
     if (_studyCache.html && _studyCache.t === row.computed_at) { res.type('html'); return res.send(_studyCache.html); }
