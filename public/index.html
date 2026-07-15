@@ -5774,7 +5774,7 @@ function renderAnalysisSubpage(id, opts={}) {
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${backBtn}
       <div style="margin-bottom:20px">
-        <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ HIGH CONVICTION TRADES</div>
+        <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ BUYER CONVICTION TRADES</div>
         <div style="font-size:12px;color:var(--muted);margin-top:4px">Scored by stake increase, cluster buying, repeat behavior &amp; position size · Last 30D</div>
       </div>
       <div class="conviction-grid">${convHtml}</div>
@@ -5834,22 +5834,34 @@ function renderAnalysisSubpage(id, opts={}) {
   }
 
   else if (id === 'cfobuys') {
-    renderSignalListSubpage({
+    renderCardGridSubpage({
       icon: '💰', title: 'CFO BUYS', subtitle: 'Open-market purchases by Chief Financial Officers · Last 30D',
       blurb: 'CFOs know the numbers before anyone else. When they buy their own stock on the open market, it is one of the more informed signals available. In our five-year backtest, CFO buys returned a median +2.8% over the next 90 days, were higher 57% of the time, and beat the market - the strongest role signal we found.',
       empty: 'No CFO open-market buys in the last 30 days.',
       items: () => detectCfoBuys(_analysisData || []),
-      card: { hover: 'rgba(42,171,92,0.3)', metric: r => fmt(r.totalVal), metricLabel: 'TOTAL BOUGHT', sub: r => `${r.insider ? r.insider + ' · ' : ''}${r.title || 'CFO'} · ${r.buys} buy${r.buys > 1 ? 's' : ''}` },
+      badge: r => ({ num: 'CFO', label: r.buys > 1 ? `${r.buys} BUYS` : 'BUY', color: 'var(--buy)', bg: 'rgba(0,255,136,0.08)', border: 'rgba(0,255,136,0.25)', size: '16px' }),
+      reasons: r => [
+        `${r.names && r.names.length > 1 ? r.names.length + ' CFOs' : (r.insider || 'CFO')} buying on the open market`,
+        `${r.buys} purchase${r.buys > 1 ? 's' : ''}${r.buys > 1 ? ' - repeat accumulation' : ''}`,
+        `Largest buy ${fmt(r.biggest)}`,
+        `${fmt(r.totalVal)} of CFO conviction`,
+      ],
     });
   }
 
   else if (id === 'clusterlow') {
-    renderSignalListSubpage({
+    renderCardGridSubpage({
       icon: '🎯', title: 'CLUSTERS AT THE LOWS', subtitle: '3+ insiders buying near the 52-week low · Last 30D',
       blurb: 'Three or more insiders buying together while the stock trades in the lower quarter of its 52-week range - conviction, at a discount. In our backtest these were higher 58% of the time over the next 90 days (+3.2% median). Price context from the latest close.',
       empty: 'No insider clusters near 52-week lows right now.',
       items: () => detectClusterNearLow(_analysisData || [], _tilePriceHighs),
-      card: { hover: 'rgba(180,140,0,0.3)', metric: r => `+${r.pctOffLow}%`, metricLabel: 'OFF 52W LOW', sub: r => `${r.insiderCount} insiders · ${fmt(r.totalVal)}` },
+      badge: r => ({ num: `+${r.pctOffLow}%`, label: 'OFF 52W LOW', color: 'var(--buy)', bg: 'rgba(42,171,92,0.08)', border: 'rgba(42,171,92,0.25)', size: '16px' }),
+      reasons: r => [
+        `${r.insiderCount} insiders buying together`,
+        `${r.buys} open-market buy${r.buys > 1 ? 's' : ''}`,
+        `Trading in lower quarter of 52-week range`,
+        `Now $${r.current} · 52w low $${r.low52}`,
+      ],
     });
   }
 
@@ -6809,7 +6821,9 @@ function detectCfoBuys(trades) {
     const totalVal = tks.reduce((s, t) => s + (t.value || 0), 0);
     const latest = tks.map(t => (t.trade || t.filing || '').slice(0, 10)).filter(Boolean).sort().pop() || '';
     const top = [...tks].sort((a, b) => (b.value || 0) - (a.value || 0))[0];
-    out.push({ ticker, company: tks[0]?.company || ticker, totalVal, buys: tks.length, latest, insider: top?.insider || '', title: top?.title || 'CFO' });
+    const names = [...new Set(tks.map(t => t.insider).filter(Boolean))];
+    const biggest = Math.max(0, ...tks.map(t => t.value || 0));
+    out.push({ ticker, company: tks[0]?.company || ticker, totalVal, buys: tks.length, latest, insider: names[0] || '', names, biggest, title: top?.title || 'CFO' });
   });
   return out.sort((a, b) => b.totalVal - a.totalVal);
 }
@@ -6842,29 +6856,29 @@ function detectClusterNearLow(trades, ph) {
   return out.sort((a, b) => a.posFromLow - b.posFromLow);
 }
 
-// Generic card for the CFO / cluster tiles (metric on the right, subtitle below).
-function renderSignalCard(r, opts) {
-  return `
-  <div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})"
-       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s;padding:14px 18px"
-       onmouseover="this.style.borderColor='${opts.hover}'" onmouseout="this.style.borderColor='var(--border)'">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div style="min-width:0">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;color:var(--accent)">${r.ticker}</span>
-          <span style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${r.company}</span>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:3px">${opts.sub(r)}</div>
+// Conviction-style detail card: ticker/company, a badge (top-right), a bulleted
+// list of signals, and a value/date footer. Used by the CFO and cluster tiles.
+function renderStatCard(r, cfg) {
+  const b = cfg.badge(r);
+  return `<div class="conviction-card" onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})">
+    <div class="conviction-card-header">
+      <div><div class="conviction-ticker">${r.ticker}</div><div class="conviction-company">${r.company}</div></div>
+      <div class="conviction-score-badge" style="background:${b.bg};border-color:${b.border}">
+        <div class="conviction-score-num" style="color:${b.color};font-size:${b.size || '18px'}">${b.num}</div>
+        <div class="conviction-score-label" style="color:${b.color}">${b.label}</div>
       </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-family:Inter,sans-serif;font-size:18px;color:${opts.metricColor || 'var(--buy)'};line-height:1">${opts.metric(r)}</div>
-        <div style="font-size:8px;letter-spacing:1px;color:var(--muted);margin-top:2px">${opts.metricLabel}</div>
+    </div>
+    <div class="conviction-body">
+      <ul class="conviction-reasons">${cfg.reasons(r).map(x => `<li>${x}</li>`).join('')}</ul>
+      <div class="conviction-footer">
+        <span class="conviction-val">${fmt(r.totalVal)}</span>
+        <span class="conviction-date">${fmtDate(r.latest)}</span>
       </div>
     </div>
   </div>`;
 }
 
-function renderSignalListSubpage(cfg) {
+function renderCardGridSubpage(cfg) {
   window.scrollTo(0, 0);
   const body = document.getElementById('analysisViewBody');
   const backBtn = `<button onclick="renderAnalysisDashboard()" style="display:inline-flex;align-items:center;gap:6px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:20px;font-family:Inter,monospace">← RADAR</button>`;
@@ -6878,7 +6892,7 @@ function renderSignalListSubpage(cfg) {
     <div style="font-size:11px;color:var(--muted);margin-bottom:22px;line-height:1.7;max-width:760px">${cfg.blurb}</div>
     ${items.length === 0
       ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">${cfg.empty}</div>`
-      : `<div style="display:flex;flex-direction:column;gap:14px">${items.map(r => renderSignalCard(r, cfg.card)).join('')}</div>`}
+      : `<div class="conviction-grid">${items.map(r => renderStatCard(r, cfg)).join('')}</div>`}
   </div>`;
 }
 
