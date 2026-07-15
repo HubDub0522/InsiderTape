@@ -3156,6 +3156,37 @@ app.get('/search', async (req, res) => {
 });
 
 // ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
+// The SPA ships a static canonical → homepage and robots=index,follow. For
+// client-rendered routes that mirror a server-rendered SEO page we rewrite the
+// canonical to that page (consolidating signals, avoiding thin duplicates); for
+// app-only views with no crawlable equivalent we set noindex,follow.
+let _spaHtml = null;
+function _getSpaHtml() {
+  if (_spaHtml == null) {
+    try { _spaHtml = require('fs').readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'); }
+    catch(_) { _spaHtml = ''; }
+  }
+  return _spaHtml;
+}
+function _spaSeoOverride(p) {
+  let m;
+  // /stock/<TICKER> → canonical to the server ticker page
+  if ((m = p.match(/^\/stock\/([A-Za-z][A-Za-z0-9.\-]{0,9})\/?$/))) {
+    return { canonical: `https://www.insidertape.com/insider-trading/${m[1].toUpperCase()}` };
+  }
+  // /insider/<Name-or-slug> → canonical to the server insider-profile page
+  if ((m = p.match(/^\/insider\/(.+)$/))) {
+    let raw = m[1];
+    try { raw = decodeURIComponent(raw); } catch(_) {}
+    const slug = _insiderSlug(raw.replace(/\/+$/, ''));
+    if (slug && slug.length >= 2) return { canonical: `https://www.insidertape.com/insider-profile/${slug}` };
+    return { noindex: true };
+  }
+  // App-only views (no crawlable server equivalent) and bare landings → noindex
+  if (/^\/(analysis|monitor|sectors|compare|watchlist|account)(\/|$)/.test(p)) return { noindex: true };
+  if (p === '/stock' || p === '/insider') return { noindex: true };
+  return null;
+}
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   if (req.path.startsWith('/articles')) {
@@ -3171,6 +3202,15 @@ app.get('*', (req, res) => {
     }
   }
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  const ov = _spaSeoOverride(req.path);
+  if (ov) {
+    let html = _getSpaHtml();
+    if (html) {
+      if (ov.canonical) html = html.replace('<link rel="canonical" href="https://www.insidertape.com/">', `<link rel="canonical" href="${ov.canonical}">`);
+      if (ov.noindex) html = html.replace('<meta name="robots" content="index, follow">', '<meta name="robots" content="noindex, follow">');
+      return res.type('html').send(html);
+    }
+  }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
