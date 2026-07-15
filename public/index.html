@@ -5438,7 +5438,7 @@ function renderAnalysisDashboard() {
       id: 'ranker',
       icon: '🏆',
       name: 'Insider Opportunity Ranker',
-      desc: 'The master score. Combines signals from every tool on this page - clusters, regime shifts, event proximity, first-buy signals, exit warnings, and 52-week low proximity - into one ranked list.',
+      desc: 'The master score, reweighted to what our backtest actually rewarded: 3+ insider clusters, CFO buying, clusters at the lows, first buys in 1+ years, event proximity, and clean tape (with exit warnings as a penalty).',
       count: _rankerCache ? _rankerCache.length : '…',
       countLabel: 'tickers ranked',
       loading: rankerLoading,
@@ -6454,18 +6454,8 @@ function scoreOpportunityRanker(rows) {
 
 
 
-  // Regime Shift: tickers with a bullish regime signal (buyer flip or buy accel)
-  const regimeBullish = new Set();
-  const regimeBearish = new Set();
-  try {
-    buildRegimeShiftData(_analysisDataLong || _analysisData || [], _analysisData || [])
-      .forEach(s => {
-        if (s.regimeType === 'SELLER_FLIPS_BUY' || s.regimeType === 'BUY_ACCELERATION' || s.regimeType === 'DORMANT_ACTIVATES')
-          regimeBullish.add(s.ticker);
-        if (s.regimeType === 'SELL_SPIKE')
-          regimeBearish.add(s.ticker);
-      });
-  } catch(e) {}
+  // CFO buyers - the strongest role signal in the backtest.
+  const cfoTickers = new Set((detectCfoBuys(_analysisData || [])).map(c => c.ticker));
 
   // Event Proximity: tickers with an upcoming event signal
   const proximityMap = {};  // ticker → { score, daysTo, isAbnormal }
@@ -6497,18 +6487,18 @@ function scoreOpportunityRanker(rows) {
     else if (r.buyer_count >= 2)   { score += 8;  factors.push(`2 insiders buying`); }
     else                           { score += 2; }
 
-    // ── 2. Executive involvement (0–12 pts) ──────────────────────
-    if (r.has_exec_buyer) { score += 12; factors.push(`C-suite / executive buyer`); }
+    // ── 2. Role of buyers (backtest: CFO strongest, other execs modest) ──
+    if (cfoTickers.has(r.ticker))  { score += 14; factors.push(`CFO buying - strongest role signal`); }
+    else if (r.has_exec_buyer)     { score += 6;  factors.push(`C-suite / executive buyer`); }
 
     // ── 3. Stake size increase (0–12 pts) ────────────────────────
     if (r.max_stake_pct >= 50)     { score += 12; factors.push(`Stake increased ${r.max_stake_pct}%`); }
     else if (r.max_stake_pct >= 20){ score += 8;  factors.push(`Stake increased ${r.max_stake_pct}%`); }
     else if (r.max_stake_pct >= 5) { score += 4;  factors.push(`Position added to`); }
 
-    // ── 4. Capital committed (0–12 pts) ──────────────────────────
-    if (r.total_buy_val >= 10000000)     { score += 12; factors.push(`${fmt(r.total_buy_val)} total invested`); }
-    else if (r.total_buy_val >= 2000000) { score += 8;  factors.push(`${fmt(r.total_buy_val)} total invested`); }
-    else if (r.total_buy_val >= 500000)  { score += 4;  factors.push(`${fmt(r.total_buy_val)} invested`); }
+    // ── 4. Capital committed (0–6 pts; large size did NOT outperform in backtest) ──
+    if (r.total_buy_val >= 2000000)      { score += 6; factors.push(`${fmt(r.total_buy_val)} total invested`); }
+    else if (r.total_buy_val >= 500000)  { score += 4; factors.push(`${fmt(r.total_buy_val)} invested`); }
 
     // ── 5. No recent selling (0–12 pts) / penalty if selling ─────
     if (r.sell_count === 0) {
@@ -6520,12 +6510,11 @@ function scoreOpportunityRanker(rows) {
       else                     { score -= 3; }
     }
 
-    // ── 6. 52-week low proximity (0–12 pts) ──────────────────────
+    // ── 6. Near 52-week low: weak ALONE, strong WITH a cluster (backtest) ──
     if (r._pctFromLow != null) {
-      if (r._pctFromLow <= 5)       { score += 12; factors.push(`Near 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
-      else if (r._pctFromLow <= 15) { score += 8;  factors.push(`Close to 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
-      else if (r._pctFromLow <= 30) { score += 4;  factors.push(`Moderate pullback from low`); }
-      else if (r._pctFromLow >= 80) { score -= 5;  factors.push(`⚠ Near 52-week high`); }
+      if (r._pctFromLow <= 25 && r.buyer_count >= 3) { score += 10; factors.push(`Cluster buying near the 52-week low`); }
+      else if (r._pctFromLow <= 10)                  { score += 4;  factors.push(`Near 52-week low (${r._pctFromLow.toFixed(1)}% above)`); }
+      else if (r._pctFromLow >= 80)                  { score -= 5;  factors.push(`⚠ Near 52-week high`); }
     }
 
     // ── 7. Recency (0–4 pts) ─────────────────────────────────────
@@ -6537,19 +6526,6 @@ function scoreOpportunityRanker(rows) {
       score += 8; factors.push(`Active cluster detected`);
     }
 
-    // ── 9. Capital-at-Risk signal (+4–8 pts) ─────────────────────
-
-    // ── 10. Regime Shift signal (+8 pts bullish / −8 pts bearish) ─
-    if (regimeBullish.has(r.ticker)) {
-      score += 8;
-      factors.push(`Bullish regime shift detected`);
-    }
-    if (regimeBearish.has(r.ticker)) {
-      score -= 8;
-      factors.push(`⚠ Sell spike regime detected`);
-    }
-
-
     // ── 12. Event Proximity: catalyst coming (+6–10 pts) ─────────
     const prox = proximityMap[r.ticker];
     if (prox) {
@@ -6558,9 +6534,9 @@ function scoreOpportunityRanker(rows) {
       else                        { score += 4;  factors.push(`Upcoming event in ${prox.daysTo}d`); }
     }
 
-    // ── 13. First Buy in Years: rare reactivation (+8 pts) ───────
+    // ── 13. First Buy in 1+ Years: rare reactivation (+8 pts) ────
     if (firstBuyTickers.has(r.ticker)) {
-      score += 8; factors.push(`First buy in 3+ years - rare reactivation`);
+      score += 8; factors.push(`First buy in 1+ years - rare reactivation`);
     }
 
     // ── 14. Exit Warning: active red flag (−12 pts) ───────────────
@@ -6578,11 +6554,8 @@ function scoreOpportunityRanker(rows) {
 
     // Cross-tool badges for card display
     const crossToolBadges = [
+      cfoTickers.has(r.ticker)          ? ['CFO BUY',   'var(--buy)',     'rgba(0,255,136,0.1)']   : null,
       clusterTickers.has(r.ticker)      ? ['CLUSTER',   'var(--accent)',  'rgba(0,212,255,0.1)']   : null,
-      regimeBullish.has(r.ticker)        ? ['REGIME↑',  'var(--buy)',     'rgba(0,255,136,0.08)']  : null,
-      regimeBearish.has(r.ticker)        ? ['REGIME↓',  'var(--sell)',    'rgba(255,68,102,0.08)'] : null,
-
-
       prox && prox.daysTo <= 14          ? ['EVENT PROX','var(--sell)',    'rgba(255,68,102,0.08)'] : null,
       firstBuyTickers.has(r.ticker)      ? ['1ST BUY',   'var(--accent)', 'rgba(0,212,255,0.08)']  : null,
     ].filter(Boolean);
