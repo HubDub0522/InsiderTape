@@ -2889,19 +2889,20 @@ function renderStudyPage(s) {
   const cl3 = g('cluster_3plus', '3M'), cl4 = g('cluster_4plus', '3M'), cl5 = g('cluster_5plus', '3M');
   const cfoN = (cfo90.n || 0).toLocaleString('en-US');
 
-  const desc = `We backtested ${nAll} open-market insider buys over five years. The CFO's buy was the standout: the only large role that beat the Russell 2000 at 30, 60 and 90 days, while cluster buying got stronger with every extra buyer. Full median returns and win rates.`;
+  const desc = `We backtested ${nAll} open-market insider buys over five years. The CFO's buy was the standout: the only large role whose stocks beat the Russell 2000 more often than not at 30, 60 and 90 days, while cluster buying got stronger with every extra buyer. Full average returns and win rates.`;
   const intro = `We took every open-market insider purchase filed with the SEC (Form 4, code P) over the last five years - ${nAll} of them, market-wide - and measured what each stock did 30, 60 and 90 days later, against both the Russell 2000 (a fair yardstick for the small and mid caps where insiders actually buy) and the S&P 500. The question wasn't "do insider buys work?" but "<em>which</em> insider, and which pattern, is worth following?" Two answers stood out: the role of the buyer matters, and the CFO's signal is the sharpest of the bunch.`;
 
   const WINS = [['1M', '30d'], ['2M', '60d'], ['3M', '90d']];
-  // Signal | Sample | median 30d/60d/90d | % up (90d) | vs Russell (90d)
+  const beatCls = v => (v || 0) >= 50 ? 'g' : 'r';
+  // Signal | Sample | avg 30d/60d/90d | % up (90d) | % beat Russell (90d)
   const rowFor = ([key, label, note]) => { const x90 = g(key, '3M'), r = x90.rut || {}; return `<tr>
       <td><strong>${label}</strong>${note ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">${note}</div>` : ''}</td>
       <td class="num" style="color:var(--muted)">${(x90.n || 0).toLocaleString('en-US')}</td>
-      ${WINS.map(([w]) => { const xx = g(key, w); return `<td class="num ${cls(xx.medianRet)}">${sp(xx.medianRet)}</td>`; }).join('')}
+      ${WINS.map(([w]) => { const xx = g(key, w); return `<td class="num ${cls(xx.meanRet)}">${sp(xx.meanRet)}</td>`; }).join('')}
       <td class="num">${pu(x90.pctPositive)}</td>
-      <td class="num ${cls(r.medianExcess)}">${sp(r.medianExcess)}</td>
+      <td class="num ${beatCls(r.pctBeat)}">${pu(r.pctBeat)}</td>
     </tr>`; };
-  const tbl = rows => `<div style="overflow-x:auto"><table><thead><tr><th>Signal</th><th class="num">Sample</th><th class="num">30-day</th><th class="num">60-day</th><th class="num">90-day</th><th class="num">% up (90d)</th><th class="num">vs Russell (90d)</th></tr></thead><tbody>${rows.map(rowFor).join('')}</tbody></table></div>`;
+  const tbl = rows => `<div style="overflow-x:auto"><table><thead><tr><th>Signal</th><th class="num">Sample</th><th class="num">Avg. 30d</th><th class="num">Avg. 60d</th><th class="num">Avg. 90d</th><th class="num">% up (90d)</th><th class="num">% beat Russell (90d)</th></tr></thead><tbody>${rows.map(rowFor).join('')}</tbody></table></div>`;
 
   const roleRows = [
     ['role_cfo', 'CFO buys', 'Chief financial officer'],
@@ -2924,8 +2925,8 @@ function renderStudyPage(s) {
   ];
 
   const faq = [
-    { q: 'Which insider is worth following most?', a: `In this five-year study of ${nAll} buys, the CFO. CFO purchases (${cfoN} of them) returned a median ${sp(cfo30.medianRet)} at 30 days and ${sp(cfo90.medianRet)} at 90 days, with ${pu(cfo90.pctPositive)} of stocks higher - the only large role that beat the Russell 2000 at all three horizons.` },
-    { q: 'Do CEO buys work as well as CFO buys?', a: `Not in this data. Over 90 days CEO buys returned a median ${sp(ceo90.medianRet)} versus ${sp(cfo90.medianRet)} for CFO buys, and trailed the Russell 2000 by ${sp((ceo90.rut || {}).medianExcess)}. CEO buys can still signal - a CEO's first buy in years was one of the strongest patterns - but the CFO's routine buy was the more reliable tell.` },
+    { q: 'Which insider is worth following most?', a: `In this five-year study of ${nAll} buys, the CFO. CFO purchases (${cfoN} of them) averaged ${sp(cfo30.meanRet)} at 30 days and ${sp(cfo90.meanRet)} at 90 days, with ${pu(cfo90.pctPositive)} of stocks higher - and were the only large role to beat the Russell 2000 more often than not at every horizon.` },
+    { q: 'Do CEO buys work as well as CFO buys?', a: `Not in this data. Over 90 days CEO buys averaged ${sp(ceo90.meanRet)} versus ${sp(cfo90.meanRet)} for CFO buys, and beat the Russell 2000 only ${pu((ceo90.rut || {}).pctBeat)} of the time versus ${pu((cfo90.rut || {}).pctBeat)} for CFOs. CEO buys can still signal - a CEO's first buy in years was one of the strongest patterns - but the CFO's routine buy was the more reliable tell.` },
     { q: 'Does it matter how many insiders buy?', a: `Yes - it scaled almost perfectly. Over 90 days, 3+ insider clusters were ${pu(cl3.pctPositive)} positive, 4+ were ${pu(cl4.pctPositive)}, and 5+ were ${pu(cl5.pctPositive)}. More buyers meant better odds.` },
   ];
 
@@ -2977,10 +2978,10 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <h1>Which Insiders Actually Beat the Market?</h1>
   <div class="meta">InsiderTape research &nbsp;·&nbsp; ${nAll} buys, ${fdY(s.sample?.from)} to ${fdY(s.sample?.to)} &nbsp;·&nbsp; Updated ${fdY(s.generated)}</div>
   <p class="intro">${intro}</p>
-  <div class="callout"><strong>The short version:</strong> not every insider buy carries the same weight. When we sort five years of buys by the buyer's role, the <strong>CFO stands out</strong> - the only large group whose stocks beat the Russell 2000 at 30, 60 <em>and</em> 90 days. And the more insiders buying at once, the better the odds: a 5-insider cluster was positive ${pu(cl5.pctPositive)} of the time over 90 days.</div>
+  <div class="callout"><strong>The short version:</strong> not every insider buy carries the same weight. When we sort five years of buys by the buyer's role, the <strong>CFO stands out</strong> - the only large group whose stocks beat the Russell 2000 more often than not at 30, 60 <em>and</em> 90 days. And the more insiders buying at once, the better the odds: a 5-insider cluster was positive ${pu(cl5.pctPositive)} of the time over 90 days.</div>
 
   <h2>The role that matters most</h2>
-  <p>Of all the ways to slice insider buying, the buyer's role is one of the more telling - and among the roles, one stands out. Sorting the same ${nAll} buys by who did the buying, CFO purchases returned a median <strong>${sp(cfo30.medianRet)} at 30 days</strong> and <strong>${sp(cfo90.medianRet)} at 90 days</strong>, and were the only large role to stay ahead of the Russell 2000 the whole way. CEO buys - the ones that get the headlines - were the weakest of the executive roles here, roughly flat by 90 days. That doesn't make a CEO buy meaningless (see the first-buy pattern below), but if you're picking one role to watch, the numbers point at the CFO: the person who knows the cash-flow statement line by line.</p>
+  <p>Of all the ways to slice insider buying, the buyer's role is one of the more telling - and among the roles, one stands out. Sorting the same ${nAll} buys by who did the buying, CFO purchases averaged <strong>${sp(cfo30.meanRet)} at 30 days</strong> and <strong>${sp(cfo90.meanRet)} at 90 days</strong>, and beat the Russell 2000 more often than they trailed it at every horizon - the only large role that did. CEO buys - the ones that get the headlines - were the weakest of the executive roles here: fewer than half were even positive over 90 days (${pu(ceo90.pctPositive)}). That doesn't make a CEO buy meaningless (see the first-buy pattern below), but if you're picking one role to watch, the numbers point at the CFO: the person who knows the cash-flow statement line by line.</p>
   ${tbl(roleRows)}
   <div class="callout" style="border-left-color:var(--buy)"><strong>Why the CFO?</strong> The chief financial officer sees revenue and cash flow before anyone outside the company does. When they put personal money in, it's the closest thing to an informed vote on the numbers - and over five years it was the most reliable role-based signal in the data.</div>
 
@@ -2997,7 +2998,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <p>One consistent theme across every signal: the advantage is strongest in the first 30-90 days and fades after that. Insider buying looks like a short-to-medium-term catalyst, not a set-and-forget signal - which is why we track it live and timestamp every buy on the price chart.</p>
 
   <h2>Methodology &amp; caveats</h2>
-  <p class="method">Starting from every open-market purchase (SEC Form 4, code P) of ${_fmtV(s.sample?.minValue || 10000)} or more filed over the last five years across the US market, we entered each at the closing price on or just after the transaction date and measured its return 30, 60 and 90 days later against both the Russell 2000 and the S&amp;P 500 over the same dates. Roles come from the title the insider filed (CFO, CEO, director, officer, etc.). "Cluster" means that many different insiders bought the same company within 30 days. Option exercises, grants, and obvious price-data errors are excluded, as are tickers with no available daily price history. <strong>Caveats:</strong> this covers 2021-2026 only - one bull market and the 2022 selloff, not a full range of cycles; medians are shown because a few big winners pull averages up; and the strongest rows (4+/5+ clusters) have the smallest samples. This is analysis of past filings, not a prediction or investment advice. Past performance does not predict future results.</p>
+  <p class="method">Starting from every open-market purchase (SEC Form 4, code P) of ${_fmtV(s.sample?.minValue || 10000)} or more filed over the last five years across the US market, we entered each at the closing price on or just after the transaction date and measured its return 30, 60 and 90 days later against both the Russell 2000 and the S&amp;P 500 over the same dates. Roles come from the title the insider filed (CFO, CEO, director, officer, etc.). "Cluster" means that many different insiders bought the same company within 30 days. Option exercises, grants, and obvious price-data errors are excluded, as are tickers with no available daily price history. Returns shown are averages (means), so they line up with how you'd tally your own trades; because a few big winners can lift an average, we also show how often each signal was simply positive and how often it beat the market. <strong>Caveats:</strong> this covers 2021-2026 only - one bull market and the 2022 selloff, not a full range of cycles; and the strongest rows (4+/5+ clusters) have the smallest samples. This is analysis of past filings, not a prediction or investment advice. Past performance does not predict future results.</p>
   <div class="cta">
     <h3>Track CFO buys and clusters as they happen</h3>
     <p>InsiderTape flags CFO purchases, cluster buying, and first buys in years in real time, plotted right on the price chart. Start a free 7-day trial, cancel anytime.</p>
