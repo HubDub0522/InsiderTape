@@ -1000,6 +1000,36 @@ async function computeSitemapLists() {
   log(`sitemap-lists cached: ${tickers.length} tickers, ${insiders.length} insiders`);
 }
 
+// Precompute the ticker search index (server reads this from computed_cache so
+// cold serverless instances skip the heavy full-table GROUP BY, which they
+// can't reliably finish in the background). Same shape the server builds live.
+async function computeSearchIndex() {
+  try {
+    const ex = (await dbQuery("SELECT computed_at FROM computed_cache WHERE key='search-index'"))[0];
+    if (ex && Date.now() - ex.computed_at < 3 * 24 * 3600000 && process.env.FORCE_FULL !== '1') { log('search-index fresh, skip'); return; }
+  } catch(_) {}
+  log('Computing search-index...');
+  const rows = await dbQuery(`
+    SELECT ticker,
+      MIN(CASE WHEN company NOT LIKE '%Option%' AND company NOT LIKE '%Strike%'
+                AND INSTR(company, CHAR(10)) = 0 AND LENGTH(company) > 2
+           THEN company END) AS company,
+      COUNT(*) AS n
+    FROM trades
+    WHERE ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 10
+      AND COALESCE(company,'') NOT IN ('N/A','NA','None','NULL','--','-','')
+    GROUP BY ticker ORDER BY n DESC
+  `);
+  const index = rows.filter(r => {
+    if (!r.company) return true;
+    if (r.company.includes('\n') || r.company.includes('\r')) return false;
+    if (/option|strike|expires|put|call/i.test(r.company) && r.company.length > 40) return false;
+    return true;
+  });
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('search-index', ?, ?)`, [JSON.stringify(index), Date.now()]);
+  log(`search-index cached: ${index.length} tickers`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
@@ -1050,6 +1080,7 @@ async function main() {
   // BEFORE the heavy block - and regardless of light/heavy mode - so the slower
   // leaderboard can never block the study, and a run does not depend on FORCE_FULL.
   await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
+  await computeSearchIndex().catch(e => log('search-index error: ' + e.message));
   await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
 
   // Heavy caches - once per day. Sentiment is now incremental (~95d scan), so it
