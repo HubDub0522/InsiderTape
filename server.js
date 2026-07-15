@@ -590,36 +590,43 @@ app.get('/api/insider', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Shared search used by both the /api/search autocomplete and the
+// server-rendered /search results page. Returns matching tickers + insiders.
+async function _siteSearch(q) {
+  q = (q || '').trim();
+  if (!q) return { tickers: [], insiders: [] };
+  if (!_searchIndex.length) await buildSearchIndex().catch(() => {});
+  const upper = q.toUpperCase();
+  const prefixMatches = [], companyMatches = [];
+  for (const r of _searchIndex) {
+    if (r.ticker.startsWith(upper)) prefixMatches.push(r);
+    else if (r.company && r.company.toUpperCase().includes(upper)) companyMatches.push(r);
+    if (prefixMatches.length >= 8 && companyMatches.length >= 4) break;
+  }
+  const seen = new Set(prefixMatches.map(r => r.ticker));
+  const allTickers = [...prefixMatches, ...companyMatches.filter(r => !seen.has(r.ticker))].slice(0, 8);
+  const insiderRows = q.length >= 2 ? await query(`
+    SELECT insider, MAX(title) AS title, COUNT(*) AS n
+    FROM trades WHERE UPPER(insider) LIKE ? AND insider IS NOT NULL
+    GROUP BY insider ORDER BY n DESC LIMIT 6
+  `, ['%' + upper + '%']) : [];
+  return {
+    tickers: allTickers.map(r => {
+      let co = (r.company || r.ticker).split(/[\n\r]/)[0].trim();
+      if (co.length > 60) co = co.slice(0, 60) + '…';
+      return { ticker: r.ticker, company: co };
+    }),
+    insiders: insiderRows.map(r => ({ name: r.insider, title: r.title || '' })),
+  };
+}
+
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q || q.length < 1) return res.json({ tickers: [], insiders: [] });
-  if (!_searchIndex.length) buildSearchIndex().catch(() => {});
   try {
-    const upper = q.toUpperCase();
-    const prefixMatches = [], companyMatches = [];
-    for (const r of _searchIndex) {
-      if (r.ticker.startsWith(upper)) prefixMatches.push(r);
-      else if (r.company && r.company.toUpperCase().includes(upper)) companyMatches.push(r);
-      if (prefixMatches.length >= 8 && companyMatches.length >= 4) break;
-    }
-    const seen = new Set(prefixMatches.map(r => r.ticker));
-    const allTickers = [...prefixMatches, ...companyMatches.filter(r => !seen.has(r.ticker))].slice(0, 8);
-
-    const insiderRows = q.length >= 2 ? await query(`
-      SELECT insider, MAX(title) AS title, COUNT(*) AS n
-      FROM trades WHERE UPPER(insider) LIKE ? AND insider IS NOT NULL
-      GROUP BY insider ORDER BY n DESC LIMIT 6
-    `, ['%' + upper + '%']) : [];
-
-    res.json({
-      tickers: allTickers.map(r => {
-        let co = (r.company || r.ticker).split(/[\n\r]/)[0].trim();
-        if (co.length > 60) co = co.slice(0, 60) + '…';
-        return { ticker: r.ticker, company: co };
-      }),
-      insiders: insiderRows.map(r => ({ name: r.insider, title: r.title || '' })),
-    });
-    allTickers.slice(0, 3).forEach(r => fetchPriceBars(r.ticker).catch(() => {}));
+    const out = await _siteSearch(q);
+    res.json(out);
+    out.tickers.slice(0, 3).forEach(t => fetchPriceBars(t.ticker).catch(() => {}));
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1915,6 +1922,7 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/', priority: '1.0', freq: 'daily' },
     { url: '/biggest-insider-buys', priority: '0.9', freq: 'daily' },
     { url: '/insider-buying-study', priority: '0.8', freq: 'weekly' },
+    { url: '/search', priority: '0.5', freq: 'monthly' },
     { url: '/screener', priority: '0.9', freq: 'daily' },
     { url: '/stock', priority: '0.8', freq: 'daily' },
     { url: '/insider', priority: '0.8', freq: 'daily' },
@@ -3041,6 +3049,76 @@ app.get('/insider-buying-study', async (req, res) => {
     _studyCache = { html, t: row.computed_at };
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── SEARCH RESULTS PAGE ──────────────────────────────────────────────────────
+// A real, server-rendered search page. Doubles as the target for the WebSite
+// SearchAction (sitelinks search box) in the homepage JSON-LD. Bare /search is
+// an indexable "search insider trading" landing; result pages (?q=) are
+// noindex,follow to avoid indexing infinite query permutations.
+function renderSearchPage(q, results) {
+  const base = 'https://www.insidertape.com';
+  const hasQ = !!q;
+  const qEsc = _esc(q);
+  const title = hasQ ? `Search results for "${qEsc}" | InsiderTape` : 'Search Insider Trading by Ticker or Insider | InsiderTape';
+  const desc = hasQ
+    ? `Insider trading search results for "${qEsc}" - matching companies and corporate insiders from SEC Form 4 filings on InsiderTape.`
+    : 'Search insider trading activity by ticker, company, or insider name. Find SEC Form 4 open-market buys and sells for any US stock or corporate insider on InsiderTape.';
+  const tk = results.tickers || [], ins = results.insiders || [];
+  const rows = [];
+  if (tk.length) rows.push(`<h2>Companies</h2><ul class="res">${tk.map(t => `<li><a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong> <span>${_esc(t.company)}</span></a></li>`).join('')}</ul>`);
+  if (ins.length) rows.push(`<h2>Insiders</h2><ul class="res">${ins.map(i => `<li><a href="/insider-profile/${_insiderSlug(i.name)}"><strong>${_esc(_displayName(i.name))}</strong>${i.title ? ` <span>${_esc(i.title)}</span>` : ''}</a></li>`).join('')}</ul>`);
+  const body = hasQ
+    ? (rows.length ? rows.join('') : `<p class="empty">No companies or insiders matched <strong>"${qEsc}"</strong>. Try a ticker symbol (e.g. <a href="/search?q=AAPL">AAPL</a>) or an insider's name.</p>`)
+    : `<p class="empty">Enter a ticker symbol, company name, or insider's name to see their SEC Form 4 insider trading activity.</p>`;
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title}</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="${hasQ ? 'noindex, follow' : 'index, follow'}">
+<link rel="canonical" href="${base}/search">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:720px;margin:0 auto;padding:44px 24px 90px}
+h1{font-size:clamp(24px,4vw,34px);font-weight:800;letter-spacing:-.5px;margin-bottom:18px}
+form{display:flex;gap:10px;margin-bottom:30px}
+input[type=search]{flex:1;padding:12px 16px;font-size:16px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text)}
+button{background:var(--accent);color:#fff;border:0;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}button:hover{background:var(--accent2)}
+h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:26px 0 12px}
+.res{list-style:none}.res li{margin-bottom:8px}
+.res a{display:flex;align-items:baseline;gap:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:13px 16px;text-decoration:none;color:var(--text)}
+.res a:hover{border-color:var(--accent)}.res strong{font-weight:700}.res span{color:var(--muted);font-size:14px}
+.empty{color:var(--muted);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px 20px}.empty a{color:var(--accent)}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2);margin-top:40px}footer a{color:var(--accent);text-decoration:none}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <h1>${hasQ ? `Search results for &ldquo;${qEsc}&rdquo;` : 'Search insider trading'}</h1>
+  <form action="/search" method="get" role="search">
+    <input type="search" name="q" value="${qEsc}" placeholder="Ticker, company, or insider name" aria-label="Search insider trading" autofocus>
+    <button type="submit">Search</button>
+  </form>
+  ${body}
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice.</footer>
+</body></html>`;
+}
+
+app.get('/search', async (req, res) => {
+  const q = (req.query.q || '').toString().trim().slice(0, 60);
+  try {
+    const results = q ? await _siteSearch(q) : { tickers: [], insiders: [] };
+    res.type('html').send(renderSearchPage(q, results));
+  } catch(e) {
+    res.type('html').send(renderSearchPage(q, { tickers: [], insiders: [] }));
+  }
 });
 
 // ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
