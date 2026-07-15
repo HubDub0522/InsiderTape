@@ -1970,6 +1970,16 @@ function renderTickerPage(ticker, rows, stats) {
   const intro = `Over the past 12 months, ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} at ${co} filed ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'} on ${ticker}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}. Insiders have been ${posture} over this period. The most recent filing was on ${_fmtDate(stats.latest)}.`;
   const desc = `Latest insider trading activity for ${company} (${ticker}). Recent SEC Form 4 buys and sells by executives and directors, with dates, share counts, and dollar values.`;
 
+  // Data-driven FAQ (visible content + FAQPage schema). Answers mirror the
+  // on-page text exactly so the structured data stays compliant.
+  const _bigBuy = rows.filter(r => r.type === 'P' && +r.value > 0).sort((a, b) => (+b.value) - (+a.value))[0];
+  const faq = [];
+  faq.push({ q: `Are insiders buying ${ticker} stock?`, a: `Over the past 12 months, insiders at ${company} filed ${buys} open-market purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)} on ${ticker}, which makes them ${posture} over the period. The most recent Form 4 was filed on ${_fmtDate(stats.latest)}.` });
+  if (_bigBuy && _bigBuy.insider) faq.push({ q: `Who has been buying ${ticker} stock?`, a: `The largest recent open-market ${ticker} insider purchase in our data was ${_fmtV(_bigBuy.value)} by ${_displayName(_bigBuy.insider)}${_bigBuy.title ? `, ${_bigBuy.title}` : ''}, filed on ${_fmtDate(_bigBuy.trade || _bigBuy.filing)}.` });
+  faq.push({ q: `How many insiders have traded ${ticker} in the past year?`, a: `${stats.insiders || 0} different insider${stats.insiders === 1 ? '' : 's'} at ${company} filed open-market SEC Form 4 transactions on ${ticker} over the last 12 months.` });
+  faq.push({ q: `How can I track ${ticker} insider trading in real time?`, a: `InsiderTape plots every ${ticker} insider buy and sell directly on the price chart and flags new SEC Form 4 filings as they arrive, with cluster detection and buy/sell pressure. The data updates daily from SEC EDGAR.` });
+  const faqHtml = faq.map(f => `<div class="qa"><h3>${_esc(f.q)}</h3><p>${_esc(f.a)}</p></div>`).join('');
+
   const tableRows = rows.map(r => {
     const isBuy = r.type === 'P', isSell = r.type === 'S' || r.type === 'S-';
     const badge = isBuy ? '<span class="b buy">BUY</span>' : isSell ? '<span class="b sell">SELL</span>' : '<span class="b">' + _esc(r.type) + '</span>';
@@ -1996,6 +2006,7 @@ function renderTickerPage(ticker, rows, stats) {
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: `${ticker} Insider Trading - ${company}`, description: desc, url })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: `${ticker} Insider Trading`, item: url }] })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
@@ -2025,6 +2036,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 .cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
 .btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
 .rel{margin-top:40px;font-size:13px;color:var(--muted)}.rel a{color:var(--accent);text-decoration:none}.rel li{margin:6px 0}
+.faq{margin-top:40px}.faq h2{margin-bottom:14px}.faq .qa{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px}.faq h3{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)}.faq p{font-size:14px;color:#3a4555;margin:0}
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
 </style></head><body>
@@ -2042,6 +2054,10 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   </div>
   <h2>Recent ${ticker} insider trades</h2>
   <table><thead><tr><th>Date</th><th>Insider</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
+  <section class="faq">
+    <h2>${ticker} insider trading FAQ</h2>
+    ${faqHtml}
+  </section>
   <div class="cta">
     <h3>Track ${ticker} insider trades in real time</h3>
     <p>InsiderTape plots every ${co} insider buy and sell on the price chart, with buy/sell pressure, cluster detection, and alerts the moment new Form 4s hit. Start a free 7-day trial, cancel anytime.</p>
@@ -2203,6 +2219,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 .cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
 .btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
 .rel{margin-top:40px;font-size:13px;color:var(--muted)}.rel a{color:var(--accent);text-decoration:none}.rel li{margin:6px 0}
+.faq{margin-top:40px}.faq h2{margin-bottom:14px}.faq .qa{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px}.faq h3{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)}.faq p{font-size:14px;color:#3a4555;margin:0}
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
 </style></head><body>
