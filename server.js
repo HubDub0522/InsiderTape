@@ -158,6 +158,15 @@ async function initSchema() {
 // Schema is pre-created by GitHub Actions init job - no startup init needed.
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
+// Canonical host: 301 the bare apex (insidertape.com) to the www host so Google
+// stops splitting ranking signals across two hostnames. Must run before the
+// static and route handlers so it also catches /articles/* and static assets.
+app.use((req, res, next) => {
+  if ((req.headers.host || '').toLowerCase() === 'insidertape.com') {
+    return res.redirect(301, 'https://www.insidertape.com' + req.originalUrl);
+  }
+  next();
+});
 app.use(cors());
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
@@ -1958,7 +1967,7 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/premium', priority: '0.7', freq: 'monthly' },
     { url: '/articles/', priority: '0.7', freq: 'weekly' },
   ];
-  const articleSlugs = ['is-insider-buying-bullish','what-it-means-when-a-ceo-buys-stock','insider-buying-near-52-week-lows','what-is-a-10b5-1-plan','first-insider-buy-in-years','real-insider-buys-vs-option-exercises','cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
+  const articleSlugs = ['what-is-sec-form-4','sec-form-4-transaction-codes','is-insider-buying-bullish','what-it-means-when-a-ceo-buys-stock','insider-buying-near-52-week-lows','what-is-a-10b5-1-plan','first-insider-buy-in-years','real-insider-buys-vs-option-exercises','cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
   const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}.html`, priority: '0.6', freq: 'monthly' }));
   // Ticker + insider lists are precomputed by scripts/precompute.js
   // (computeSitemapLists) and read from a single cached row here - running the
