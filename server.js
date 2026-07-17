@@ -2088,7 +2088,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; Insider Trading &nbsp;/&nbsp; ${ticker}</div>
   <h1>${co} (${ticker}) Insider Trading Activity</h1>
@@ -2271,7 +2271,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta" style="margin-top:0">
     <h3>Follow ${dn}'s trades in real time</h3>
@@ -2418,7 +2418,7 @@ td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.summary{grid-template-columns:1fr}table{font-size:12px}th,td{padding:9px 8px}.tk .co{max-width:130px}th:nth-child(4),td:nth-child(4){display:none}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Updated Daily &nbsp;·&nbsp; Free</div>
   <h1>Biggest Insider Buys This Week</h1>
@@ -2550,7 +2550,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}th:nth-child(5),td:nth-child(5){display:none}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta" style="margin-top:0">
     <h3>Track ${co} insider buys in real time</h3>
@@ -2693,7 +2693,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){display:none}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta" style="margin-top:0">
     <h3>Get ${role} buys the moment they file</h3>
@@ -2854,7 +2854,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 9px}.tk .co{max-width:120px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta" style="margin-top:0">
     <h3>See these buys plotted on the chart</h3>
@@ -3037,7 +3037,7 @@ td{padding:11px 13px;border-bottom:1px solid var(--border);vertical-align:middle
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){table{font-size:12px}th,td{padding:9px 8px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Data Study</div>
   <h1>Which Insiders Actually Beat the Market?</h1>
@@ -3138,7 +3138,7 @@ h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;c
 .empty{color:var(--muted);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px 20px}.empty a{color:var(--accent)}
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2);margin-top:40px}footer a{color:var(--accent);text-decoration:none}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <h1>${hasQ ? `Search results for &ldquo;${qEsc}&rdquo;` : 'Search insider trading'}</h1>
   <form action="/search" method="get" role="search">
@@ -3208,7 +3208,7 @@ a.inline{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(3
 .box.info{background:rgba(36,120,204,.06);border:1px solid rgba(36,120,204,.2);color:var(--accent)}
 footer{border-top:1px solid var(--border);padding:26px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; ${_esc(name)}</div>
   <h1>${_esc(name)}</h1>
