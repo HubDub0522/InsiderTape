@@ -1966,6 +1966,8 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/insider', priority: '0.8', freq: 'daily' },
     { url: '/premium', priority: '0.7', freq: 'monthly' },
     { url: '/articles/', priority: '0.7', freq: 'weekly' },
+    { url: '/terms', priority: '0.3', freq: 'yearly' },
+    { url: '/privacy', priority: '0.3', freq: 'yearly' },
   ];
   const articleSlugs = ['what-is-sec-form-4','sec-form-4-transaction-codes','is-insider-buying-bullish','what-it-means-when-a-ceo-buys-stock','insider-buying-near-52-week-lows','what-is-a-10b5-1-plan','first-insider-buy-in-years','real-insider-buys-vs-option-exercises','cluster-buying-example','how-to-find-stocks-with-insider-buying','how-to-read-sec-form-4','how-to-use-insider-data','insider-buying-vs-analyst-upgrades','legal-vs-illegal-insider-trading','what-is-cluster-buying'];
   const articlePages = articleSlugs.map(s => ({ url: `/articles/${s}.html`, priority: '0.6', freq: 'monthly' }));
@@ -3162,6 +3164,133 @@ app.get('/search', async (req, res) => {
   } catch(e) {
     res.type('html').send(renderSearchPage(q, { tickers: [], insiders: [] }));
   }
+});
+
+// ─── LEGAL PAGES (Terms, Privacy) ─────────────────────────────────────────────
+// Standalone, indexable pages (were previously SPA-only modals). Content is the
+// same policy text, served at clean /terms and /privacy URLs.
+const LEGAL_UPDATED = 'July 17, 2026';
+function renderLegalPage(slug, name, metaTitle, metaDesc, bodyHtml) {
+  const url = `https://www.insidertape.com/${slug}`;
+  const other = slug === 'terms' ? { href: '/privacy', label: 'Privacy Policy' } : { href: '/terms', label: 'Terms & Conditions' };
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${_esc(metaTitle)}</title>
+<meta name="description" content="${_esc(metaDesc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="${_esc(metaTitle)}">
+<meta property="og:description" content="${_esc(metaDesc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name, item: url }] })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#2478cc;--accent2:#1a5fa8;--sell:#b03030}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:760px;margin:0 auto;padding:44px 24px 90px}
+.crumb{font-size:12px;color:var(--muted);margin-bottom:14px}.crumb a{color:var(--accent);text-decoration:none}
+h1{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.5px;margin-bottom:8px}
+.upd{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:28px}
+h2{font-size:16px;font-weight:700;margin:32px 0 10px;color:var(--text)}
+p{margin:0 0 14px;color:#3a4555;font-size:15px;line-height:1.75}
+ul{margin:0 0 14px 20px}li{margin-bottom:8px;color:#3a4555;font-size:15px;line-height:1.7}
+strong{color:var(--text);font-weight:600}
+a.inline{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(36,120,204,.3)}
+.box{margin-top:24px;padding:14px 16px;border-radius:8px;font-size:13px;line-height:1.6}
+.box.warn{background:rgba(176,48,48,.06);border:1px solid rgba(176,48,48,.25);color:var(--sell)}
+.box.info{background:rgba(36,120,204,.06);border:1px solid rgba(36,120,204,.2);color:var(--accent)}
+footer{border-top:1px solid var(--border);padding:26px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">Screener</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; ${_esc(name)}</div>
+  <h1>${_esc(name)}</h1>
+  <div class="upd">Last updated: ${LEGAL_UPDATED}</div>
+  ${bodyHtml}
+  <p style="margin-top:32px;font-size:13px;color:var(--muted)"><a class="inline" href="${other.href}">${_esc(other.label)}</a> &nbsp;·&nbsp; <a class="inline" href="/">Back to InsiderTape</a></p>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
+</body></html>`;
+}
+
+const TERMS_BODY = `
+    <p>Please read these Terms and Conditions ("Terms") carefully before using InsiderTape ("the Platform," "we," "us," or "our"). By accessing or using InsiderTape, you agree to be bound by these Terms. If you do not agree, do not use this Platform.</p>
+    <h2>1. Not Financial Advice</h2>
+    <p><strong>InsiderTape is a data aggregation and informational tool only.</strong> Nothing on this Platform constitutes financial advice, investment advice, trading advice, or any other form of advice. No content, data, score, indicator, signal, or analysis displayed on InsiderTape should be construed as a recommendation to buy, sell, or hold any security, cryptocurrency, commodity, or other financial instrument.</p>
+    <p>You acknowledge that all investment decisions you make are solely your own responsibility. InsiderTape and its operators shall not be liable for any losses, damages, or adverse outcomes resulting from decisions made in reliance on information displayed on this Platform.</p>
+    <h2>2. No Investment Solicitation</h2>
+    <p>InsiderTape does not solicit investments, broker securities transactions, or act as a registered investment advisor. We are not registered with the U.S. Securities and Exchange Commission (SEC), the Financial Industry Regulatory Authority (FINRA), or any other financial regulatory body in any jurisdiction. Nothing on this Platform constitutes an offer to sell or a solicitation of an offer to buy any securities.</p>
+    <h2>3. Data Sources and Accuracy</h2>
+    <p>Data displayed on InsiderTape is sourced from SEC Form 4 filings submitted to the SEC's EDGAR system. While we make reasonable efforts to display data accurately, we make <strong>no representations or warranties</strong> - express or implied - regarding the completeness, accuracy, reliability, suitability, or timeliness of any data.</p>
+    <p>SEC filings may contain errors, omissions, or delays. Insider transactions may be reported late, amended, or restated. Price data is obtained from third-party providers and may not reflect real-time market conditions. You should independently verify all data before relying on it.</p>
+    <h2>4. Past Performance</h2>
+    <p>Historical data, scores, return calculations, and pattern analysis shown on InsiderTape are based on past performance. <strong>Past performance is not indicative of future results.</strong> Insider buying or selling activity does not guarantee any particular outcome for a security's price. All investing involves risk, including the possible loss of principal.</p>
+    <h2>5. Limitation of Liability</h2>
+    <p>To the fullest extent permitted by applicable law, InsiderTape, its owners, operators, employees, and affiliates shall not be liable for any direct, indirect, incidental, special, consequential, punitive, or exemplary damages arising from or related to your use of the Platform, including but not limited to: investment losses, lost profits, loss of data, or any other pecuniary or non-pecuniary loss, even if advised of the possibility of such damages.</p>
+    <p>Your sole remedy for dissatisfaction with the Platform is to stop using it.</p>
+    <h2>6. Indemnification</h2>
+    <p>You agree to indemnify, defend, and hold harmless InsiderTape and its operators from any claims, liabilities, damages, losses, costs, or expenses (including reasonable attorneys' fees) arising out of or related to your use of the Platform, your violation of these Terms, or your violation of any applicable law or the rights of any third party.</p>
+    <h2>7. Intellectual Property</h2>
+    <p>All original content, design elements, scoring methodologies, and software comprising InsiderTape are the property of InsiderTape and are protected by applicable intellectual property laws. Underlying government data (SEC filings) is in the public domain. You may not reproduce, distribute, modify, or create derivative works of any proprietary Platform content without express written permission.</p>
+    <h2>8. Third-Party Data and Links</h2>
+    <p>This Platform may display data from or link to third-party sources. InsiderTape is not responsible for the content, accuracy, or practices of any third-party provider. Inclusion of third-party data does not imply endorsement.</p>
+    <h2>9. Prohibited Uses</h2>
+    <p>You agree not to use the Platform to: (a) engage in any unlawful activity; (b) scrape, harvest, or systematically collect data at scale; (c) manipulate securities prices or engage in market manipulation; (d) violate any applicable securities laws or regulations; or (e) impersonate any person or entity.</p>
+    <h2>10. Modifications</h2>
+    <p>We reserve the right to modify these Terms at any time. Continued use of the Platform after any modification constitutes your acceptance of the revised Terms. We encourage you to review these Terms periodically.</p>
+    <h2>11. Governing Law</h2>
+    <p>These Terms shall be governed by and construed in accordance with the laws of the United States. Any dispute arising under these Terms shall be subject to the exclusive jurisdiction of the competent courts of the United States.</p>
+    <h2>12. Entire Agreement</h2>
+    <p>These Terms, together with our <a class="inline" href="/privacy">Privacy Policy</a>, constitute the entire agreement between you and InsiderTape with respect to your use of the Platform and supersede all prior agreements, understandings, and representations.</p>
+    <div class="box warn">&#9888; <strong>Important Reminder:</strong> InsiderTape displays public filing data for research purposes only. It is not a financial advisor. Always do your own due diligence and consult a licensed financial professional before making investment decisions.</div>
+`;
+
+const PRIVACY_BODY = `
+    <p>InsiderTape ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains what information we collect, how we use it, and your rights with respect to that information.</p>
+    <h2>1. Information We Collect</h2>
+    <ul>
+      <li><strong>Usage Data:</strong> We may automatically collect non-personally identifiable information about how you interact with the Platform, including pages visited, features used, browser type, operating system, and general geographic region (country/region level). This data is used solely for improving the Platform.</li>
+      <li><strong>Technical Data:</strong> IP addresses, access timestamps, and referrer URLs may be recorded in standard server logs for security and operational purposes.</li>
+      <li><strong>Account &amp; Subscription Data:</strong> If you subscribe, our payment processor (Stripe) collects the information needed to process your payment. We receive your email address and subscription status; we never receive or store your full card number.</li>
+    </ul>
+    <h2>2. Information We Do Not Collect</h2>
+    <p>We do not collect, store, or process: Social Security numbers, government ID numbers, biometric data, health data, full payment card numbers, or any sensitive personal data categories as defined under applicable privacy law.</p>
+    <h2>3. How We Use Information</h2>
+    <p>Any data we collect is used to: (a) operate and improve the Platform; (b) provide and manage subscriptions; (c) diagnose technical issues; (d) understand aggregate usage patterns; and (e) comply with legal obligations. We do not sell, rent, or share your personal information with third parties for their marketing purposes.</p>
+    <h2>4. Cookies and Tracking</h2>
+    <p>InsiderTape may use minimal functional cookies or browser local storage to preserve your in-session preferences (e.g., selected filters or view state) and to keep you signed in. We do not use third-party advertising cookies, behavioral tracking pixels, or cross-site tracking technologies. You may disable cookies in your browser settings; this may affect Platform functionality.</p>
+    <h2>5. Public Data Displayed</h2>
+    <p>The data displayed on InsiderTape - insider names, trade amounts - is sourced from public government filings including SEC EDGAR (Form 4 filings). All such data is already in the public domain. We do not claim any privacy interest in this data on behalf of the filers, as it is voluntarily submitted to public regulatory bodies as required by law.</p>
+    <h2>6. Data Security</h2>
+    <p>We implement reasonable technical and organizational measures to protect the Platform and any data it processes. However, no system is completely secure. We cannot guarantee the absolute security of any information.</p>
+    <h2>7. Third-Party Services</h2>
+    <p>The Platform relies on third-party services for payment processing (Stripe), price data, hosting, email, and analytics. These providers may collect certain data subject to their own privacy policies. We select providers that maintain reasonable privacy practices, but we are not responsible for their independent data collection.</p>
+    <h2>8. Data Retention</h2>
+    <p>Server log data is retained for a limited period for security and operational purposes, after which it is deleted. Subscription records are retained as required for accounting and legal purposes. Public filing data aggregated from government sources is retained as long as the Platform operates.</p>
+    <h2>9. Your Rights</h2>
+    <p>Depending on your jurisdiction, you may have rights to access, correct, or request deletion of personal data we hold about you. To exercise any such rights, contact us through the Platform.</p>
+    <p>If you are in the European Economic Area (EEA), you have additional rights under the General Data Protection Regulation (GDPR). If you are a California resident, you have rights under the California Consumer Privacy Act (CCPA). Please contact us to exercise these rights.</p>
+    <h2>10. Children's Privacy</h2>
+    <p>InsiderTape is not directed at children under the age of 13 (or 16 in the EEA). We do not knowingly collect personal information from children. If you believe a child has provided us with personal information, please contact us and we will delete it.</p>
+    <h2>11. Changes to This Policy</h2>
+    <p>We may update this Privacy Policy from time to time. We will indicate the date of the most recent update at the top of this page. Continued use of the Platform after any changes constitutes your acceptance of the revised Policy.</p>
+    <h2>12. Contact</h2>
+    <p>If you have questions about this Privacy Policy or our privacy practices, you may contact us through the Platform interface. We will make reasonable efforts to respond in a timely manner.</p>
+    <div class="box info">InsiderTape collects minimal data, does not sell your information, and does not use advertising tracking. Our core product is public government filing data - not your personal information.</div>
+`;
+
+app.get('/terms', (req, res) => {
+  res.type('html').send(renderLegalPage('terms', 'Terms & Conditions', 'Terms & Conditions | InsiderTape', 'InsiderTape Terms and Conditions. InsiderTape is an informational tool that aggregates public SEC Form 4 filings and is not financial advice - read the full terms of use.', TERMS_BODY));
+});
+app.get('/privacy', (req, res) => {
+  res.type('html').send(renderLegalPage('privacy', 'Privacy Policy', 'Privacy Policy | InsiderTape', 'InsiderTape Privacy Policy: what data we collect, how we use it, cookies, third-party services, and your rights. We collect minimal data and use no advertising tracking.', PRIVACY_BODY));
 });
 
 // ─── SPA FALLBACK ─────────────────────────────────────────────────────────────
