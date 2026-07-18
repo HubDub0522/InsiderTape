@@ -960,6 +960,11 @@
   .table-wrap { border-radius: 12px; box-shadow: 0 12px 32px -24px rgba(15,26,43,.30); }
   .conviction-card { border-radius: 12px; box-shadow: 0 12px 28px -22px rgba(15,26,43,.24); }
   .filter-panel { border-radius: 12px; }
+  /* (?) info tooltips on stat tiles */
+  .qmark { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:rgba(8,145,178,.16); color:var(--accent); font-size:9px; font-weight:800; cursor:help; position:relative; vertical-align:middle; text-transform:none; letter-spacing:0; }
+  .qmark .qtip { display:none; position:absolute; top:170%; left:50%; transform:translateX(-50%); width:238px; max-width:74vw; background:#0f1a2b; color:#e8eff8; font-size:11px; font-weight:400; line-height:1.5; letter-spacing:.1px; text-transform:none; padding:10px 12px; border-radius:8px; box-shadow:0 12px 32px rgba(15,26,43,.35); z-index:60; text-align:left; white-space:normal; }
+  .qmark .qtip::after { content:""; position:absolute; bottom:100%; left:50%; transform:translateX(-50%); border:6px solid transparent; border-bottom-color:#0f1a2b; }
+  .qmark:hover .qtip, .qmark:focus .qtip { display:block; }
 </style>
 </head>
 <body>
@@ -1944,12 +1949,15 @@ function renderScreener() {
   // Show sc13 info banner when 5% Owner filter active or sc13 rows present
   const buys = data.filter(t => t.type==='P'), sells = data.filter(t => t.type==='S'||t.type==='S-');
   const totalBuyVal = buys.reduce((s,t)=>s+t.value,0), totalSellVal = sells.reduce((s,t)=>s+t.value,0);
+  const cfoBuys = buys.filter(t => /\b(CFO|C\.F\.O|CHIEF FINANCIAL)\b/.test((t.title||'').toUpperCase())).length;
+  const clusterCount = (typeof detectClusters3 === 'function' ? detectClusters3(data).length : 0);
+  const _prem = (typeof auth !== 'undefined' && auth && auth.isPremium);
+  const _q = txt => `<span class="qmark" tabindex="0" onclick="event.stopPropagation()">?<span class="qtip">${txt}</span></span>`;
   document.getElementById('summaryBar').innerHTML = `
-    <div class="summary-card"><div class="summary-card-label">Total Trades</div><div class="summary-card-val" style="color:var(--text)">${data.length}</div></div>
-    <div class="summary-card"><div class="summary-card-label">Buy Volume</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div></div>
-    <div class="summary-card"><div class="summary-card-label">Sell Volume</div><div class="summary-card-val" style="color:var(--sell)">${fmt(totalSellVal)}</div></div>
-    <div class="summary-card"><div class="summary-card-label" title="Transaction count ratio - buys ÷ sells. Historical norm ~0.25">Buy/Sell Ratio</div><div class="summary-card-val" style="color:${totalBuyVal>totalSellVal?'var(--buy)':'var(--sell)'}">${sells.length?(buys.length/sells.length).toFixed(2):'∞'}x</div></div>
-    <div class="summary-card"><div class="summary-card-label">Unique Tickers</div><div class="summary-card-val" style="color:var(--accent)">${new Set(data.map(t=>t.ticker)).size}</div></div>`;
+    <div class="summary-card"><div class="summary-card-label">Buys</div><div class="summary-card-val" style="color:var(--buy)">${buys.length}</div></div>
+    <div class="summary-card"><div class="summary-card-label">Total Bought</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div></div>
+    <div class="summary-card"><div class="summary-card-label">CFO Buys ${_q('We backtested 45,712 insider buys over five years. The CFO&#39;s purchase was the sharpest role - it beat the Russell 2000 at 30, 60 and 90 days, while CEO buys lagged. That is why CFO buys get their own tile.')}</div><div class="summary-card-val" style="color:var(--accent)">${cfoBuys}</div></div>
+    <div class="summary-card"><div class="summary-card-label">Cluster Alerts ${_q('A cluster is 3+ insiders buying the same stock within a month. In our five-year study, clusters were positive about 60% of the time at 90 days, and the odds rose with every extra buyer. Cluster alerts are a Premium feature.')}</div><div class="summary-card-val" style="color:var(--accent)">${_prem ? clusterCount : '<span style="font-size:15px">🔒</span> <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.5px">Premium</span>'}</div></div>`;
   const latestTrade = data.reduce((best, t) => { const d = t.trade || t.filing || ''; return d > best ? d : best; }, '');
   const latestLabel = latestTrade ? `latest filing ${fmtDate(latestTrade)}` : `refreshed ${new Date().toLocaleTimeString()}`;
   document.getElementById('screenerMeta').textContent = `${data.length} filings · ${latestLabel}`;
