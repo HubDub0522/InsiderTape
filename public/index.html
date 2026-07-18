@@ -2584,7 +2584,7 @@ function renderStockLanding(lists) {
 
   const sectionStyle = `margin-bottom:32px`;
   const headerStyle  = `display:flex;align-items:baseline;gap:10px;margin-bottom:14px`;
-  const titleStyle   = `font-family:Inter,sans-serif;font-size:18px;letter-spacing:2px;color:var(--text)`;
+  const titleStyle   = `font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:18px;font-weight:700;letter-spacing:1px;color:var(--text)`;
   const subtitleStyle= `font-size:11px;color:var(--muted)`;
   const gridStyle    = `display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px` +
     (window.innerWidth <= 640 ? ';grid-template-columns:repeat(3,1fr)' : '');
@@ -2594,13 +2594,13 @@ function renderStockLanding(lists) {
       `<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:${bg};color:${color};font-family:Inter,monospace;letter-spacing:0.5px">${label}</span>`
     ).join('');
     const statsHtml = stats.map(([val, label]) =>
-      `<div style="text-align:center"><div style="font-size:13px;font-weight:600;color:var(--text)">${val}</div><div style="font-size:9px;color:var(--muted);margin-top:1px">${label}</div></div>`
+      `<div style="text-align:center"><div style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:13px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${val}</div><div style="font-size:9px;color:var(--muted);margin-top:1px">${label}</div></div>`
     ).join('');
     return `<div onclick="${onClick}" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px;cursor:pointer;transition:border-color 0.15s,background 0.15s"
       onmouseenter="this.style.borderColor='var(--border2)';this.style.background='var(--bg3)'"
       onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--bg2)'">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="font-family:Inter,sans-serif;font-size:17px;letter-spacing:1px;color:var(--accent)">${ticker}</span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-weight:800;font-size:16px;letter-spacing:.5px;color:var(--accent)">${ticker}</span>
         ${badgeHtml}
       </div>
       <div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company||''}</div>
@@ -2702,7 +2702,7 @@ function renderStockLanding(lists) {
   }
   content.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
     <div style="margin-bottom:28px">
-      <div style="font-family:Inter,sans-serif;font-size:28px;letter-spacing:3px;color:var(--text)">STOCK VIEW</div>
+      <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:800;font-size:28px;letter-spacing:1px;color:var(--text)">STOCK VIEW</div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px">Insider activity by stock · Search any ticker above · Data from SEC Form 4 filings</div>
     </div>
     ${!hasAny ? '<div style="text-align:center;padding:60px 20px"><div style="font-size:28px;margin-bottom:12px">⏳</div><div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:6px">Market activity tiles are loading</div><div style="font-size:12px;color:var(--muted);margin-bottom:20px">This can take a few seconds on first load</div><button onclick="_stockListsCache=null;loadStockLanding()" style="padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-family:Inter,sans-serif;font-size:12px;font-weight:700;cursor:pointer">RETRY →</button></div>' : ''}
