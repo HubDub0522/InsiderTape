@@ -986,6 +986,9 @@
   #view-stock { font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
   #view-stock .stock-ticker-big, #view-stock .stock-price, #view-stock .stock-change, #view-stock .stat-val, #view-stock .stat-value { font-family: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace; font-variant-numeric: tabular-nums; }
   #view-stock .stock-ticker-big { font-weight: 800; }
+  /* Insider view: match The Tape / Stock View typography (system-sans text, mono numbers) */
+  #view-insider, #view-insider * { font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif !important; }
+  #view-insider [style*="tabular-nums"] { font-family: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace !important; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
