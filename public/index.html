@@ -2591,19 +2591,19 @@ function renderStockLanding(lists) {
 
   function stockCard(ticker, company, badges=[], stats=[], onClick='') {
     const badgeHtml = badges.map(([label, color, bg]) =>
-      `<span style="font-size:9px;padding:1px 5px;border-radius:2px;background:${bg};color:${color};font-family:Inter,monospace;letter-spacing:0.5px">${label}</span>`
+      `<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:${bg};color:${color};font-family:ui-monospace,monospace;letter-spacing:0.5px">${label}</span>`
     ).join('');
     const statsHtml = stats.map(([val, label]) =>
-      `<div style="text-align:center"><div style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:13px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${val}</div><div style="font-size:9px;color:var(--muted);margin-top:1px">${label}</div></div>`
+      `<div style="text-align:center"><div style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:15px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${val}</div><div style="font-size:10px;color:var(--muted);margin-top:2px">${label}</div></div>`
     ).join('');
-    return `<div onclick="${onClick}" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px 14px;cursor:pointer;transition:border-color 0.15s,background 0.15s"
+    return `<div onclick="${onClick}" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:15px 17px;cursor:pointer;transition:border-color 0.15s,background 0.15s"
       onmouseenter="this.style.borderColor='var(--border2)';this.style.background='var(--bg3)'"
       onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--bg2)'">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-weight:800;font-size:16px;letter-spacing:.5px;color:var(--accent)">${ticker}</span>
+        <span style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-weight:800;font-size:18px;letter-spacing:.5px;color:var(--accent)">${ticker}</span>
         ${badgeHtml}
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company||''}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company||''}</div>
       <div style="display:flex;gap:12px">${statsHtml}</div>
     </div>`;
   }
