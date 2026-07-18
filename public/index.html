@@ -965,6 +965,13 @@
   .qmark .qtip { display:none; position:absolute; top:170%; left:50%; transform:translateX(-50%); width:238px; max-width:74vw; background:#0f1a2b; color:#e8eff8; font-size:11px; font-weight:400; line-height:1.5; letter-spacing:.1px; text-transform:none; padding:10px 12px; border-radius:8px; box-shadow:0 12px 32px rgba(15,26,43,.35); z-index:60; text-align:left; white-space:normal; }
   .qmark .qtip::after { content:""; position:absolute; bottom:100%; left:50%; transform:translateX(-50%); border:6px solid transparent; border-bottom-color:#0f1a2b; }
   .qmark:hover .qtip, .qmark:focus .qtip { display:block; }
+  /* Signal stat tiles: centered, system sans labels, mono values, detail line */
+  .summary-card { text-align:center; font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; padding:14px 16px; }
+  .summary-card-label { font-size:10px; letter-spacing:.1em; display:inline-flex; align-items:center; gap:5px; justify-content:center; }
+  .summary-card-val { font-family: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace; font-size:23px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:6px; }
+  .summary-card-sub { font-size:11px; color:var(--muted); margin-top:5px; }
+  .summary-card .tile-num { cursor:pointer; border-radius:3px; padding:0 2px; }
+  .summary-card .tile-num:hover { text-decoration:underline; }
 </style>
 </head>
 <body>
@@ -1049,6 +1056,10 @@
     <span class="rail-tip">Watchlist</span>
   </button>
   <div class="rail-spacer"></div>
+  <button class="rail-btn" id="rail-study" onclick="window.location.href='/insider-buying-study'" aria-label="Study">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="20" x2="5" y2="13"/><line x1="12" y1="20" x2="12" y2="8"/><line x1="19" y1="20" x2="19" y2="4"/></svg>
+    <span class="rail-tip">Study</span>
+  </button>
   <button class="rail-btn" id="rail-learn" onclick="window.location.href='/articles/'" aria-label="Learn">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><line x1="8" y1="7.5" x2="15.5" y2="7.5"/><line x1="8" y1="11" x2="15.5" y2="11"/></svg>
     <span class="rail-tip">Learn</span>
@@ -1943,6 +1954,34 @@ function renderConvictionCards(trades) {
 }
 
 
+// Clicking a stat-tile number applies the matching screener filter.
+function _tapeSetBuysOnly() {
+  state.activeTypes = new Set(['P']);
+  document.querySelectorAll('.chip[data-type]').forEach(c => c.classList.toggle('active', c.dataset.type === 'P'));
+}
+function tapeFilterBuys() {
+  _tapeSetBuysOnly();
+  if (typeof saveFilters === 'function') saveFilters();
+  loadScreener();
+}
+function tapeFilterCfo() {
+  _tapeSetBuysOnly();
+  state.activeRole = 'CFO';
+  document.querySelectorAll('.chip[data-role]').forEach(c => c.classList.toggle('active', c.dataset.role === 'CFO'));
+  if (typeof saveFilters === 'function') saveFilters();
+  loadScreener();
+}
+function tapeFilterClusters() {
+  const cl = (typeof detectClusters3 === 'function') ? detectClusters3(state.screenerData || []) : [];
+  const tickers = cl.map(c => c.ticker);
+  if (!tickers.length) return;
+  _tapeSetBuysOnly();
+  state.tickerFilter = new Set(tickers);
+  if (typeof renderTickerFilterTags === 'function') renderTickerFilterTags();
+  if (typeof saveFilters === 'function') saveFilters();
+  loadScreener();
+}
+
 function renderScreener() {
   window.scrollTo(0, 0);
   const data = state.screenerData;
@@ -1953,11 +1992,12 @@ function renderScreener() {
   const clusterCount = (typeof detectClusters3 === 'function' ? detectClusters3(data).length : 0);
   const _prem = (typeof auth !== 'undefined' && auth && auth.isPremium);
   const _q = txt => `<span class="qmark" tabindex="0" onclick="event.stopPropagation()">?<span class="qtip">${txt}</span></span>`;
+  const _uBuyTk = new Set(buys.map(t => t.ticker)).size;
   document.getElementById('summaryBar').innerHTML = `
-    <div class="summary-card"><div class="summary-card-label">Buys</div><div class="summary-card-val" style="color:var(--buy)">${buys.length}</div></div>
-    <div class="summary-card"><div class="summary-card-label">Total Bought</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div></div>
-    <div class="summary-card"><div class="summary-card-label">CFO Buys ${_q('We backtested 45,712 insider buys over five years. The CFO&#39;s purchase was the sharpest role - it beat the Russell 2000 at 30, 60 and 90 days, while CEO buys lagged. That is why CFO buys get their own tile.')}</div><div class="summary-card-val" style="color:var(--accent)">${cfoBuys}</div></div>
-    <div class="summary-card"><div class="summary-card-label">Cluster Alerts ${_q('A cluster is 3+ insiders buying the same stock within a month. In our five-year study, clusters were positive about 60% of the time at 90 days, and the odds rose with every extra buyer. Cluster alerts are a Premium feature.')}</div><div class="summary-card-val" style="color:var(--accent)">${_prem ? clusterCount : '<span style="font-size:15px">🔒</span> <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.5px">Premium</span>'}</div></div>`;
+    <div class="summary-card"><div class="summary-card-label">Buys ${_q('Insiders sell for all kinds of reasons - taxes, a house, diversification. They buy for only one: they expect the stock to go up. That is why open-market buys are the signal we track.')}</div><div class="summary-card-val" style="color:var(--buy)"><span class="tile-num" onclick="tapeFilterBuys()" title="Show only buys">${buys.length}</span></div><div class="summary-card-sub">across ${_uBuyTk} ${_uBuyTk === 1 ? 'company' : 'companies'}</div></div>
+    <div class="summary-card"><div class="summary-card-label">Total Bought</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div><div class="summary-card-sub">open-market only</div></div>
+    <div class="summary-card"><div class="summary-card-label">CFO Buys ${_q('We backtested 45,712 insider buys over five years. The CFO&#39;s purchase was the sharpest role - it beat the Russell 2000 at 30, 60 and 90 days, while CEO buys lagged. See the full backtest in the Study section.')}</div><div class="summary-card-val" style="color:var(--accent)"><span class="tile-num" onclick="tapeFilterCfo()" title="Show only CFO buys">${cfoBuys}</span></div><div class="summary-card-sub">the sharpest role</div></div>
+    <div class="summary-card"><div class="summary-card-label">Cluster Alerts ${_q('A cluster is 3+ insiders buying the same stock within a month. In our five-year study, clusters were positive about 60% of the time at 90 days, and the odds rose with every extra buyer. See the full backtest in the Study section. Premium feature.')}</div><div class="summary-card-val" style="color:var(--accent)">${_prem ? `<span class="tile-num" onclick="tapeFilterClusters()" title="Show only cluster buys">${clusterCount}</span>` : '<span style="font-size:15px">🔒</span> <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.5px">Premium</span>'}</div><div class="summary-card-sub">${_prem ? '3+ insiders, one stock' : 'unlock to see this week&#39;s'}</div></div>`;
   const latestTrade = data.reduce((best, t) => { const d = t.trade || t.filing || ''; return d > best ? d : best; }, '');
   const latestLabel = latestTrade ? `latest filing ${fmtDate(latestTrade)}` : `refreshed ${new Date().toLocaleTimeString()}`;
   document.getElementById('screenerMeta').textContent = `${data.length} filings · ${latestLabel}`;
