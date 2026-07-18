@@ -63,19 +63,19 @@
   @font-face { font-family: 'Inter'; font-display: optional; src: local('Inter'); }
   @font-face { font-family: 'DM Sans'; font-display: optional; src: local('DM Sans'); }
   :root {
-    --bg:        #e3e6eb;
-    --bg2:       #f0f2f5;
-    --bg3:       #eaecf0;
-    --border:    #d0d4db;
-    --border2:   #b8bdc8;
-    --text:      #1a2030;
-    --muted:     #6e7a8a;
-    --accent:    #2478cc;
-    --accent2:   #1a5fa8;
-    --buy:       #2aab5c;
-    --buy-dim:   #38c872;
-    --sell:      #b03030;
-    --sell-dim:  #d94040;
+    --bg:        #eef1f6;
+    --bg2:       #ffffff;
+    --bg3:       #f3f6fa;
+    --border:    #e4e9f0;
+    --border2:   #cfd6e1;
+    --text:      #0f1a2b;
+    --muted:     #647085;
+    --accent:    #0891b2;
+    --accent2:   #0a6f88;
+    --buy:       #12905f;
+    --buy-dim:   #1fae74;
+    --sell:      #cc3b46;
+    --sell-dim:  #e05561;
     --option:    #9a6e00;
     --header-h:  64px;
     --rail-w:    82px;
@@ -152,7 +152,7 @@
     transition: color .15s, background .15s, border-color .15s;
   }
   .rail-btn:hover { color: var(--text); background: var(--bg3); }
-  .rail-btn.active { color: var(--accent); background: rgba(36,120,204,0.10); border-color: rgba(36,120,204,0.28); }
+  .rail-btn.active { color: var(--accent); background: rgba(8,145,178,0.10); border-color: rgba(8,145,178,0.28); }
   .rail-btn svg { width: 28px; height: 28px; }
   .rail-tip {
     position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
@@ -237,7 +237,7 @@
     transition: border-color .2s, box-shadow .2s;
   }
   .search-wrap input::placeholder { color: var(--muted); font-family: 'Inter', sans-serif; }
-  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(36,120,204,0.12); }
+  .search-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(8,145,178,0.12); }
   .search-icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
   .search-btn {
     position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
@@ -273,7 +273,7 @@
     font-family: 'Inter', sans-serif;
   }
   .nav-tab:hover { color: var(--text); border-color: var(--border); }
-  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(36,120,204,0.08); }
+  .nav-tab.active { color: var(--accent); border-color: var(--accent); background: rgba(8,145,178,0.08); }
 
   /* Members Area dropdown */
   .nav-dropdown { position: relative; }
@@ -1000,10 +1000,10 @@
 <nav class="side-rail" aria-label="Main navigation">
   <div class="rail-brand" onclick="switchView('screener')" title="InsiderTape">
     <svg viewBox="0 0 24 24" fill="none" width="26" height="26">
-      <circle cx="12" cy="12" r="9" stroke="#2478cc" stroke-width="1.3" opacity="0.35"/>
-      <circle cx="12" cy="12" r="5" stroke="#2478cc" stroke-width="1.3" opacity="0.6"/>
-      <circle cx="12" cy="12" r="2" fill="#2478cc"/>
-      <line x1="12" y1="12" x2="19" y2="7" stroke="#2478cc" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="9" stroke="#0891b2" stroke-width="1.3" opacity="0.35"/>
+      <circle cx="12" cy="12" r="5" stroke="#0891b2" stroke-width="1.3" opacity="0.6"/>
+      <circle cx="12" cy="12" r="2" fill="#0891b2"/>
+      <line x1="12" y1="12" x2="19" y2="7" stroke="#0891b2" stroke-width="1.6" stroke-linecap="round"/>
     </svg>
   </div>
   <button class="rail-btn active" id="rail-screener" onclick="switchView('screener')" aria-label="The Tape">
@@ -1502,7 +1502,7 @@ function onGlobalInput(val) {
       let html = '';
       if (tickers.length) {
         html += '<div style="padding:6px 14px 3px;font-size:10px;font-weight:600;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;border-bottom:1px solid var(--border)">Tickers</div>';
-        html += tickers.map(t => `<div class="suggest-row" onclick="selectGlobalSuggest('ticker','${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;transition:background .1s" onmouseover="this.style.background='rgba(36,120,204,0.06)'" onmouseout="this.style.background=''">
+        html += tickers.map(t => `<div class="suggest-row" onclick="selectGlobalSuggest('ticker','${t.ticker}')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;transition:background .1s" onmouseover="this.style.background='rgba(8,145,178,0.06)'" onmouseout="this.style.background=''">
           <span style="font-weight:700;color:var(--accent);min-width:52px;font-size:13px;">${t.ticker}</span>
           <span style="color:var(--text);font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.company||''}</span>
           ${t.lastTrade ? `<span style="font-size:11px;color:var(--buy);font-weight:500">${t.lastTrade}</span>` : ''}
@@ -1510,8 +1510,8 @@ function onGlobalInput(val) {
       }
       if (insiders.length) {
         html += '<div style="padding:6px 14px 3px;font-size:10px;font-weight:600;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">Insiders</div>';
-        html += insiders.map(i => `<div class="suggest-row" onclick="selectGlobalSuggest('insider','${i.name.replace(/'/g,"\'")}')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;transition:background .1s" onmouseover="this.style.background='rgba(36,120,204,0.06)'" onmouseout="this.style.background=''">
-          <div style="width:30px;height:30px;border-radius:50%;background:rgba(36,120,204,0.1);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--accent);flex-shrink:0">${i.name.split(' ').map(w=>w[0]||'').slice(0,2).join('')}</div>
+        html += insiders.map(i => `<div class="suggest-row" onclick="selectGlobalSuggest('insider','${i.name.replace(/'/g,"\'")}')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;transition:background .1s" onmouseover="this.style.background='rgba(8,145,178,0.06)'" onmouseout="this.style.background=''">
+          <div style="width:30px;height:30px;border-radius:50%;background:rgba(8,145,178,0.1);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--accent);flex-shrink:0">${i.name.split(' ').map(w=>w[0]||'').slice(0,2).join('')}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.name}</div>
             <div style="font-size:11px;color:var(--muted)">${i.title||''} ${i.tickers ? '· ' + i.tickers : ''}</div>
@@ -1977,7 +1977,7 @@ function renderScreener() {
     const scrTypeColor = t.type==='P' ? 'var(--buy)' : (t.type==='S'||t.type==='S-') ? 'var(--sell)' : 'var(--muted)';
     const scrCell = (label, val, color) => `<div><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">${label}</div><div style="font-size:12px;color:${color||'var(--text)'};font-variant-numeric:tabular-nums">${val}</div></div>`;
     const insiderDetailCell = `<div class="scr-mob-insider"><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Insider</div><div style="font-size:12px"><span class="insider-name-link" onclick="event.stopPropagation();openInsiderProfile('${escName(t.insider||'')}','${escName(t.title||'')}')" style="color:var(--accent);cursor:pointer">${t.insider||'-'}</span>${t.title?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${t.title}</div>`:''}</div></div>`;
-    const detailRow = `<tr id="${srid}d" style="display:none"><td colspan="8" style="padding:0"><div class="scr-detail-grid" style="background:rgba(36,120,204,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">${insiderDetailCell}${scrCell('Company', t.company||'-')}${scrCell('Trade Type', tradeLabel(t.type), scrTypeColor)}${scrCell('Price per Share', '$'+(t.price||0).toFixed(2))}${scrCell('Total Value', fmt(t.value||0), scrTypeColor)}${scrCell('Trade Date', fmtDate(t.trade||t.filing))}${scrCell('Filing Date', fmtDate(t.filing))}${scrCell('Owned After', fmtShares(t.owned)+insiderOwnershipPct(t))}<div class="scr-detail-sec"><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">SEC Filing</div><div style="font-size:12px">${secUrl ? `<a href="${secUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-size:11px;font-weight:500;text-decoration:none">View on SEC ↗</a>` : '<span style="color:var(--muted)">-</span>'}</div></div></div></td></tr>`;
+    const detailRow = `<tr id="${srid}d" style="display:none"><td colspan="8" style="padding:0"><div class="scr-detail-grid" style="background:rgba(8,145,178,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">${insiderDetailCell}${scrCell('Company', t.company||'-')}${scrCell('Trade Type', tradeLabel(t.type), scrTypeColor)}${scrCell('Price per Share', '$'+(t.price||0).toFixed(2))}${scrCell('Total Value', fmt(t.value||0), scrTypeColor)}${scrCell('Trade Date', fmtDate(t.trade||t.filing))}${scrCell('Filing Date', fmtDate(t.filing))}${scrCell('Owned After', fmtShares(t.owned)+insiderOwnershipPct(t))}<div class="scr-detail-sec"><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">SEC Filing</div><div style="font-size:12px">${secUrl ? `<a href="${secUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-size:11px;font-weight:500;text-decoration:none">View on SEC ↗</a>` : '<span style="color:var(--muted)">-</span>'}</div></div></div></td></tr>`;
     return `
     <tr id="${srid}" style="cursor:pointer" onclick="(function(){if(event.target.closest('.insider-name-link')||event.target.closest('a'))return;var d=document.getElementById('${srid}d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#${srid} .sra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();})()">
       <td style="width:28px;text-align:center"><span class="sra" style="display:inline-block;color:#8fb0c8;font-size:14px;line-height:1;transition:transform .15s;font-family:sans-serif">&#8250;</span></td>
@@ -2212,7 +2212,7 @@ function proxFilter(type) {
           <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:${r.proximityColor};margin-top:4px">${r.daysTo <= 30 ? '🔴 IMMINENT' : r.daysTo <= 60 ? '🟡 SOON' : '🔵 UPCOMING'}</div>
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid ${r.buyVal>=0?'rgba(42,171,92,0.35)':'rgba(176,48,48,0.35)'};background:${r.buyVal>=0?'rgba(42,171,92,0.10)':'rgba(176,48,48,0.10)'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid ${r.buyVal>=0?'rgba(18,144,95,0.35)':'rgba(204,59,70,0.35)'};background:${r.buyVal>=0?'rgba(18,144,95,0.10)':'rgba(204,59,70,0.10)'}">
         <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal||r.buyValue||0)}</span></div>
         <div style="font-size:10px;color:var(--muted)">${r.nextEvent?.confirmed?'Earnings':'Est. earnings'} in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
       </div>
@@ -2388,7 +2388,7 @@ function _renderProximityResults(body, backBtn, results) {
       </div>
 
       <!-- Footer stats -->
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid ${r.buyVal>=0?'rgba(42,171,92,0.35)':'rgba(176,48,48,0.35)'};background:${r.buyVal>=0?'rgba(42,171,92,0.10)':'rgba(176,48,48,0.10)'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 14px;border-top:1px solid ${r.buyVal>=0?'rgba(18,144,95,0.35)':'rgba(204,59,70,0.35)'};background:${r.buyVal>=0?'rgba(18,144,95,0.10)':'rgba(204,59,70,0.10)'}">
         <div style="font-size:10px;color:var(--muted)">Buy: <span style="color:var(--buy)">${fmt(r.buyVal || r.buyValue || 0)}</span></div>
         <div style="font-size:10px;color:var(--muted)">${r.nextEvent?.confirmed?'<span style="color:var(--buy);font-size:9px">✓ CONFIRMED</span>':'<span style="color:var(--muted);font-size:9px">EST.</span>'} <span style="color:${r.proximityColor}">${evtLabel}</span> in <span style="color:${r.proximityColor};font-weight:700">${r.daysTo}d</span></div>
       </div>
@@ -3822,7 +3822,7 @@ function renderStockTradesTable(trades) {
     const typeColor = tradeClass(t.type)==='buy' ? 'var(--buy)' : tradeClass(t.type)==='sell' ? 'var(--sell)' : 'var(--muted)';
     const cell = (label, val, color) => '<div><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">' + label + '</div><div style="font-size:12px;color:' + (color||'var(--text)') + ';font-variant-numeric:tabular-nums">' + val + '</div></div>';
     const detailHtml = '<tr id="' + rid + 'd" style="display:none"><td colspan="7" style="padding:0">'
-      + '<div style="background:rgba(36,120,204,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">'
+      + '<div style="background:rgba(8,145,178,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">'
       + cell('Company', t.company||'-')
       + cell('Trade Type', typeLabel, typeColor)
       + cell('Price per Share', '$' + (t.price||0).toFixed(2))
@@ -5619,9 +5619,9 @@ function renderAnalysisDashboard() {
       sub: `${r.buyers} buyer${r.buyers>1?'s':''} · ${fmt(r.totalVal)}`,
       color: 'var(--buy)',
     })),
-    accentColor: '#2aab5c',
-    accentBg: 'rgba(42,171,92,0.06)',
-    accentBorder: 'rgba(42,171,92,0.25)',
+    accentColor: '#12905f',
+    accentBg: 'rgba(18,144,95,0.06)',
+    accentBorder: 'rgba(18,144,95,0.25)',
   };
 
   // Recent Winners - recent insider buys already up since
@@ -5673,7 +5673,7 @@ function renderAnalysisDashboard() {
     count: cfoData.length,
     countLabel: 'CFO buys',
     top3: cfoData.slice(0, 3).map(r => ({ ticker: r.ticker, label: fmt(r.totalVal), sub: r.insider ? r.insider.split(' ').slice(-1)[0] + ' · CFO' : 'CFO', color: 'var(--buy)' })),
-    accentColor: '#2aab5c', accentBg: 'rgba(42,171,92,0.06)', accentBorder: 'rgba(42,171,92,0.25)',
+    accentColor: '#12905f', accentBg: 'rgba(18,144,95,0.06)', accentBorder: 'rgba(18,144,95,0.25)',
   };
 
   // Cluster + near 52-week low - big-sample sweet spot in the backtest.
@@ -5855,7 +5855,7 @@ function renderAnalysisSubpage(id, opts={}) {
       blurb: 'Three or more insiders buying together while the stock trades in the lower quarter of its 52-week range - conviction, at a discount. In our backtest these were higher 58% of the time over the next 90 days (+3.2% median). Price context from the latest close.',
       empty: 'No insider clusters near 52-week lows right now.',
       items: () => detectClusterNearLow(_analysisData || [], _tilePriceHighs),
-      badge: r => ({ num: `+${r.pctOffLow}%`, label: 'OFF 52W LOW', color: 'var(--buy)', bg: 'rgba(42,171,92,0.08)', border: 'rgba(42,171,92,0.25)', size: '16px' }),
+      badge: r => ({ num: `+${r.pctOffLow}%`, label: 'OFF 52W LOW', color: 'var(--buy)', bg: 'rgba(18,144,95,0.08)', border: 'rgba(18,144,95,0.25)', size: '16px' }),
       reasons: r => [
         `${r.insiderCount} insiders buying together`,
         `${r.buys} open-market buy${r.buys > 1 ? 's' : ''}`,
@@ -5885,7 +5885,7 @@ function renderRegimeShiftSubpage(opts={}) {
       Compares recent insider activity against their personal baseline. A chronic seller suddenly buying, a dormant insider waking up, or an unusual sell surge - all indicate a <span style="color:var(--text)">regime shift</span> before price reacts.
     </div>
     <div id="regimeFilterBar" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      <button onclick="filterRegime(null,this)" class="regime-filter-btn active" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:rgba(36,120,204,0.1);color:var(--accent);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">All</button>
+      <button onclick="filterRegime(null,this)" class="regime-filter-btn active" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:rgba(8,145,178,0.1);color:var(--accent);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">All</button>
       <button onclick="filterRegime('SELLER_FLIPS_BUY',this)" class="regime-filter-btn" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">Seller Flipped Buyer</button>
       <button onclick="filterRegime('BUY_ACCELERATION',this)" class="regime-filter-btn" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">Buy Acceleration</button>
       <button onclick="filterRegime('DORMANT_ACTIVATES',this)" class="regime-filter-btn" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s">Dormant Insider Activated</button>
@@ -5954,7 +5954,7 @@ function filterRegime(type, btn) {
   const accentColor = type ? (typeColors[type]||'var(--accent)') : 'var(--accent)';
   btn.style.color = accentColor;
   btn.style.borderColor = accentColor;
-  btn.style.background = 'rgba(36,120,204,0.08)';
+  btn.style.background = 'rgba(8,145,178,0.08)';
   const filtered = type ? (window._regimeResults||[]).filter(r => r.regimeType === type) : (window._regimeResults||[]);
   renderRegimeResults(filtered);
 }
@@ -6895,7 +6895,7 @@ function renderBuyLowsCard(r) {
   return `
   <div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})"
        style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-       onmouseover="this.style.borderColor='rgba(42,171,92,0.3)'" onmouseout="this.style.borderColor='var(--border)'">
+       onmouseover="this.style.borderColor='rgba(18,144,95,0.3)'" onmouseout="this.style.borderColor='var(--border)'">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;gap:12px;flex-wrap:wrap">
       <div style="min-width:0">
         <div style="display:flex;align-items:center;gap:10px">
@@ -6910,7 +6910,7 @@ function renderBuyLowsCard(r) {
       </div>
     </div>
     <div style="padding:0 18px 16px">
-      <div style="position:relative;height:6px;background:linear-gradient(90deg, rgba(42,171,92,0.35), rgba(154,110,0,0.15) 50%, rgba(255,68,102,0.25));border-radius:3px">
+      <div style="position:relative;height:6px;background:linear-gradient(90deg, rgba(18,144,95,0.35), rgba(154,110,0,0.15) 50%, rgba(255,68,102,0.25));border-radius:3px">
         <div style="position:absolute;top:-3px;left:${posPct}%;transform:translateX(-50%);width:3px;height:12px;background:var(--text);border-radius:2px"></div>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:9px;color:var(--muted);font-family:Inter,monospace">
@@ -7074,8 +7074,8 @@ function renderCatnipSubpage() {
 
 function renderCatnipCard(c) {
   const color  = c.score >= 75 ? 'var(--buy)' : c.score >= 55 ? 'var(--accent)' : 'var(--option)';
-  const bg     = c.score >= 75 ? 'rgba(42,171,92,0.08)' : c.score >= 55 ? 'rgba(0,212,255,0.06)' : 'rgba(154,110,0,0.06)';
-  const border = c.score >= 75 ? 'rgba(42,171,92,0.3)'  : c.score >= 55 ? 'rgba(0,212,255,0.25)' : 'rgba(154,110,0,0.25)';
+  const bg     = c.score >= 75 ? 'rgba(18,144,95,0.08)' : c.score >= 55 ? 'rgba(0,212,255,0.06)' : 'rgba(154,110,0,0.06)';
+  const border = c.score >= 75 ? 'rgba(18,144,95,0.3)'  : c.score >= 55 ? 'rgba(0,212,255,0.25)' : 'rgba(154,110,0,0.25)';
   const stats = [
     { label:'BUYERS',       val: c.buyers,          color:'var(--text)' },
     { label:'EXECS',        val: c.execCount,       color: c.execCount ? color : 'var(--muted)' },
@@ -10347,7 +10347,7 @@ function showTerms() {
     ${h2('13. ENTIRE AGREEMENT')}
     ${p('These Terms, together with our Privacy Policy, constitute the entire agreement between you and InsiderTape with respect to your use of the Platform and supersede all prior agreements, understandings, and representations.')}
 
-    <div style="margin-top:24px;padding:14px 16px;background:rgba(176,48,48,0.06);border:1px solid rgba(176,48,48,0.25);border-radius:6px;font-size:11px;color:var(--sell)">
+    <div style="margin-top:24px;padding:14px 16px;background:rgba(204,59,70,0.06);border:1px solid rgba(204,59,70,0.25);border-radius:6px;font-size:11px;color:var(--sell)">
       ⚠ <strong>Important Reminder:</strong> InsiderTape displays public filing data for research purposes only. It is not a financial advisor. Always do your own due diligence and consult a licensed financial professional before making investment decisions.
     </div>
   `);
@@ -10400,7 +10400,7 @@ function showPrivacy() {
     ${h2('12. CONTACT')}
     ${p('If you have questions about this Privacy Policy or our privacy practices, you may contact us through the Platform interface. We will make reasonable efforts to respond in a timely manner.')}
 
-    <div style="margin-top:24px;padding:14px 16px;background:rgba(36,120,204,0.06);border:1px solid rgba(36,120,204,0.2);border-radius:6px;font-size:11px;color:var(--accent)">
+    <div style="margin-top:24px;padding:14px 16px;background:rgba(8,145,178,0.06);border:1px solid rgba(8,145,178,0.2);border-radius:6px;font-size:11px;color:var(--accent)">
       InsiderTape collects minimal data, does not sell your information, and does not use advertising tracking. Our core product is public government filing data - not your personal information.
     </div>
   `);
@@ -10557,7 +10557,7 @@ function renderAuthHeader() {
   if (auth.loggedIn) {
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px">
-        ${auth.isPremium ? '<span style="font-size:10px;color:var(--accent);border:1px solid rgba(36,120,204,0.35);border-radius:4px;padding:3px 8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-weight:600">PREMIUM</span>' : ''}
+        ${auth.isPremium ? '<span style="font-size:10px;color:var(--accent);border:1px solid rgba(8,145,178,0.35);border-radius:4px;padding:3px 8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-weight:600">PREMIUM</span>' : ''}
         <button onclick="switchView('account',null)" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:9px 18px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text);cursor:pointer;letter-spacing:0.5px;font-weight:600">ACCOUNT</button>
       </div>`;
   } else {
@@ -10756,7 +10756,7 @@ function buildPressureMockupSVG() {
   var dots = tradeEvents.map(function(e) {
     var x = days[e.day].toFixed(1);
     var y = prices[e.day].toFixed(1);
-    var fill = e.type === 'buy' ? '#2aab5c' : '#b03030';
+    var fill = e.type === 'buy' ? '#12905f' : '#cc3b46';
     return '<circle cx="' + x + '" cy="' + y + '" r="3.2" fill="' + fill + '" stroke="#ffffff" stroke-width="1"/>';
   }).join('');
 
@@ -10768,14 +10768,14 @@ function buildPressureMockupSVG() {
     if (!b) return '';
     var isBuy = b.type === 'buy';
     var barY = isBuy ? zeroY - b.h : zeroY;
-    var fill = isBuy ? '#2aab5c' : '#b03030';
+    var fill = isBuy ? '#12905f' : '#cc3b46';
     return '<rect x="' + (x - 2).toFixed(1) + '" y="' + barY + '" width="4.5" height="' + b.h + '" fill="' + fill + '" opacity="0.85"/>';
   }).join('');
 
   return '<svg viewBox="0 0 340 180" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">'
     + '<rect width="340" height="180" fill="#ffffff"/>'
     + '<text x="12" y="11" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">PRICE</text>'
-    + '<polyline points="' + pts + '" fill="none" stroke="#2478cc" stroke-width="1.5" opacity="0.95"/>'
+    + '<polyline points="' + pts + '" fill="none" stroke="#0891b2" stroke-width="1.5" opacity="0.95"/>'
     + dots
     + '<line x1="8" y1="88" x2="332" y2="88" stroke="#d0d4db" stroke-width="0.6"/>'
     + '<text x="12" y="99" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">INSIDER PRESSURE</text>'
@@ -10795,8 +10795,8 @@ function loadPremiumPage() {
     <rect width="340" height="170" fill="#ffffff"/>
     <rect width="340" height="30" fill="#eaecf0"/>
     <text x="12" y="12" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7" letter-spacing="1">PERIOD</text>
-    <rect x="10" y="16" width="22" height="10" rx="2" fill="rgba(36,120,204,0.10)" stroke="#2478cc" stroke-width="0.6"/>
-    <text x="14" y="24" fill="#2478cc" font-family="Inter,sans-serif" font-size="7">7D</text>
+    <rect x="10" y="16" width="22" height="10" rx="2" fill="rgba(8,145,178,0.10)" stroke="#0891b2" stroke-width="0.6"/>
+    <text x="14" y="24" fill="#0891b2" font-family="Inter,sans-serif" font-size="7">7D</text>
     <rect x="36" y="16" width="24" height="10" rx="2" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="40" y="24" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">30D</text>
     <rect x="64" y="16" width="24" height="10" rx="2" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
@@ -10809,11 +10809,11 @@ function loadPremiumPage() {
     <text x="192" y="40" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">TYPE</text>
     <text x="224" y="40" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">VALUE</text>
     <text x="292" y="40" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">DATE</text>
-    ${[['NVDA','Jensen Huang','BUY','$4.2M','Mar 11','#2aab5c'],['META','Mark Zuckerberg','BUY','$12.8M','Mar 10','#2aab5c'],['AAPL','Tim Cook','BUY','$2.1M','Mar 09','#2aab5c'],['MSFT','Satya Nadella','BUY','$8.4M','Mar 08','#2aab5c'],['AMZN','Andy Jassy','SELL','$6.7M','Mar 07','#b03030'],['GOOGL','Sundar Pichai','SELL','$3.3M','Mar 06','#b03030'],['TSLA','Elon Musk','BUY','$28.1M','Mar 05','#2aab5c'],['JPM','Jamie Dimon','BUY','$5.5M','Mar 04','#2aab5c']].map(([t,n,type,v,d,c],i)=>`
+    ${[['NVDA','Jensen Huang','BUY','$4.2M','Mar 11','#12905f'],['META','Mark Zuckerberg','BUY','$12.8M','Mar 10','#12905f'],['AAPL','Tim Cook','BUY','$2.1M','Mar 09','#12905f'],['MSFT','Satya Nadella','BUY','$8.4M','Mar 08','#12905f'],['AMZN','Andy Jassy','SELL','$6.7M','Mar 07','#cc3b46'],['GOOGL','Sundar Pichai','SELL','$3.3M','Mar 06','#cc3b46'],['TSLA','Elon Musk','BUY','$28.1M','Mar 05','#12905f'],['JPM','Jamie Dimon','BUY','$5.5M','Mar 04','#12905f']].map(([t,n,type,v,d,c],i)=>`
     <rect x="0" y="${44+i*15}" width="340" height="14" fill="${i%2===0?'#ffffff':'#f5f7fa'}"/>
-    <text x="12" y="${54+i*15}" fill="#2478cc" font-family="Inter,sans-serif" font-size="8" font-weight="700">${t}</text>
+    <text x="12" y="${54+i*15}" fill="#0891b2" font-family="Inter,sans-serif" font-size="8" font-weight="700">${t}</text>
     <text x="72" y="${54+i*15}" fill="#1a2030" font-family="Inter,sans-serif" font-size="7">${n.split(' ')[1]||n}</text>
-    <rect x="188" y="${46+i*15}" width="${type==='BUY'?20:24}" height="9" rx="1" fill="${type==='BUY'?'rgba(42,171,92,0.14)':'rgba(176,48,48,0.12)'}"/>
+    <rect x="188" y="${46+i*15}" width="${type==='BUY'?20:24}" height="9" rx="1" fill="${type==='BUY'?'rgba(18,144,95,0.14)':'rgba(204,59,70,0.12)'}"/>
     <text x="${type==='BUY'?191:190}" y="${54+i*15}" fill="${c}" font-family="Inter,sans-serif" font-size="6.5" font-weight="700">${type}</text>
     <text x="224" y="${54+i*15}" fill="${c}" font-family="Inter,sans-serif" font-size="8">${v}</text>
     <text x="292" y="${54+i*15}" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">${d}</text>`).join('')}
@@ -10832,15 +10832,15 @@ function loadPremiumPage() {
     <text x="12" y="35" fill="#1a2030" font-family="Inter,sans-serif" font-size="6">NVDA · Score 94</text>
     <text x="12" y="44" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">Cluster + Regime↑</text>
     <rect x="177" y="14" width="159" height="38" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="185" y="25" fill="#b03030" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">⚠ EXIT WARNING</text>
+    <text x="185" y="25" fill="#cc3b46" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">⚠ EXIT WARNING</text>
     <text x="185" y="35" fill="#1a2030" font-family="Inter,sans-serif" font-size="6">TDW · Score 78 - HIGH</text>
     <text x="185" y="44" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">4 execs selling · $2M combined</text>
     <rect x="4" y="58" width="159" height="38" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="12" y="69" fill="#2478cc" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">🔵 CLUSTER DETECTION</text>
+    <text x="12" y="69" fill="#0891b2" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">🔵 CLUSTER DETECTION</text>
     <text x="12" y="79" fill="#1a2030" font-family="Inter,sans-serif" font-size="6">META · 4 insiders · 7 days</text>
     <text x="12" y="88" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">$18.4M combined · Score 87</text>
     <rect x="177" y="58" width="159" height="38" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="185" y="69" fill="#2aab5c" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">📡 REGIME SHIFT</text>
+    <text x="185" y="69" fill="#12905f" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">📡 REGIME SHIFT</text>
     <text x="185" y="79" fill="#1a2030" font-family="Inter,sans-serif" font-size="6">AAPL · Seller flipped buyer</text>
     <text x="185" y="88" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">CFO · 2yr gap · repeat buyer</text>
     <rect x="4" y="102" width="159" height="38" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
@@ -10851,8 +10851,8 @@ function loadPremiumPage() {
     <text x="185" y="113" fill="#9a6e00" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">📅 EVENT PROXIMITY</text>
     <text x="185" y="123" fill="#1a2030" font-family="Inter,sans-serif" font-size="6">AMZN · Earnings in 12 days</text>
     <text x="185" y="132" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">Insider buying before catalyst</text>
-    <rect x="4" y="146" width="332" height="25" rx="3" fill="rgba(36,120,204,0.06)" stroke="rgba(36,120,204,0.25)" stroke-width="0.6"/>
-    <text x="12" y="157" fill="#2478cc" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">🏆 INSIDER SCOREBOARD</text>
+    <rect x="4" y="146" width="332" height="25" rx="3" fill="rgba(8,145,178,0.06)" stroke="rgba(8,145,178,0.25)" stroke-width="0.6"/>
+    <text x="12" y="157" fill="#0891b2" font-family="Inter,sans-serif" font-size="6" letter-spacing="0.5">🏆 INSIDER SCOREBOARD</text>
     <text x="150" y="157" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">Track which insiders have the best buy timing accuracy</text>
     <text x="12" y="166" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">Ranked by 90-day forward returns after each insider buy</text>
   </svg>`;
@@ -10862,27 +10862,27 @@ function loadPremiumPage() {
     <rect width="340" height="170" fill="#ffffff"/>
     <rect width="340" height="12" fill="#eaecf0"/>
     <text x="12" y="9" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">MONITOR - TODAY'S NOTABLE</text>
-    <rect x="4" y="14" width="68" height="13" rx="2" fill="rgba(36,120,204,0.10)" stroke="#2478cc" stroke-width="0.6"/>
-    <text x="10" y="23" fill="#2478cc" font-family="Inter,sans-serif" font-size="6.5">📅 TODAY</text>
+    <rect x="4" y="14" width="68" height="13" rx="2" fill="rgba(8,145,178,0.10)" stroke="#0891b2" stroke-width="0.6"/>
+    <text x="10" y="23" fill="#0891b2" font-family="Inter,sans-serif" font-size="6.5">📅 TODAY</text>
     <rect x="76" y="14" width="62" height="13" rx="2" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="82" y="23" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6.5">📆 THIS WEEK</text>
     <rect x="142" y="14" width="70" height="13" rx="2" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="148" y="23" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6.5">🗓 THIS MONTH</text>
     ${[
       ['NVDA','⚡ CLUSTER BUY','3 insiders bought within 5 days','#9a6e00','HIGH'],
-      ['META','🎯 FIRST BUY','CEO first open-market purchase','#2aab5c','HIGH'],
-      ['AAPL','📈 CONVICTION','Score 9.2 - size vs salary outlier','#2478cc','MED'],
+      ['META','🎯 FIRST BUY','CEO first open-market purchase','#12905f','HIGH'],
+      ['AAPL','📈 CONVICTION','Score 9.2 - size vs salary outlier','#0891b2','MED'],
       ['MSFT','⚡ CLUSTER BUY','4 insiders · $18.4M combined','#9a6e00','HIGH'],
       ['AMZN','🔄 REPEAT BUYER','3rd consecutive quarter buying','#7c3aed','MED'],
-      ['TSLA','💰 LARGE TRADE','$28M single purchase - top 1%','#2aab5c','HIGH'],
+      ['TSLA','💰 LARGE TRADE','$28M single purchase - top 1%','#12905f','HIGH'],
     ].map(([t,sig,desc,c,lvl],i)=>`
     <rect x="0" y="${30+i*23}" width="340" height="22" fill="${i%2===0?'#ffffff':'#f5f7fa'}"/>
-    <rect x="6" y="${35+i*23}" width="28" height="12" rx="1" fill="rgba(36,120,204,0.07)" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="10" y="${44+i*23}" fill="#2478cc" font-family="Inter,sans-serif" font-size="7" font-weight="700">${t}</text>
+    <rect x="6" y="${35+i*23}" width="28" height="12" rx="1" fill="rgba(8,145,178,0.07)" stroke="#d0d4db" stroke-width="0.6"/>
+    <text x="10" y="${44+i*23}" fill="#0891b2" font-family="Inter,sans-serif" font-size="7" font-weight="700">${t}</text>
     <text x="40" y="${40+i*23}" fill="${c}" font-family="Inter,sans-serif" font-size="7">${sig}</text>
     <text x="40" y="${49+i*23}" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">${desc}</text>
-    <rect x="${304}" y="${34+i*23}" width="${lvl==='HIGH'?28:24}" height="10" rx="1" fill="${lvl==='HIGH'?'rgba(154,110,0,0.14)':'rgba(36,120,204,0.10)'}"/>
-    <text x="${307}" y="${42+i*23}" fill="${lvl==='HIGH'?'#9a6e00':'#2478cc'}" font-family="Inter,sans-serif" font-size="6">${lvl}</text>`).join('')}
+    <rect x="${304}" y="${34+i*23}" width="${lvl==='HIGH'?28:24}" height="10" rx="1" fill="${lvl==='HIGH'?'rgba(154,110,0,0.14)':'rgba(8,145,178,0.10)'}"/>
+    <text x="${307}" y="${42+i*23}" fill="${lvl==='HIGH'?'#9a6e00':'#0891b2'}" font-family="Inter,sans-serif" font-size="6">${lvl}</text>`).join('')}
   </svg>`;
 
   // SECTORS: horizontal bar chart per sector
@@ -10891,7 +10891,7 @@ function loadPremiumPage() {
     <rect width="340" height="12" fill="#eaecf0"/>
     <text x="12" y="9" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">SECTORS - BUY FLOW · LAST 30D</text>
     ${[
-      ['Technology','$142M','#2478cc',0.88],['Healthcare','$41M','#2aab5c',0.62],
+      ['Technology','$142M','#0891b2',0.88],['Healthcare','$41M','#12905f',0.62],
       ['Financials','$38M','#7c3aed',0.58],['Energy','$27M','#9a6e00',0.44],
       ['Consumer','$19M','#0891b2',0.32],['Industrials','$14M','#4f46e5',0.25],
       ['Real Estate','$9M','#c026a3',0.18],['Materials','$6M','#0f766e',0.12],
@@ -10911,11 +10911,11 @@ function loadPremiumPage() {
     <rect width="340" height="12" fill="#eaecf0"/>
     <text x="12" y="9" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">COMPARE</text>
     <rect x="4" y="14" width="160" height="152" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
-    <rect x="176" y="14" width="160" height="152" rx="3" fill="#f5f7fa" stroke="rgba(36,120,204,0.4)" stroke-width="1"/>
-    <text x="14" y="28" fill="#2478cc" font-family="Inter,sans-serif" font-size="10" font-weight="700">NVDA</text>
-    <text x="186" y="28" fill="#2478cc" font-family="Inter,sans-serif" font-size="10" font-weight="700">META</text>
-    <text x="14" y="39" fill="#2aab5c" font-family="Inter,sans-serif" font-size="7">▲ BUY PRESSURE</text>
-    <text x="186" y="39" fill="#2aab5c" font-family="Inter,sans-serif" font-size="7">▲ BUY PRESSURE</text>
+    <rect x="176" y="14" width="160" height="152" rx="3" fill="#f5f7fa" stroke="rgba(8,145,178,0.4)" stroke-width="1"/>
+    <text x="14" y="28" fill="#0891b2" font-family="Inter,sans-serif" font-size="10" font-weight="700">NVDA</text>
+    <text x="186" y="28" fill="#0891b2" font-family="Inter,sans-serif" font-size="10" font-weight="700">META</text>
+    <text x="14" y="39" fill="#12905f" font-family="Inter,sans-serif" font-size="7">▲ BUY PRESSURE</text>
+    <text x="186" y="39" fill="#12905f" font-family="Inter,sans-serif" font-size="7">▲ BUY PRESSURE</text>
     ${[['30D BUY $','$8.4M','$12.1M'],['BUYERS','3','5'],['TRADES','4','7'],['AVG SIZE','$2.1M','$1.7M'],['LAST BUY','Mar 11','Mar 10'],['CONVICTION','8.2','9.1'],['CLUSTER','YES','YES']].map(([l,a,b],i)=>`
     <text x="14" y="${53+i*14}" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6.5">${l}</text>
     <text x="100" y="${53+i*14}" fill="#1a2030" font-family="Inter,sans-serif" font-size="7">${a}</text>
@@ -10932,32 +10932,32 @@ function loadPremiumPage() {
     <text x="8" y="24" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">📌 PINNED TICKERS</text>
     <!-- Ticker cards -->
     <rect x="4" y="28" width="332" height="30" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="14" y="41" fill="#2478cc" font-family="Inter,sans-serif" font-size="9" font-weight="700">NVDA</text>
-    <rect x="100" y="32" width="148" height="6" rx="1" fill="#2aab5c" opacity="0.8"/>
-    <rect x="248" y="32" width="30" height="6" rx="1" fill="#b03030" opacity="0.35"/>
-    <text x="100" y="51" fill="#2aab5c" font-family="Inter,sans-serif" font-size="6">ACTIVE THIS WEEK</text>
-    <text x="282" y="41" fill="#2aab5c" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$4.2M</text>
+    <text x="14" y="41" fill="#0891b2" font-family="Inter,sans-serif" font-size="9" font-weight="700">NVDA</text>
+    <rect x="100" y="32" width="148" height="6" rx="1" fill="#12905f" opacity="0.8"/>
+    <rect x="248" y="32" width="30" height="6" rx="1" fill="#cc3b46" opacity="0.35"/>
+    <text x="100" y="51" fill="#12905f" font-family="Inter,sans-serif" font-size="6">ACTIVE THIS WEEK</text>
+    <text x="282" y="41" fill="#12905f" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$4.2M</text>
     <rect x="4" y="61" width="332" height="30" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="14" y="74" fill="#2478cc" font-family="Inter,sans-serif" font-size="9" font-weight="700">META</text>
-    <rect x="100" y="65" width="110" height="6" rx="1" fill="#2478cc" opacity="0.75"/>
-    <rect x="210" y="65" width="50" height="6" rx="1" fill="#b03030" opacity="0.3"/>
-    <text x="100" y="84" fill="#2478cc" font-family="Inter,sans-serif" font-size="6">ACTIVE THIS MONTH</text>
-    <text x="282" y="74" fill="#2478cc" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$12.8M</text>
+    <text x="14" y="74" fill="#0891b2" font-family="Inter,sans-serif" font-size="9" font-weight="700">META</text>
+    <rect x="100" y="65" width="110" height="6" rx="1" fill="#0891b2" opacity="0.75"/>
+    <rect x="210" y="65" width="50" height="6" rx="1" fill="#cc3b46" opacity="0.3"/>
+    <text x="100" y="84" fill="#0891b2" font-family="Inter,sans-serif" font-size="6">ACTIVE THIS MONTH</text>
+    <text x="282" y="74" fill="#0891b2" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$12.8M</text>
     <!-- Followed Insiders section label -->
     <text x="8" y="106" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">★ FOLLOWED INSIDERS</text>
     <!-- Insider cards -->
     <rect x="4" y="110" width="332" height="34" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="14" y="123" fill="#1a2030" font-family="Inter,sans-serif" font-size="8" font-weight="700">Jensen Huang</text>
-    <rect x="150" y="115" width="46" height="9" rx="1" fill="rgba(42,171,92,0.12)" stroke="rgba(42,171,92,0.35)" stroke-width="0.6"/>
-    <text x="154" y="122" fill="#2aab5c" font-family="Inter,sans-serif" font-size="6">ACTIVE WEEK</text>
+    <rect x="150" y="115" width="46" height="9" rx="1" fill="rgba(18,144,95,0.12)" stroke="rgba(18,144,95,0.35)" stroke-width="0.6"/>
+    <text x="154" y="122" fill="#12905f" font-family="Inter,sans-serif" font-size="6">ACTIVE WEEK</text>
     <text x="14" y="136" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">President &amp; CEO · NVDA AMD TSM</text>
-    <text x="330" y="123" fill="#2aab5c" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$4.2M</text>
+    <text x="330" y="123" fill="#12905f" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$4.2M</text>
     <rect x="4" y="147" width="332" height="34" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="14" y="160" fill="#1a2030" font-family="Inter,sans-serif" font-size="8" font-weight="700">Mark Zuckerberg</text>
-    <rect x="163" y="152" width="48" height="9" rx="1" fill="rgba(36,120,204,0.10)" stroke="rgba(36,120,204,0.35)" stroke-width="0.6"/>
-    <text x="167" y="159" fill="#2478cc" font-family="Inter,sans-serif" font-size="6">ACTIVE MONTH</text>
+    <rect x="163" y="152" width="48" height="9" rx="1" fill="rgba(8,145,178,0.10)" stroke="rgba(8,145,178,0.35)" stroke-width="0.6"/>
+    <text x="167" y="159" fill="#0891b2" font-family="Inter,sans-serif" font-size="6">ACTIVE MONTH</text>
     <text x="14" y="173" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6">Chairman &amp; CEO · META</text>
-    <text x="330" y="160" fill="#2478cc" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$12.8M</text>
+    <text x="330" y="160" fill="#0891b2" font-family="Inter,sans-serif" font-size="7" text-anchor="end">$12.8M</text>
     <rect x="4" y="184" width="332" height="34" rx="3" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="14" y="197" fill="#1a2030" font-family="Inter,sans-serif" font-size="8" font-weight="700">Jamie Dimon</text>
     <rect x="120" y="189" width="50" height="9" rx="1" fill="rgba(154,110,0,0.10)" stroke="rgba(154,110,0,0.35)" stroke-width="0.6"/>
@@ -10974,53 +10974,53 @@ function loadPremiumPage() {
     <!-- Email card mockup -->
     <rect x="8" y="18" width="324" height="80" rx="4" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
     <rect x="8" y="18" width="324" height="18" rx="4" fill="#eaecf0"/>
-    <text x="16" y="30" fill="#2478cc" font-family="Inter,sans-serif" font-size="7" font-weight="700" letter-spacing="1">INSIDERTAPE</text>
+    <text x="16" y="30" fill="#0891b2" font-family="Inter,sans-serif" font-size="7" font-weight="700" letter-spacing="1">INSIDERTAPE</text>
     <text x="16" y="39" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5" letter-spacing="1">INSIDER SIGNAL ALERT</text>
     <!-- Signal card 1 - conviction -->
     <rect x="14" y="42" width="148" height="48" rx="3" fill="#ffffff" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="20" y="54" fill="#2478cc" font-family="Inter,sans-serif" font-size="9" font-weight="700">MRNA</text>
-    <rect x="112" y="45" width="44" height="9" rx="2" fill="rgba(42,171,92,0.12)" stroke="rgba(42,171,92,0.35)" stroke-width="0.6"/>
-    <text x="116" y="52" fill="#2aab5c" font-family="Inter,sans-serif" font-size="5.5">⚡ CONVICTION</text>
+    <text x="20" y="54" fill="#0891b2" font-family="Inter,sans-serif" font-size="9" font-weight="700">MRNA</text>
+    <rect x="112" y="45" width="44" height="9" rx="2" fill="rgba(18,144,95,0.12)" stroke="rgba(18,144,95,0.35)" stroke-width="0.6"/>
+    <text x="116" y="52" fill="#12905f" font-family="Inter,sans-serif" font-size="5.5">⚡ CONVICTION</text>
     <text x="20" y="64" fill="#3a4556" font-family="Inter,sans-serif" font-size="6">Moderna Inc · Biotechnology</text>
     <text x="20" y="74" fill="#1a2030" font-family="Inter,sans-serif" font-size="6" font-weight="600">CEO buy · $2.1M · Score 91</text>
-    <text x="20" y="83" fill="#2478cc" font-family="Inter,sans-serif" font-size="6">VIEW CHART →</text>
+    <text x="20" y="83" fill="#0891b2" font-family="Inter,sans-serif" font-size="6">VIEW CHART →</text>
     <!-- Signal card 2 - cluster -->
     <rect x="170" y="42" width="155" height="48" rx="3" fill="#ffffff" stroke="#d0d4db" stroke-width="0.6"/>
-    <text x="176" y="54" fill="#2478cc" font-family="Inter,sans-serif" font-size="9" font-weight="700">REGN</text>
-    <rect x="228" y="45" width="38" height="9" rx="2" fill="rgba(36,120,204,0.10)" stroke="rgba(36,120,204,0.35)" stroke-width="0.6"/>
-    <text x="231" y="52" fill="#2478cc" font-family="Inter,sans-serif" font-size="5.5">🔵 CLUSTER</text>
+    <text x="176" y="54" fill="#0891b2" font-family="Inter,sans-serif" font-size="9" font-weight="700">REGN</text>
+    <rect x="228" y="45" width="38" height="9" rx="2" fill="rgba(8,145,178,0.10)" stroke="rgba(8,145,178,0.35)" stroke-width="0.6"/>
+    <text x="231" y="52" fill="#0891b2" font-family="Inter,sans-serif" font-size="5.5">🔵 CLUSTER</text>
     <text x="176" y="64" fill="#3a4556" font-family="Inter,sans-serif" font-size="6">Regeneron · Biotechnology</text>
     <text x="176" y="74" fill="#1a2030" font-family="Inter,sans-serif" font-size="6" font-weight="600">4 insiders · $6.8M combined</text>
-    <text x="176" y="83" fill="#2478cc" font-family="Inter,sans-serif" font-size="6">VIEW CHART →</text>
+    <text x="176" y="83" fill="#0891b2" font-family="Inter,sans-serif" font-size="6">VIEW CHART →</text>
     <!-- Filters section -->
     <rect x="8" y="104" width="324" height="88" rx="4" fill="#f5f7fa" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="16" y="116" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6" letter-spacing="1">YOUR ALERT FILTERS</text>
     <!-- Sector pills -->
     <text x="16" y="130" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">SECTOR</text>
-    <rect x="52" y="122" width="52" height="10" rx="5" fill="rgba(36,120,204,0.10)" stroke="#2478cc" stroke-width="0.6"/>
-    <text x="57" y="130" fill="#2478cc" font-family="Inter,sans-serif" font-size="5.5">🧬 Healthcare</text>
+    <rect x="52" y="122" width="52" height="10" rx="5" fill="rgba(8,145,178,0.10)" stroke="#0891b2" stroke-width="0.6"/>
+    <text x="57" y="130" fill="#0891b2" font-family="Inter,sans-serif" font-size="5.5">🧬 Healthcare</text>
     <rect x="108" y="122" width="44" height="10" rx="5" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="113" y="130" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">💻 Tech</text>
     <rect x="156" y="122" width="38" height="10" rx="5" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="161" y="130" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">⚡ Energy</text>
     <!-- Role pills -->
     <text x="16" y="148" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">ROLE</text>
-    <rect x="38" y="140" width="22" height="10" rx="5" fill="rgba(36,120,204,0.10)" stroke="#2478cc" stroke-width="0.6"/>
-    <text x="43" y="148" fill="#2478cc" font-family="Inter,sans-serif" font-size="5.5">CEO</text>
-    <rect x="64" y="140" width="22" height="10" rx="5" fill="rgba(36,120,204,0.10)" stroke="#2478cc" stroke-width="0.6"/>
-    <text x="69" y="148" fill="#2478cc" font-family="Inter,sans-serif" font-size="5.5">CFO</text>
+    <rect x="38" y="140" width="22" height="10" rx="5" fill="rgba(8,145,178,0.10)" stroke="#0891b2" stroke-width="0.6"/>
+    <text x="43" y="148" fill="#0891b2" font-family="Inter,sans-serif" font-size="5.5">CEO</text>
+    <rect x="64" y="140" width="22" height="10" rx="5" fill="rgba(8,145,178,0.10)" stroke="#0891b2" stroke-width="0.6"/>
+    <text x="69" y="148" fill="#0891b2" font-family="Inter,sans-serif" font-size="5.5">CFO</text>
     <rect x="90" y="140" width="34" height="10" rx="5" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="95" y="148" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">Director</text>
     <!-- Min value -->
     <text x="16" y="165" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">MIN VALUE</text>
     <rect x="62" y="157" width="160" height="5" rx="2" fill="#d0d4db"/>
-    <rect x="62" y="157" width="110" height="5" rx="2" fill="#2478cc" opacity="0.6"/>
-    <circle cx="172" cy="159" r="4" fill="#2478cc"/>
-    <text x="180" y="163" fill="#2478cc" font-family="Inter,sans-serif" font-size="6">$500K</text>
+    <rect x="62" y="157" width="110" height="5" rx="2" fill="#0891b2" opacity="0.6"/>
+    <circle cx="172" cy="159" r="4" fill="#0891b2"/>
+    <text x="180" y="163" fill="#0891b2" font-family="Inter,sans-serif" font-size="6">$500K</text>
     <!-- Frequency -->
     <text x="16" y="182" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">FREQUENCY</text>
-    <rect x="62" y="174" width="52" height="10" rx="2" fill="rgba(36,120,204,0.10)" stroke="#2478cc" stroke-width="0.6"/>
-    <text x="67" y="182" fill="#2478cc" font-family="Inter,sans-serif" font-size="5.5">⚡ Immediate</text>
+    <rect x="62" y="174" width="52" height="10" rx="2" fill="rgba(8,145,178,0.10)" stroke="#0891b2" stroke-width="0.6"/>
+    <text x="67" y="182" fill="#0891b2" font-family="Inter,sans-serif" font-size="5.5">⚡ Immediate</text>
     <rect x="118" y="174" width="54" height="10" rx="2" fill="transparent" stroke="#d0d4db" stroke-width="0.6"/>
     <text x="123" y="182" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="5.5">📅 Daily Digest</text>
   </svg>`;
@@ -11030,8 +11030,8 @@ function loadPremiumPage() {
   const chartMarkersMockup = `<svg viewBox="0 0 340 190" xmlns="http://www.w3.org/2000/svg" style="width:100%;border-radius:6px;display:block">
     <defs>
       <linearGradient id="pmArea" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#2478cc" stop-opacity="0.16"/>
-        <stop offset="100%" stop-color="#2478cc" stop-opacity="0.01"/>
+        <stop offset="0%" stop-color="#0891b2" stop-opacity="0.16"/>
+        <stop offset="100%" stop-color="#0891b2" stop-opacity="0.01"/>
       </linearGradient>
     </defs>
     <rect width="340" height="190" fill="#ffffff"/>
@@ -11042,17 +11042,17 @@ function loadPremiumPage() {
     <line x1="20" y1="120" x2="320" y2="120" stroke="#f0f2f5" stroke-width="1"/>
     <line x1="20" y1="155" x2="320" y2="155" stroke="#f0f2f5" stroke-width="1"/>
     <path d="M22,140 L55,128 L88,138 L120,108 L152,118 L185,82 L218,95 L250,60 L285,72 L318,48 L318,165 L22,165 Z" fill="url(#pmArea)"/>
-    <polyline points="22,140 55,128 88,138 120,108 152,118 185,82 218,95 250,60 285,72 318,48" fill="none" stroke="#2478cc" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
-    <circle cx="88" cy="138" r="6" fill="#2aab5c" stroke="#ffffff" stroke-width="1.5"/>
-    <circle cx="152" cy="118" r="3.5" fill="#2aab5c" stroke="#ffffff" stroke-width="1.3"/>
-    <circle cx="218" cy="95" r="7.5" fill="#2aab5c" stroke="#ffffff" stroke-width="1.5"/>
-    <circle cx="285" cy="72" r="4.5" fill="#2aab5c" stroke="#ffffff" stroke-width="1.5"/>
-    <circle cx="120" cy="108" r="3.2" fill="#b03030" stroke="#ffffff" stroke-width="1.3"/>
-    <circle cx="185" cy="82" r="6.5" fill="#b03030" stroke="#ffffff" stroke-width="1.5"/>
-    <circle cx="250" cy="60" r="4" fill="#b03030" stroke="#ffffff" stroke-width="1.4"/>
-    <circle cx="22" cy="178" r="4" fill="#2aab5c" stroke="#ffffff" stroke-width="1"/>
+    <polyline points="22,140 55,128 88,138 120,108 152,118 185,82 218,95 250,60 285,72 318,48" fill="none" stroke="#0891b2" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="88" cy="138" r="6" fill="#12905f" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="152" cy="118" r="3.5" fill="#12905f" stroke="#ffffff" stroke-width="1.3"/>
+    <circle cx="218" cy="95" r="7.5" fill="#12905f" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="285" cy="72" r="4.5" fill="#12905f" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="120" cy="108" r="3.2" fill="#cc3b46" stroke="#ffffff" stroke-width="1.3"/>
+    <circle cx="185" cy="82" r="6.5" fill="#cc3b46" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="250" cy="60" r="4" fill="#cc3b46" stroke="#ffffff" stroke-width="1.4"/>
+    <circle cx="22" cy="178" r="4" fill="#12905f" stroke="#ffffff" stroke-width="1"/>
     <text x="30" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">BUY</text>
-    <circle cx="62" cy="178" r="4" fill="#b03030" stroke="#ffffff" stroke-width="1"/>
+    <circle cx="62" cy="178" r="4" fill="#cc3b46" stroke="#ffffff" stroke-width="1"/>
     <text x="70" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="7">SELL</text>
     <text x="200" y="181" fill="#6e7a8a" font-family="Inter,sans-serif" font-size="6.5">Form 4 trades plotted at execution price</text>
   </svg>`;
@@ -11112,7 +11112,7 @@ function loadPremiumPage() {
         <div style="font-family:Inter,sans-serif;font-size:48px;letter-spacing:4px;color:var(--text);line-height:1;margin-bottom:12px">FOLLOW THE <span style="color:var(--accent)">SMART MONEY</span></div>
         <div style="font-size:14px;color:var(--muted);max-width:520px;margin:0 auto;line-height:1.9">Corporate insiders file legally required SEC Form 4 disclosures when they trade. InsiderTape Premium gives you every tool to track insider signals, detect clusters and conviction trades, and act before the crowd does.</div>
         <div style="margin-top:28px">
-          <button onclick="document.getElementById('pricing').scrollIntoView({behavior:'smooth'})" style="background:var(--accent);color:#fff;border:none;border-radius:9px;padding:15px 36px;font-family:Inter,sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.5px;box-shadow:0 4px 16px rgba(36,120,204,0.25)">SIGN UP NOW →</button>
+          <button onclick="document.getElementById('pricing').scrollIntoView({behavior:'smooth'})" style="background:var(--accent);color:#fff;border:none;border-radius:9px;padding:15px 36px;font-family:Inter,sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.5px;box-shadow:0 4px 16px rgba(8,145,178,0.25)">SIGN UP NOW →</button>
           <div style="font-size:11px;color:var(--muted);margin-top:10px">7-day free trial · Cancel anytime</div>
         </div>
       </div>
@@ -11140,7 +11140,7 @@ function loadPremiumPage() {
           <div style="font-size:11px;color:var(--buy);margin-bottom:16px;font-family:Inter,sans-serif">7-day free trial</div>
           <button onclick="startCheckout('monthly')" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:13px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px">GET STARTED →</button>
         </div>
-        <div style="background:var(--bg2);border:2px solid var(--accent);border-radius:12px;padding:28px 24px;text-align:center;position:relative;box-shadow:0 2px 10px rgba(36,120,204,0.12)">
+        <div style="background:var(--bg2);border:2px solid var(--accent);border-radius:12px;padding:28px 24px;text-align:center;position:relative;box-shadow:0 2px 10px rgba(8,145,178,0.12)">
           <div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;font-weight:700;letter-spacing:1px;padding:3px 14px;border-radius:20px;white-space:nowrap">BEST VALUE</div>
           <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:16px">ANNUAL</div>
           <div style="font-family:Inter,sans-serif;font-size:48px;color:var(--text);line-height:1">$149<span style="font-size:22px;color:var(--muted)">.99</span></div>
