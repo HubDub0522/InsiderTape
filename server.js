@@ -1960,6 +1960,11 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/', priority: '1.0', freq: 'daily' },
     { url: '/biggest-insider-buys', priority: '0.9', freq: 'daily' },
     { url: '/insider-buying-study', priority: '0.8', freq: 'weekly' },
+    { url: '/insider-trading-studies', priority: '0.7', freq: 'weekly' },
+    { url: '/cluster-buying-study', priority: '0.7', freq: 'weekly' },
+    { url: '/first-insider-buy-study', priority: '0.7', freq: 'weekly' },
+    { url: '/insider-buying-at-lows-study', priority: '0.7', freq: 'weekly' },
+    { url: '/insider-buy-size-study', priority: '0.7', freq: 'weekly' },
     { url: '/search', priority: '0.5', freq: 'monthly' },
     { url: '/screener', priority: '0.9', freq: 'daily' },
     { url: '/stock', priority: '0.8', freq: 'daily' },
@@ -3037,9 +3042,10 @@ td{padding:11px 13px;border-bottom:1px solid var(--border);vertical-align:middle
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){table{font-size:12px}th,td{padding:9px 8px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Data Study</div>
+  <div style="font-size:12px;margin-bottom:14px"><a href="/insider-trading-studies" style="color:var(--accent);text-decoration:none">← All insider-buying studies</a></div>
   <h1>Which Insiders Actually Beat the Market?</h1>
   <div class="meta">InsiderTape research &nbsp;·&nbsp; ${nAll} buys, ${fdY(s.sample?.from)} to ${fdY(s.sample?.to)} &nbsp;·&nbsp; Updated ${fdY(s.generated)}</div>
   <p class="intro">${intro}</p>
@@ -3090,6 +3096,248 @@ app.get('/insider-buying-study', async (req, res) => {
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
+
+// ─── MORE DATA STUDIES (evergreen, rendered live from the 'insider-study' cache) ───
+const _STUDY_LINKS = [
+  { slug: 'insider-buying-study',         t: 'Which insider role beats the market?',    b: 'CFO vs CEO vs director: which role actually predicted returns.' },
+  { slug: 'cluster-buying-study',         t: 'Does cluster buying beat the market?',    b: 'What happens when 2, 3, 4 or 5+ insiders buy the same stock in a month.' },
+  { slug: 'first-insider-buy-study',      t: 'The first insider buy in years',          b: 'When an insider breaks a long silence, does the stock respond?' },
+  { slug: 'insider-buying-at-lows-study', t: 'Insiders buying near 52-week lows',       b: 'Does buying the dip alongside insiders work, or is it a value trap?' },
+  { slug: 'insider-buy-size-study',       t: 'Does the size of an insider buy matter?', b: 'Do bigger purchases predict bigger moves? The answer surprised us.' },
+];
+
+const _STUDY_STYLE = `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:820px;margin:0 auto;padding:44px 24px 90px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(8,145,178,.08);border:1px solid rgba(8,145,178,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+h1{font-size:clamp(26px,4.4vw,40px);font-weight:800;letter-spacing:-.5px;line-height:1.14;margin-bottom:12px}
+.meta{font-size:12px;color:var(--muted);margin-bottom:24px}
+.intro{font-size:17px;color:#3a4555;line-height:1.8;margin-bottom:20px}
+p{margin-bottom:16px;color:#3a4555}
+h2{font-size:20px;font-weight:700;margin:36px 0 14px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;margin-bottom:10px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 13px;border-bottom:2px solid var(--border)}
+td{padding:11px 13px;border-bottom:1px solid var(--border);vertical-align:middle;color:#3a4555}tr:last-child td{border-bottom:none}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-weight:600}.num.g{color:var(--buy)}.num.r{color:var(--sell)}
+.callout{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:18px 20px;margin:20px 0;font-size:14px;color:#3a4555}
+.method{font-size:13px;color:var(--muted);line-height:1.8}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin:24px 0 10px}
+.scard{display:block;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;text-decoration:none;box-shadow:0 8px 24px -18px rgba(15,26,43,.25);transition:border-color .15s,transform .15s}
+.scard:hover{border-color:var(--accent);transform:translateY(-2px)}
+.scard .st{font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;line-height:1.3}
+.scard .sb{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px}
+.scard .sa{font-size:12px;font-weight:700;color:var(--accent)}
+@media(max-width:640px){table{font-size:12px}th,td{padding:9px 8px}}
+</style>`;
+
+function renderDataStudy(s, cfg) {
+  const url = 'https://www.insidertape.com/' + cfg.slug;
+  const sp = v => (v >= 0 ? '+' : '') + Number(v || 0).toFixed(1) + '%';
+  const pu = v => Number(v || 0).toFixed(1) + '%';
+  const cls = v => (v || 0) >= 0 ? 'g' : 'r';
+  const beatCls = v => (v || 0) >= 50 ? 'g' : 'r';
+  const sc = s.scenarios || {};
+  const g = (key, win) => ((sc[key] || {}).windows || {})[win] || {};
+  const nAll = (g('all', '1M').n || 0).toLocaleString('en-US');
+  const fromY = (s.sample?.from || '').slice(0, 4), toY = (s.sample?.to || '').slice(0, 4);
+  const ctx = { g, sp, pu, nAll, fromY };
+  const WINS = [['1M', '30d'], ['2M', '60d'], ['3M', '90d']];
+  const rowFor = ([key, label, note]) => { const x90 = g(key, '3M'), r = x90.rut || {}; return `<tr><td><strong>${label}</strong>${note ? `<div style="font-size:11px;color:var(--muted);font-weight:400;margin-top:2px">${note}</div>` : ''}</td><td class="num" style="color:var(--muted)">${(x90.n || 0).toLocaleString('en-US')}</td>${WINS.map(([w]) => { const xx = g(key, w); return `<td class="num ${cls(xx.meanRet)}">${sp(xx.meanRet)}</td>`; }).join('')}<td class="num">${pu(x90.pctPositive)}</td><td class="num ${beatCls(r.pctBeat)}">${pu(r.pctBeat)}</td></tr>`; };
+  const tbl = rows => `<div style="overflow-x:auto"><table><thead><tr><th>Signal</th><th class="num">Sample</th><th class="num">Avg. 30d</th><th class="num">Avg. 60d</th><th class="num">Avg. 90d</th><th class="num">% up (90d)</th><th class="num">% beat Russell (90d)</th></tr></thead><tbody>${rows.map(rowFor).join('')}</tbody></table></div>`;
+  const desc = cfg.desc(ctx);
+  const faq = cfg.faq ? cfg.faq(ctx) : [];
+  const related = _STUDY_LINKS.filter(l => l.slug !== cfg.slug).map(l => `<li style="margin-bottom:6px"><a href="/${l.slug}" style="color:var(--accent);text-decoration:none">${l.t}</a></li>`).join('');
+  const sectionsHtml = cfg.sections.map(sec => `<h2>${sec.h2}</h2><p>${sec.prose(ctx)}</p>${tbl(sec.rows)}`).join('\n');
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${_esc(cfg.metaTitle)}</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="article"><meta property="og:url" content="${url}">
+<meta property="og:title" content="${_esc(cfg.ogTitle)}">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: cfg.ogTitle, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
+${faq.length ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>` : ''}
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Studies', item: 'https://www.insidertape.com/insider-trading-studies' }, { '@type': 'ListItem', position: 3, name: cfg.breadcrumbName, item: url }] })}</script>
+${_STUDY_STYLE}
+</head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Data Study</div>
+  <div style="font-size:12px;margin-bottom:14px"><a href="/insider-trading-studies" style="color:var(--accent);text-decoration:none">← All insider-buying studies</a></div>
+  <h1>${cfg.h1}</h1>
+  <div class="meta">InsiderTape research &nbsp;·&nbsp; ${nAll} buys, ${fromY} to ${toY} &nbsp;·&nbsp; benchmarked to the Russell 2000</div>
+  <p class="intro">${cfg.intro(ctx)}</p>
+  ${cfg.callout ? `<div class="callout">${cfg.callout(ctx)}</div>` : ''}
+  ${sectionsHtml}
+  <h2>The edge is early</h2>
+  <p>As in every slice of this data, the advantage is strongest in the first 30 to 90 days and fades after that. Insider buying reads like a short-to-medium-term catalyst, not a set-and-forget signal, which is why we track it live and mark every buy on the price chart.</p>
+  <h2>Methodology &amp; caveats</h2>
+  <p class="method">We start from every open-market purchase (SEC Form 4, code P) of ${_fmtV(s.sample?.minValue || 10000)} or more filed over the last five years across the US market, enter at the closing price on or just after the transaction date, and measure the return 30, 60 and 90 days later against the Russell 2000 over the same dates. "Cluster" means that many different insiders bought the same company within 30 days. Option exercises, grants, and obvious price-data errors are excluded, as are tickers with no daily price history. Returns shown are averages (means); because a few big winners can lift an average, we also show how often each signal was simply positive and how often it beat the market.${cfg.caveat ? ' ' + cfg.caveat(ctx) : ''} <strong>Caveats:</strong> this covers 2021-2026 only, one bull market plus the 2022 selloff, not a full range of cycles. This is analysis of past filings, not a prediction or investment advice. Past performance does not predict future results.</p>
+  <div style="margin-top:38px;padding-top:24px;border-top:1px solid var(--border)">
+    <h2 style="margin-top:0">More insider-buying studies</h2>
+    <ul style="margin:0;padding-left:18px;font-size:15px;color:#3a4555">${related}</ul>
+  </div>
+  <div class="cta">
+    <h3>Track these signals as they happen</h3>
+    <p>InsiderTape flags CFO buys, cluster buying, first buys in years, and buying near lows in real time, plotted on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past performance does not predict future results.</footer>
+</body></html>`;
+}
+
+const STUDY_CONFIGS = {
+  'cluster-buying-study': {
+    slug: 'cluster-buying-study',
+    metaTitle: 'Does Insider Cluster Buying Beat the Market? A 5-Year Study | InsiderTape',
+    ogTitle: 'Does Insider Cluster Buying Beat the Market?',
+    breadcrumbName: 'Cluster Buying Study',
+    h1: 'Does insider cluster buying beat the market?',
+    desc: c => `We backtested ${c.nAll} insider buys over five years. When several insiders buy the same stock within a month, the odds rose with every extra buyer: 5-insider clusters were higher ${c.pu(c.g('cluster_5plus', '3M').pctPositive)} of the time 90 days later.`,
+    intro: c => `One insider buying is a data point. Several insiders buying the same company within a few weeks, a "cluster," is the pattern research has long tied to above-average returns. We tested it head-on: across ${c.nAll} open-market SEC Form 4 purchases over five years, we grouped buys into clusters of 2, 3, 4 and 5 or more different insiders within 30 days, and measured what each stock did 30, 60 and 90 days later against the Russell 2000.`,
+    callout: c => `<strong>The short version:</strong> it scaled almost perfectly. Each extra buyer improved the odds, in order, with no exceptions. A lone buy was close to a coin flip; a 5-insider cluster was positive ${c.pu(c.g('cluster_5plus', '3M').pctPositive)} of the time over 90 days.`,
+    sections: [
+      { h2: 'More buyers, better odds', prose: c => `The win rate and the average return both climbed with each additional insider, monotonically. That kind of clean, ordered relationship is uncommon in market data, and it is the main reason cluster buying is one of the few insider signals we act on directly.`, rows: [['cluster_2plus', '2+ insiders', 'within 30 days'], ['cluster_3plus', '3+ insiders', ''], ['cluster_4plus', '4+ insiders', ''], ['cluster_5plus', '5+ insiders', 'small sample']] },
+      { h2: 'Clusters plus a second signal', prose: c => `Stacking a cluster with one more condition sharpened it further. A CFO buying inside a cluster, or a 3-plus cluster forming near a 52-week low, both improved on the plain cluster.`, rows: [['cluster_3plus', '3+ insider cluster', ''], ['cfo_cluster', 'CFO buying in a cluster', ''], ['cluster3_near_low', '3+ cluster near the 52-wk low', '']] },
+    ],
+    caveat: c => `The 4-plus and especially 5-plus clusters are rare, so those rows are the strongest but the least certain.`,
+    faq: c => [
+      { q: 'Does insider cluster buying actually work?', a: `In this five-year study, yes, and it improved with scale. Over 90 days, 2+ insider clusters were positive ${c.pu(c.g('cluster_2plus', '3M').pctPositive)} of the time, 3+ were ${c.pu(c.g('cluster_3plus', '3M').pctPositive)}, 4+ were ${c.pu(c.g('cluster_4plus', '3M').pctPositive)}, and 5+ were ${c.pu(c.g('cluster_5plus', '3M').pctPositive)}.` },
+      { q: 'What counts as a cluster?', a: `Three or more different insiders buying the same company on the open market within about 30 days. Repeated buys by one person do not count; the signal is several distinct insiders acting at once.` },
+    ],
+  },
+  'first-insider-buy-study': {
+    slug: 'first-insider-buy-study',
+    metaTitle: "What Happens After an Insider's First Buy in Years? | InsiderTape",
+    ogTitle: "What Happens After an Insider's First Buy in Years?",
+    breadcrumbName: 'First Insider Buy Study',
+    h1: "What happens after an insider's first buy in years?",
+    desc: c => `When an insider who has not bought in years steps back in, the break from routine can matter more than the dollar amount. We measured what happened next across ${c.nAll} buys over five years.`,
+    intro: c => `Routine insider buying is easy to tune out. But when someone who has not purchased their own stock in a year, two years, or longer suddenly steps in, the change of behavior itself is information. We flagged every open-market buy that ended a gap of at least one, two or three years since that insider's prior purchase, and measured the stock 30, 60 and 90 days later against the Russell 2000.`,
+    callout: c => `<strong>The short version:</strong> a first buy after a long silence tended to be positive more often than a typical buy, and the rarest version of all, a CEO's first purchase in years, was one of the strongest single patterns we found (on a small sample).`,
+    sections: [
+      { h2: 'The longer the silence, the more it meant', prose: c => `Buys that broke a one- or two-year gap were positive more often than the average purchase. The three-year version is noisier (fewer of them), but the through-line holds: a deliberate return after a long absence carries more signal than another buy from someone who buys often.`, rows: [['first_buy_1y', 'First buy in 1+ year', ''], ['first_buy_2y', 'First buy in 2+ years', ''], ['first_buy_3y', 'First buy in 3+ years', 'small sample']] },
+      { h2: "The CEO's first buy in years", prose: c => `We noted elsewhere that routine CEO buying underwhelmed. The exception is the rare one: when a CEO who has not bought in years finally does, it was among the strongest signals in the whole study, though the sample is small enough to treat as suggestive rather than settled.`, rows: [['ceo_first_buy', "A CEO's first buy in years", 'small sample'], ['first_buy_near_low', 'First buy, near the 52-wk low', 'small sample']] },
+    ],
+    caveat: c => `A "first buy" here means the insider's first open-market purchase after a gap of at least the stated length.`,
+    faq: c => [
+      { q: 'Is an insider buying for the first time in years bullish?', a: `In this data it skewed positive: a buy that ended a 1+ year gap was higher ${c.pu(c.g('first_buy_1y', '3M').pctPositive)} of the time over 90 days, a bit better than a typical buy. The break from routine appears to carry information.` },
+      { q: 'What was the strongest first-buy pattern?', a: `A CEO's first purchase in years. It was positive ${c.pu(c.g('ceo_first_buy', '3M').pctPositive)} of the time at 90 days in our sample, one of the highest rates we measured, though on a small number of cases.` },
+    ],
+  },
+  'insider-buying-at-lows-study': {
+    slug: 'insider-buying-at-lows-study',
+    metaTitle: 'Do Insiders Buying Near 52-Week Lows Beat the Market? | InsiderTape',
+    ogTitle: 'Do Insiders Buying Near 52-Week Lows Beat the Market?',
+    breadcrumbName: 'Buying the Dip Study',
+    h1: 'Does buying the dip alongside insiders work?',
+    desc: c => `Buying weakness with insiders sounds smart, but our five-year test found it mixed: buying near the lows alone lagged, and the biggest such buys were the weakest. A cluster or a CFO buying the dip held up better.`,
+    intro: c => `"Buy when insiders buy the dip" is a popular idea. We tested it directly: across ${c.nAll} buys over five years, we isolated purchases made while the stock sat in the lower part of its 52-week range and measured the next 30, 60 and 90 days against the Russell 2000.`,
+    callout: c => `<strong>The short version:</strong> buying near the lows by itself was roughly average and trailed the market a touch, and the largest buys near the lows were the weakest of all, a classic value-trap shape. But a cluster forming near the lows, or a CFO buying the dip, held up meaningfully better.`,
+    sections: [
+      { h2: 'Buying the dip alone was mixed', prose: c => `A single insider buying near the 52-week low was close to a coin flip and slightly trailed the Russell 2000 over 90 days. Large single buys near the lows fared worst, which fits the value-trap warning: a falling stock plus one big buyer is not enough on its own.`, rows: [['near_52w_low', 'Buy in the lower half of the 52-wk range', ''], ['at_52w_low', 'Buy right at the 52-wk low', ''], ['big_buy_near_low', 'Large buy near the low', 'value-trap risk']] },
+      { h2: 'What made buying the dip work', prose: c => `The near-low signal improved sharply when it came with conviction from more than one person, or from the CFO. Weakness plus a cluster, or weakness plus the sharpest role, was the version worth watching.`, rows: [['cfo_near_low', 'CFO buying near the low', ''], ['cluster3_near_low', '3+ cluster near the low', '']] },
+    ],
+    caveat: c => `"Near the low" means the purchase price sat in the lower portion of the trailing 52-week range.`,
+    faq: c => [
+      { q: 'Is it good when insiders buy near a 52-week low?', a: `On its own, only mildly. Buys near the 52-week low were positive about ${c.pu(c.g('near_52w_low', '3M').pctPositive)} of the time over 90 days and slightly trailed the Russell 2000. The signal was much stronger when several insiders bought the dip together.` },
+      { q: 'Why did the biggest buys near the lows do worst?', a: `It is the value-trap pattern: a large purchase into a falling stock often reflects a conviction the market disagreed with. Size did not rescue it; conviction from multiple insiders did.` },
+    ],
+  },
+  'insider-buy-size-study': {
+    slug: 'insider-buy-size-study',
+    metaTitle: 'Does the Size of an Insider Buy Matter? A 5-Year Study | InsiderTape',
+    ogTitle: 'Does the Size of an Insider Buy Matter?',
+    breadcrumbName: 'Buy Size Study',
+    h1: 'Does the size of an insider buy matter?',
+    desc: c => `Intuition says a bigger insider buy is a bigger signal. Over five years and ${c.nAll} buys, the opposite showed up: the largest purchases, $1M and up, actually underperformed the smaller ones.`,
+    intro: c => `It is tempting to weight a $5 million insider purchase far more heavily than a $50,000 one. We tested whether dollar size actually predicted better returns: across ${c.nAll} open-market buys over five years, we split purchases into size buckets and measured the next 30, 60 and 90 days against the Russell 2000.`,
+    callout: c => `<strong>The short version:</strong> bigger was not better. The largest buys ($1M and up) had the lowest win rate and were the only bucket that was negative on average over 90 days. Small and mid-sized buys held up better, because who is buying and why matters more than the raw dollar amount.`,
+    sections: [
+      { h2: 'Bigger buys did not mean bigger returns', prose: c => `The three size buckets barely differed, and the trend ran the wrong way: the largest purchases underperformed the smaller ones on both win rate and average return. A giant buy is often a founder or 10% holder adding to an already-huge position, which carries less signal than a first, deliberate purchase by an executive.`, rows: [['size_under_100k', 'Under $100K', ''], ['size_100k_1m', '$100K to $1M', ''], ['size_1m_plus', '$1M and up', 'worst of the three']] },
+    ],
+    caveat: c => `Buckets are by the reported dollar value of the individual purchase.`,
+    faq: c => [
+      { q: 'Do bigger insider buys predict bigger stock moves?', a: `Not in this data. Over 90 days, buys of $1M or more were positive only ${c.pu(c.g('size_1m_plus', '3M').pctPositive)} of the time, below the ${c.pu(c.g('size_100k_1m', '3M').pctPositive)} rate for $100K to $1M buys. Size alone was not the edge.` },
+      { q: 'What matters more than the dollar amount?', a: `Who is buying (the CFO was the sharpest role) and whether several insiders buy at once (clusters improved with each extra buyer). Context beat size.` },
+    ],
+  },
+};
+
+function renderStudiesHub(s) {
+  const url = 'https://www.insidertape.com/insider-trading-studies';
+  const g = (key, win) => (((s.scenarios || {})[key] || {}).windows || {})[win] || {};
+  const nAll = (g('all', '1M').n || 0).toLocaleString('en-US');
+  const desc = `Original data studies from InsiderTape: what five years of ${nAll} SEC Form 4 insider buys reveal about which roles, clusters, timing and buy sizes actually beat the market.`;
+  const cards = _STUDY_LINKS.map(l => `<a class="scard" href="/${l.slug}"><div class="st">${l.t}</div><div class="sb">${l.b}</div><div class="sa">Read the study →</div></a>`).join('');
+  const metaTitle = 'Insider Trading Data Studies: What Actually Works | InsiderTape';
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${metaTitle}</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="Insider Trading Data Studies: What Actually Works">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'CollectionPage', name: 'Insider Trading Data Studies', description: desc, url })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Studies', item: url }] })}</script>
+${_STUDY_STYLE}
+</head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Data Studies</div>
+  <h1>Insider trading, backtested</h1>
+  <p class="intro">We ran five years of open-market SEC Form 4 insider buys (${nAll} of them) through one consistent test: enter at the filing price, then measure the stock 30, 60 and 90 days later against the Russell 2000. Each study below answers a single question about what actually worked.</p>
+  <div class="sgrid">${cards}</div>
+  <div class="cta">
+    <h3>See these signals live</h3>
+    <p>InsiderTape flags CFO buys, clusters, first buys in years, and buying near lows in real time, plotted on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past performance does not predict future results.</footer>
+</body></html>`;
+}
+
+const _dataStudyCache = {};
+function _serveDataStudy(slug, renderFn) {
+  return async (req, res) => {
+    try {
+      const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-study'");
+      const study = row ? (() => { try { return JSON.parse(row.value_json); } catch(_) { return null; } })() : null;
+      if (!study || !study.scenarios) return res.type('html').send('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Study | InsiderTape</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;color:#334">This study is being compiled and will appear shortly. <a href="/insider-trading-studies" style="color:#0891b2">Back to studies</a></body></html>');
+      const c = _dataStudyCache[slug];
+      if (c && c.t === row.computed_at) { res.type('html'); return res.send(c.html); }
+      const html = renderFn(study);
+      _dataStudyCache[slug] = { html, t: row.computed_at };
+      res.type('html').send(html);
+    } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+  };
+}
+app.get('/insider-trading-studies', _serveDataStudy('insider-trading-studies', renderStudiesHub));
+for (const _slug of ['cluster-buying-study', 'first-insider-buy-study', 'insider-buying-at-lows-study', 'insider-buy-size-study']) {
+  app.get('/' + _slug, _serveDataStudy(_slug, s => renderDataStudy(s, STUDY_CONFIGS[_slug])));
+}
 
 // ─── SEARCH RESULTS PAGE ──────────────────────────────────────────────────────
 // A real, server-rendered search page. Doubles as the target for the WebSite
