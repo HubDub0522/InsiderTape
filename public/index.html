@@ -1422,7 +1422,6 @@ function switchView(view, btn, opts={}) {
     insider:   ['insiderViewBody',   'INSIDER PROFILES', 'Look up any insider and see their trade history, timing accuracy, and forward-return scores.'],
     analysis:  ['analysisViewBody',  'ANALYSIS',         'Nine signal engines - cluster detection, opportunity ranker, event proximity, first-buy signals and more.'],
     monitor:   ['monitorViewBody',   'MONITOR',          'Every notable insider signal, ranked and refreshed throughout the trading day.'],
-    sectors:   ['sectorsViewBody',   'SECTORS',          'See which industries are attracting the most insider buying, ranked by total buy flow.'],
     compare:   ['compareViewBody',   'COMPARE',          'Put any two tickers head-to-head across every insider metric.'],
     watchlist: ['watchlistViewBody', 'WATCHLIST',        'Pin tickers and follow specific insiders - see every move the moment it is filed.'],
   };
@@ -7971,10 +7970,6 @@ function fmtSector(n) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function loadSectorsPage() {
-  if (!auth.isPremium) {
-    showBlurGate('sectorsViewBody', 'SECTORS', 'Industry-level insider activity - see which sectors smart money is targeting.', 'Sectors - industry-level insider activity');
-    return;
-  }
   window.scrollTo(0, 0);
   const body = document.getElementById('sectorsViewBody');
   if (!body) return;
