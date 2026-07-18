@@ -8049,6 +8049,8 @@ function renderSectorsPage(data) {
         </div>
       </div>
 
+      ${sortedByBuy[0] && sortedByBuy[0].buy_val > 0 ? `<div style="background:rgba(18,144,95,0.08);border:1px solid rgba(18,144,95,0.28);border-radius:10px;padding:14px 18px;margin-bottom:22px;font-size:14px;color:var(--text)">🔥 <strong>${sortedByBuy[0].sector}</strong> is where insiders are loading up right now: <strong style="font-variant-numeric:tabular-nums">${fmtSector(sortedByBuy[0].buy_val)}</strong> across ${sortedByBuy[0].buy_count} ${sortedByBuy[0].buy_count === 1 ? 'buy' : 'buys'}, the most of any sector.</div>` : ''}
+
       <!-- Summary bar -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:32px">
         ${[
