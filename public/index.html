@@ -982,6 +982,10 @@
   #view-screener .scr-col-date span, #view-screener .scr-col-price, #view-screener .scr-col-value { font-family: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace !important; font-size:14px !important; }
   #view-screener tbody tr:hover { background: rgba(15,26,43,.035); }
   #view-screener .badge { padding:3px 11px; border-radius:20px; font-size:10.5px; font-weight:700; letter-spacing:.04em; border:none; }
+  /* Stock View: match The Tape typography (system-sans text, mono numbers) */
+  #view-stock { font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  #view-stock .stock-ticker-big, #view-stock .stock-price, #view-stock .stock-change, #view-stock .stat-val, #view-stock .stat-value { font-family: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace; font-variant-numeric: tabular-nums; }
+  #view-stock .stock-ticker-big { font-weight: 800; }
 </style>
 </head>
 <body>
@@ -2767,11 +2771,12 @@ async function loadStockView(ticker, opts={}) {
   // Render the full layout immediately with insider data.
   // Price chart streams in separately so the user isn't waiting for
   // an external API call before seeing anything.
+  // Kick off the price fetch in parallel with the (fast, indexed) insider fetch
+  // so the chart data isn't queued behind it - this is the main load speedup.
+  const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
   const insiderData = await fetchInsiderForTicker(ticker).catch(()=>[]);
   if (mySeq !== _loadStockViewSeq) return; // superseded
   state.tickerTrades = insiderData; state.currentPriceData = [];
-
-  const pricePromise = apiFetch('/api/price?symbol='+encodeURIComponent(ticker)+(opts.bust?'&bust=1':'')).catch(()=>[]);
 
   // Use empty price data for initial render - chart area shows spinner
   let priceData = [];
