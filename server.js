@@ -3454,7 +3454,6 @@ function renderInsiderIndex(data) {
   const band = _idxBand(reading);
   const startYr = (weeks[0].date || '').slice(0, 4);
   const weekEnd = _idxFmtWeek(cur.date);
-  const ratio = cur.sellVal > 0 ? (cur.buyVal / cur.sellVal) : null;
   const delta = reading - prevReading;
   const trend = delta > 0 ? `up from ${prevReading} the week before` : delta < 0 ? `down from ${prevReading} the week before` : `flat versus the week before`;
   const desc = `The Insider Buying Index reads ${reading}/100 (${band.label.toLowerCase()}) for the week ending ${weekEnd}. US corporate insiders bought more of their own stock than in ${reading}% of weeks since ${startYr}. A live market-wide gauge, updated weekly from SEC Form 4 filings.`;
@@ -3504,9 +3503,9 @@ ${_STUDY_STYLE}
     <div class="gbar-scale"><span>0 · Bearish</span><span>50</span><span>Bullish · 100</span></div>
   </div>
   <div class="stats">
-    <div class="stat"><div class="sv">${_fmtV(cur.buyVal)}</div><div class="sl">Open-market buys this week</div></div>
+    <div class="stat"><div class="sv" style="color:var(--buy)">${_fmtV(cur.buyVal)}</div><div class="sl">Bought this week</div></div>
+    <div class="stat"><div class="sv" style="color:var(--sell)">${_fmtV(cur.sellVal)}</div><div class="sl">Sold this week</div></div>
     <div class="stat"><div class="sv">${(cur.buyerCount || 0).toLocaleString('en-US')}</div><div class="sl">Insiders buying</div></div>
-    <div class="stat"><div class="sv">${ratio != null ? ratio.toFixed(1) + 'x' : '—'}</div><div class="sl">Buy-to-sell dollars</div></div>
   </div>
   <h2>Insider buying pressure, week by week</h2>
   <p>Each point is one week's share of insider dollars that went to buying rather than selling, smoothed over three weeks. The reading above is where the latest week sits against the full five-year range.</p>
