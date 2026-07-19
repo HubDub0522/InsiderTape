@@ -604,7 +604,7 @@ async function computeInsiderIndexWeekly() {
   // keep the most recent ~260 weeks. Full 5-year scan runs once to bootstrap.
   let prev = null;
   try {
-    const row = (await dbQuery("SELECT value_json FROM computed_cache WHERE key = 'insider-index-weekly'"))[0];
+    const row = (await dbQuery("SELECT value_json FROM computed_cache WHERE key = 'insider-index-weekly2'"))[0];
     if (row) prev = JSON.parse(row.value_json);
   } catch (_) {}
   const haveHistory = prev && Array.isArray(prev.weeks) && prev.weeks.length > 20;
@@ -629,11 +629,12 @@ async function computeInsiderIndexWeekly() {
   const byDate = {};
   if (haveHistory) for (const w of prev.weeks) byDate[w.date] = { date: w.date, buyVal: w.buyVal, sellVal: w.sellVal, buyCount: w.buyCount, buyerCount: w.buyerCount || 0, buyPct: w.buyPct };
   for (const w of fresh) byDate[w.date] = w;
-  const today = new Date().toISOString().slice(0, 10);
-  let weeks = Object.values(byDate).filter(w => w.date && w.date <= today).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-260);
+  // 2-day settle buffer: never publish the in-progress or barely-filed week.
+  const cutoff = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  let weeks = Object.values(byDate).filter(w => w.date && w.date <= cutoff).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-260);
   weeks = weeks.map((w, i) => { const sl = weeks.slice(Math.max(0, i - 2), i + 1); return { ...w, smoothedBuyPct: sl.reduce((s, x) => s + x.buyPct, 0) / sl.length }; });
   const result = { weeks, generated: Date.now() };
-  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly', ?, ?)`, [JSON.stringify(result), Date.now()]);
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly2', ?, ?)`, [JSON.stringify(result), Date.now()]);
   log(`insider-index-weekly cached: ${weeks.length} weeks`);
 }
 

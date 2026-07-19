@@ -3357,7 +3357,7 @@ async function _getInsiderIndexData() {
   // heavy to run on every cold serverless request, so we only compute live as a
   // one-time bootstrap when the cache is empty, then persist it.
   try {
-    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly'");
+    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly2'");
     if (cached && cached.value_json) {
       const parsed = JSON.parse(cached.value_json);
       if (parsed && Array.isArray(parsed.weeks) && parsed.weeks.length >= 12) {
@@ -3379,8 +3379,10 @@ async function _getInsiderIndexData() {
       AND COALESCE(value,0) >= 10000
     GROUP BY week_end HAVING buy_val + sell_val > 0 ORDER BY week_end ASC
   `);
-  const today = new Date().toISOString().slice(0, 10);
-  const weeks = rows.filter(r => r.week_end && r.week_end <= today).map(r => {
+  // Drop the in-progress week (and a 2-day settle buffer for late-filed Form 4s)
+  // so the headline is always the last completed, mostly-filed week.
+  const cutoff = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  const weeks = rows.filter(r => r.week_end && r.week_end <= cutoff).map(r => {
     const bv = r.buy_val || 0, sv = r.sell_val || 0;
     return { date: r.week_end, buyVal: bv, sellVal: sv, buyCount: r.buy_count || 0, buyerCount: 0, buyPct: bv / (bv + sv || 1) };
   });
@@ -3397,7 +3399,7 @@ async function _getInsiderIndexData() {
   }
   const data = { weeks, generated: Date.now() };
   _idxWeeklyCache = data; _idxWeeklyTime = Date.now();
-  try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
+  try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly2', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
   return data;
 }
 
