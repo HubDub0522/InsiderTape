@@ -3099,11 +3099,11 @@ app.get('/insider-buying-study', async (req, res) => {
 
 // ─── MORE DATA STUDIES (evergreen, rendered live from the 'insider-study' cache) ───
 const _STUDY_LINKS = [
-  { slug: 'insider-buying-study',         t: 'Which insider role beats the market?',    b: 'CFO vs CEO vs director: which role actually predicted returns.' },
-  { slug: 'cluster-buying-study',         t: 'Does cluster buying beat the market?',    b: 'What happens when 2, 3, 4 or 5+ insiders buy the same stock in a month.' },
-  { slug: 'first-insider-buy-study',      t: 'The first insider buy in years',          b: 'When an insider breaks a long silence, does the stock respond?' },
-  { slug: 'insider-buying-at-lows-study', t: 'Insiders buying near 52-week lows',       b: 'Does buying the dip alongside insiders work, or is it a value trap?' },
-  { slug: 'insider-buy-size-study',       t: 'Does the size of an insider buy matter?', b: 'Do bigger purchases predict bigger moves? The answer surprised us.' },
+  { slug: 'insider-buying-study',         i: '📊', t: 'Which insider role beats the market?',    b: 'CFO vs CEO vs director: which role actually predicted returns.' },
+  { slug: 'cluster-buying-study',         i: '👥', t: 'Does cluster buying beat the market?',    b: 'What happens when 2, 3, 4 or 5+ insiders buy the same stock in a month.' },
+  { slug: 'first-insider-buy-study',      i: '⏳', t: 'The first insider buy in years',          b: 'When an insider breaks a long silence, does the stock respond?' },
+  { slug: 'insider-buying-at-lows-study', i: '📉', t: 'Insiders buying near 52-week lows',       b: 'Does buying the dip alongside insiders work, or is it a value trap?' },
+  { slug: 'insider-buy-size-study',       i: '💰', t: 'Does the size of an insider buy matter?', b: 'Do bigger purchases predict bigger moves? The answer surprised us.' },
 ];
 
 const _STUDY_STYLE = `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
@@ -3135,6 +3135,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin:24px 0 10px}
 .scard{display:block;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;text-decoration:none;box-shadow:0 8px 24px -18px rgba(15,26,43,.25);transition:border-color .15s,transform .15s}
 .scard:hover{border-color:var(--accent);transform:translateY(-2px)}
+.scard .si{font-size:26px;line-height:1;margin-bottom:12px}
 .scard .st{font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;line-height:1.3}
 .scard .sb{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px}
 .scard .sa{font-size:12px;font-weight:700;color:var(--accent)}
@@ -3286,7 +3287,7 @@ function renderStudiesHub(s) {
   const g = (key, win) => (((s.scenarios || {})[key] || {}).windows || {})[win] || {};
   const nAll = (g('all', '1M').n || 0).toLocaleString('en-US');
   const desc = `Original data studies from InsiderTape: what five years of ${nAll} SEC Form 4 insider buys reveal about which roles, clusters, timing and buy sizes actually beat the market.`;
-  const cards = _STUDY_LINKS.map(l => `<a class="scard" href="/${l.slug}"><div class="st">${l.t}</div><div class="sb">${l.b}</div><div class="sa">Read the study →</div></a>`).join('');
+  const cards = _STUDY_LINKS.map(l => `<a class="scard" href="/${l.slug}"><div class="si">${l.i || '📈'}</div><div class="st">${l.t}</div><div class="sb">${l.b}</div><div class="sa">Read the study →</div></a>`).join('');
   const metaTitle = 'Insider Trading Data Studies: What Actually Works | InsiderTape';
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
