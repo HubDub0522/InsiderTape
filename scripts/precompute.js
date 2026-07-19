@@ -597,6 +597,46 @@ async function computeInsiderSentiment() {
   log(`insider-sentiment cached: ${smoothed.length} months, ${spxData.length} S&P points`);
 }
 
+async function computeInsiderIndexWeekly() {
+  // Weekly market-wide insider buying pressure powering /insider-buying-index.
+  // Same incremental shape as sentiment: keep the cached weekly history and
+  // re-aggregate only the last ~45 days (covers late-filed Form 4s), merge, and
+  // keep the most recent ~260 weeks. Full 5-year scan runs once to bootstrap.
+  let prev = null;
+  try {
+    const row = (await dbQuery("SELECT value_json FROM computed_cache WHERE key = 'insider-index-weekly'"))[0];
+    if (row) prev = JSON.parse(row.value_json);
+  } catch (_) {}
+  const haveHistory = prev && Array.isArray(prev.weeks) && prev.weeks.length > 20;
+  log(`Computing insider-index-weekly (${haveHistory ? 'incremental ~45d scan' : 'bootstrap full scan'})...`);
+  const scanClause = haveHistory ? `trade_date >= date('now','-45 days')` : `trade_date >= date('now','-1820 days')`;
+  const rows = await dbQuery(`
+    SELECT date(trade_date, 'weekday 0') AS week_end,
+           SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+           SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
+           COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyer_count
+    FROM trades
+    WHERE ${scanClause} AND trade_date <= date('now')
+      AND TRIM(type) IN ('P','S','S-') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND COALESCE(value,0) >= 10000
+    GROUP BY week_end HAVING buy_val + sell_val > 0 ORDER BY week_end ASC
+  `);
+  const fresh = rows.map(r => {
+    const bv = r.buy_val || 0, sv = r.sell_val || 0;
+    return { date: r.week_end, buyVal: bv, sellVal: sv, buyCount: r.buy_count || 0, buyerCount: r.buyer_count || 0, buyPct: bv / (bv + sv || 1) };
+  });
+  const byDate = {};
+  if (haveHistory) for (const w of prev.weeks) byDate[w.date] = { date: w.date, buyVal: w.buyVal, sellVal: w.sellVal, buyCount: w.buyCount, buyerCount: w.buyerCount || 0, buyPct: w.buyPct };
+  for (const w of fresh) byDate[w.date] = w;
+  const today = new Date().toISOString().slice(0, 10);
+  let weeks = Object.values(byDate).filter(w => w.date && w.date <= today).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-260);
+  weeks = weeks.map((w, i) => { const sl = weeks.slice(Math.max(0, i - 2), i + 1); return { ...w, smoothedBuyPct: sl.reduce((s, x) => s + x.buyPct, 0) / sl.length }; });
+  const result = { weeks, generated: Date.now() };
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly', ?, ?)`, [JSON.stringify(result), Date.now()]);
+  log(`insider-index-weekly cached: ${weeks.length} weeks`);
+}
+
 // One-time: clear the old 1-year price cache so everything refetches at 5 years.
 // Guarded by a marker so it only runs once, not every cycle.
 async function migratePriceCacheTo5yr() {
@@ -1087,6 +1127,7 @@ async function main() {
   // is cheap to run daily.
   if (heavyRun) {
     await computeInsiderSentiment();
+    await computeInsiderIndexWeekly();
     await computeFirstBuys();
   }
   // Leaderboard refreshes on the morning heavy run AND the midday run (twice daily).

@@ -200,6 +200,7 @@ app.use((req, res, next) => {
 // Per-request timeout
 app.use((req, res, next) => {
   const limit = req.path === '/api/scoreboard' ? 55000
+              : req.path === '/insider-buying-index' ? 55000
               : (req.path === '/api/insider' || req.path.startsWith('/insider')) ? 50000
               : (req.path === '/api/drift' || req.path === '/api/proximity') ? 45000
               : req.path === '/api/price' ? 35000
@@ -3351,21 +3352,29 @@ for (const _slug of ['cluster-buying-study', 'first-insider-buy-study', 'insider
 let _idxWeeklyCache = null, _idxWeeklyTime = 0;
 async function _getInsiderIndexData() {
   if (_idxWeeklyCache && Date.now() - _idxWeeklyTime < 3600000) return _idxWeeklyCache;
+  // Prefer the precomputed cache (refreshed daily by the precompute pipeline).
+  // Any cached row wins over a live scan: the full weekly aggregation is too
+  // heavy to run on every cold serverless request, so we only compute live as a
+  // one-time bootstrap when the cache is empty, then persist it.
   try {
     const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly'");
-    if (cached && Date.now() - cached.computed_at < 2 * 24 * 3600000) {
-      _idxWeeklyCache = JSON.parse(cached.value_json); _idxWeeklyTime = cached.computed_at;
-      return _idxWeeklyCache;
+    if (cached && cached.value_json) {
+      const parsed = JSON.parse(cached.value_json);
+      if (parsed && Array.isArray(parsed.weeks) && parsed.weeks.length >= 12) {
+        _idxWeeklyCache = parsed; _idxWeeklyTime = cached.computed_at || Date.now();
+        return _idxWeeklyCache;
+      }
     }
   } catch(_) {}
+  // Bootstrap: light historical scan (no per-row DISTINCT) for the percentile
+  // series, plus one tiny recent-window query for the latest week's buyer count.
   const rows = await query(`
     SELECT date(trade_date, 'weekday 0') AS week_end,
            SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
            SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
-           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
-           COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyer_count
+           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count
     FROM trades
-    WHERE trade_date >= date('now','-1890 days') AND trade_date <= date('now')
+    WHERE trade_date >= date('now','-1820 days') AND trade_date <= date('now')
       AND TRIM(type) IN ('P','S','S-') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       AND COALESCE(value,0) >= 10000
     GROUP BY week_end HAVING buy_val + sell_val > 0 ORDER BY week_end ASC
@@ -3373,9 +3382,19 @@ async function _getInsiderIndexData() {
   const today = new Date().toISOString().slice(0, 10);
   const weeks = rows.filter(r => r.week_end && r.week_end <= today).map(r => {
     const bv = r.buy_val || 0, sv = r.sell_val || 0;
-    return { date: r.week_end, buyVal: bv, sellVal: sv, buyCount: r.buy_count || 0, buyerCount: r.buyer_count || 0, buyPct: bv / (bv + sv || 1) };
+    return { date: r.week_end, buyVal: bv, sellVal: sv, buyCount: r.buy_count || 0, buyerCount: 0, buyPct: bv / (bv + sv || 1) };
   });
   weeks.forEach((w, i) => { const sl = weeks.slice(Math.max(0, i - 2), i + 1); w.smoothedBuyPct = sl.reduce((s, x) => s + x.buyPct, 0) / sl.length; });
+  // Latest week's distinct buyer count, scoped to just that week (cheap).
+  if (weeks.length) {
+    try {
+      const lw = weeks[weeks.length - 1];
+      const bc = await queryOne(`SELECT COUNT(DISTINCT insider) AS n FROM trades
+        WHERE trade_date > date(?, '-7 days') AND trade_date <= ?
+          AND TRIM(type)='P' AND COALESCE(value,0) >= 10000 AND ticker GLOB '[A-Z]*'`, [lw.date, lw.date]);
+      lw.buyerCount = (bc && bc.n) || 0;
+    } catch(_) {}
+  }
   const data = { weeks, generated: Date.now() };
   _idxWeeklyCache = data; _idxWeeklyTime = Date.now();
   try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
