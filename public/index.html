@@ -995,6 +995,36 @@
   /* Compare / Watchlist / Monitor / Sectors: same Signal typography */
   #view-compare, #view-compare *, #view-watchlist, #view-watchlist *, #view-monitor, #view-monitor *, #view-sectors, #view-sectors * { font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif !important; }
   #view-compare [style*="tabular-nums"], #view-watchlist [style*="tabular-nums"], #view-monitor [style*="tabular-nums"], #view-sectors [style*="tabular-nums"] { font-family: ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace !important; font-variant-numeric: tabular-nums; }
+
+  /* ── MOBILE OVERFLOW FIXES (2026-07-19) ───────────────────────────────────
+     Root cause: flex/grid children with default min-width:auto refuse to shrink
+     below their content, so the content column grows wider than the viewport and
+     body{overflow-x:hidden} clips the intro text, meta line and table at the edge.
+     Fix: allow the containers to shrink (min-width:0), lay the stat tiles out as a
+     real 2x2 grid, and size the stock-landing cards by class (not brittle inline
+     style selectors, which stopped matching after the redesign). */
+  @media (max-width: 640px) {
+    .screener-layout, .screener-content, .stock-layout, #stockContent,
+    main > .view, main > .view > * { min-width: 0 !important; }
+
+    /* Stat tiles: 2x2 grid that always fits the screen */
+    .summary-bar { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 8px !important; min-width: 0 !important; }
+    .summary-card { min-width: 0 !important; flex: none !important; padding: 12px 10px !important; }
+    .summary-card-val { font-size: 20px !important; }
+    .summary-card-label { font-size: 9px !important; }
+
+    /* Screener table: scroll inside its box instead of blowing out the layout */
+    .screener-content .table-wrap { overflow-x: auto !important; }
+
+    /* Stock-landing cards: 2 per row, contents constrained to the card */
+    #stockContent [style*="grid-template-columns"] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+    .stk-card { padding: 12px 12px !important; min-width: 0 !important; overflow: hidden !important; }
+    .stk-card-top { flex-wrap: wrap !important; gap: 5px !important; }
+    .stk-tkr { font-size: 15px !important; }
+    .stk-stats { gap: 10px !important; }
+    .stk-stat { min-width: 0 !important; overflow: hidden !important; }
+    .stk-stat-val { font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  }
 </style>
 </head>
 <body>
@@ -2602,17 +2632,17 @@ function renderStockLanding(lists) {
       `<span style="font-size:10px;padding:2px 6px;border-radius:3px;background:${bg};color:${color};font-family:ui-monospace,monospace;letter-spacing:0.5px">${label}</span>`
     ).join('');
     const statsHtml = stats.map(([val, label]) =>
-      `<div style="text-align:center"><div style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:15px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${val}</div><div style="font-size:10px;color:var(--muted);margin-top:2px">${label}</div></div>`
+      `<div class="stk-stat" style="text-align:center;min-width:0"><div class="stk-stat-val" style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:15px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums">${val}</div><div style="font-size:10px;color:var(--muted);margin-top:2px">${label}</div></div>`
     ).join('');
-    return `<div onclick="${onClick}" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:15px 17px;cursor:pointer;transition:border-color 0.15s,background 0.15s"
+    return `<div class="stk-card" onclick="${onClick}" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:15px 17px;cursor:pointer;transition:border-color 0.15s,background 0.15s"
       onmouseenter="this.style.borderColor='var(--border2)';this.style.background='var(--bg3)'"
       onmouseleave="this.style.borderColor='var(--border)';this.style.background='var(--bg2)'">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-weight:800;font-size:18px;letter-spacing:.5px;color:var(--accent)">${ticker}</span>
+      <div class="stk-card-top" style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="stk-tkr" style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-weight:800;font-size:18px;letter-spacing:.5px;color:var(--accent)">${ticker}</span>
         ${badgeHtml}
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${company||''}</div>
-      <div style="display:flex;gap:12px">${statsHtml}</div>
+      <div class="stk-stats" style="display:flex;gap:12px">${statsHtml}</div>
     </div>`;
   }
 

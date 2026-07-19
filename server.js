@@ -3536,10 +3536,16 @@ ${_STUDY_STYLE}
 
 app.get('/insider-buying-index', async (req, res) => {
   try {
-    const data = await _getInsiderIndexData();
-    res.type('html').send(renderInsiderIndex(data));
+    // Cache is the real data source (filled by precompute). If it is missing, we
+    // try a one-time live bootstrap, but cap the wait well under the request
+    // timeout and fall back to the "compiling" placeholder rather than 503.
+    const data = await Promise.race([
+      _getInsiderIndexData().catch(() => null),
+      new Promise(r => setTimeout(() => r(null), 45000)),
+    ]);
+    res.type('html').send(renderInsiderIndex(data && Array.isArray(data.weeks) ? data : { weeks: [] }));
   } catch(e) {
-    res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>');
+    res.type('html').send(renderInsiderIndex({ weeks: [] }));
   }
 });
 
