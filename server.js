@@ -1959,6 +1959,7 @@ app.get('/sitemap.xml', async (req, res) => {
   const staticPages = [
     { url: '/', priority: '1.0', freq: 'daily' },
     { url: '/biggest-insider-buys', priority: '0.9', freq: 'daily' },
+    { url: '/insider-buying-index', priority: '0.8', freq: 'daily' },
     { url: '/insider-buying-study', priority: '0.8', freq: 'weekly' },
     { url: '/insider-trading-studies', priority: '0.7', freq: 'weekly' },
     { url: '/cluster-buying-study', priority: '0.7', freq: 'weekly' },
@@ -3309,6 +3310,7 @@ ${_STUDY_STYLE}
   <div class="tag">Data Studies</div>
   <h1>Insider trading, backtested</h1>
   <p class="intro">We ran five years of open-market SEC Form 4 insider buys (${nAll} of them) through one consistent test: enter at the filing price, then measure the stock 30, 60 and 90 days later against the Russell 2000. Each study below answers a single question about what actually worked.</p>
+  <a href="/insider-buying-index" style="display:block;background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:10px;padding:16px 20px;margin:0 0 22px;text-decoration:none;box-shadow:0 8px 24px -18px rgba(15,26,43,.25)"><span style="font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase">Live indicator</span><div style="font-size:16px;font-weight:700;color:var(--text);margin-top:3px">The Insider Buying Index &nbsp;→</div><div style="font-size:13px;color:var(--muted);margin-top:2px">A market-wide gauge of how heavily insiders are buying this week versus the last five years. Updated weekly.</div></a>
   <div class="sgrid">${cards}</div>
   <div class="cta">
     <h3>See these signals live</h3>
@@ -3339,6 +3341,186 @@ app.get('/insider-trading-studies', _serveDataStudy('insider-trading-studies', r
 for (const _slug of ['cluster-buying-study', 'first-insider-buy-study', 'insider-buying-at-lows-study', 'insider-buy-size-study']) {
   app.get('/' + _slug, _serveDataStudy(_slug, s => renderDataStudy(s, STUDY_CONFIGS[_slug])));
 }
+
+// ─── INSIDER BUYING INDEX ─────────────────────────────────────────────────────
+// A free, public, server-rendered market-wide gauge of insider buying pressure.
+// Headline = a 0-100 percentile of this week's open-market buy share vs 5 years
+// of weekly history, so it updates on its own as filings come in. Reuses the same
+// weekly trades aggregation the ratio-history endpoint proves is cheap on
+// serverless; persists to computed_cache so cold instances stay fast.
+let _idxWeeklyCache = null, _idxWeeklyTime = 0;
+async function _getInsiderIndexData() {
+  if (_idxWeeklyCache && Date.now() - _idxWeeklyTime < 3600000) return _idxWeeklyCache;
+  try {
+    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly'");
+    if (cached && Date.now() - cached.computed_at < 2 * 24 * 3600000) {
+      _idxWeeklyCache = JSON.parse(cached.value_json); _idxWeeklyTime = cached.computed_at;
+      return _idxWeeklyCache;
+    }
+  } catch(_) {}
+  const rows = await query(`
+    SELECT date(trade_date, 'weekday 0') AS week_end,
+           SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
+           SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
+           COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
+           COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyer_count
+    FROM trades
+    WHERE trade_date >= date('now','-1890 days') AND trade_date <= date('now')
+      AND TRIM(type) IN ('P','S','S-') AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND COALESCE(value,0) >= 10000
+    GROUP BY week_end HAVING buy_val + sell_val > 0 ORDER BY week_end ASC
+  `);
+  const today = new Date().toISOString().slice(0, 10);
+  const weeks = rows.filter(r => r.week_end && r.week_end <= today).map(r => {
+    const bv = r.buy_val || 0, sv = r.sell_val || 0;
+    return { date: r.week_end, buyVal: bv, sellVal: sv, buyCount: r.buy_count || 0, buyerCount: r.buyer_count || 0, buyPct: bv / (bv + sv || 1) };
+  });
+  weeks.forEach((w, i) => { const sl = weeks.slice(Math.max(0, i - 2), i + 1); w.smoothedBuyPct = sl.reduce((s, x) => s + x.buyPct, 0) / sl.length; });
+  const data = { weeks, generated: Date.now() };
+  _idxWeeklyCache = data; _idxWeeklyTime = Date.now();
+  try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
+  return data;
+}
+
+function _idxBand(r) {
+  if (r >= 80) return { label: 'Very bullish', color: '#0e7a50', note: 'Insiders are buying far more heavily than in a typical week.' };
+  if (r >= 60) return { label: 'Bullish', color: '#12905f', note: 'Insiders are net buyers at an above-average clip.' };
+  if (r >= 45) return { label: 'Neutral', color: '#6e7a8a', note: 'Insider buying is running close to its usual level.' };
+  if (r >= 25) return { label: 'Cautious', color: '#c07a12', note: 'Insiders are buying less than in most weeks.' };
+  return { label: 'Bearish', color: '#cc3b46', note: 'Insider buying is unusually light versus history.' };
+}
+function _idxFmtWeek(d) {
+  if (!d) return '';
+  const p = d.split('-').map(Number);
+  const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][(p[1] || 1) - 1] || '';
+  return `${mo} ${p[2]}, ${p[0]}`;
+}
+function _idxChart(weeks) {
+  const series = weeks.slice(-156);
+  const n = series.length;
+  if (n < 2) return '';
+  const W = 800, H = 210, PADX = 6, PADY = 18;
+  const vals = series.map(w => w.smoothedBuyPct);
+  let mn = Math.min(...vals), mx = Math.max(...vals);
+  if (mx - mn < 0.06) { const mid = (mx + mn) / 2; mn = mid - 0.06; mx = mid + 0.06; }
+  const xf = i => PADX + (i / (n - 1)) * (W - 2 * PADX);
+  const yf = v => PADY + (1 - (v - mn) / (mx - mn)) * (H - 2 * PADY);
+  const pts = series.map((w, i) => [xf(i), yf(w.smoothedBuyPct)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = `M${pts[0][0].toFixed(1)} ${H} ` + pts.map(p => 'L' + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + ` L${pts[n - 1][0].toFixed(1)} ${H} Z`;
+  const midY = (0.5 >= mn && 0.5 <= mx) ? yf(0.5) : null;
+  const firstYr = (series[0].date || '').slice(0, 4), lastYr = (series[n - 1].date || '').slice(0, 4);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:210px;display:block" role="img" aria-label="Insider buying pressure over time">
+    <defs><linearGradient id="ig" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0891b2" stop-opacity="0.22"/><stop offset="1" stop-color="#0891b2" stop-opacity="0"/></linearGradient></defs>
+    ${midY != null ? `<line x1="0" y1="${midY.toFixed(1)}" x2="${W}" y2="${midY.toFixed(1)}" stroke="#c0c6cf" stroke-width="1" stroke-dasharray="5 5"/>` : ''}
+    <path d="${area}" fill="url(#ig)"/>
+    <path d="${line}" fill="none" stroke="#0891b2" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+  </svg>
+  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px"><span>${firstYr}</span><span>${lastYr}</span></div>`;
+}
+
+function renderInsiderIndex(data) {
+  const url = 'https://www.insidertape.com/insider-buying-index';
+  const weeks = (data && data.weeks) || [];
+  if (weeks.length < 12) {
+    return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Insider Buying Index | InsiderTape</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;color:#334">The Insider Buying Index is being compiled and will appear shortly. <a href="/insider-trading-studies" style="color:#0891b2">Back to studies</a></body></html>';
+  }
+  const sorted = weeks.map(w => w.smoothedBuyPct).sort((a, b) => a - b);
+  const rank = v => { let c = 0; for (const x of sorted) if (x <= v) c++; return c / sorted.length; };
+  const cur = weeks[weeks.length - 1], prev = weeks[weeks.length - 2];
+  const reading = Math.round(rank(cur.smoothedBuyPct) * 100);
+  const prevReading = prev ? Math.round(rank(prev.smoothedBuyPct) * 100) : reading;
+  const band = _idxBand(reading);
+  const startYr = (weeks[0].date || '').slice(0, 4);
+  const weekEnd = _idxFmtWeek(cur.date);
+  const ratio = cur.sellVal > 0 ? (cur.buyVal / cur.sellVal) : null;
+  const delta = reading - prevReading;
+  const trend = delta > 0 ? `up from ${prevReading} the week before` : delta < 0 ? `down from ${prevReading} the week before` : `flat versus the week before`;
+  const desc = `The Insider Buying Index reads ${reading}/100 (${band.label.toLowerCase()}) for the week ending ${weekEnd}. US corporate insiders bought more of their own stock than in ${reading}% of weeks since ${startYr}. A live market-wide gauge, updated weekly from SEC Form 4 filings.`;
+  const metaTitle = `Insider Buying Index: ${reading}/100 (${band.label}) | InsiderTape`;
+  const ogTitle = `Insider Buying Index: ${reading}/100 - ${band.label}`;
+  const generatedIso = new Date(data.generated || Date.now()).toISOString();
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${_esc(metaTitle)}</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="${_esc(ogTitle)}">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="https://www.insidertape.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: ogTitle, description: desc, url, datePublished: generatedIso, dateModified: generatedIso, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Index', item: url }] })}</script>
+${_STUDY_STYLE}
+<style>
+.gauge{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:30px 28px;text-align:center;box-shadow:0 8px 24px -18px rgba(15,26,43,.25);margin:6px 0 18px}
+.greading{font-size:72px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px}
+.greading span{font-size:26px;color:var(--muted);font-weight:700;letter-spacing:0}
+.gverdict{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-top:6px}
+.gsub{font-size:14px;color:#3a4555;max-width:520px;margin:12px auto 20px;line-height:1.6}
+.gbar{position:relative;height:12px;border-radius:6px;background:linear-gradient(90deg,#e7b9bd,#eef1f4 50%,#bfe3cd);margin:0 4px}
+.gbar-mark{position:absolute;top:-4px;width:4px;height:20px;border-radius:2px;background:#1a2030}
+.gbar-scale{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:8px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:0 0 8px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
+.stat .sv{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text)}
+.stat .sl{font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:.3px}
+@media(max-width:560px){.stats{grid-template-columns:1fr}.greading{font-size:56px}}
+</style>
+</head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Live indicator</div>
+  <h1>The Insider Buying Index</h1>
+  <div class="meta">Week ending ${weekEnd} &nbsp;·&nbsp; updated weekly from SEC Form 4 filings</div>
+  <div class="gauge">
+    <div class="greading" style="color:${band.color}">${reading}<span>/100</span></div>
+    <div class="gverdict" style="color:${band.color}">${band.label}</div>
+    <div class="gsub">Insiders bought more of their own stock this week than in <strong>${reading}%</strong> of weeks since ${startYr}. <span style="color:var(--muted)">(${trend}.)</span></div>
+    <div class="gbar"><div class="gbar-mark" style="left:calc(${reading}% - 2px)"></div></div>
+    <div class="gbar-scale"><span>0 · Bearish</span><span>50</span><span>Bullish · 100</span></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="sv">${_fmtV(cur.buyVal)}</div><div class="sl">Open-market buys this week</div></div>
+    <div class="stat"><div class="sv">${(cur.buyerCount || 0).toLocaleString('en-US')}</div><div class="sl">Insiders buying</div></div>
+    <div class="stat"><div class="sv">${ratio != null ? ratio.toFixed(1) + 'x' : '—'}</div><div class="sl">Buy-to-sell dollars</div></div>
+  </div>
+  <h2>Insider buying pressure, week by week</h2>
+  <p>Each point is one week's share of insider dollars that went to buying rather than selling, smoothed over three weeks. The reading above is where the latest week sits against the full five-year range.</p>
+  ${_idxChart(weeks)}
+  <p class="method" style="margin-top:4px">The dashed line marks weeks where insiders bought and sold equal dollar amounts. Above it, buying dominates.</p>
+  <h2>What it means</h2>
+  <p>Insiders sell for many reasons but tend to buy for only one: they think the stock is cheap. The index reads the whole market at once, so a high number means an unusually large share of insider money is flowing into open-market purchases right now, and a low number means insiders are mostly sitting on their hands. It is a market-wide temperature gauge, not a call on any single stock, and like every insider signal it works best as one input among several.</p>
+  <h2>How it is calculated</h2>
+  <p class="method">We take every open-market purchase (SEC Form 4, code P) and open-market sale of ${_fmtV(10000)} or more across the US market over the last five years and group them by week. For each week we measure buying as a share of total insider dollars, buys divided by buys plus sells, then smooth it over three weeks to cut noise and rank the latest completed week against every week since ${startYr}. The result is a 0 to 100 percentile: 100 is the heaviest insider buying in five years, 0 the lightest. It refreshes on its own as new filings arrive. This is a descriptive market indicator, not investment advice.</p>
+  <div style="margin-top:34px;padding-top:22px;border-top:1px solid var(--border)">
+    <h2 style="margin-top:0">Go deeper</h2>
+    <ul style="margin:0;padding-left:18px;font-size:15px;color:#3a4555">
+      <li style="margin-bottom:6px"><a href="/insider-trading-studies" style="color:var(--accent);text-decoration:none">The data studies: which insider signals actually beat the market</a></li>
+      <li style="margin-bottom:6px"><a href="/biggest-insider-buys" style="color:var(--accent);text-decoration:none">The biggest insider buys this week</a></li>
+      <li style="margin-bottom:6px"><a href="/" style="color:var(--accent);text-decoration:none">The Tape: every insider buy as it files</a></li>
+    </ul>
+  </div>
+  <div class="cta">
+    <h3>See what is behind the number</h3>
+    <p>InsiderTape tracks every Form 4 buy in real time and flags CFO buys, clusters and first buys in years, plotted on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past performance does not predict future results.</footer>
+</body></html>`;
+}
+
+app.get('/insider-buying-index', async (req, res) => {
+  try {
+    const data = await _getInsiderIndexData();
+    res.type('html').send(renderInsiderIndex(data));
+  } catch(e) {
+    res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>');
+  }
+});
 
 // ─── SEARCH RESULTS PAGE ──────────────────────────────────────────────────────
 // A real, server-rendered search page. Doubles as the target for the WebSite
