@@ -1018,10 +1018,13 @@ app.get('/api/stock-lists', async (req, res) => {
   // Fall back to computed_cache in Turso (pre-populated by GitHub Actions)
   try {
     const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'stock-lists'");
-    if (cached && Date.now() - cached.computed_at < STOCK_LISTS_TTL) {
+    // Serve the precomputed blob even when stale (up to 7 days). The live fallback
+    // below is 5 heavy GROUP BYs that take ~25s and 503 on a cold instance, so a
+    // slightly stale list is far better than a hung /stock page.
+    if (cached && cached.value_json && Date.now() - cached.computed_at < 7 * 24 * 3600000) {
       const payload = JSON.parse(cached.value_json);
       _stockListsCache = payload;
-      _stockListsCacheTime = cached.computed_at;
+      _stockListsCacheTime = Date.now();
       return res.json(payload);
     }
   } catch(e) { slog('stock-lists cache read error: ' + e.message); }
