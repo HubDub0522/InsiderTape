@@ -2015,6 +2015,25 @@ function tapeFilterBuys() {
   if (typeof saveFilters === 'function') saveFilters();
   loadScreener();
 }
+function tapeFilterSells() {
+  state.activeTypes = new Set(['S']);
+  document.querySelectorAll('.chip[data-type]').forEach(c => c.classList.toggle('active', c.dataset.type === 'S'));
+  if (typeof saveFilters === 'function') saveFilters();
+  loadScreener();
+}
+// Apply a buy/sell filter from a ?type=buy|sell URL param (used by inbound links
+// from the server-rendered Insider Buying Index page). Runs once on load, before
+// the first screener render, so the Tape arrives already filtered.
+function _applyTapeUrlFilter() {
+  try {
+    const t = new URLSearchParams(location.search).get('type');
+    if (t === 'buy') state.activeTypes = new Set(['P']);
+    else if (t === 'sell') state.activeTypes = new Set(['S']);
+    else return;
+    document.querySelectorAll('.chip[data-type]').forEach(c => c.classList.toggle('active', state.activeTypes.has(c.dataset.type)));
+    if (typeof saveFilters === 'function') saveFilters();
+  } catch(_) {}
+}
 function tapeFilterCfo() {
   _tapeSetBuysOnly();
   state.activeRole = 'CFO';
@@ -10310,6 +10329,7 @@ const auth = {
     !path.startsWith('/analysis') && !path.startsWith('/monitor') &&
     !path.startsWith('/sectors') && !path.startsWith('/compare') && !path.startsWith('/watchlist');
   if (isScreenerView) {
+    _applyTapeUrlFilter();
     loadScreener();
   }
 

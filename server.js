@@ -3484,7 +3484,9 @@ ${_STUDY_STYLE}
 .gbar-mark{position:absolute;top:-4px;width:4px;height:20px;border-radius:2px;background:#1a2030}
 .gbar-scale{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:8px}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:0 0 8px}
-.stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;text-decoration:none;color:inherit;display:block;transition:border-color .15s,transform .15s}
+a.stat:hover{border-color:var(--accent);transform:translateY(-1px)}
+a.stat:hover .sv{text-decoration:underline}
 .stat .sv{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text)}
 .stat .sl{font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:.3px}
 @media(max-width:560px){.stats{grid-template-columns:1fr}.greading{font-size:56px}}
@@ -3503,9 +3505,9 @@ ${_STUDY_STYLE}
     <div class="gbar-scale"><span>0 · Bearish</span><span>50</span><span>Bullish · 100</span></div>
   </div>
   <div class="stats">
-    <div class="stat"><div class="sv" style="color:var(--buy)">${_fmtV(cur.buyVal)}</div><div class="sl">Bought this week</div></div>
-    <div class="stat"><div class="sv" style="color:var(--sell)">${_fmtV(cur.sellVal)}</div><div class="sl">Sold this week</div></div>
-    <div class="stat"><div class="sv">${(cur.buyerCount || 0).toLocaleString('en-US')}</div><div class="sl">Insiders buying</div></div>
+    <a class="stat" href="/screener?type=buy"><div class="sv" style="color:var(--buy)">${_fmtV(cur.buyVal)}</div><div class="sl">Bought this week &rsaquo;</div></a>
+    <a class="stat" href="/screener?type=sell"><div class="sv" style="color:var(--sell)">${_fmtV(cur.sellVal)}</div><div class="sl">Sold this week &rsaquo;</div></a>
+    <a class="stat" href="/screener?type=buy"><div class="sv">${(cur.buyerCount || 0).toLocaleString('en-US')}</div><div class="sl">Insiders buying &rsaquo;</div></a>
   </div>
   <h2>Insider buying pressure, week by week</h2>
   <p>Each point is one week's share of insider dollars that went to buying rather than selling, smoothed over three weeks. The reading above is where the latest week sits against the full five-year range.</p>
