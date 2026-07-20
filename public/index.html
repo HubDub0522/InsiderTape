@@ -3365,7 +3365,7 @@ function buildCircleOverlay(container,chart,series,trades,priceData) {
       // Min radius: 4 (mobile) or 5 (desktop) - Max radius: 18 (mobile) or 24 (desktop)
       const rMin=_mob?6:8, rMax=_mob?28:38;
       const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, g.value) / maxVal);
-      const color=isBuy?'rgba(18,144,95,':isSell?'rgba(204,59,70,':'rgba(154,110,0,';
+      const color=isBuy?'rgba(47,210,79,':isSell?'rgba(255,69,58,':'rgba(154,110,0,';
       ctx.beginPath(); ctx.arc(ts,yCoord,r+3,0,Math.PI*2); ctx.fillStyle=color+'0.08)'; ctx.fill();
       ctx.beginPath(); ctx.arc(ts,yCoord,r,0,Math.PI*2); ctx.fillStyle=color+'0.20)'; ctx.strokeStyle=color+'0.85)'; ctx.lineWidth=1.5; ctx.fill(); ctx.stroke();
       state._circles.push({x:ts,y:yCoord,r,group:g});
@@ -3528,7 +3528,7 @@ function buildPressureChart(mainChart,trades,priceData) {
   });
   histSeries.setData(allDates.map(t=>{
     const v=valueByDate[t]??0;
-    return {time:t, value:v, color:v>=0?'rgba(18,144,95,0.85)':'rgba(204,59,70,0.85)'};
+    return {time:t, value:v, color:v>=0?'rgba(47,210,79,0.85)':'rgba(255,69,58,0.85)'};
   }));
 
 
@@ -3559,14 +3559,14 @@ function buildPressureChart(mainChart,trades,priceData) {
   const legend=document.createElement('div');
   legend.style.cssText='position:absolute;top:5px;left:10px;display:flex;align-items:center;gap:12px;pointer-events:none;z-index:2';
   legend.innerHTML=`
-    <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.5px;color:#4a6580">PRESSURE</span>
+    <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.5px;color:#8fb0c8">PRESSURE</span>
     <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:10px;height:10px;background:rgba(18,144,95,0.7);display:inline-block;border-radius:1px"></span>
-      <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:#4a6580">BUY</span>
+      <span style="width:10px;height:10px;background:rgba(47,210,79,0.7);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:#8fb0c8">BUY</span>
     </span>
     <span style="display:flex;align-items:center;gap:4px">
-      <span style="width:10px;height:10px;background:rgba(204,59,70,0.7);display:inline-block;border-radius:1px"></span>
-      <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:#4a6580">SELL</span>
+      <span style="width:10px;height:10px;background:rgba(255,69,58,0.7);display:inline-block;border-radius:1px"></span>
+      <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;color:#8fb0c8">SELL</span>
     </span>
 `;
   pw.style.position='relative';
