@@ -2004,6 +2004,79 @@ function renderConvictionCards(trades) {
   }).join('');
 }
 
+// ── REPEAT BUYING ─────────────────────────────────────────────────────────
+// Flags stocks where ONE insider is deliberately working into a larger position:
+// 3+ separate open-market buys on distinct days within ~90 days (accumulation).
+// This is distinct from a multi-insider cluster. Insider names are normalized
+// (HTML entities decoded, case/space folded) so "&" vs "&amp;" count as one.
+function _decIns(s){return String(s||'').replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCharCode(parseInt(n,16))).replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();}
+function _insKey(s){return _decIns(s).toUpperCase();}
+function _shortIns(s){const d=_decIns(s);return d.length>24?d.slice(0,23)+'…':d;}
+function buildRepeatBuyingData(trades){
+  const cutoff=new Date(Date.now()-90*86400000).toISOString().slice(0,10);
+  const byTicker={};
+  trades.forEach(t=>{
+    if(t.type!=='P')return;
+    const d=(t.trade||t.filing||'').slice(0,10); if(!d||d<cutoff)return;
+    const key=_insKey(t.insider); if(!key)return;
+    (byTicker[t.ticker]||(byTicker[t.ticker]={}));
+    (byTicker[t.ticker][key]||(byTicker[t.ticker][key]=[])).push({...t,_d:d,_disp:_decIns(t.insider)});
+  });
+  const out=[];
+  Object.entries(byTicker).forEach(([ticker,insiders])=>{
+    let best=null,repeatBuyers=0;
+    Object.values(insiders).forEach(tks=>{
+      const dates=[...new Set(tks.map(x=>x._d))].sort();
+      if(dates.length<3)return; // 3+ distinct buy dates by the same insider = accumulation
+      repeatBuyers++;
+      const totalVal=tks.reduce((s,x)=>s+(x.value||0),0);
+      const spanDays=Math.round((new Date(dates[dates.length-1])-new Date(dates[0]))/86400000);
+      const cand={disp:tks[0]._disp,title:(tks.find(x=>x.title)||{}).title||'',buys:dates.length,totalVal,spanDays,last:dates[dates.length-1]};
+      if(!best||cand.buys>best.buys||(cand.buys===best.buys&&cand.totalVal>best.totalVal))best=cand;
+    });
+    if(!best)return;
+    let score=Math.min(45,best.buys*9); const reasons=[];
+    reasons.push(`${_shortIns(best.disp)} bought ${best.buys}x over ${best.spanDays||0} days`);
+    if(best.totalVal>=5000000){score+=24;reasons.push(`${fmt(best.totalVal)} accumulated`);}
+    else if(best.totalVal>=1000000){score+=16;reasons.push(`${fmt(best.totalVal)} accumulated`);}
+    else if(best.totalVal>=250000){score+=9;reasons.push(`${fmt(best.totalVal)} accumulated`);}
+    else if(best.totalVal>0){reasons.push(`${fmt(best.totalVal)} accumulated`);}
+    if(best.buys>=4&&best.spanDays>=14){score+=10;reasons.push(`Steady cadence, not a one-off`);}
+    if(repeatBuyers>=2){score+=12;reasons.push(`${repeatBuyers} insiders each buying repeatedly`);}
+    const HR=['CEO','CFO','PRESIDENT','CHAIRMAN','DIRECTOR'];
+    if(HR.some(r=>(best.title||'').toUpperCase().includes(r))){score+=8;reasons.push(`${best.title} - high-signal role`);}
+    score=Math.min(100,Math.round(score));
+    const company=(Object.values(insiders)[0][0]||{}).company||ticker;
+    out.push({ticker,company,score,buys:best.buys,reasons:reasons.slice(0,4),totalVal:best.totalVal,latestDate:best.last});
+  });
+  return out.sort((a,b)=>b.buys-a.buys||b.totalVal-a.totalVal||b.score-a.score).slice(0,12);
+}
+function renderRepeatBuyingCards(trades){
+  const top=buildRepeatBuyingData(trades);
+  if(!top.length)return '<div style="color:var(--muted);font-size:12px;padding:16px">No repeat-buying accumulation found in the last 90 days.</div>';
+  return top.map(c=>{
+    const col=c.buys>=5?'var(--buy)':c.buys>=4?'var(--accent)':'var(--option)';
+    const bg=c.buys>=5?'rgba(18,144,95,0.08)':c.buys>=4?'rgba(10,111,136,0.08)':'rgba(154,110,0,0.08)';
+    const bd=c.buys>=5?'rgba(18,144,95,0.25)':c.buys>=4?'rgba(10,111,136,0.2)':'rgba(154,110,0,0.2)';
+    return `<div class="conviction-card" onclick="openTickerFromScreener('${c.ticker}',{rangeDays:365,srEnabled:false})">
+      <div class="conviction-card-header">
+        <div><div class="conviction-ticker">${c.ticker}</div><div class="conviction-company">${c.company}</div></div>
+        <div class="conviction-score-badge" style="background:${bg};border-color:${bd}">
+          <div class="conviction-score-num" style="color:${col}">${c.buys}</div>
+          <div class="conviction-score-label" style="color:${col}">BUYS</div>
+        </div>
+      </div>
+      <div class="conviction-body">
+        <ul class="conviction-reasons">${c.reasons.map(r=>`<li>${r}</li>`).join('')}</ul>
+        <div class="conviction-footer">
+          <span class="conviction-val">${fmt(c.totalVal)}</span>
+          <span class="conviction-date">${fmtDate(c.latestDate)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 
 // Clicking a stat-tile number applies the matching screener filter.
 function _tapeSetBuysOnly() {
@@ -5504,14 +5577,14 @@ function renderAnalysisDashboard() {
   const longTrades = _analysisDataLong || trades;
 
   // Compute once and reuse - these iterate all trades so must not be called multiple times
-  const _convData    = buildConvictionData(trades);
+  const _repeatData  = buildRepeatBuyingData(trades);
   const _clusterData = detectAdvancedClusters(trades).filter(c => c.insiderCount >= 3);
   const _regimeData  = buildRegimeShiftData(longTrades, trades);
   // Always cache - if long data isn't loaded yet the subpage will rebuild with fresh long data,
   // but we still want the tile results to be immediately available if the user clicks through
   window._cachedRegimeData = _regimeData;
 
-  const convTop3    = _convData.slice(0, 3);
+  const repeatTop3  = _repeatData.slice(0, 3);
   const clusterDataBoosted = _clusterData;
   const clusterTop3 = clusterDataBoosted.slice(0, 3);
   const firstBuyTop3 = _firstBuyCache ? _firstBuyCache.slice(0, 3) : [];
@@ -5648,18 +5721,18 @@ function renderAnalysisDashboard() {
       accentBorder: 'rgba(10,111,136,0.2)',
     },
     {
-      id: 'conviction',
-      icon: '⚡',
-      name: 'Buyer Conviction Trades',
-      desc: 'Scores every ticker on stake increase, cluster buying, repeat behavior & position size. Surfaces insiders making their biggest, most deliberate bets.',
-      count: _convData.length,
-      countLabel: 'signals detected',
+      id: 'repeatbuying',
+      icon: '🔁',
+      name: 'Repeat Buying',
+      desc: 'Flags stocks where one insider is working into a larger position: 3+ separate open-market buys on different days within 90 days. Deliberate accumulation, not a one-off.',
+      count: _repeatData.length,
+      countLabel: 'accumulating',
       loading: false,
-      top3: convTop3.map(c => ({
+      top3: repeatTop3.map(c => ({
         ticker: c.ticker,
-        label: `Score ${c.score}`,
+        label: `${c.buys} buys`,
         sub: c.reasons[0] || '',
-        color: c.score >= 80 ? 'var(--buy)' : c.score >= 60 ? 'var(--accent)' : 'var(--option)',
+        color: c.buys >= 5 ? 'var(--buy)' : c.buys >= 4 ? 'var(--accent)' : 'var(--option)',
       })),
       accentColor: 'var(--buy)',
       accentBg: 'rgba(18,144,95,0.06)',
@@ -5892,13 +5965,13 @@ function renderAnalysisSubpage(id, opts={}) {
     renderRankerSubpage();
   }
 
-  else if (id === 'conviction') {
-    const convHtml = renderConvictionCards(trades);
+  else if (id === 'repeatbuying') {
+    const convHtml = renderRepeatBuyingCards(trades);
     body.innerHTML = `<div style="max-width:1200px;margin:0 auto;padding:6px 20px 24px">
       ${backBtn}
       <div style="margin-bottom:20px">
-        <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">⚡ BUYER CONVICTION TRADES</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">Scored by stake increase, cluster buying, repeat behavior &amp; position size · Last 30D</div>
+        <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔁 REPEAT BUYING</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">One insider working into a larger position: 3+ open-market buys on different days · Last 90D</div>
       </div>
       <div class="conviction-grid">${convHtml}</div>
     </div>`;

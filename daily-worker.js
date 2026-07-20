@@ -95,11 +95,22 @@ function parseDate(s) {
   return d;
 }
 
+// SEC Form 4 XML encodes special characters as entities (e.g. "WINMILL &amp; CO").
+// Decode them so names are stored clean - otherwise the same entity ("&" vs
+// "&amp;") is counted as two different insiders in distinct-insider/cluster logic.
+function _decodeEntities(s) {
+  return String(s || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
 function xmlGet(xml, tag) {
   let m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*<value>\\s*([^<]+?)\\s*</value>', 'is'));
-  if (m?.[1]?.trim()) return m[1].trim();
+  if (m?.[1]?.trim()) return _decodeEntities(m[1].trim());
   m = xml.match(new RegExp('<' + tag + '[^>]*>\\s*([^<\\s][^<]*?)\\s*</' + tag + '>', 'i'));
-  return m?.[1]?.trim() || '';
+  return _decodeEntities(m?.[1]?.trim() || '');
 }
 
 function parseForm4(xml, filingDate, accession) {

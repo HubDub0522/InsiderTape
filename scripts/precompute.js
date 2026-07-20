@@ -649,6 +649,21 @@ async function migratePriceCacheTo5yr() {
   log('Cleared price cache for one-time 5-year migration');
 }
 
+// One-time: decode HTML/XML entities left in existing insider/company/title names
+// (e.g. "WINMILL &amp; CO" -> "WINMILL & CO") so the same entity is not counted as
+// two distinct insiders. New rows are decoded at ingestion (daily-worker xmlGet).
+async function migrateDecodeInsiderNames() {
+  const marker = await dbQuery("SELECT 1 AS n FROM computed_cache WHERE key = 'insider_entity_decode_v1'");
+  if (marker.length) return;
+  // Nested REPLACE: innermost runs first, so &amp; is decoded LAST (avoids double-decode).
+  const dec = col => `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${col},'&#39;',''''),'&apos;',''''),'&quot;','"'),'&lt;','<'),'&gt;','>'),'&amp;','&')`;
+  for (const col of ['insider', 'company', 'title']) {
+    await dbRun(`UPDATE trades SET ${col} = ${dec(col)} WHERE ${col} LIKE '%&%;%'`);
+  }
+  await dbRun("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider_entity_decode_v1', '1', ?)", [Date.now()]);
+  log('Decoded HTML entities in existing insider/company/title names (one-time)');
+}
+
 // Pre-warm the price cache for the most-active tickers so their charts load instantly
 async function prewarmPrices() {
   log('Pre-warming price cache...');
@@ -1138,6 +1153,7 @@ async function main() {
 
   // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)
   await migratePriceCacheTo5yr();
+  await migrateDecodeInsiderNames();
   await prewarmPrices();
   log('=== precompute done ===');
 }
