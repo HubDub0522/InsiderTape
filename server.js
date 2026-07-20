@@ -1410,12 +1410,12 @@ app.post('/api/auth/request-link', authBruteGuard, express.json(), async (req, r
           <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,Helvetica,Arial,sans-serif;background:#e3e6eb;padding:32px 16px;margin:0">
             <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #d0d4db;border-radius:12px;overflow:hidden">
               <div style="padding:32px 36px 24px">
-                <div style="font-size:22px;font-weight:800;letter-spacing:2px;color:#1a2030;margin-bottom:4px">INSIDER<span style="color:#0891b2">TAPE</span></div>
+                <div style="font-size:22px;font-weight:800;letter-spacing:2px;color:#1a2030;margin-bottom:4px">INSIDER<span style="color:#0a6f88">TAPE</span></div>
                 <div style="font-size:11px;letter-spacing:1px;color:#6e7a8a;margin-bottom:28px">FOLLOW THE SMART MONEY</div>
                 <div style="font-size:16px;font-weight:600;color:#1a2030;margin-bottom:8px">Sign in to InsiderTape</div>
                 <div style="font-size:14px;color:#6e7a8a;line-height:1.6;margin-bottom:26px">Click the button below to sign in. This link expires in <strong style="color:#1a2030">15 minutes</strong>.</div>
-                <a href="${link}" style="display:inline-block;background:#0891b2;color:#ffffff;font-weight:700;font-size:14px;letter-spacing:0.5px;padding:14px 34px;border-radius:8px;text-decoration:none">Sign in →</a>
-                <div style="margin-top:28px;font-size:12px;color:#6e7a8a;line-height:1.6">Or paste this link into your browser:<br><a href="${link}" style="color:#0891b2;word-break:break-all">${link}</a></div>
+                <a href="${link}" style="display:inline-block;background:#0a6f88;color:#ffffff;font-weight:700;font-size:14px;letter-spacing:0.5px;padding:14px 34px;border-radius:8px;text-decoration:none">Sign in →</a>
+                <div style="margin-top:28px;font-size:12px;color:#6e7a8a;line-height:1.6">Or paste this link into your browser:<br><a href="${link}" style="color:#0a6f88;word-break:break-all">${link}</a></div>
               </div>
               <div style="padding:18px 36px;border-top:1px solid #eaecf0;background:#f5f7fa;font-size:11px;color:#8b95a4;line-height:1.6">
                 If you didn't request this, you can safely ignore this email.<br>InsiderTape · SEC insider trade tracking · <a href="https://insidertape.com" style="color:#6e7a8a">insidertape.com</a>
@@ -2068,7 +2068,7 @@ function renderTickerPage(ticker, rows, stats) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -2252,7 +2252,7 @@ function renderInsiderPage(name, rows, stats) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -2401,7 +2401,7 @@ function renderBiggestBuysPage(rows) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -2416,7 +2416,7 @@ h1{font-size:clamp(28px,5vw,42px);font-weight:800;letter-spacing:-.5px;line-heig
 .card .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}.card .v{font-size:22px;font-weight:800}.card .v.g{color:var(--buy)}
 table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:14px}
 th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:12px 14px;border-bottom:2px solid var(--border)}
-td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(8,145,178,.03)}
+td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(10,111,136,.03)}
 .rk{color:var(--muted);font-weight:700;width:38px;font-variant-numeric:tabular-nums}
 .tk a{text-decoration:none;color:inherit;display:flex;flex-direction:column}.tk strong{color:var(--accent);font-weight:700;font-size:15px}.tk .co{font-size:11px;color:var(--muted);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:#3a4555}.num.v{color:var(--buy);font-weight:700}
@@ -2534,7 +2534,7 @@ function renderSectorPage(sector, slug, rows, stats) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -2677,7 +2677,7 @@ function renderRolePage(slug, def, rows, stats) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -2838,7 +2838,7 @@ function renderReportPage(endYmd, startYmd, data) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -3028,13 +3028,13 @@ function renderStudyPage(s) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
 header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
 .wrap{max-width:820px;margin:0 auto;padding:44px 24px 90px}
-.tag{display:inline-block;padding:3px 10px;background:rgba(8,145,178,.08);border:1px solid rgba(8,145,178,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(10,111,136,.08);border:1px solid rgba(10,111,136,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
 h1{font-size:clamp(26px,4.4vw,40px);font-weight:800;letter-spacing:-.5px;line-height:1.14;margin-bottom:12px}
 .meta{font-size:12px;color:var(--muted);margin-bottom:24px}
 .intro{font-size:17px;color:#3a4555;line-height:1.8;margin-bottom:20px}
@@ -3098,7 +3098,7 @@ app.get('/insider-buying-study', async (req, res) => {
     const study = row ? (() => { try { return JSON.parse(row.value_json); } catch(_) { return null; } })() : null;
     // Show the placeholder until the signal-sweep study has been computed.
     if (!study || !study.scenarios) {
-      return res.type('html').send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Cluster Buying Study | InsiderTape</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{background:#f0f2f5;color:#1a2030;font-family:Inter,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}a{color:#0891b2}</style></head><body><div><h1 style="font-size:22px">Cluster Buying Study</h1><p style="color:#6e7a8a">Our cluster-buy performance analysis is being compiled and will appear here shortly.</p><p><a href="/">Back to InsiderTape</a></p></div></body></html>`);
+      return res.type('html').send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Cluster Buying Study | InsiderTape</title><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{background:#f0f2f5;color:#1a2030;font-family:Inter,system-ui,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}a{color:#0a6f88}</style></head><body><div><h1 style="font-size:22px">Cluster Buying Study</h1><p style="color:#6e7a8a">Our cluster-buy performance analysis is being compiled and will appear here shortly.</p><p><a href="/">Back to InsiderTape</a></p></div></body></html>`);
     }
     if (_studyCache.html && _studyCache.t === row.computed_at) { res.type('html'); return res.send(_studyCache.html); }
     const html = renderStudyPage(study);
@@ -3120,13 +3120,13 @@ const _STUDY_STYLE = `<link rel="icon" type="image/svg+xml" href="data:image/svg
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--buy:#12905f;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
 header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
 .wrap{max-width:820px;margin:0 auto;padding:44px 24px 90px}
-.tag{display:inline-block;padding:3px 10px;background:rgba(8,145,178,.08);border:1px solid rgba(8,145,178,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(10,111,136,.08);border:1px solid rgba(10,111,136,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
 h1{font-size:clamp(26px,4.4vw,40px);font-weight:800;letter-spacing:-.5px;line-height:1.14;margin-bottom:12px}
 .meta{font-size:12px;color:var(--muted);margin-bottom:24px}
 .intro{font-size:17px;color:#3a4555;line-height:1.8;margin-bottom:20px}
@@ -3339,7 +3339,7 @@ function _serveDataStudy(slug, renderFn) {
     try {
       const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-study'");
       const study = row ? (() => { try { return JSON.parse(row.value_json); } catch(_) { return null; } })() : null;
-      if (!study || !study.scenarios) return res.type('html').send('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Study | InsiderTape</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;color:#334">This study is being compiled and will appear shortly. <a href="/insider-trading-studies" style="color:#0891b2">Back to studies</a></body></html>');
+      if (!study || !study.scenarios) return res.type('html').send('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Study | InsiderTape</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;color:#334">This study is being compiled and will appear shortly. <a href="/insider-trading-studies" style="color:#0a6f88">Back to studies</a></body></html>');
       const c = _dataStudyCache[slug];
       if (c && c.t === row.computed_at) { res.type('html'); return res.send(c.html); }
       const html = renderFn(study);
@@ -3442,10 +3442,10 @@ function _idxChart(weeks) {
   const midY = (0.5 >= mn && 0.5 <= mx) ? yf(0.5) : null;
   const firstYr = (series[0].date || '').slice(0, 4), lastYr = (series[n - 1].date || '').slice(0, 4);
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:210px;display:block" role="img" aria-label="Insider buying pressure over time">
-    <defs><linearGradient id="ig" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0891b2" stop-opacity="0.22"/><stop offset="1" stop-color="#0891b2" stop-opacity="0"/></linearGradient></defs>
+    <defs><linearGradient id="ig" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a6f88" stop-opacity="0.22"/><stop offset="1" stop-color="#0a6f88" stop-opacity="0"/></linearGradient></defs>
     ${midY != null ? `<line x1="0" y1="${midY.toFixed(1)}" x2="${W}" y2="${midY.toFixed(1)}" stroke="#c0c6cf" stroke-width="1" stroke-dasharray="5 5"/>` : ''}
     <path d="${area}" fill="url(#ig)"/>
-    <path d="${line}" fill="none" stroke="#0891b2" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    <path d="${line}" fill="none" stroke="#0a6f88" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
   </svg>
   <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px"><span>${firstYr}</span><span>${lastYr}</span></div>`;
 }
@@ -3455,7 +3455,7 @@ function renderInsiderIndex(data) {
   const _ogimg = ogImg('index');
   const weeks = (data && data.weeks) || [];
   if (weeks.length < 12) {
-    return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Insider Buying Index | InsiderTape</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;color:#334">The Insider Buying Index is being compiled and will appear shortly. <a href="/insider-trading-studies" style="color:#0891b2">Back to studies</a></body></html>';
+    return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Insider Buying Index | InsiderTape</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;color:#334">The Insider Buying Index is being compiled and will appear shortly. <a href="/insider-trading-studies" style="color:#0a6f88">Back to studies</a></body></html>';
   }
   const sorted = weeks.map(w => w.smoothedBuyPct).sort((a, b) => a - b);
   const rank = v => { let c = 0; for (const x of sorted) if (x <= v) c++; return c / sorted.length; };
@@ -3568,7 +3568,7 @@ const _ogCache = new Map();
 const _OG_TONE = {
   buy:  { color: '#12905f', bg: 'rgba(18,144,95,0.12)' },
   sell: { color: '#cc3b46', bg: 'rgba(204,59,70,0.12)' },
-  teal: { color: '#0891b2', bg: 'rgba(8,145,178,0.12)' },
+  teal: { color: '#0a6f88', bg: 'rgba(10,111,136,0.12)' },
   amber:{ color: '#c07a12', bg: 'rgba(192,122,18,0.12)' },
 };
 function _ogTitleize(slug, upperShort) {
@@ -3629,7 +3629,7 @@ async function _ogSpecFor(kind, slug) {
       spec.badge = { text: 'INSIDER SELLING', ..._OG_TONE.sell };
       spec.stat = { value: _fmtV(sellVal), label: 'sold, no open-market buys in 90 days', color: '#cc3b46' };
     } else {
-      spec.stat = { value: 'Tracked', label: 'insider buys and sells, live', color: '#0891b2' };
+      spec.stat = { value: 'Tracked', label: 'insider buys and sells, live', color: '#0a6f88' };
     }
     return spec;
   }
@@ -3703,7 +3703,7 @@ function renderSearchPage(q, results) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -3772,7 +3772,7 @@ function renderLegalPage(slug, name, metaTitle, metaDesc, bodyHtml) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
 <style>
-:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0891b2;--accent2:#0a6f88;--sell:#cc3b46}
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--sell:#cc3b46}
 *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
 header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
 .logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
@@ -3785,10 +3785,10 @@ h2{font-size:16px;font-weight:700;margin:32px 0 10px;color:var(--text)}
 p{margin:0 0 14px;color:#3a4555;font-size:15px;line-height:1.75}
 ul{margin:0 0 14px 20px}li{margin-bottom:8px;color:#3a4555;font-size:15px;line-height:1.7}
 strong{color:var(--text);font-weight:600}
-a.inline{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(8,145,178,.3)}
+a.inline{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(10,111,136,.3)}
 .box{margin-top:24px;padding:14px 16px;border-radius:8px;font-size:13px;line-height:1.6}
 .box.warn{background:rgba(204,59,70,.06);border:1px solid rgba(204,59,70,.25);color:var(--sell)}
-.box.info{background:rgba(8,145,178,.06);border:1px solid rgba(8,145,178,.2);color:var(--accent)}
+.box.info{background:rgba(10,111,136,.06);border:1px solid rgba(10,111,136,.2);color:var(--accent)}
 footer{border-top:1px solid var(--border);padding:26px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 </style></head><body>
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
