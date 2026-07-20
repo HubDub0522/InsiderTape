@@ -1171,7 +1171,7 @@
       <div class="filter-section">
         <span class="filter-label">Min Transaction Value</span>
         <div class="filter-range">
-          <select id="minVal">
+          <select id="minVal" aria-label="Minimum transaction value">
             <option value="0" selected>Any amount</option>
             <option value="50000">$50,000+</option>
             <option value="100000">$100,000+</option>
@@ -7468,7 +7468,7 @@ async function renderFirstBuySubpage() {
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:24px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);white-space:nowrap">MIN GAP</span>
-        <select id="fbMinGap" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
+        <select id="fbMinGap" aria-label="Minimum years since the insider's prior buy" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
           <option value="90"  ${minGap===90?'selected':''}>3 months</option>
           <option value="180" ${minGap===180?'selected':''}>6 months</option>
           <option value="365" ${minGap===365?'selected':''}>1 year</option>
@@ -7479,7 +7479,7 @@ async function renderFirstBuySubpage() {
       </div>
       <div style="display:flex;align-items:center;gap:10px">
         <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);white-space:nowrap">NEW BUY WITHIN</span>
-        <select id="fbLookback" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
+        <select id="fbLookback" aria-label="Lookback period" onchange="renderFirstBuySubpage()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:5px 10px;font-size:12px">
           <option value="14"  ${lookback===14?'selected':''}>14 days</option>
           <option value="30"  ${lookback===30?'selected':''}>30 days</option>
           <option value="60"  ${lookback===60?'selected':''}>60 days</option>
@@ -10400,7 +10400,7 @@ function _nameFromPath(p) { const m=p.match(/^\/insider\/(.+)/i); return m?decod
       <span style="font-size:11px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">DATA: SEC EDGAR</span>
     </div>
     <div style="font-size:10px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">© <span id="footerYear"></span> InsiderTape. All rights reserved. For informational use only.</div>
-    <div style="font-size:9px;color:var(--border2);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-top:6px">build 2026-03-11.1</div>
+    <div style="font-size:9px;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;margin-top:6px">build 2026-03-11.1</div>
   </div>
 </footer>
 

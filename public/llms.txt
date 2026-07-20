@@ -1,0 +1,23 @@
+# InsiderTape
+
+InsiderTape tracks SEC Form 4 corporate insider trading (open-market buys and sells) in real time. It filters out options exercises, grants, tax withholdings, and automatic-plan trades to surface genuine open-market conviction, then highlights the patterns most tied to moves: cluster buying, a CFO buying, a first purchase in years, and buying near lows. Data comes from SEC EDGAR. Nothing on the site is financial advice.
+
+## Core pages
+- [The Tape (live insider trades)](https://www.insidertape.com/): every SEC Form 4 open-market buy and sell as it files.
+- [Biggest insider buys this week](https://www.insidertape.com/biggest-insider-buys): the largest open-market purchases, updated daily.
+- [Insider Buying Index](https://www.insidertape.com/insider-buying-index): a live 0-100 gauge of how heavily insiders are buying versus five years of history.
+- [Weekly Insider Buying Report](https://www.insidertape.com/insider-buying-report): every open-market buy, week by week.
+
+## Research (data studies)
+- [Insider trading studies hub](https://www.insidertape.com/insider-trading-studies): five years of buys, backtested.
+- [Which insider role beats the market?](https://www.insidertape.com/insider-buying-study)
+- [Does cluster buying beat the market?](https://www.insidertape.com/cluster-buying-study)
+- [What happens after a first insider buy in years?](https://www.insidertape.com/first-insider-buy-study)
+- [Do insiders buying near 52-week lows beat the market?](https://www.insidertape.com/insider-buying-at-lows-study)
+- [Does the size of an insider buy matter?](https://www.insidertape.com/insider-buy-size-study)
+
+## Learn
+- [Guides to SEC Form 4 and insider trading](https://www.insidertape.com/articles/)
+- [What is SEC Form 4?](https://www.insidertape.com/articles/what-is-sec-form-4.html)
+- [How to read an SEC Form 4 filing](https://www.insidertape.com/articles/how-to-read-sec-form-4.html)
+- [Is insider buying bullish?](https://www.insidertape.com/articles/is-insider-buying-bullish.html)
