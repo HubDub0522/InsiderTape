@@ -946,23 +946,64 @@ app.get('/api/firstbuys', async (req, res) => {
 });
 
 // ─── RANKER ───────────────────────────────────────────────────────────────────
+const _rankerApiCache = new Map();
 app.get('/api/ranker', async (req, res) => {
   try {
     const days = Math.min(parseInt(req.query.days || '30'), 90);
-    const rows = await query(`
-      SELECT ticker, MAX(company) AS company,
-        COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
-        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyer_count,
-        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS total_buy_val,
-        MAX(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END) AS latest_buy_date,
-        COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count,
-        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
-        MAX(CASE WHEN TRIM(type)='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR UPPER(title) LIKE '%PRESIDENT%') THEN 1 ELSE 0 END) AS has_exec_buyer
-      FROM trades
-      WHERE trade_date >= date('now', '-' || ? || ' days') AND trade_date <= date('now')
-      GROUP BY ticker HAVING buy_count > 0 ORDER BY total_buy_val DESC LIMIT 200
-    `, [days]);
-    res.json(rows.filter(r => r.buyer_count <= 8));
+    const ck = 'r' + days;
+    const c = _rankerApiCache.get(ck);
+    if (c && Date.now() - c.t < 300000) return res.json(c.d);
+
+    // Fast path: aggregate the precomputed 90-day screener blob in memory. The
+    // live per-ticker GROUP BY over trades takes ~18s on a cold instance, which
+    // times out the client (empty ranker). The cache is refreshed every ingestion.
+    let rows = null;
+    try {
+      const cachedRow = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'screener-90d'");
+      if (cachedRow && Date.now() - cachedRow.computed_at < 6 * 3600000) {
+        const trades = JSON.parse(cachedRow.value_json);
+        const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+        const execRe = /CEO|CFO|PRESIDENT/;
+        const byT = new Map();
+        for (const t of trades) {
+          if (!t.ticker || !t.trade || t.trade < cutoff) continue;
+          let a = byT.get(t.ticker);
+          if (!a) { a = { ticker: t.ticker, company: t.company || '', buy_count: 0, _buyers: new Set(), total_buy_val: 0, latest_buy_date: null, sell_count: 0, total_sell_val: 0, has_exec_buyer: 0 }; byT.set(t.ticker, a); }
+          const ty = (t.type || '').trim(), val = t.value || 0;
+          if (ty === 'P') {
+            a.buy_count++; if (t.insider) a._buyers.add(t.insider); a.total_buy_val += val;
+            if (!a.latest_buy_date || t.trade > a.latest_buy_date) a.latest_buy_date = t.trade;
+            if (t.title && execRe.test(String(t.title).toUpperCase())) a.has_exec_buyer = 1;
+            if (!a.company && t.company) a.company = t.company;
+          } else if (ty === 'S' || ty === 'S-') { a.sell_count++; a.total_sell_val += val; }
+        }
+        rows = [...byT.values()]
+          .filter(a => a.buy_count > 0)
+          .map(a => ({ ticker: a.ticker, company: a.company, buy_count: a.buy_count, buyer_count: a._buyers.size, total_buy_val: a.total_buy_val, latest_buy_date: a.latest_buy_date, sell_count: a.sell_count, total_sell_val: a.total_sell_val, has_exec_buyer: a.has_exec_buyer }))
+          .sort((x, y) => y.total_buy_val - x.total_buy_val)
+          .slice(0, 200);
+      }
+    } catch(_) {}
+
+    // Fallback: the original live query if the screener cache is unavailable.
+    if (!rows) {
+      rows = await query(`
+        SELECT ticker, MAX(company) AS company,
+          COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count,
+          COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyer_count,
+          SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS total_buy_val,
+          MAX(CASE WHEN TRIM(type)='P' THEN trade_date ELSE NULL END) AS latest_buy_date,
+          COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count,
+          SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
+          MAX(CASE WHEN TRIM(type)='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR UPPER(title) LIKE '%PRESIDENT%') THEN 1 ELSE 0 END) AS has_exec_buyer
+        FROM trades
+        WHERE trade_date >= date('now', '-' || ? || ' days') AND trade_date <= date('now')
+        GROUP BY ticker HAVING buy_count > 0 ORDER BY total_buy_val DESC LIMIT 200
+      `, [days]);
+    }
+    const out = rows.filter(r => r.buyer_count <= 8);
+    _rankerApiCache.set(ck, { d: out, t: Date.now() });
+    res.json(out);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
