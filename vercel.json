@@ -6,7 +6,7 @@
       "use": "@vercel/node",
       "config": {
         "maxDuration": 60,
-        "includeFiles": "articles/**"
+        "includeFiles": "{articles,assets}/**"
       }
     }
   ],

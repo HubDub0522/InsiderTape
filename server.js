@@ -7,6 +7,7 @@ const http     = require('http');
 const path     = require('path');
 const crypto   = require('crypto');
 const { query, queryOne, run, exec, batch } = require('./lib/db');
+const { renderOgPng } = require('./lib/og');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -2020,6 +2021,7 @@ function renderTickerPage(ticker, rows, stats) {
   const company = (rows.find(r => r.company && r.company.trim()) || {}).company || ticker;
   const co = _esc(company);
   const url = `https://www.insidertape.com/insider-trading/${ticker}`;
+  const _ogimg = ogImg('ticker', ticker);
   const buys = stats.buys || 0, sells = stats.sells || 0;
   const posture = buys > sells * 1.5 ? 'net buyers' : sells > buys * 1.5 ? 'net sellers' : 'mixed';
   const intro = `Over the past 12 months, ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} at ${co} filed ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'} on ${ticker}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}. Insiders have been ${posture} over this period. The most recent filing was on ${_fmtDate(stats.latest)}.`;
@@ -2057,8 +2059,8 @@ function renderTickerPage(ticker, rows, stats) {
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
 <meta property="og:title" content="${ticker} Insider Trading - ${co}">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: `${ticker} Insider Trading - ${company}`, description: desc, url })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: `${ticker} Insider Trading`, item: url }] })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
@@ -2208,6 +2210,7 @@ function renderInsiderPage(name, rows, stats) {
   const displayName = _displayName(name);
   const dn = _esc(displayName);
   const url = `https://www.insidertape.com/insider-profile/${_insiderSlug(name)}`;
+  const _ogimg = ogImg('insider', _insiderSlug(name));
   const buys = stats.buys || 0, sells = stats.sells || 0;
   const companies = stats.companies || 0;
   // Most frequent non-empty title as their headline role.
@@ -2241,8 +2244,8 @@ function renderInsiderPage(name, rows, stats) {
 <meta property="og:type" content="profile"><meta property="og:url" content="${url}">
 <meta property="og:title" content="${dn} Insider Trading Activity">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'ProfilePage', mainEntity: { '@type': 'Person', name: displayName, jobTitle: role || undefined }, description: desc, url })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: `${displayName} Insider Trading`, item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
@@ -2366,6 +2369,7 @@ function renderBiggestBuysPage(rows) {
   const totalVal = rows.reduce((s, r) => s + (+r.buy_val || 0), 0);
   const totalTrades = rows.reduce((s, r) => s + (+r.trades || 0), 0);
   const url = 'https://www.insidertape.com/biggest-insider-buys';
+  const _ogimg = ogImg('biggest-buys');
   const desc = `The biggest open-market insider buys this week: the ${rows.length} companies where executives and directors bought the most stock, ranked by dollar value. Updated daily from SEC Form 4 filings.`;
 
   const tr = rows.map((r, i) => {
@@ -2389,8 +2393,8 @@ function renderBiggestBuysPage(rows) {
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
 <meta property="og:title" content="Biggest Insider Buys This Week">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: 'Biggest Insider Buys This Week', description: desc, url, dateModified: today.toISOString().slice(0, 10) })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Biggest Insider Buys This Week', item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
@@ -2492,6 +2496,7 @@ const _sectorSlugOf = name => Object.keys(SECTOR_SLUGS).find(s => SECTOR_SLUGS[s
 function renderSectorPage(sector, slug, rows, stats) {
   const co = _esc(sector);
   const url = `https://www.insidertape.com/insider-trading/sector/${slug}`;
+  const _ogimg = ogImg('sector', slug);
   const buys = stats.buys || 0, sells = stats.sells || 0;
   const posture = stats.buyval > stats.sellval * 1.5 ? 'net buyers' : stats.sellval > stats.buyval * 1.5 ? 'net sellers' : 'mixed';
   const intro = `Over the past 12 months, corporate insiders across ${stats.companies || 0} ${co} companies filed ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}. Insiders in the ${co} sector have been ${posture} over this period.`;
@@ -2521,8 +2526,8 @@ function renderSectorPage(sector, slug, rows, stats) {
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
 <meta property="og:title" content="${co} Sector Insider Buying &amp; Selling">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: `${sector} Sector Insider Trading`, description: desc, url })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: `${sector} Insider Trading`, item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
@@ -2639,6 +2644,7 @@ const ROLE_DEFS = {
 function renderRolePage(slug, def, rows, stats) {
   const role = def.name;
   const url = `https://www.insidertape.com/insider-trading/role/${slug}`;
+  const _ogimg = ogImg('role', slug);
   const intro = `Over the past 90 days, ${stats.insiders || 0} ${def.plural} made ${stats.buys || 0} open-market purchase${stats.buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} across ${stats.companies || 0} ${stats.companies === 1 ? 'company' : 'companies'}. These are ${role} buys filed with the SEC on Form 4, with option exercises and awards stripped out so only genuine open-market conviction is shown.`;
   const desc = `Which stocks ${def.plural} are buying: recent open-market ${role} insider purchases from SEC Form 4 filings, ranked by value. Company, insider, shares, and dollar value.`;
 
@@ -2663,8 +2669,8 @@ function renderRolePage(slug, def, rows, stats) {
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
 <meta property="og:title" content="${role} Insider Buying - What ${def.plural} Are Buying">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: `${role} Insider Buying`, description: desc, url })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: `${role} Insider Buying`, item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
@@ -2781,6 +2787,7 @@ function _weekLabel(endYmd) { return _humanRange(_ymdAdd(endYmd, -6), endYmd); }
 function renderReportPage(endYmd, startYmd, data) {
   const rangeLabel = _humanRange(startYmd, endYmd);
   const url = `https://www.insidertape.com/insider-buying-report/${endYmd}`;
+  const _ogimg = ogImg('report', endYmd);
   const desc = `Insider buying report for the week of ${rangeLabel}: the biggest open-market insider purchases, most-bought stocks, and which sectors insiders bought, from SEC Form 4 filings. ${data.companies} companies, ${_fmtV(data.buyval)} in insider buying.`;
   const posture = data.buys > 0 ? `Insiders bought ${_fmtV(data.buyval)} of stock across ${data.companies} ${data.companies === 1 ? 'company' : 'companies'}` : 'Insider buying was quiet';
   const topSector = data.sectors[0];
@@ -2823,8 +2830,8 @@ function renderReportPage(endYmd, startYmd, data) {
 <meta property="og:type" content="article"><meta property="og:url" content="${url}">
 <meta property="og:title" content="Insider Buying Report: Week of ${rangeLabel}">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `Insider Buying Report: Week of ${rangeLabel}`, description: desc, url, datePublished: endYmd, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Report', item: 'https://www.insidertape.com/insider-buying-report' }, { '@type': 'ListItem', position: 3, name: `Week of ${rangeLabel}`, item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
@@ -2945,6 +2952,7 @@ app.get('/insider-buying-report/:date', async (req, res) => {
 // (scripts/precompute.js computeInsiderStudy). Public data only.
 function renderStudyPage(s) {
   const url = 'https://www.insidertape.com/insider-buying-study';
+  const _ogimg = ogImg('study', 'insider-buying-study');
   const sp = v => (v >= 0 ? '+' : '') + Number(v || 0).toFixed(1) + '%';
   const pu = v => Number(v || 0).toFixed(1) + '%';
   const fdY = d => { if (!d) return ''; const dt = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); return isNaN(dt) ? String(d).slice(0, 10) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
@@ -3011,8 +3019,8 @@ function renderStudyPage(s) {
 <meta property="og:type" content="article"><meta property="og:url" content="${url}">
 <meta property="og:title" content="Which Insiders Actually Beat the Market? Why the CFO Is the Signal to Watch">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: `Which Insiders Actually Beat the Market? Why the CFO Is the Signal to Watch`, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Study', item: url }] })}</script>
@@ -3146,6 +3154,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 
 function renderDataStudy(s, cfg) {
   const url = 'https://www.insidertape.com/' + cfg.slug;
+  const _ogimg = ogImg('study', cfg.slug);
   const sp = v => (v >= 0 ? '+' : '') + Number(v || 0).toFixed(1) + '%';
   const pu = v => Number(v || 0).toFixed(1) + '%';
   const cls = v => (v || 0) >= 0 ? 'g' : 'r';
@@ -3171,8 +3180,8 @@ function renderDataStudy(s, cfg) {
 <meta property="og:type" content="article"><meta property="og:url" content="${url}">
 <meta property="og:title" content="${_esc(cfg.ogTitle)}">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: cfg.ogTitle, description: desc, url, datePublished: s.generated, dateModified: s.generated, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
 ${faq.length ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>` : ''}
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Studies', item: 'https://www.insidertape.com/insider-trading-studies' }, { '@type': 'ListItem', position: 3, name: cfg.breadcrumbName, item: url }] })}</script>
@@ -3286,6 +3295,7 @@ const STUDY_CONFIGS = {
 
 function renderStudiesHub(s) {
   const url = 'https://www.insidertape.com/insider-trading-studies';
+  const _ogimg = ogImg('studies');
   const g = (key, win) => (((s.scenarios || {})[key] || {}).windows || {})[win] || {};
   const nAll = (g('all', '1M').n || 0).toLocaleString('en-US');
   const desc = `Original data studies from InsiderTape: what five years of ${nAll} SEC Form 4 insider buys reveal about which roles, clusters, timing and buy sizes actually beat the market.`;
@@ -3300,8 +3310,8 @@ function renderStudiesHub(s) {
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
 <meta property="og:title" content="Insider Trading Data Studies: What Actually Works">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'CollectionPage', name: 'Insider Trading Data Studies', description: desc, url })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Studies', item: url }] })}</script>
 ${_STUDY_STYLE}
@@ -3442,6 +3452,7 @@ function _idxChart(weeks) {
 
 function renderInsiderIndex(data) {
   const url = 'https://www.insidertape.com/insider-buying-index';
+  const _ogimg = ogImg('index');
   const weeks = (data && data.weeks) || [];
   if (weeks.length < 12) {
     return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="robots" content="noindex"><title>Insider Buying Index | InsiderTape</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:60px;color:#334">The Insider Buying Index is being compiled and will appear shortly. <a href="/insider-trading-studies" style="color:#0891b2">Back to studies</a></body></html>';
@@ -3469,8 +3480,8 @@ function renderInsiderIndex(data) {
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
 <meta property="og:title" content="${_esc(ogTitle)}">
 <meta property="og:description" content="${_esc(desc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'Article', headline: ogTitle, description: desc, url, datePublished: generatedIso, dateModified: generatedIso, author: { '@type': 'Organization', name: 'InsiderTape' }, publisher: { '@type': 'Organization', name: 'InsiderTape' } })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Insider Buying Index', item: url }] })}</script>
 ${_STUDY_STYLE}
@@ -3548,6 +3559,118 @@ app.get('/insider-buying-index', async (req, res) => {
   } catch(e) {
     res.type('html').send(renderInsiderIndex({ weeks: [] }));
   }
+});
+
+// ─── DYNAMIC SHARE IMAGES (Open Graph / Twitter cards) ────────────────────────
+// One route renders a per-page 1200x630 PNG via lib/og (satori + resvg-wasm).
+// og:image URLs across the site point here; there is no static share image.
+const _ogCache = new Map();
+const _OG_TONE = {
+  buy:  { color: '#12905f', bg: 'rgba(18,144,95,0.12)' },
+  sell: { color: '#cc3b46', bg: 'rgba(204,59,70,0.12)' },
+  teal: { color: '#0891b2', bg: 'rgba(8,145,178,0.12)' },
+  amber:{ color: '#c07a12', bg: 'rgba(192,122,18,0.12)' },
+};
+function _ogTitleize(slug, upperShort) {
+  return String(slug || '').split(/[-_]/).filter(Boolean).map(w =>
+    (upperShort && w.length <= 3 && /^[a-z]+$/i.test(w)) ? w.toUpperCase() : (w[0].toUpperCase() + w.slice(1))
+  ).join(' ');
+}
+const _ogArticleTitles = {};
+function _ogArticleTitle(slug) {
+  const s = String(slug || '').replace(/[^a-z0-9\-]/gi, '');
+  if (_ogArticleTitles[s] !== undefined) return _ogArticleTitles[s];
+  let t = '';
+  try {
+    const html = require('fs').readFileSync(path.join(__dirname, 'articles', s + '.html'), 'utf8');
+    const m = html.match(/<title>([^<]+)<\/title>/i);
+    if (m) t = m[1].replace(/\s*[|\-]\s*InsiderTape.*$/i, '').trim();
+  } catch(_) {}
+  if (!t) t = _ogTitleize(s);
+  _ogArticleTitles[s] = t;
+  return t;
+}
+async function _ogSpecFor(kind, slug) {
+  if (kind === 'index') {
+    try {
+      const data = await _getInsiderIndexData();
+      const weeks = (data && data.weeks) || [];
+      if (weeks.length >= 12) {
+        const sorted = weeks.map(w => w.smoothedBuyPct).sort((a, b) => a - b);
+        const cur = weeks[weeks.length - 1];
+        let c = 0; for (const x of sorted) if (x <= cur.smoothedBuyPct) c++;
+        const reading = Math.round(c / sorted.length * 100);
+        const band = _idxBand(reading);
+        const tone = reading >= 60 ? _OG_TONE.buy : reading >= 45 ? _OG_TONE.teal : reading >= 25 ? _OG_TONE.amber : _OG_TONE.sell;
+        return { eyebrow: 'LIVE INDICATOR', title: 'Insider Buying Index', badge: { text: band.label.toUpperCase(), color: tone.color, bg: tone.bg },
+          stat: { value: `${reading} / 100`, label: reading >= 60 ? 'insiders are buying' : reading >= 45 ? 'insider buying is average' : 'insiders are mostly sitting out', color: tone.color } };
+      }
+    } catch(_) {}
+    return { eyebrow: 'LIVE INDICATOR', title: 'Insider Buying Index', subtitle: 'A live weekly gauge of how heavily insiders are buying' };
+  }
+  if (kind === 'ticker') {
+    const sym = String(slug || '').toUpperCase().replace(/[^A-Z0-9.\-]/g, '').slice(0, 12);
+    if (!sym) return null;
+    let r = null;
+    try {
+      r = await queryOne(`SELECT MAX(company) company,
+        SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) buy_val,
+        COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) buyers,
+        SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) sell_val
+        FROM trades WHERE ticker=? AND trade_date >= date('now','-90 days') AND TRIM(type) IN ('P','S','S-')`, [sym]);
+    } catch(_) {}
+    const company = (r && r.company) || '';
+    const buyVal = (r && r.buy_val) || 0, buyers = (r && r.buyers) || 0, sellVal = (r && r.sell_val) || 0;
+    const spec = { eyebrow: 'INSIDER TRADING', title: '$' + sym, subtitle: company || 'SEC Form 4 insider trading' };
+    if (buyers > 0) {
+      spec.badge = buyVal >= sellVal ? { text: 'NET BUYING', ..._OG_TONE.buy } : { text: 'MIXED', ..._OG_TONE.amber };
+      spec.stat = { value: _fmtV(buyVal), label: `bought by ${buyers} insider${buyers === 1 ? '' : 's'} in 90 days`, color: '#12905f' };
+    } else if (sellVal > 0) {
+      spec.badge = { text: 'INSIDER SELLING', ..._OG_TONE.sell };
+      spec.stat = { value: _fmtV(sellVal), label: 'sold, no open-market buys in 90 days', color: '#cc3b46' };
+    } else {
+      spec.stat = { value: 'Tracked', label: 'insider buys and sells, live', color: '#0891b2' };
+    }
+    return spec;
+  }
+  if (kind === 'insider') {
+    const name = String(slug || '').split('-').map(s => s ? s[0].toUpperCase() + s.slice(1) : '').join(' ').trim().slice(0, 48);
+    if (!name) return null;
+    return { eyebrow: 'INSIDER PROFILE', title: name, titleSize: 64, subtitle: 'Every SEC Form 4 buy and sell, tracked' };
+  }
+  if (kind === 'study') {
+    const cfg = STUDY_CONFIGS[slug];
+    if (cfg) return { eyebrow: 'DATA STUDY', title: cfg.h1, titleSize: 60, subtitle: 'InsiderTape research, 5 years of SEC Form 4 buys' };
+    if (slug === 'insider-buying-study') return { eyebrow: 'DATA STUDY', title: 'Which insider role beats the market?', titleSize: 60, subtitle: 'The CFO was the sharpest, in five years of data' };
+    return { eyebrow: 'DATA STUDY', title: 'Insider trading, backtested', subtitle: 'What five years of insider buys reveal' };
+  }
+  if (kind === 'studies') return { eyebrow: 'DATA STUDIES', title: 'Insider trading, backtested', subtitle: 'What actually beats the market, in the data' };
+  if (kind === 'biggest-buys') return { eyebrow: 'THIS WEEK', title: 'The biggest insider buys', subtitle: 'The largest open-market Form 4 purchases, updated daily' };
+  if (kind === 'report') return { eyebrow: 'WEEKLY REPORT', title: 'Insider Buying Report', subtitle: slug ? ('Week of ' + slug) : 'Every open-market buy, week by week' };
+  if (kind === 'sector') { const nm = _ogTitleize(slug); return { eyebrow: 'SECTOR', title: nm + ' insider buying', titleSize: 62, subtitle: 'Where ' + nm.toLowerCase() + ' insiders are buying their own stock' }; }
+  if (kind === 'role') { const nm = _ogTitleize(slug, true); return { eyebrow: 'BY ROLE', title: nm + ' insider buying', titleSize: 62, subtitle: 'Open-market buys by ' + nm + 's, last 90 days' }; }
+  if (kind === 'article') return { eyebrow: 'LEARN', title: _ogArticleTitle(slug), titleSize: 54, subtitle: 'InsiderTape, insider trading explained' };
+  return { eyebrow: '', title: 'Insider trading, without the noise.', titleSize: 68, subtitle: 'Track every SEC Form 4 open-market buy in real time' };
+}
+function ogImg(kind, slug) {
+  return 'https://www.insidertape.com/og/' + (slug ? kind + '/' + encodeURIComponent(slug) : kind) + '.png';
+}
+app.get(/^\/og\/(.+)\.png$/, async (req, res) => {
+  try {
+    const parts = String(req.params[0] || '').split('/');
+    const kind = parts.shift();
+    const slug = decodeURIComponent(parts.join('/'));
+    const key = kind + '/' + slug;
+    const cached = _ogCache.get(key);
+    const setHeaders = () => { res.set('Content-Type', 'image/png'); res.set('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800'); };
+    if (cached && Date.now() - cached.t < 6 * 3600 * 1000) { setHeaders(); return res.send(cached.buf); }
+    const spec = await _ogSpecFor(kind, slug);
+    const buf = await renderOgPng(spec || { title: 'Insider trading, without the noise.', titleSize: 68, subtitle: 'Live SEC Form 4 insider trading' });
+    _ogCache.set(key, { buf, t: Date.now() });
+    if (_ogCache.size > 600) _ogCache.delete(_ogCache.keys().next().value);
+    setHeaders();
+    res.send(buf);
+  } catch(e) { res.status(500).end(); }
 });
 
 // ─── SEARCH RESULTS PAGE ──────────────────────────────────────────────────────
@@ -3631,6 +3754,7 @@ app.get('/search', async (req, res) => {
 const LEGAL_UPDATED = 'July 17, 2026';
 function renderLegalPage(slug, name, metaTitle, metaDesc, bodyHtml) {
   const url = `https://www.insidertape.com/${slug}`;
+  const _ogimg = ogImg('home');
   const other = slug === 'terms' ? { href: '/privacy', label: 'Privacy Policy' } : { href: '/terms', label: 'Terms & Conditions' };
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -3641,8 +3765,8 @@ function renderLegalPage(slug, name, metaTitle, metaDesc, bodyHtml) {
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
 <meta property="og:title" content="${_esc(metaTitle)}">
 <meta property="og:description" content="${_esc(metaDesc)}">
-<meta property="og:image" content="https://www.insidertape.com/og-image.png">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://www.insidertape.com/og-image.png">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name, item: url }] })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
