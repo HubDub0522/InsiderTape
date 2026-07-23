@@ -6997,6 +6997,14 @@ function detectCfoBuys(trades) {
   return out.sort((a, b) => b.totalVal - a.totalVal);
 }
 
+// A real cluster is INDEPENDENT insiders buying on different days/prices. 3+ insiders
+// all buying at the exact same price on a single day is a coordinated transaction
+// (offering / financing / stock plan), not conviction - it should not count as a cluster.
+function _isCoordinatedBuy(tks){
+  const prices = new Set(tks.map(t => t.price > 0 ? t.price.toFixed(4) : null).filter(Boolean));
+  const dates  = new Set(tks.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean));
+  return prices.size === 1 && dates.size <= 1;
+}
 function detectClusters3(trades) {
   const byTicker = {};
   trades.filter(t => t.type === 'P' && (t.value || 0) > 0).forEach(t => { (byTicker[t.ticker] || (byTicker[t.ticker] = [])).push(t); });
@@ -7004,6 +7012,7 @@ function detectClusters3(trades) {
   Object.entries(byTicker).forEach(([ticker, tks]) => {
     const insiders = [...new Set(tks.map(t => t.insider).filter(Boolean))];
     if (insiders.length < 3) return;
+    if (_isCoordinatedBuy(tks)) return; // same-day, same-price = coordinated buy, not a cluster
     const totalVal = tks.reduce((s, t) => s + (t.value || 0), 0);
     const latest = tks.map(t => (t.trade || t.filing || '').slice(0, 10)).filter(Boolean).sort().pop() || '';
     out.push({ ticker, company: tks[0]?.company || ticker, insiderCount: insiders.length, buys: tks.length, totalVal, latest });
@@ -7826,6 +7835,7 @@ function detectAdvancedClusters(trades) {
       if (mostRecentInCluster < staleStr) continue;
       const uniqueInsiders = new Set(window14.map(t => t.insider)).size;
       if (uniqueInsiders < 2) continue;
+      if (_isCoordinatedBuy(window14)) continue; // same-day, same-price = coordinated buy, not a cluster
 
       // Score this candidate
       const cluster = scoreCluster(ticker, window14, allTicker);
