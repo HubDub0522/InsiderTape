@@ -2448,12 +2448,12 @@ function renderBiggestBuysPage(rows) {
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Biggest Insider Buys This Week | InsiderTape</title>
+<title>Biggest Insider Buys This Week (Ranked, Updated Daily) | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
-<meta property="og:title" content="Biggest Insider Buys This Week">
+<meta property="og:title" content="Biggest Insider Buys This Week, Ranked by Dollar Value">
 <meta property="og:description" content="${_esc(desc)}">
 <meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
