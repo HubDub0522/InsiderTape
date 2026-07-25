@@ -2087,7 +2087,7 @@ function renderTickerPage(ticker, rows, stats) {
   const buys = stats.buys || 0, sells = stats.sells || 0;
   const posture = buys > sells * 1.5 ? 'net buyers' : sells > buys * 1.5 ? 'net sellers' : 'mixed';
   const intro = `Over the past 12 months, ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} at ${co} filed ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'} on ${ticker}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}. Insiders have been ${posture} over this period. The most recent filing was on ${_fmtDate(stats.latest)}.`;
-  const desc = `Latest insider trading activity for ${company} (${ticker}). Recent SEC Form 4 buys and sells by executives and directors, with dates, share counts, and dollar values.`;
+  const desc = `${company} (${ticker}) insider trading: ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} filed ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) in the past year, currently ${posture}. Every SEC Form 4 trade, plotted on the price chart.`;
 
   // Data-driven FAQ (visible content + FAQPage schema). Answers mirror the
   // on-page text exactly so the structured data stays compliant.
@@ -2114,7 +2114,7 @@ function renderTickerPage(ticker, rows, stats) {
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${ticker} Insider Trading - ${co} SEC Form 4 Activity | InsiderTape</title>
+<title>${ticker} Insider Trading: ${co} SEC Form 4 Buys and Sells | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
