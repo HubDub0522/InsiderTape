@@ -172,7 +172,10 @@ app.use(cors());
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      // Edge-cache the HTML shell (Vercel purges the CDN cache on each deploy, so
+      // this is safe). Slashes Fast Origin Transfer: repeat/crawler hits are served
+      // from the edge instead of re-streaming the ~730KB page from the function.
+      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
     } else if (/\.(js|css|woff2?|ttf|eot)$/.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=3600');
     } else if (/\.(png|jpg|jpeg|gif|svg|ico|webp)$/.test(filePath)) {
@@ -182,7 +185,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 app.use('/articles', express.static(path.join(__dirname, 'articles'), {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
   }
 }));
 
@@ -194,6 +197,19 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   if (req.path.startsWith('/api/')) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  }
+  next();
+});
+
+// Default edge-cache for public GET responses (server-rendered SEO pages, sitemap,
+// robots, etc.) to cut Vercel Fast Origin Transfer: repeat and crawler hits are
+// served from the CDN instead of re-rendering/streaming from the function. /api/*
+// stays no-store (set above); routes needing other behavior (OG images, the SPA
+// fallback) set their own Cache-Control, which overrides this. Deploys purge the
+// edge cache, so pages still update on each release.
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
   }
   next();
 });
@@ -469,7 +485,8 @@ setInterval(() => { const n = Date.now(); for (const [k,v] of _screenerCache) if
 
 app.get('/api/screener', async (req, res) => {
   try {
-    const cacheKey = (req.query.days || '30') + '|' + (req.query.limit || '');
+    res.set('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+    const cacheKey =(req.query.days || '30') + '|' + (req.query.limit || '');
     const cached = _screenerCache.get(cacheKey);
     const _reqDays = parseInt(req.query.days || '30');
     const cacheTTL = _reqDays >= 90 ? 120000 : 30000;
@@ -1012,6 +1029,7 @@ let _stockListsCache = null, _stockListsCacheTime = 0;
 const STOCK_LISTS_TTL = 4 * 3600000; // 4 hours
 
 app.get('/api/stock-lists', async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=0, s-maxage=300, stale-while-revalidate=3600');
   // Serve from in-memory cache first
   if (_stockListsCache && Date.now() - _stockListsCacheTime < STOCK_LISTS_TTL) return res.json(_stockListsCache);
 
@@ -3962,11 +3980,11 @@ app.get('*', (req, res) => {
       ? path.join(__dirname, 'articles', 'index.html')
       : path.join(__dirname, 'articles', /\.[a-z0-9]+$/i.test(rel) ? rel : rel + '.html');
     if (require('fs').existsSync(articlePath)) {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
       return res.sendFile(articlePath);
     }
   }
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
   const ov = _spaSeoOverride(req.path);
   if (ov) {
     let html = _getSpaHtml();
