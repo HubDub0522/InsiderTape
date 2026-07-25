@@ -604,7 +604,7 @@ async function computeInsiderIndexWeekly() {
   // keep the most recent ~260 weeks. Full 5-year scan runs once to bootstrap.
   let prev = null;
   try {
-    const row = (await dbQuery("SELECT value_json FROM computed_cache WHERE key = 'insider-index-weekly3'"))[0];
+    const row = (await dbQuery("SELECT value_json FROM computed_cache WHERE key = 'insider-index-weekly4'"))[0];
     if (row) prev = JSON.parse(row.value_json);
   } catch (_) {}
   const haveHistory = prev && Array.isArray(prev.weeks) && prev.weeks.length > 20;
@@ -635,8 +635,23 @@ async function computeInsiderIndexWeekly() {
   const cutoff = new Date().toISOString().slice(0, 10);
   let weeks = Object.values(byDate).filter(w => w.date && w.date <= cutoff).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-260);
   weeks = weeks.map((w, i) => { const sl = weeks.slice(Math.max(0, i - 2), i + 1); return { ...w, smoothedBuyPct: sl.reduce((s, x) => s + x.buyPct, 0) / sl.length }; });
+  // S&P 500 overlay: attach each week's close for the chart on the index page.
+  try {
+    if (weeks.length) {
+      const fromTs = Math.floor(new Date(weeks[0].date + 'T00:00:00Z').getTime() / 1000) - 7 * 86400;
+      const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&period1=${fromTs}&period2=${Math.floor(Date.now() / 1000)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (resp.ok) {
+        const r = (await resp.json())?.chart?.result?.[0];
+        if (r?.timestamp) {
+          const q = r.indicators.quote[0], map = {};
+          r.timestamp.forEach((t, i) => { const d = new Date(t * 1000).toISOString().slice(0, 10); const c = q.close?.[i]; if (c) map[d] = c; });
+          weeks.forEach(w => { let d = w.date, c = null; for (let k = 0; k < 5 && c == null; k++) { c = map[d]; if (c == null) { const dt = new Date(d + 'T00:00:00Z'); dt.setUTCDate(dt.getUTCDate() - 1); d = dt.toISOString().slice(0, 10); } } if (c != null) w.spx = c; });
+        }
+      }
+    }
+  } catch (_) {}
   const result = { weeks, generated: Date.now() };
-  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly3', ?, ?)`, [JSON.stringify(result), Date.now()]);
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly4', ?, ?)`, [JSON.stringify(result), Date.now()]);
   log(`insider-index-weekly cached: ${weeks.length} weeks`);
 }
 

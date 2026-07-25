@@ -3429,7 +3429,7 @@ async function _getInsiderIndexData() {
   // heavy to run on every cold serverless request, so we only compute live as a
   // one-time bootstrap when the cache is empty, then persist it.
   try {
-    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly3'");
+    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly4'");
     if (cached && cached.value_json) {
       const parsed = JSON.parse(cached.value_json);
       if (parsed && Array.isArray(parsed.weeks) && parsed.weeks.length >= 12) {
@@ -3472,9 +3472,16 @@ async function _getInsiderIndexData() {
       lw.buyerCount = (bc && bc.n) || 0;
     } catch(_) {}
   }
+  // S&P 500 overlay for the chart (best-effort; the reading itself does not need it).
+  try {
+    if (weeks.length) {
+      const fromTs = Math.floor(new Date(weeks[0].date + 'T00:00:00Z').getTime() / 1000) - 7 * 86400;
+      _attachSpx(weeks, await _fetchSpxMap(fromTs, Math.floor(Date.now() / 1000)));
+    }
+  } catch(_) {}
   const data = { weeks, generated: Date.now() };
   _idxWeeklyCache = data; _idxWeeklyTime = Date.now();
-  try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly3', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
+  try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly4', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
   return data;
 }
 
@@ -3491,27 +3498,72 @@ function _idxFmtWeek(d) {
   const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][(p[1] || 1) - 1] || '';
   return `${mo} ${p[2]}, ${p[0]}`;
 }
+// Fetch daily ^GSPC closes over [fromTs,toTs] as a date->close map (best-effort).
+async function _fetchSpxMap(fromTs, toTs) {
+  try {
+    const { status, body } = await httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&period1=${fromTs}&period2=${toTs}`, 8000);
+    if (status !== 200) return null;
+    const r = JSON.parse(body.toString())?.chart?.result?.[0];
+    if (!r?.timestamp) return null;
+    const q = r.indicators.quote[0], map = {};
+    r.timestamp.forEach((t, i) => { const d = new Date(t * 1000).toISOString().slice(0, 10); const c = q.close?.[i]; if (c) map[d] = c; });
+    return map;
+  } catch(_) { return null; }
+}
+// Attach each week's S&P close (its Friday, or nearest prior trading day) as w.spx.
+function _attachSpx(weeks, map) {
+  if (!map || !weeks.length) return;
+  weeks.forEach(w => {
+    let d = w.date, c = null;
+    for (let k = 0; k < 5 && c == null; k++) { c = map[d]; if (c == null) { const dt = new Date(d + 'T00:00:00Z'); dt.setUTCDate(dt.getUTCDate() - 1); d = dt.toISOString().slice(0, 10); } }
+    if (c != null) w.spx = c;
+  });
+}
+
 function _idxChart(weeks) {
   const series = weeks.slice(-156);
   const n = series.length;
   if (n < 2) return '';
-  const W = 800, H = 210, PADX = 6, PADY = 18;
+  const W = 800, PADX = 6;
+  const xf = i => PADX + (i / (n - 1)) * (W - 2 * PADX);
+
+  // Insider buying panel (buy-share)
+  const H = 190, PADY = 16;
   const vals = series.map(w => w.smoothedBuyPct);
   let mn = Math.min(...vals), mx = Math.max(...vals);
   if (mx - mn < 0.06) { const mid = (mx + mn) / 2; mn = mid - 0.06; mx = mid + 0.06; }
-  const xf = i => PADX + (i / (n - 1)) * (W - 2 * PADX);
   const yf = v => PADY + (1 - (v - mn) / (mx - mn)) * (H - 2 * PADY);
   const pts = series.map((w, i) => [xf(i), yf(w.smoothedBuyPct)]);
-  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const area = `M${pts[0][0].toFixed(1)} ${H} ` + pts.map(p => 'L' + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + ` L${pts[n - 1][0].toFixed(1)} ${H} Z`;
+  const iline = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const iarea = `M${pts[0][0].toFixed(1)} ${H} ` + pts.map(p => 'L' + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') + ` L${pts[n - 1][0].toFixed(1)} ${H} Z`;
   const midY = (0.5 >= mn && 0.5 <= mx) ? yf(0.5) : null;
-  const firstYr = (series[0].date || '').slice(0, 4), lastYr = (series[n - 1].date || '').slice(0, 4);
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:210px;display:block" role="img" aria-label="Insider buying pressure over time">
+  const idxSvg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:190px;display:block" role="img" aria-label="Insider buying pressure over time">
     <defs><linearGradient id="ig" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a6f88" stop-opacity="0.22"/><stop offset="1" stop-color="#0a6f88" stop-opacity="0"/></linearGradient></defs>
     ${midY != null ? `<line x1="0" y1="${midY.toFixed(1)}" x2="${W}" y2="${midY.toFixed(1)}" stroke="#c0c6cf" stroke-width="1" stroke-dasharray="5 5"/>` : ''}
-    <path d="${area}" fill="url(#ig)"/>
-    <path d="${line}" fill="none" stroke="#0a6f88" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-  </svg>
+    <path d="${iarea}" fill="url(#ig)"/>
+    <path d="${iline}" fill="none" stroke="#0a6f88" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+
+  // S&P 500 panel above (shares the x-axis so swings line up), only when we have data
+  let spxBlock = '';
+  if (series.some(w => w.spx != null)) {
+    const SH = 118, SPY = 12;
+    const sv = series.map(w => w.spx).filter(v => v != null);
+    let smn = Math.min(...sv), smx = Math.max(...sv);
+    if (smx - smn < 1) smx = smn + 1;
+    const syf = v => SPY + (1 - (v - smn) / (smx - smn)) * (SH - 2 * SPY);
+    let sline = '', started = false;
+    series.forEach((w, i) => { if (w.spx == null) return; sline += (started ? 'L' : 'M') + xf(i).toFixed(1) + ' ' + syf(w.spx).toFixed(1) + ' '; started = true; });
+    spxBlock = `<div style="font-size:10px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase;margin:0 0 3px">S&amp;P 500</div>
+    <svg viewBox="0 0 ${W} ${SH}" preserveAspectRatio="none" style="width:100%;height:118px;display:block" role="img" aria-label="S&amp;P 500 over the same period">
+      <path d="${sline.trim()}" fill="none" stroke="#8a94a6" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <div style="height:1px;background:var(--border);margin:12px 0 0"></div>
+    <div style="font-size:10px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase;margin:10px 0 3px">Insider buying pressure</div>`;
+  }
+
+  const firstYr = (series[0].date || '').slice(0, 4), lastYr = (series[n - 1].date || '').slice(0, 4);
+  return `${spxBlock}${idxSvg}
   <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px"><span>${firstYr}</span><span>${lastYr}</span></div>`;
 }
 
@@ -3585,8 +3637,8 @@ a.stat:hover .sv{text-decoration:underline}
     <a class="stat" href="/screener?type=sell"><div class="sv" style="color:var(--sell)">${_fmtV(cur.sellVal)}</div><div class="sl">Sold this week &rsaquo;</div></a>
     <a class="stat" href="/screener?type=buy"><div class="sv">${(cur.buyerCount || 0).toLocaleString('en-US')}</div><div class="sl">Insiders buying &rsaquo;</div></a>
   </div>
-  <h2>Insider buying pressure, week by week</h2>
-  <p>Each point is one week's share of insider dollars that went to buying rather than selling, smoothed over three weeks. The reading above is where the latest week sits against the full five-year range.</p>
+  <h2>Insider buying vs the market</h2>
+  <p>The S&amp;P 500 (top) plotted over the same weeks as insider buying pressure (bottom), so you can see how the two move together. Each buying point is one week's share of insider dollars that went to buying rather than selling, smoothed over three weeks. Watch whether insiders lean in before the market rises, or pull back before it turns.</p>
   ${_idxChart(weeks)}
   <p class="method" style="margin-top:4px">The dashed line marks weeks where insiders bought and sold equal dollar amounts. Above it, buying dominates.</p>
   <h2>What it means</h2>
