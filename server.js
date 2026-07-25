@@ -3429,7 +3429,7 @@ async function _getInsiderIndexData() {
   // heavy to run on every cold serverless request, so we only compute live as a
   // one-time bootstrap when the cache is empty, then persist it.
   try {
-    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly2'");
+    const cached = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'insider-index-weekly3'");
     if (cached && cached.value_json) {
       const parsed = JSON.parse(cached.value_json);
       if (parsed && Array.isArray(parsed.weeks) && parsed.weeks.length >= 12) {
@@ -3441,7 +3441,7 @@ async function _getInsiderIndexData() {
   // Bootstrap: light historical scan (no per-row DISTINCT) for the percentile
   // series, plus one tiny recent-window query for the latest week's buyer count.
   const rows = await query(`
-    SELECT date(trade_date, 'weekday 0') AS week_end,
+    SELECT date(trade_date, 'weekday 5') AS week_end,
            SUM(CASE WHEN TRIM(type)='P' THEN COALESCE(value,0) ELSE 0 END) AS buy_val,
            SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val,
            COUNT(CASE WHEN TRIM(type)='P' THEN 1 END) AS buy_count
@@ -3451,9 +3451,12 @@ async function _getInsiderIndexData() {
       AND COALESCE(value,0) >= 10000
     GROUP BY week_end HAVING buy_val + sell_val > 0 ORDER BY week_end ASC
   `);
-  // Drop the in-progress week (and a 2-day settle buffer for late-filed Form 4s)
-  // so the headline is always the last completed, mostly-filed week.
-  const cutoff = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+  // Weeks end Friday (the trading week). Roll to the just-completed week as soon as
+  // its Friday has passed, giving a fresh read each Friday. Late-filed Form 4s (up
+  // to ~2 business days) fill the newest week in over the following days; the daily
+  // precompute rescans and refines it. The reading is a buy-share ratio, so it stays
+  // fairly stable even while the raw dollar totals fill in.
+  const cutoff = new Date().toISOString().slice(0, 10);
   const weeks = rows.filter(r => r.week_end && r.week_end <= cutoff).map(r => {
     const bv = r.buy_val || 0, sv = r.sell_val || 0;
     return { date: r.week_end, buyVal: bv, sellVal: sv, buyCount: r.buy_count || 0, buyerCount: 0, buyPct: bv / (bv + sv || 1) };
@@ -3471,7 +3474,7 @@ async function _getInsiderIndexData() {
   }
   const data = { weeks, generated: Date.now() };
   _idxWeeklyCache = data; _idxWeeklyTime = Date.now();
-  try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly2', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
+  try { await run("INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('insider-index-weekly3', ?, ?)", [JSON.stringify(data), Date.now()]); } catch(_) {}
   return data;
 }
 
