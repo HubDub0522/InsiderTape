@@ -995,7 +995,7 @@ app.get('/api/ranker', async (req, res) => {
             // Stake increase for this filing: shares bought vs. prior holding (owned - qty).
             const qty = t.qty || 0, owned = t.owned || 0, prior = owned - qty;
             if (qty > 0 && owned > 0) {
-              if (prior <= 0) a._stakeNew = 1;                                   // brand-new position (owned == qty)
+              if (prior <= 0 || qty / owned >= 0.99) a._stakeNew = 1;            // brand-new (or all-but-a-sliver) position
               else a._maxStake = Math.max(a._maxStake, (qty / prior) * 100);     // % added to an existing stake
             }
           } else if (ty === 'S' || ty === 'S-') { a.sell_count++; a.total_sell_val += val; }
@@ -1019,8 +1019,8 @@ app.get('/api/ranker', async (req, res) => {
           COUNT(CASE WHEN TRIM(type) IN ('S','S-') THEN 1 END) AS sell_count,
           SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
           MAX(CASE WHEN TRIM(type)='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR UPPER(title) LIKE '%PRESIDENT%') THEN 1 ELSE 0 END) AS has_exec_buyer,
-          MAX(CASE WHEN TRIM(type)='P' AND qty>0 AND owned>qty THEN 100.0*qty/(owned-qty) ELSE 0 END) AS max_stake_pct,
-          MAX(CASE WHEN TRIM(type)='P' AND qty>0 AND owned=qty THEN 1 ELSE 0 END) AS stake_new
+          MAX(CASE WHEN TRIM(type)='P' AND qty>0 AND owned>qty AND 1.0*qty/owned<0.99 THEN 100.0*qty/(owned-qty) ELSE 0 END) AS max_stake_pct,
+          MAX(CASE WHEN TRIM(type)='P' AND qty>0 AND owned>0 AND 1.0*qty/owned>=0.99 THEN 1 ELSE 0 END) AS stake_new
         FROM trades
         WHERE trade_date >= date('now', '-' || ? || ' days') AND trade_date <= date('now')
         GROUP BY ticker HAVING buy_count > 0 ORDER BY total_buy_val DESC LIMIT 200
