@@ -2736,7 +2736,7 @@ function renderStockLanding(lists) {
         <span class="stk-tkr" style="font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-weight:800;font-size:18px;letter-spacing:.5px;color:var(--accent);${nameBlur}">${blurName ? 'XXXX' : ticker}</span>
         ${badgeHtml}
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${nameBlur}">${blurName ? 'Premium members can see this cluster' : (company||'')}</div>
+      <div style="font-size:12px;margin-bottom:12px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${blurName ? 'color:var(--accent);font-weight:600' : 'color:var(--muted)'}">${blurName ? '🔒 Premium members only' : (company||'')}</div>
       <div class="stk-stats" style="display:flex;gap:12px">${statsHtml}</div>
     </div>`;
   }
