@@ -2105,7 +2105,7 @@ function renderTickerPage(ticker, rows, stats) {
   const buys = stats.buys || 0, sells = stats.sells || 0;
   const posture = buys > sells * 1.5 ? 'net buyers' : sells > buys * 1.5 ? 'net sellers' : 'mixed';
   const intro = `Over the past 12 months, ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} at ${co} filed ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'} on ${ticker}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}. Insiders have been ${posture} over this period. The most recent filing was on ${_fmtDate(stats.latest)}.`;
-  const desc = `${company} (${ticker}) insider trading: ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} filed ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) in the past year, currently ${posture}. Every SEC Form 4 trade, plotted on the price chart.`;
+  const desc = `${company} (${ticker}) insider trading: ${stats.insiders || 0} insider${stats.insiders === 1 ? '' : 's'} filed ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) in the past year, currently ${posture}. See every open-market buy and sale with dates, prices, and dollar values.`;
 
   // Data-driven FAQ (visible content + FAQPage schema). Answers mirror the
   // on-page text exactly so the structured data stays compliant.
