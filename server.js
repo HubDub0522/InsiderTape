@@ -2283,7 +2283,7 @@ function renderInsiderPage(name, rows, stats) {
   const posture = buys > sells * 1.5 ? 'a net buyer' : sells > buys * 1.5 ? 'a net seller' : 'a mix of buying and selling';
   const span = stats.first && stats.latest && stats.first !== stats.latest ? `from ${_fmtDate(stats.first)} to ${_fmtDate(stats.latest)}` : `on ${_fmtDate(stats.latest)}`;
   const intro = `${displayName}${role ? `, ${role.toLowerCase().includes('director') || role.toLowerCase().includes('officer') || /ceo|cfo|chief|president|chair/i.test(role) ? '' : 'a '}${role},` : ''} is a corporate insider tracked by InsiderTape across ${companies} ${companies === 1 ? 'company' : 'companies'}. The public record shows ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}, reported ${span}. Over this period they have been ${posture}.`;
-  const desc = `Insider trading history for ${displayName}${role ? `, ${role}` : ''}. Recorded SEC Form 4 open-market buys and sells across ${companies} ${companies === 1 ? 'company' : 'companies'}, with dates, share counts, and dollar values.`;
+  const desc = `${displayName}${role ? `, ${role}` : ''} insider trading: ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) across ${companies} ${companies === 1 ? 'company' : 'companies'} on SEC Form 4, currently ${posture}. Every open-market trade with dates and dollar values.`;
 
   const tableRows = rows.map(r => {
     const isBuy = r.type === 'P', isSell = r.type === 'S' || r.type === 'S-';
@@ -2300,7 +2300,7 @@ function renderInsiderPage(name, rows, stats) {
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${dn} Insider Trading - SEC Form 4 History | InsiderTape</title>
+<title>${dn} Insider Trading: SEC Form 4 Buys and Sells | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
@@ -2563,7 +2563,7 @@ function renderSectorPage(sector, slug, rows, stats) {
   const buys = stats.buys || 0, sells = stats.sells || 0;
   const posture = stats.buyval > stats.sellval * 1.5 ? 'net buyers' : stats.sellval > stats.buyval * 1.5 ? 'net sellers' : 'mixed';
   const intro = `Over the past 12 months, corporate insiders across ${stats.companies || 0} ${co} companies filed ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}. Insiders in the ${co} sector have been ${posture} over this period.`;
-  const desc = `${sector} sector insider trading: which ${sector} stocks executives and directors are buying and selling on the open market, ranked by insider buy value. Live SEC Form 4 data.`;
+  const desc = `${sector} sector insider trading: insiders across ${stats.companies || 0} ${sector} companies filed ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) in the past year, currently ${posture}. See which ${sector} stocks insiders are buying.`;
 
   const tableRows = rows.map(r => {
     const sentiment = (r.buy_val + r.sell_val) > 0 ? Math.round(r.buy_val / (r.buy_val + r.sell_val) * 100) : 0;
@@ -2709,7 +2709,7 @@ function renderRolePage(slug, def, rows, stats) {
   const url = `https://www.insidertape.com/insider-trading/role/${slug}`;
   const _ogimg = ogImg('role', slug);
   const intro = `Over the past 90 days, ${stats.insiders || 0} ${def.plural} made ${stats.buys || 0} open-market purchase${stats.buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} across ${stats.companies || 0} ${stats.companies === 1 ? 'company' : 'companies'}. These are ${role} buys filed with the SEC on Form 4, with option exercises and awards stripped out so only genuine open-market conviction is shown.`;
-  const desc = `Which stocks ${def.plural} are buying: recent open-market ${role} insider purchases from SEC Form 4 filings, ranked by value. Company, insider, shares, and dollar value.`;
+  const desc = `Which stocks are ${def.plural} buying? In the last 90 days, ${stats.insiders || 0} ${def.plural} made ${stats.buys || 0} open-market purchase${stats.buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) across ${stats.companies || 0} ${stats.companies === 1 ? 'company' : 'companies'}. Every ${role} buy from SEC Form 4, ranked by value.`;
 
   const tableRows = rows.map(r => `<tr>
       <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
