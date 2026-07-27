@@ -2180,6 +2180,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="cta">
     <h3>Track ${ticker} insider trades in real time</h3>
     <p>InsiderTape plots every ${co} insider buy and sell on the price chart, with buy/sell pressure, cluster detection, and alerts the moment new Form 4s hit. Start a free 7-day trial, cancel anytime.</p>
+    <p style="font-size:13px;color:var(--muted);margin:-6px 0 16px">Does it work? In five years of data, insider clusters beat the Russell 2000 about 60% of the time and the CFO's buy was the sharpest signal of all. <a href="/insider-trading-studies" style="color:var(--accent);text-decoration:none">See the backtest →</a></p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
     <div style="margin-top:12px"><a href="/stock/${ticker}" style="font-size:12px;color:var(--muted);text-decoration:none">or open ${ticker} on InsiderTape →</a></div>
   </div>
@@ -3145,6 +3146,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="cta">
     <h3>Track CFO buys and clusters as they happen</h3>
     <p>InsiderTape flags CFO purchases, cluster buying, and first buys in years in real time, plotted right on the price chart. Start a free 7-day trial, cancel anytime.</p>
+    <p style="font-size:13px;color:var(--muted);margin:-6px 0 16px">Does it work? In five years of data, insider clusters beat the Russell 2000 about 60% of the time and the CFO's buy was the sharpest role. <a href="/insider-trading-studies" style="color:var(--accent);text-decoration:none">See the backtest →</a></p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
     <div style="margin-top:12px"><a href="/biggest-insider-buys" style="font-size:12px;color:var(--muted);text-decoration:none">or see the biggest insider buys this week →</a></div>
   </div>
