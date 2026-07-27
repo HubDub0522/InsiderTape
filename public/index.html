@@ -6670,7 +6670,10 @@ function scoreOpportunityRanker(rows) {
   } catch(e) {}
 
   // ── Score each ticker ─────────────────────────────────────────────────────
-  return rows.map(r => {
+  // Drop coordinated same-day, same-price events (offerings / plans / bank
+  // conversions) up front - they are not open-market conviction, so they should
+  // not be ranked as opportunities at all (server flags them as r.coordinated).
+  return rows.filter(r => !r.coordinated).map(r => {
     let score = 0;
     const factors = [];
 
@@ -7207,6 +7210,12 @@ function detectCatnip(trades) {
 
     const days = tks.map(t => (t.trade||t.filing||'').slice(0,10)).filter(Boolean).sort();
     const daySpan = days.length ? Math.round((new Date(days[days.length-1]) - new Date(days[0])) / 86400000) : 0;
+
+    // Coordinated same-day, same-price buying by 2+ insiders is a subscription /
+    // offering / conversion (e.g. a thrift IPO at a fixed $10), NOT independent
+    // open-market conviction. Exclude it so we actually honor the "no grants /
+    // plans / coordinated buys" claim instead of just making it.
+    if (buyers.length >= 2 && _isCoordinatedBuy(tks)) return;
 
     const perInsider = {};
     tks.forEach(t => { perInsider[t.insider] = (perInsider[t.insider]||0) + 1; });

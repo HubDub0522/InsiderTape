@@ -985,10 +985,12 @@ app.get('/api/ranker', async (req, res) => {
         for (const t of trades) {
           if (!t.ticker || !t.trade || t.trade < cutoff) continue;
           let a = byT.get(t.ticker);
-          if (!a) { a = { ticker: t.ticker, company: t.company || '', buy_count: 0, _buyers: new Set(), total_buy_val: 0, latest_buy_date: null, sell_count: 0, total_sell_val: 0, has_exec_buyer: 0, _maxStake: 0, _stakeNew: 0 }; byT.set(t.ticker, a); }
+          if (!a) { a = { ticker: t.ticker, company: t.company || '', buy_count: 0, _buyers: new Set(), total_buy_val: 0, latest_buy_date: null, sell_count: 0, total_sell_val: 0, has_exec_buyer: 0, _maxStake: 0, _stakeNew: 0, _pset: new Set(), _dset: new Set() }; byT.set(t.ticker, a); }
           const ty = (t.type || '').trim(), val = t.value || 0;
           if (ty === 'P') {
             a.buy_count++; if (t.insider) a._buyers.add(t.insider); a.total_buy_val += val;
+            if (t.price > 0) a._pset.add(t.price.toFixed(4));
+            if (t.trade) a._dset.add(String(t.trade).slice(0, 10));
             if (!a.latest_buy_date || t.trade > a.latest_buy_date) a.latest_buy_date = t.trade;
             if (t.title && execRe.test(String(t.title).toUpperCase())) a.has_exec_buyer = 1;
             if (!a.company && t.company) a.company = t.company;
@@ -1002,7 +1004,7 @@ app.get('/api/ranker', async (req, res) => {
         }
         rows = [...byT.values()]
           .filter(a => a.buy_count > 0)
-          .map(a => ({ ticker: a.ticker, company: a.company, buy_count: a.buy_count, buyer_count: a._buyers.size, total_buy_val: a.total_buy_val, latest_buy_date: a.latest_buy_date, sell_count: a.sell_count, total_sell_val: a.total_sell_val, has_exec_buyer: a.has_exec_buyer, max_stake_pct: a._maxStake, stake_new: a._stakeNew }))
+          .map(a => ({ ticker: a.ticker, company: a.company, buy_count: a.buy_count, buyer_count: a._buyers.size, total_buy_val: a.total_buy_val, latest_buy_date: a.latest_buy_date, sell_count: a.sell_count, total_sell_val: a.total_sell_val, has_exec_buyer: a.has_exec_buyer, max_stake_pct: a._maxStake, stake_new: a._stakeNew, coordinated: (a._buyers.size >= 2 && a._pset.size === 1 && a._dset.size <= 1) ? 1 : 0 }))
           .sort((x, y) => y.total_buy_val - x.total_buy_val)
           .slice(0, 200);
       }
@@ -1020,11 +1022,15 @@ app.get('/api/ranker', async (req, res) => {
           SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS total_sell_val,
           MAX(CASE WHEN TRIM(type)='P' AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CFO%' OR UPPER(title) LIKE '%PRESIDENT%') THEN 1 ELSE 0 END) AS has_exec_buyer,
           MAX(CASE WHEN TRIM(type)='P' AND qty>0 AND owned>qty AND 1.0*qty/owned<0.99 THEN 100.0*qty/(owned-qty) ELSE 0 END) AS max_stake_pct,
-          MAX(CASE WHEN TRIM(type)='P' AND qty>0 AND owned>0 AND 1.0*qty/owned>=0.99 THEN 1 ELSE 0 END) AS stake_new
+          MAX(CASE WHEN TRIM(type)='P' AND qty>0 AND owned>0 AND 1.0*qty/owned>=0.99 THEN 1 ELSE 0 END) AS stake_new,
+          COUNT(DISTINCT CASE WHEN TRIM(type)='P' AND price>0 THEN price END) AS _pdist,
+          COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN trade_date END) AS _ddist
         FROM trades
         WHERE trade_date >= date('now', '-' || ? || ' days') AND trade_date <= date('now')
         GROUP BY ticker HAVING buy_count > 0 ORDER BY total_buy_val DESC LIMIT 200
       `, [days]);
+      // Same-day, same-price buying by 2+ insiders = an offering / plan / conversion.
+      for (const r of rows) r.coordinated = (r.buyer_count >= 2 && r._pdist <= 1 && r._ddist <= 1) ? 1 : 0;
     }
     const out = rows.filter(r => r.buyer_count <= 8);
     // Round the derived stake % to a clean integer for display (raw float from both paths).
