@@ -6688,7 +6688,8 @@ function scoreOpportunityRanker(rows) {
     else if (r.has_exec_buyer)     { score += 6;  factors.push(`C-suite / executive buyer`); }
 
     // ── 3. Stake size increase (0–12 pts) ────────────────────────
-    if (r.max_stake_pct >= 50)     { score += 12; factors.push(`Stake increased ${r.max_stake_pct}%`); }
+    if (r.stake_new)               { score += 12; factors.push(`Brand-new insider position`); }
+    else if (r.max_stake_pct >= 50){ score += 12; factors.push(`Stake increased ${r.max_stake_pct}%`); }
     else if (r.max_stake_pct >= 20){ score += 8;  factors.push(`Stake increased ${r.max_stake_pct}%`); }
     else if (r.max_stake_pct >= 5) { score += 4;  factors.push(`Position added to`); }
 
@@ -6847,7 +6848,7 @@ function renderRankerCard(r, idx) {
       </div>
       <div style="padding:10px 14px;flex:1;min-width:80px;border-right:1px solid var(--border)">
         <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">MAX STAKE Δ</div>
-        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:700;color:${r.max_stake_pct >= 20 ? 'var(--buy)' : 'var(--text)'}">${r.max_stake_pct > 0 ? '+' + r.max_stake_pct + '%' : '-'}</div>
+        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:11px;font-weight:700;color:${(r.stake_new || r.max_stake_pct >= 20) ? 'var(--buy)' : 'var(--text)'}">${r.stake_new ? 'NEW' : r.max_stake_pct >= 1 ? '+' + r.max_stake_pct + '%' : r.max_stake_pct > 0 ? '<1%' : '-'}</div>
       </div>
       ${priceBlock}
       <div style="padding:10px 14px;flex:1;min-width:80px">
