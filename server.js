@@ -2,6 +2,7 @@
 
 const express  = require('express');
 const cors     = require('cors');
+const compression = require('compression');
 const https    = require('https');
 const http     = require('http');
 const path     = require('path');
@@ -169,6 +170,11 @@ app.use((req, res, next) => {
   next();
 });
 app.use(cors());
+// Gzip function responses. Fast Origin Transfer counts the UNCOMPRESSED bytes
+// streamed function -> edge, and the biggest payloads (e.g. /api/screener ~570KB,
+// the ~730KB HTML shell) were being sent raw on every cache miss. This was a
+// declared dependency that had never been wired up. Cuts origin bytes ~5x.
+app.use(compression());
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
@@ -485,7 +491,10 @@ setInterval(() => { const n = Date.now(); for (const [k,v] of _screenerCache) if
 
 app.get('/api/screener', async (req, res) => {
   try {
-    res.set('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+    // Biggest payload on the site (~570KB) and the SPA hits it on every visit to
+    // The Tape. Trades only change a few times a day (on ingestion), so cache it
+    // at the edge for 30 min: turns thousands of origin re-streams into a handful.
+    res.set('Cache-Control', 'public, max-age=0, s-maxage=1800, stale-while-revalidate=86400');
     const cacheKey =(req.query.days || '30') + '|' + (req.query.limit || '');
     const cached = _screenerCache.get(cacheKey);
     const _reqDays = parseInt(req.query.days || '30');
@@ -966,6 +975,10 @@ app.get('/api/firstbuys', async (req, res) => {
 const _rankerApiCache = new Map();
 app.get('/api/ranker', async (req, res) => {
   try {
+    // Was falling through to the /api/ no-store default and re-streaming on every
+    // Radar hit. Derived from the precomputed blob (changes on ingestion), so it
+    // is safe to edge-cache for 15 min with a long stale-while-revalidate window.
+    res.set('Cache-Control', 'public, max-age=0, s-maxage=900, stale-while-revalidate=86400');
     const days = Math.min(parseInt(req.query.days || '30'), 90);
     const ck = 'r' + days;
     const c = _rankerApiCache.get(ck);
