@@ -99,6 +99,15 @@ async function initSchema() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
+    `CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'active',
+      unsub_token TEXT NOT NULL,
+      source TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_sent_at TEXT
+    )`,
     `CREATE INDEX IF NOT EXISTS idx_sessions_token    ON sessions(token)`,
     `CREATE INDEX IF NOT EXISTS idx_magic_tokens_token ON magic_tokens(token)`,
     `CREATE TABLE IF NOT EXISTS alert_prefs (
@@ -1954,6 +1963,60 @@ app.post('/api/alerts/test', async (req, res) => {
     ]);
     res.json({ ok: true, message: 'Test alert sent to ' + user.email });
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── NEWSLETTER (free weekly digest) ──────────────────────────────────────────
+// Top-of-funnel + conversion engine. Sending runs through Resend and the weekly
+// send runs in GitHub Actions, so this adds ~no Vercel Fast Origin Transfer.
+// Signup is a tiny POST; the schema table is created lazily (init-schema is
+// manual-only, and each serverless instance may be cold).
+let _newsletterReady = false;
+async function ensureNewsletter() {
+  if (_newsletterReady) return;
+  await exec(`CREATE TABLE IF NOT EXISTS newsletter_subscribers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'active',
+    unsub_token TEXT NOT NULL,
+    source TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_sent_at TEXT
+  )`);
+  _newsletterReady = true;
+}
+
+const _subRate = new Map(); // ip -> last submit ts (light anti-spam throttle)
+app.post('/api/subscribe', express.json(), async (req, res) => {
+  try {
+    const email  = String((req.body && req.body.email)  || '').trim().toLowerCase();
+    const source = String((req.body && req.body.source) || 'site').slice(0, 40);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+      return res.status(400).json({ error: 'Enter a valid email.' });
+    }
+    const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || '';
+    const now = Date.now();
+    if (ip && _subRate.get(ip) && now - _subRate.get(ip) < 5000) {
+      return res.status(429).json({ error: 'One sec, try again.' });
+    }
+    if (ip) _subRate.set(ip, now);
+    await ensureNewsletter();
+    const token = crypto.randomBytes(16).toString('hex');
+    // Upsert: new signup, or reactivate a previously-unsubscribed address.
+    await run(`INSERT INTO newsletter_subscribers (email, unsub_token, source) VALUES (?, ?, ?)
+      ON CONFLICT(email) DO UPDATE SET status='active'`, [email, token, source]);
+    res.json({ ok: true, message: "You're in. The weekly insider digest lands Monday morning." });
+  } catch(e) { res.status(500).json({ error: 'Could not sign you up. Try again.' }); }
+});
+
+app.get('/api/unsubscribe', async (req, res) => {
+  const token = String(req.query.token || '').trim();
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  if (!token) return res.status(400).send('<p style="font-family:system-ui">Invalid unsubscribe link.</p>');
+  try {
+    await ensureNewsletter();
+    await run(`UPDATE newsletter_subscribers SET status='unsubscribed' WHERE unsub_token = ?`, [token]);
+    res.send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px;margin:80px auto;padding:0 20px;text-align:center;color:#0f1a2b"><h2 style="color:#0a6f88;letter-spacing:1px">Unsubscribed</h2><p style="line-height:1.6">You won't receive the InsiderTape digest anymore. Changed your mind? <a href="${SITE_URL}" style="color:#0a6f88">Come back anytime.</a></p></div>`);
+  } catch(e) { res.status(500).send('<p style="font-family:system-ui">Something went wrong. Try again later.</p>'); }
 });
 
 // ─── ADMIN ────────────────────────────────────────────────────────────────────

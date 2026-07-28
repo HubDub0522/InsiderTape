@@ -2125,6 +2125,51 @@ function tapeFilterClusters() {
   loadScreener();
 }
 
+// ── Free weekly-digest capture (top-of-funnel + conversion) ───────────────────
+function _ensureNewsletterStrip() {
+  try {
+    if (typeof auth !== 'undefined' && auth && auth.isPremium) return;   // paying users don't need it
+    if (localStorage.getItem('nl_done')) return;                          // already signed up or dismissed
+    const bar = document.getElementById('summaryBar');
+    if (!bar || document.getElementById('nlStrip')) return;
+    const el = document.createElement('div');
+    el.id = 'nlStrip';
+    el.style.cssText = 'margin:14px 0 2px;background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--buy);border-radius:12px;padding:15px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap';
+    el.innerHTML = `
+      <div style="flex:1;min-width:230px">
+        <div style="font-family:system-ui,-apple-system,sans-serif;font-weight:700;color:var(--text);font-size:14px">Get the week's biggest insider buys, free.</div>
+        <div style="color:var(--muted);font-size:12px;margin-top:3px;line-height:1.4">One email, Monday mornings. The most notable open-market Form 4 buys, no noise.</div>
+      </div>
+      <form onsubmit="submitNewsletter(event,'tape');return false" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0">
+        <input id="nlEmail" type="email" autocomplete="email" placeholder="you@email.com" aria-label="Email address"
+          style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--text);min-width:200px;font-family:system-ui,sans-serif">
+        <button type="submit" style="background:var(--buy);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:12px;font-weight:700;letter-spacing:.3px;cursor:pointer;font-family:system-ui,sans-serif;white-space:nowrap">Get the digest →</button>
+      </form>
+      <div id="nlMsg" style="font-size:11px;color:var(--muted);flex-basis:100%;min-height:0"></div>
+      <button onclick="dismissNewsletter()" aria-label="Dismiss" style="background:none;border:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:0 2px">×</button>`;
+    bar.parentNode.insertBefore(el, bar.nextSibling);
+  } catch(e) {}
+}
+async function submitNewsletter(ev, source) {
+  if (ev) ev.preventDefault();
+  const inp = document.getElementById('nlEmail');
+  const msg = document.getElementById('nlMsg');
+  const email = ((inp && inp.value) || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { if (msg) { msg.textContent = 'Enter a valid email.'; msg.style.color = 'var(--sell)'; } return; }
+  if (msg) { msg.textContent = 'Signing you up…'; msg.style.color = 'var(--muted)'; }
+  try {
+    const r = await fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, source: source || 'site' }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) {
+      try { localStorage.setItem('nl_done', '1'); } catch(e) {}
+      if (typeof gtag === 'function') gtag('event', 'newsletter_signup', { source: source || 'site' });
+      const strip = document.getElementById('nlStrip');
+      if (strip) strip.innerHTML = `<div style="font-family:system-ui,sans-serif;color:var(--buy);font-weight:600;font-size:13px;padding:2px 0">✓ ${d.message || "You're in. First digest lands Monday."}</div>`;
+    } else if (msg) { msg.textContent = d.error || 'Could not sign you up. Try again.'; msg.style.color = 'var(--sell)'; }
+  } catch(_) { if (msg) { msg.textContent = 'Network error. Try again.'; msg.style.color = 'var(--sell)'; } }
+}
+function dismissNewsletter() { try { localStorage.setItem('nl_done', '1'); } catch(e) {} const s = document.getElementById('nlStrip'); if (s) s.remove(); }
+
 function renderScreener() {
   window.scrollTo(0, 0);
   const data = state.screenerData;
@@ -2141,6 +2186,7 @@ function renderScreener() {
     <div class="summary-card"><div class="summary-card-label">Total Bought</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div><div class="summary-card-sub">open-market only</div></div>
     <div class="summary-card"><div class="summary-card-label">CFO Buys ${_q('We backtested 45,712 insider buys over five years. The CFO&#39;s purchase was the sharpest role - it beat the Russell 2000 at 30, 60 and 90 days, while CEO buys lagged. See the full backtest in the Study section.')}</div><div class="summary-card-val" style="color:var(--accent)"><span class="tile-num" onclick="tapeFilterCfo()" title="Show only CFO buys">${cfoBuys}</span></div><div class="summary-card-sub">the sharpest role</div></div>
     <div class="summary-card"><div class="summary-card-label">Cluster Alerts ${_q('A cluster is 3+ insiders buying the same stock within a month. In our five-year study, clusters were positive about 60% of the time at 90 days, and the odds rose with every extra buyer. See the full backtest in the Study section. Premium feature.')}</div><div class="summary-card-val" style="color:var(--accent)">${_prem ? `<span class="tile-num" onclick="tapeFilterClusters()" title="Show only cluster buys">${clusterCount}</span>` : '<span style="font-size:15px">🔒</span> <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.5px">Premium</span>'}</div><div class="summary-card-sub">${_prem ? '3+ insiders, one stock' : 'unlock to see this week&#39;s'}</div></div>`;
+  _ensureNewsletterStrip();
   const latestTrade = data.reduce((best, t) => { const d = t.trade || t.filing || ''; return d > best ? d : best; }, '');
   const latestLabel = latestTrade ? `latest filing ${fmtDate(latestTrade)}` : `refreshed ${new Date().toLocaleTimeString()}`;
   document.getElementById('screenerMeta').textContent = `${data.length} filings · ${latestLabel}`;
