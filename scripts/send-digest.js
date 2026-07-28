@@ -20,6 +20,7 @@ const FROM_EMAIL = (() => {
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || /^.+<[^\s@]+@[^\s@]+\.[^\s@]+>$/.test(v);
   return valid ? v : 'InsiderTape <noreply@insidertape.com>';
 })();
+const REPLY_TO   = (process.env.REPLY_TO || '').trim();
 const TEST_EMAIL = (process.env.TEST_EMAIL || '').trim().toLowerCase();
 const DRY_RUN    = process.env.DRY_RUN === '1' || process.argv.includes('--dry');
 
@@ -59,6 +60,9 @@ async function getBiggestBuys() {
       AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       AND COALESCE(value,0) >= 10000
     GROUP BY ticker HAVING buy_val > 0
+      AND NOT (COUNT(DISTINCT insider) >= 2
+               AND COUNT(DISTINCT CASE WHEN price>0 THEN price END) <= 1
+               AND COUNT(DISTINCT trade_date) <= 1)
     ORDER BY buy_val DESC LIMIT 12`);
 }
 
@@ -110,12 +114,37 @@ function buildEmail(rows, unsubToken) {
       <a href="${SITE_URL}/premium" style="display:inline-block;background:#12905f;color:#fff;font-family:Arial,sans-serif;font-size:12px;font-weight:700;text-decoration:none;padding:10px 22px;border-radius:8px">Start free trial &rarr;</a>
     </div>
 
-    <div style="text-align:center;font-family:Arial,sans-serif;font-size:11px;color:#8a95a3;line-height:1.7;margin-top:20px">
+    <div style="font-family:Arial,sans-serif;font-size:12px;color:#6e7a8a;line-height:1.6;margin-top:16px;padding:0 4px">
+      P.S. Just hit reply and tell me which names you want more of - I read every one. And if this landed in your Promotions tab, drag it to Primary so you don't miss next Monday.
+    </div>
+    <div style="text-align:center;font-family:Arial,sans-serif;font-size:11px;color:#8a95a3;line-height:1.7;margin-top:18px">
       Data from SEC Form 4 filings via <a href="${SITE_URL}" style="color:#0a6f88;text-decoration:none">insidertape.com</a>. Not financial advice.<br>
       <a href="${unsubUrl}" style="color:#8a95a3;text-decoration:underline">Unsubscribe</a>
     </div>
   </div>
 </body></html>`;
+}
+
+// Plain-text alternative. A multipart (text + html) email looks less like bulk
+// marketing to Gmail and lands in Primary far more often than html-only.
+function buildText(rows, unsubToken) {
+  const unsubUrl = `${SITE_URL}/api/unsubscribe?token=${encodeURIComponent(unsubToken)}`;
+  const lines = rows.map((r, i) => `${i + 1}. $${r.ticker} - ${(r.company || '').slice(0, 34)} - ${r.insiders} insider${r.insiders == 1 ? '' : 's'} - ${fmtV(r.buy_val)} bought`);
+  return [
+    'INSIDERTAPE - Weekly Insider Digest',
+    '',
+    'The biggest open-market insider buys filed with the SEC this week, ranked by dollar value. Grants, option exercises, and coordinated plan buys stripped out:',
+    '',
+    ...lines,
+    '',
+    `Full ranking: ${SITE_URL}/biggest-insider-buys`,
+    `Track any of these in real time (free 7-day trial): ${SITE_URL}/premium`,
+    '',
+    "P.S. Just hit reply and tell me which names you want more of - I read every one. And if this landed in your Promotions tab, drag it to Primary so you don't miss next Monday.",
+    '',
+    'Data from SEC Form 4 filings via insidertape.com. Not financial advice.',
+    `Unsubscribe: ${unsubUrl}`,
+  ].join('\n');
 }
 
 async function main() {
@@ -155,11 +184,14 @@ async function main() {
   for (const s of subs) {
     try {
       const unsubUrl = `${SITE_URL}/api/unsubscribe?token=${encodeURIComponent(s.unsub_token)}`;
-      await resend.emails.send({
+      const opts = {
         from: FROM_EMAIL, to: s.email, subject,
         html: buildEmail(rows, s.unsub_token),
+        text: buildText(rows, s.unsub_token),
         headers: { 'List-Unsubscribe': `<${unsubUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
-      });
+      };
+      if (REPLY_TO) opts.replyTo = REPLY_TO;
+      await resend.emails.send(opts);
       if (!TEST_EMAIL) await run(`UPDATE newsletter_subscribers SET last_sent_at=datetime('now') WHERE email=?`, [s.email]);
       sent++;
       await sleep(180); // stay under Resend rate limits

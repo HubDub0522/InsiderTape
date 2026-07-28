@@ -40,5 +40,10 @@ jobs:
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
           RESEND_KEY:         ${{ secrets.RESEND_KEY }}
           SITE_URL:           https://www.insidertape.com
+          # Optional: set these as repo secrets to use a friendlier sender + a
+          # repliable address (both improve Gmail Primary placement). If unset,
+          # the script defaults to InsiderTape <noreply@insidertape.com>.
+          FROM_EMAIL:         ${{ secrets.FROM_EMAIL }}
+          REPLY_TO:           ${{ secrets.REPLY_TO }}
           TEST_EMAIL:         ${{ github.event.inputs.test_email }}
           DRY_RUN:            ${{ github.event.inputs.dry_run }}

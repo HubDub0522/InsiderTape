@@ -2656,6 +2656,9 @@ app.get('/biggest-insider-buys', async (req, res) => {
         AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
         AND COALESCE(value,0) >= 10000
       GROUP BY ticker HAVING buy_val > 0
+        AND NOT (COUNT(DISTINCT insider) >= 2
+                 AND COUNT(DISTINCT CASE WHEN price>0 THEN price END) <= 1
+                 AND COUNT(DISTINCT trade_date) <= 1)
       ORDER BY buy_val DESC LIMIT 30`);
     const html = renderBiggestBuysPage(rows || []);
     _biggestBuysCache = { html, t: Date.now() };
