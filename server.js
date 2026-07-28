@@ -2592,7 +2592,10 @@ h1{font-size:clamp(28px,5vw,42px);font-weight:800;letter-spacing:-.5px;line-heig
 .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:30px}
 .card{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
 .card .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}.card .v{font-size:22px;font-weight:800}.card .v.g{color:var(--buy)}
-table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:14px}
+.tbl-brand{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-bottom:none;border-radius:10px 10px 0 0;padding:11px 15px}
+.tbl-brand .bl{font-size:14px;font-weight:800;letter-spacing:2px;color:var(--text)}.tbl-brand .bl span{color:var(--accent)}
+.tbl-brand .br{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--accent);font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;background:var(--bg2) url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='330'%20height='150'%3E%3Ctext%20x='14'%20y='84'%20transform='rotate(-22%20165%2075)'%20fill='%230a6f88'%20fill-opacity='0.08'%20font-family='Inter,Arial,sans-serif'%20font-size='16'%20font-weight='700'%3Einsidertape.com%3C/text%3E%3C/svg%3E") repeat;border:1px solid var(--border);border-radius:0 0 10px 10px;overflow:hidden;font-size:14px}
 th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:12px 14px;border-bottom:2px solid var(--border)}
 td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(10,111,136,.03)}
 .rk{color:var(--muted);font-weight:700;width:38px;font-variant-numeric:tabular-nums}
@@ -2625,6 +2628,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="card"><div class="k">Buy Transactions</div><div class="v">${totalTrades}</div></div>
     <div class="card"><div class="k">Total Insider Buying</div><div class="v g">${_fmtV(totalVal)}</div></div>
   </div>
+  <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
   <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or check the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
   <div class="cta">
