@@ -1,0 +1,44 @@
+name: Weekly Insider Digest
+
+on:
+  schedule:
+    - cron: '30 12 * * 1'   # Mondays ~8:30 AM ET (12:30 UTC) - "Monday morning"
+  workflow_dispatch:
+    inputs:
+      test_email:
+        description: 'Send ONLY to this address (leave blank to send to all active subscribers)'
+        required: false
+      dry_run:
+        description: 'Set to 1 to compute + log without sending'
+        required: false
+        default: ''
+
+concurrency:
+  group: weekly-digest
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Send weekly digest
+        run: node scripts/send-digest.js
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
+          RESEND_KEY:         ${{ secrets.RESEND_KEY }}
+          SITE_URL:           https://www.insidertape.com
+          TEST_EMAIL:         ${{ github.event.inputs.test_email }}
+          DRY_RUN:            ${{ github.event.inputs.dry_run }}
