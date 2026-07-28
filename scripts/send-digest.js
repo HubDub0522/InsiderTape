@@ -115,7 +115,7 @@ function buildEmail(rows, unsubToken) {
     </div>
 
     <div style="font-family:Arial,sans-serif;font-size:12px;color:#6e7a8a;line-height:1.6;margin-top:16px;padding:0 4px">
-      P.S. Just hit reply and tell me which names you want more of - I read every one. And if this landed in your Promotions tab, drag it to Primary so you don't miss next Monday.
+      P.S. Just hit reply and tell me which names you want more of - I read every one. And if this landed in your Promotions tab, drag it to Primary so you don't miss next Sunday.
     </div>
     <div style="text-align:center;font-family:Arial,sans-serif;font-size:11px;color:#8a95a3;line-height:1.7;margin-top:18px">
       Data from SEC Form 4 filings via <a href="${SITE_URL}" style="color:#0a6f88;text-decoration:none">insidertape.com</a>. Not financial advice.<br>
@@ -140,7 +140,7 @@ function buildText(rows, unsubToken) {
     `Full ranking: ${SITE_URL}/biggest-insider-buys`,
     `Track any of these in real time (free 7-day trial): ${SITE_URL}/premium`,
     '',
-    "P.S. Just hit reply and tell me which names you want more of - I read every one. And if this landed in your Promotions tab, drag it to Primary so you don't miss next Monday.",
+    "P.S. Just hit reply and tell me which names you want more of - I read every one. And if this landed in your Promotions tab, drag it to Primary so you don't miss next Sunday.",
     '',
     'Data from SEC Form 4 filings via insidertape.com. Not financial advice.',
     `Unsubscribe: ${unsubUrl}`,

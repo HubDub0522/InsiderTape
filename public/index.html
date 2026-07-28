@@ -2138,7 +2138,7 @@ function _ensureNewsletterStrip() {
     el.innerHTML = `
       <div style="flex:1;min-width:230px">
         <div style="font-family:system-ui,-apple-system,sans-serif;font-weight:700;color:var(--text);font-size:14px">Get the week's biggest insider buys, free.</div>
-        <div style="color:var(--muted);font-size:12px;margin-top:3px;line-height:1.4">One email, Monday mornings. The most notable open-market Form 4 buys, no noise.</div>
+        <div style="color:var(--muted);font-size:12px;margin-top:3px;line-height:1.4">One email, Sunday evenings. The most notable open-market Form 4 buys, no noise.</div>
       </div>
       <form onsubmit="submitNewsletter(event,'tape');return false" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0">
         <input id="nlEmail" type="email" autocomplete="email" placeholder="you@email.com" aria-label="Email address"
@@ -2164,7 +2164,7 @@ async function submitNewsletter(ev, source) {
       try { localStorage.setItem('nl_done', '1'); } catch(e) {}
       if (typeof gtag === 'function') gtag('event', 'newsletter_signup', { source: source || 'site' });
       const strip = document.getElementById('nlStrip');
-      if (strip) strip.innerHTML = `<div style="font-family:system-ui,sans-serif;color:var(--buy);font-weight:600;font-size:13px;padding:2px 0">✓ ${d.message || "You're in. First digest lands Monday."}</div>`;
+      if (strip) strip.innerHTML = `<div style="font-family:system-ui,sans-serif;color:var(--buy);font-weight:600;font-size:13px;padding:2px 0">✓ ${d.message || "You're in. First digest lands Sunday evening."}</div>`;
     } else if (msg) { msg.textContent = d.error || 'Could not sign you up. Try again.'; msg.style.color = 'var(--sell)'; }
   } catch(_) { if (msg) { msg.textContent = 'Network error. Try again.'; msg.style.color = 'var(--sell)'; } }
 }

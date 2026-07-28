@@ -2004,7 +2004,7 @@ app.post('/api/subscribe', express.json(), async (req, res) => {
     // Upsert: new signup, or reactivate a previously-unsubscribed address.
     await run(`INSERT INTO newsletter_subscribers (email, unsub_token, source) VALUES (?, ?, ?)
       ON CONFLICT(email) DO UPDATE SET status='active'`, [email, token, source]);
-    res.json({ ok: true, message: "You're in. The weekly insider digest lands Monday morning." });
+    res.json({ ok: true, message: "You're in. The weekly insider digest lands Sunday evening." });
   } catch(e) { res.status(500).json({ error: 'Could not sign you up. Try again.' }); }
 });
 

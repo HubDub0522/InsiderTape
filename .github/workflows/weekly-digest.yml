@@ -2,7 +2,7 @@ name: Weekly Insider Digest
 
 on:
   schedule:
-    - cron: '30 12 * * 1'   # Mondays ~8:30 AM ET (12:30 UTC) - "Monday morning"
+    - cron: '0 22 * * 0'    # Sundays 6:00 PM ET (22:00 UTC, anchored to EDT; ~1h off in winter)
   workflow_dispatch:
     inputs:
       test_email:
