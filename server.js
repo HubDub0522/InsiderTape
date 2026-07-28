@@ -220,6 +220,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// Short edge cache for PUBLIC (non-user-specific) read endpoints. Overrides the
+// /api no-store default set above, so repeat/crawler hits are served from the CDN
+// instead of re-streaming from the function (cuts Fast Origin Transfer). NEVER
+// call this on per-user or mutation endpoints (auth, alerts prefs, status,
+// checkout, webhooks) - their responses vary by session and must stay no-store.
+function publicApiCache(res, seconds, swr = 86400) {
+  res.set('Cache-Control', `public, max-age=0, s-maxage=${seconds}, stale-while-revalidate=${swr}`);
+}
+
 // Per-request timeout
 app.use((req, res, next) => {
   const limit = req.path === '/api/scoreboard' ? 55000
@@ -588,6 +597,7 @@ app.get('/api/history', async (req, res) => {
 });
 
 app.get('/api/ticker', async (req, res) => {
+  publicApiCache(res, 600);
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
   try {
@@ -605,6 +615,7 @@ app.get('/api/ticker', async (req, res) => {
 });
 
 app.get('/api/insider', async (req, res) => {
+  publicApiCache(res, 600);
   const name  = (req.query.name || '').trim();
   const exact = req.query.exact === '1';
   if (!name || name.length < 2) return res.status(400).json({ error: 'name required (min 2 chars)' });
@@ -687,6 +698,7 @@ async function _siteSearch(q) {
 }
 
 app.get('/api/search', async (req, res) => {
+  publicApiCache(res, 600);
   const q = (req.query.q || '').trim();
   if (!q || q.length < 1) return res.json({ tickers: [], insiders: [] });
   try {
@@ -698,6 +710,7 @@ app.get('/api/search', async (req, res) => {
 
 // ─── PRICE ────────────────────────────────────────────────────────────────────
 app.get('/api/price', async (req, res) => {
+  publicApiCache(res, 600);
   const sym = (req.query.symbol || '').toUpperCase().trim();
   if (!sym) return res.status(400).json({ error: 'symbol required' });
   if (req.query.bust === '1') {
@@ -723,6 +736,7 @@ app.get('/api/price', async (req, res) => {
 });
 
 app.get('/api/prices-bulk', async (req, res) => {
+  publicApiCache(res, 600);
   const raw  = (req.query.symbols || '').toUpperCase().trim();
   if (!raw) return res.status(400).json({ error: 'symbols required' });
   const syms = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 20);
@@ -736,6 +750,7 @@ app.get('/api/prices-bulk', async (req, res) => {
 });
 
 app.get('/api/price-highs', async (req, res) => {
+  publicApiCache(res, 1800);
   const syms = (req.query.tickers || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 50);
   if (!syms.length) return res.json({});
   const result = {};
@@ -757,6 +772,7 @@ app.get('/api/price-highs', async (req, res) => {
 // ─── INSIDER SENTIMENT ────────────────────────────────────────────────────────
 let _sentimentCache = null, _sentimentCacheTime = 0;
 app.get('/api/insider-sentiment', async (req, res) => {
+  publicApiCache(res, 1800);
   try {
     if (_sentimentCache && Date.now() - _sentimentCacheTime < 3600000) return res.json(_sentimentCache);
     // Serve from precomputed cache (refreshed daily by GitHub Actions). Insider
@@ -820,6 +836,7 @@ app.get('/api/insider-sentiment', async (req, res) => {
 });
 
 app.get('/api/insider-ratio-history', async (req, res) => {
+  publicApiCache(res, 1800);
   try {
     const grain  = req.query.grain === 'monthly' ? 'monthly' : 'weekly';
     const weeks  = Math.min(parseInt(req.query.weeks  || '52'), 520);
@@ -1215,6 +1232,7 @@ function getTickerSector(t) { return TICKER_SECTOR_MAP[t] || null; }
 
 let _sectorsCache = null, _sectorsCacheTime = 0;
 app.get('/api/sectors', async (req, res) => {
+  publicApiCache(res, 1800);
   try {
     if (_sectorsCache && Date.now() - _sectorsCacheTime < 120000) return res.json(_sectorsCache);
     const days = [7, 30, 90].includes(parseInt(req.query.days)) ? parseInt(req.query.days) : 30;
@@ -1271,6 +1289,7 @@ app.get('/api/drift', async (req, res) => {
 
 // ─── PROXIMITY (served from pre-computed cache) ───────────────────────────────
 app.get('/api/proximity', async (req, res) => {
+  publicApiCache(res, 1800);
   try {
     const row = await queryOne("SELECT value_json, computed_at FROM computed_cache WHERE key = 'proximity'");
     if (!row) return res.json({ computing: true, message: 'Proximity analysis is being computed - check back shortly.' });
@@ -1309,6 +1328,7 @@ app.get('/api/scoreboard', async (req, res) => {
 // Pre-scored leaderboard (Top Insider Scores + Best Timing) - served from cache
 // so the client never has to score dozens of insiders live (which was timing out).
 app.get('/api/insider-leaderboard', async (req, res) => {
+  publicApiCache(res, 1800);
   try {
     const cached = await queryOne("SELECT value_json FROM computed_cache WHERE key = 'insider-leaderboard'");
     if (cached) return res.json(JSON.parse(cached.value_json));
@@ -1338,6 +1358,7 @@ const _insiderScoreCache = new Map();
 const INSIDER_SCORE_TTL = 30 * 60000;
 
 app.get('/api/insider-score', async (req, res) => {
+  publicApiCache(res, 1800);
   const name = (req.query.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name required' });
   const ck = name.toUpperCase();
