@@ -1646,6 +1646,9 @@ app.get('/api/stripe/success', async (req, res) => {
             updated_at = datetime('now')
         `, [userId, session.customer, sub?.id || '', csId, plan, periodEnd]);
         slog(`Subscription activated for user ${userId} (${plan})`);
+        // Distinct param so the client fires the GA `purchase` conversion only on
+        // a genuine activation (the generic /?premium=1 below is a fallback path).
+        return res.redirect('/?subscribed=1&plan=' + encodeURIComponent(plan));
       }
     }
   } catch(e) { slog('Stripe success error: ' + e.message); }
