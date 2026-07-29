@@ -187,7 +187,7 @@ app.use(cors());
 // crawlers we WANT (Googlebot, Bingbot, DuckDuckBot, Twitterbot,
 // facebookexternalhit, LinkedInBot, Slackbot, redditbot, WhatsApp, Telegram)
 // are deliberately NOT in this list.
-const BLOCKED_UA = /(bytespider|gptbot|chatgpt-user|oai-searchbot|ccbot|claudebot|claude-web|anthropic-ai|google-extended|perplexitybot|amazonbot|applebot-extended|meta-externalagent|facebookbot|imagesiftbot|img2dataset|diffbot|dataforseobot|semrushbot|ahrefsbot|mj12bot|dotbot|blexbot|petalbot|seznambot|megaindex|serpstatbot|barkrowler|zoominfobot|bomborabot|scrapy|python-requests|python-urllib|go-http-client|node-fetch|axios|curl\/|wget|httpclient|okhttp)/i;
+const BLOCKED_UA = /(bytespider|gptbot|chatgpt-user|oai-searchbot|ccbot|claudebot|claude-web|anthropic-ai|google-extended|perplexitybot|amazonbot|applebot-extended|meta-externalagent|facebookbot|imagesiftbot|img2dataset|diffbot|dataforseobot|semrushbot|ahrefsbot|mj12bot|dotbot|blexbot|petalbot|seznambot|megaindex|serpstatbot|barkrowler|zoominfobot|bomborabot|scrapy|python-requests|python-urllib|python-httpx|go-http-client|node-fetch|undici|axios|got\/|aiohttp|httpx|guzzlehttp|libwww-perl|urllib3|reqwest|curl\/|wget|httpclient|okhttp)/i;
 app.use((req, res, next) => {
   const ua = req.headers['user-agent'] || '';
   // Always let anyone read robots.txt (even blocked UAs), so well-behaved
