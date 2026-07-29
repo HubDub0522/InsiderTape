@@ -190,7 +190,10 @@ app.use(cors());
 const BLOCKED_UA = /(bytespider|gptbot|chatgpt-user|oai-searchbot|ccbot|claudebot|claude-web|anthropic-ai|google-extended|perplexitybot|amazonbot|applebot-extended|meta-externalagent|facebookbot|imagesiftbot|img2dataset|diffbot|dataforseobot|semrushbot|ahrefsbot|mj12bot|dotbot|blexbot|petalbot|seznambot|megaindex|serpstatbot|barkrowler|zoominfobot|bomborabot|scrapy|python-requests|python-urllib|go-http-client|node-fetch|axios|curl\/|wget|httpclient|okhttp)/i;
 app.use((req, res, next) => {
   const ua = req.headers['user-agent'] || '';
-  if (BLOCKED_UA.test(ua)) {
+  // Always let anyone read robots.txt (even blocked UAs), so well-behaved
+  // crawlers like ClaudeBot can see the Disallow and stop on their own instead
+  // of hammering us for 403s. Everything else from a blocked UA gets a tiny 403.
+  if (req.path !== '/robots.txt' && BLOCKED_UA.test(ua)) {
     res.set('Cache-Control', 'no-store');
     return res.status(403).type('text/plain').send('Forbidden');
   }
@@ -2149,7 +2152,16 @@ app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
 // ─── ROBOTS / SITEMAP ─────────────────────────────────────────────────────────
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');
-  res.send('User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /members/\nCrawl-delay: 1\n\nSitemap: https://www.insidertape.com/sitemap.xml\n');
+  // AI-training / scraper crawlers that were enumerating every ticker + insider
+  // URL 24/7 (huge Fast Origin Transfer). These honor robots.txt, so a full
+  // Disallow makes them stop; the app-layer BLOCKED_UA 403 is the hard backstop
+  // for any that don't. Search + social crawlers keep full access below.
+  const blockedBots = ['ClaudeBot', 'anthropic-ai', 'Claude-Web', 'GPTBot', 'ChatGPT-User',
+    'CCBot', 'Google-Extended', 'PerplexityBot', 'Bytespider', 'Amazonbot',
+    'Applebot-Extended', 'meta-externalagent', 'FacebookBot', 'AhrefsBot',
+    'SemrushBot', 'MJ12bot', 'DotBot', 'DataForSeoBot', 'ImagesiftBot'];
+  const botBlock = blockedBots.map(b => 'User-agent: ' + b).join('\n') + '\nDisallow: /\n\n';
+  res.send(botBlock + 'User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /members/\nCrawl-delay: 1\n\nSitemap: https://www.insidertape.com/sitemap.xml\n');
 });
 
 let _sitemapCache = null, _sitemapCacheTime = 0;
