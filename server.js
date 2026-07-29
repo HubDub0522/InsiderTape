@@ -964,6 +964,7 @@ app.get('/api/monitor-sentiment', async (req, res) => {
 // ─── FIRST BUYS ───────────────────────────────────────────────────────────────
 const _firstBuysCache = new Map();
 app.get('/api/firstbuys', async (req, res) => {
+  publicApiCache(res, 1800);
   try {
     const minGapDays   = parseInt(req.query.mingap   || '365');
     const lookbackDays = parseInt(req.query.lookback || '90');
