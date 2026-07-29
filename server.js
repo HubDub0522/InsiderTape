@@ -179,6 +179,24 @@ app.use((req, res, next) => {
   next();
 });
 app.use(cors());
+
+// Block high-volume, no-value crawlers/scrapers BEFORE any routing, static
+// serving, or DB work, to cut Fast Origin Transfer. These bots ignore
+// robots.txt and hammer the dynamic ticker/insider URLs + OG images (each a
+// unique URL = a cache miss = a fresh origin stream). Legit search and social
+// crawlers we WANT (Googlebot, Bingbot, DuckDuckBot, Twitterbot,
+// facebookexternalhit, LinkedInBot, Slackbot, redditbot, WhatsApp, Telegram)
+// are deliberately NOT in this list.
+const BLOCKED_UA = /(bytespider|gptbot|chatgpt-user|oai-searchbot|ccbot|claudebot|claude-web|anthropic-ai|google-extended|perplexitybot|amazonbot|applebot-extended|meta-externalagent|facebookbot|imagesiftbot|img2dataset|diffbot|dataforseobot|semrushbot|ahrefsbot|mj12bot|dotbot|blexbot|petalbot|seznambot|megaindex|serpstatbot|barkrowler|zoominfobot|bomborabot|scrapy|python-requests|python-urllib|go-http-client|node-fetch|axios|curl\/|wget|httpclient|okhttp)/i;
+app.use((req, res, next) => {
+  const ua = req.headers['user-agent'] || '';
+  if (BLOCKED_UA.test(ua)) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(403).type('text/plain').send('Forbidden');
+  }
+  next();
+});
+
 // Gzip function responses. Fast Origin Transfer counts the UNCOMPRESSED bytes
 // streamed function -> edge, and the biggest payloads (e.g. /api/screener ~570KB,
 // the ~730KB HTML shell) were being sent raw on every cache miss. This was a
