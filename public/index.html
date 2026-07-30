@@ -10411,6 +10411,11 @@ function routeFromPath(path, fromPopstate) {
   if (path.startsWith('/insider'))  { switchView('insider',   null, {fromPopstate}); return; }
   if (path.startsWith('/analysis/')) {
     switchView('analysis', null, {fromPopstate});
+    // Radar subpages are premium-only. switchView already showed the paywall for
+    // non-members; stop here so the tool content is NOT rendered over the gate.
+    // (A premium user who direct-loads a subpage before auth resolves gets the
+    // right tool re-rendered by loadAuth once isPremium is confirmed.)
+    if (!auth.isPremium) return;
     const sp = path.split('/analysis/')[1].split('/')[0];
     if      (sp === 'topscores')   renderTopScoresSubpage({fromPopstate:true});
     else if (sp === 'timing')      renderTimingLeadersSubpage({fromPopstate:true});
@@ -10794,7 +10799,7 @@ async function loadAuth() {
         if (id === 'insiderViewBody') { insiderLanding(); return; }
         const view = id.replace('ViewBody','').replace('View','');
         if (view === 'sectors')  { _sectorCache = null; loadSectorsPage(); }
-        if (view === 'analysis') loadAnalysisPage();
+        if (view === 'analysis') { const _asp = (location.pathname.match(/^\/analysis\/([^/]+)/) || [])[1]; loadAnalysisPage(_asp); }
         if (view === 'monitor')  loadMonitorPage();
         if (view === 'compare')  loadComparePage();
         if (view === 'watchlist') loadWatchlistPage();
