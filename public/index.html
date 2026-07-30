@@ -1531,7 +1531,23 @@ function switchView(view, btn, opts={}) {
     // guard already in loadMonitorPage
   }
   if (view === 'premium') {
-    loadPremiumPage();
+    try {
+      loadPremiumPage();
+    } catch (e) {
+      console.error('loadPremiumPage failed, showing fallback', e);
+      const _pel = document.getElementById('premiumPageBody');
+      if (_pel) _pel.innerHTML = `
+        <div style="max-width:680px;margin:0 auto;padding:60px 24px 80px;text-align:center;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif">
+          <div style="font-size:32px;font-weight:800;color:var(--text);letter-spacing:.5px;margin-bottom:14px">Track every insider trade in real time</div>
+          <div style="font-size:16px;color:var(--muted);line-height:1.7;margin-bottom:14px">Every SEC Form 4 buy and sell, plotted on the chart the moment it files. Cluster buys, CFO conviction, first buys in years, and real-time alerts, backtested over five years of data.</div>
+          <div style="font-size:15px;color:var(--text);font-weight:700;margin-bottom:28px">$14.99/mo or $149.99/yr. 7-day free trial, cancel anytime.</div>
+          <div style="display:flex;flex-direction:column;gap:12px;max-width:320px;margin:0 auto">
+            <button onclick="startCheckout('monthly')" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:15px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.5px">START FREE TRIAL →</button>
+            <button onclick="startCheckout('annual')" style="background:transparent;color:var(--accent);border:1px solid var(--border);border-radius:8px;padding:13px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">Get annual (2 months free) →</button>
+            <a href="/" onclick="switchView('screener',null);return false" style="font-size:12px;color:var(--muted);text-decoration:none;margin-top:8px">or explore the live tape free →</a>
+          </div>
+        </div>`;
+    }
   }
   if (view === 'signup') {
     loadSignupPage();
@@ -10510,7 +10526,8 @@ const auth = {
   // Only render the screener table when actually on the screener view
   const isScreenerView = !path.startsWith('/stock') && !path.startsWith('/insider') &&
     !path.startsWith('/analysis') && !path.startsWith('/monitor') &&
-    !path.startsWith('/sectors') && !path.startsWith('/compare') && !path.startsWith('/watchlist');
+    !path.startsWith('/sectors') && !path.startsWith('/compare') && !path.startsWith('/watchlist') &&
+    !path.startsWith('/premium') && !path.startsWith('/signup') && !path.startsWith('/account');
   if (isScreenerView) {
     _applyTapeUrlFilter();
     loadScreener();
