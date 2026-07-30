@@ -10439,6 +10439,9 @@ function routeFromPath(path, fromPopstate) {
   if (path.startsWith('/sectors'))  { switchView('sectors',   null, {fromPopstate}); return; }
   if (path.startsWith('/compare'))  { switchView('compare',   null, {fromPopstate}); return; }
   if (path.startsWith('/watchlist')){ switchView('watchlist', null, {fromPopstate}); return; }
+  if (path.startsWith('/premium'))  { switchView('premium',   null, {fromPopstate}); return; }
+  if (path.startsWith('/signup'))   { switchView('signup',    null, {fromPopstate}); return; }
+  if (path.startsWith('/account'))  { switchView('account',   null, {fromPopstate}); return; }
   // default → screener
   switchView('screener', null, {fromPopstate});
 }

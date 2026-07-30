@@ -3866,6 +3866,7 @@ function _ogArticleTitle(slug) {
   return t;
 }
 async function _ogSpecFor(kind, slug) {
+  if (kind === 'premium') return { variant: 'chart', headline: 'Every insider trade. Plotted on the chart.', sub: 'Real-time SEC Form 4 buys and sells, the moment they file.', cta: 'Start a free 7-day trial' };
   if (kind === 'index') {
     try {
       const data = await _getInsiderIndexData();
@@ -4181,6 +4182,14 @@ function _spaSeoOverride(p) {
   // App-only views (no crawlable server equivalent) and bare landings → noindex
   if (/^\/(analysis|monitor|sectors|compare|watchlist|account)(\/|$)/.test(p)) return { noindex: true };
   if (p === '/stock' || p === '/insider') return { noindex: true };
+  // /premium is a real, shareable landing/pricing page: canonical to itself and
+  // give it the dark chart share card + enticing title/description.
+  if (p === '/premium' || p === '/premium/') return {
+    canonical: 'https://www.insidertape.com/premium',
+    ogImage: 'https://www.insidertape.com/og/premium.png',
+    ogTitle: 'Every insider trade, plotted on the chart | InsiderTape',
+    ogDesc: 'InsiderTape plots every SEC Form 4 buy and sell on an interactive chart in real time - cluster buys, CFO conviction, first buys in years. Start a free 7-day trial.',
+  };
   return null;
 }
 app.get('*', (req, res) => {
@@ -4204,6 +4213,9 @@ app.get('*', (req, res) => {
     if (html) {
       if (ov.canonical) html = html.replace('<link rel="canonical" href="https://www.insidertape.com/">', `<link rel="canonical" href="${ov.canonical}">`);
       if (ov.noindex) html = html.replace('<meta name="robots" content="index, follow">', '<meta name="robots" content="noindex, follow">');
+      if (ov.ogImage) html = html.split('https://www.insidertape.com/og/home.png').join(ov.ogImage);
+      if (ov.ogTitle) html = html.split('InsiderTape | Insider Trading Tracker, Without the Noise').join(ov.ogTitle);
+      if (ov.ogDesc) html = html.split('InsiderTape filters SEC insider filings down to real open-market conviction and cuts the noise. Spot cluster buying, first buys in years, pre-earnings insider trades, and more.').join(ov.ogDesc);
       return res.type('html').send(html);
     }
   }
