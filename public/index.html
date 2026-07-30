@@ -1029,6 +1029,16 @@
 </head>
 <body>
 
+<!-- Instant loading state: shown before any JS runs so no route ever flashes a
+     blank page. Faded out at the end of app init; a 6s failsafe removes it even
+     if init throws. -->
+<div id="appLoading" style="position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f0f2f5;gap:18px">
+  <div style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:20px;font-weight:800;letter-spacing:3px;color:#1a2030">INSIDER<span style="color:#0a6f88">TAPE</span></div>
+  <div style="width:26px;height:26px;border:3px solid #d0d4db;border-top-color:#0a6f88;border-radius:50%;animation:itspin .7s linear infinite"></div>
+  <style>@keyframes itspin{to{transform:rotate(360deg)}}</style>
+</div>
+<script>setTimeout(function(){var l=document.getElementById('appLoading');if(l)l.remove();},6000);</script>
+
 <!-- ─────────────────────────────────────────────────────────────────────
      SEO CONTENT FOR CRAWLERS
      This block gives search engines real, descriptive content to index
@@ -10512,6 +10522,10 @@ const auth = {
     if (document.getElementById('view-screener').classList.contains('active')) loadScreener();
     if (document.getElementById('view-monitor').classList.contains('active')) loadMonitorPage();
   }, 60 * 60 * 1000);
+
+  // First view is rendered (content or paywall) - fade out the instant loader.
+  const _appLoading = document.getElementById('appLoading');
+  if (_appLoading) { _appLoading.style.transition = 'opacity .25s ease'; _appLoading.style.opacity = '0'; setTimeout(function(){ _appLoading.remove(); }, 260); }
 })();
 
 function _viewFromPath(p) { if(p.startsWith('/articles'))return'external'; if(p.startsWith('/stock'))return'stock'; if(p.startsWith('/insider'))return'insider'; if(p.startsWith('/analysis'))return'analysis'; if(p.startsWith('/monitor'))return'monitor'; if(p.startsWith('/sectors'))return'sectors'; if(p.startsWith('/compare'))return'compare'; if(p.startsWith('/watchlist'))return'watchlist'; if(p.startsWith('/premium'))return'premium'; if(p.startsWith('/signup'))return'signup'; if(p.startsWith('/account'))return'account'; return'screener'; }
