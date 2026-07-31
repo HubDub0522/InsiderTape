@@ -10854,6 +10854,15 @@ async function loadAuth() {
       }
     });
 
+    // Re-render the screener tiles if it's the active view: the Cluster Alerts
+    // tile is premium-gated and may have rendered locked before auth resolved.
+    const viewScreener = document.getElementById('view-screener');
+    if (viewScreener && viewScreener.classList.contains('active') && state.screenerData && state.screenerData.length) {
+      const _sy = window.scrollY;
+      try { renderScreener(); } catch(_) {}
+      window.scrollTo(0, _sy);
+    }
+
     // Re-render stock landing with premium sections if it's currently showing
     const stockContent = document.getElementById('stockContent');
     if (stockContent && _stockListsCache) {
