@@ -2165,6 +2165,21 @@ function tapeFilterClusters() {
   loadScreener();
 }
 
+// From the screener's Cluster Alerts tile: jump straight to the Radar's Clusters
+// tool (not a screener filter). Activates the Radar view and opens the Clusters
+// subpage directly, skipping the dashboard flash.
+function openRadarClusters() {
+  if (typeof auth === 'undefined' || !auth || !auth.isPremium) { switchView('premium', null); return; }
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const va = document.getElementById('view-analysis');
+  if (va) va.classList.add('active');
+  if (typeof setActiveNav === 'function') setActiveNav('analysis');
+  history.pushState({ view: 'analysis', subpage: 'clusters' }, '', '/analysis/clusters');
+  if (typeof updateTitle === 'function') updateTitle('analysis');
+  window.scrollTo(0, 0);
+  if (typeof loadAnalysisPage === 'function') loadAnalysisPage('clusters');
+}
+
 // ── Free weekly-digest capture (top-of-funnel + conversion) ───────────────────
 function _ensureNewsletterStrip() {
   try {
@@ -2225,7 +2240,7 @@ function renderScreener() {
     <div class="summary-card"><div class="summary-card-label">Buys ${_q('Insiders sell for all kinds of reasons - taxes, a house, diversification. They buy for only one: they expect the stock to go up. That is why open-market buys are spotlighted.')}</div><div class="summary-card-val" style="color:var(--buy)"><span class="tile-num" onclick="tapeFilterBuys()" title="Show only buys">${buys.length}</span></div><div class="summary-card-sub">across ${_uBuyTk} ${_uBuyTk === 1 ? 'company' : 'companies'}</div></div>
     <div class="summary-card"><div class="summary-card-label">Total Bought</div><div class="summary-card-val" style="color:var(--buy)">${fmt(totalBuyVal)}</div><div class="summary-card-sub">open-market only</div></div>
     <div class="summary-card"><div class="summary-card-label">CFO Buys ${_q('We backtested 45,712 insider buys over five years. The CFO&#39;s purchase was the sharpest role - it beat the Russell 2000 at 30, 60 and 90 days, while CEO buys lagged. See the full backtest in the Study section.')}</div><div class="summary-card-val" style="color:var(--accent)"><span class="tile-num" onclick="tapeFilterCfo()" title="Show only CFO buys">${cfoBuys}</span></div><div class="summary-card-sub">the sharpest role</div></div>
-    <div class="summary-card"><div class="summary-card-label">Cluster Alerts ${_q('A cluster is 3+ insiders buying the same stock within a month. In our five-year study, clusters were positive about 60% of the time at 90 days, and the odds rose with every extra buyer. See the full backtest in the Study section. Premium feature.')}</div><div class="summary-card-val" style="color:var(--accent)">${_prem ? `<span class="tile-num" onclick="tapeFilterClusters()" title="Show only cluster buys">${clusterCount}</span>` : '<span style="font-size:15px">🔒</span> <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.5px">Premium</span>'}</div><div class="summary-card-sub">${_prem ? '3+ insiders, one stock' : 'unlock to see this week&#39;s'}</div></div>`;
+    <div class="summary-card"><div class="summary-card-label">Cluster Alerts ${_q('A cluster is 3+ insiders buying the same stock within a month. In our five-year study, clusters were positive about 60% of the time at 90 days, and the odds rose with every extra buyer. See the full backtest in the Study section. Premium feature.')}</div><div class="summary-card-val" style="color:var(--accent)">${_prem ? `<span class="tile-num" onclick="openRadarClusters()" title="Open the Clusters tool on the Radar">${clusterCount}</span>` : '<span style="font-size:15px">🔒</span> <span style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.5px">Premium</span>'}</div><div class="summary-card-sub">${_prem ? '3+ insiders, one stock' : 'unlock to see this week&#39;s'}</div></div>`;
   _ensureNewsletterStrip();
   const latestTrade = data.reduce((best, t) => { const d = t.trade || t.filing || ''; return d > best ? d : best; }, '');
   const latestLabel = latestTrade ? `latest filing ${fmtDate(latestTrade)}` : `refreshed ${new Date().toLocaleTimeString()}`;
