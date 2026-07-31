@@ -3286,7 +3286,15 @@ function lockStockChart(ticker) {
 
 // ── CHART ─────────────────────────────────────────────────────────
 // Recalculate chart height on resize (CHART_H is const so we use a function)
-function getChartH() { return window.innerWidth <= 640 ? 280 : window.innerWidth <= 900 ? 360 : 480; }
+function getChartH() {
+  if (window.innerWidth <= 640) return 280;
+  if (window.innerWidth <= 900) return 360;
+  // Desktop: extend the price chart to fill the viewport so the price panel plus
+  // the (unchanged) 120px pressure panel below it reach the bottom of the window,
+  // pushing the trade chips just below the fold. ~360px reserves the header,
+  // ticker stats, chart controls and the pressure panel. Floor at 480.
+  return Math.max(480, Math.round(window.innerHeight - 360));
+}
 const CHART_H = getChartH();
 let _chartType = 'candle';
 let _srEnabled = false; // 'candle' | 'line'
