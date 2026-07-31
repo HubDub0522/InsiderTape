@@ -3293,7 +3293,7 @@ function getChartH() {
   // the (unchanged) 120px pressure panel below it reach the bottom of the window,
   // pushing the trade chips just below the fold. ~360px reserves the header,
   // ticker stats, chart controls and the pressure panel. Floor at 480.
-  return Math.max(480, Math.round(window.innerHeight - 360));
+  return Math.max(480, Math.round(window.innerHeight - 384));
 }
 const CHART_H = getChartH();
 let _chartType = 'candle';
