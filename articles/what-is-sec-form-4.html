@@ -165,7 +165,20 @@
       <h3>TRACK FORM 4 FILINGS IN REAL TIME</h3>
       <p>Every insider purchase and sale from SEC Form 4, filtered and sorted so you only see the trades that matter. Free to start.</p>
       <a class="cta-btn" href="/">SEE LIVE INSIDER BUYS →</a>
+
+      <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--border)">
+        <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px">Not ready to dig through EDGAR? Get the buys that matter, free.</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.6">One email every Sunday: the biggest open-market insider buys of the week, grants and noise stripped out.</div>
+        <form id="nlForm" onsubmit="return itSub(event)" style="display:flex;gap:8px;flex-wrap:wrap;max-width:420px;margin:0 auto;justify-content:center">
+          <input id="nlEmail" type="email" required placeholder="you@email.com" aria-label="Email address" style="flex:1;min-width:180px;padding:11px 13px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:14px;font-family:'Inter',sans-serif">
+          <button type="submit" style="padding:11px 22px;border-radius:8px;border:none;background:var(--buy);color:#fff;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;font-family:'Inter',sans-serif">Get the digest &rarr;</button>
+        </form>
+        <div id="nlMsg" style="font-size:12px;margin-top:10px;min-height:16px;color:var(--muted)"></div>
+      </div>
     </div>
+    <script>
+    function itSub(e){e.preventDefault();var em=(document.getElementById('nlEmail').value||'').trim();var msg=document.getElementById('nlMsg');if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){msg.style.color='#cc3b46';msg.textContent='Enter a valid email.';return false;}msg.style.color='var(--muted)';msg.textContent='Signing you up...';fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,source:'article-whatis-form4'})}).then(function(r){return r.json().catch(function(){return{};}).then(function(d){if(r.ok){document.getElementById('nlForm').style.display='none';msg.style.color='#12905f';msg.textContent=(d.message||"You're in. The first digest lands Sunday.");}else{msg.style.color='#cc3b46';msg.textContent=(d.error||'Could not sign you up. Try again.');}});}).catch(function(){msg.style.color='#cc3b46';msg.textContent='Network error. Try again.';});return false;}
+    </script>
 
   </div>
 </div>
