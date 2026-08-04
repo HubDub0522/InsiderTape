@@ -2225,7 +2225,7 @@ app.get('/sitemap.xml', async (req, res) => {
 // per ticker, targeting long-tail "<company> insider trading" searches. Rendered
 // HTML is cached in-memory per ticker to keep Turso rows-read low.
 function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-function _fmtV(n) { n = +n || 0; const a = Math.abs(n); if (a >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M'; if (a >= 1e3) return '$' + Math.round(n / 1e3) + 'K'; return '$' + Math.round(n); }
+function _fmtV(n) { n = +n || 0; const a = Math.abs(n); if (a >= 999.5e6) return '$' + (n / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M'; if (a >= 1e3) return '$' + Math.round(n / 1e3) + 'K'; return '$' + Math.round(n); }
 function _fmtQty(n) { n = +n || 0; const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M'; if (a >= 1e3) return (n / 1e3).toFixed(1) + 'K'; return String(Math.round(n)); }
 function _fmtDate(d) { if (!d) return ''; const dt = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); return isNaN(dt) ? String(d).slice(0, 10) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }); }
 
@@ -2388,7 +2388,10 @@ function _titleCaseName(s) {
     if (/^(ii|iii|iv|v|vi|vii)$/.test(w)) return w.toUpperCase();
     if (/^(jr|sr)$/.test(w)) return w.charAt(0).toUpperCase() + w.slice(1);
     return w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
-  }).join(' ').replace(/\bMc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase()).replace(/\bO'([a-z])/g, (m, c) => "O'" + c.toUpperCase());
+  }).join(' ').replace(/\bMc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase()).replace(/\bO'([a-z])/g, (m, c) => "O'" + c.toUpperCase())
+    .replace(/\bL\.l\.c\.?/g, 'LLC').replace(/\bL\.l\.p\.?/g, 'LLP').replace(/\bL\.p\.?/g, 'LP')
+    .replace(/\bLlc\b/g, 'LLC').replace(/\bLlp\b/g, 'LLP').replace(/\bLp\b/g, 'LP').replace(/\bPlc\b/g, 'PLC').replace(/\bGmbh\b/g, 'GmbH')
+    .replace(/\bGic\b/g, 'GIC').replace(/Cd&r/g, 'CD&R').replace(/Ms&ad/g, 'MS&AD').replace(/\bRa Capital\b/g, 'RA Capital').replace(/\bA\/s\b/g, 'A/S');
 }
 // Pretty, lowercase-hyphen URL slug for an insider name ("MUSK ELON" -> "musk-elon").
 function _insiderSlug(n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
