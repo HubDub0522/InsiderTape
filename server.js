@@ -2705,6 +2705,34 @@ app.get('/biggest-insider-buys', async (req, res) => {
 // Ranked by PERSON/entity (not ticker), rolling 365 days. Surfaces the whales
 // (Cascade/Gates, Fribourg, Biglari, etc.) that journalists cite. Public data
 // only, open-market P buys, grants/options already stripped from the table.
+//
+// Every buyer is classified (InsiderTape editorial judgment) so the ranking is
+// journalist-usable: genuine open-market conviction vs. strategic stakes, PE
+// blocks, and affiliated/structural purchases that inflate a raw dollar rank.
+// Keyed by the buyer's top ticker; extend as new large filers appear.
+const _BUYER_CATS = {
+  conviction: { label: 'Open-market conviction', cls: 'c-conv' },
+  stake:      { label: 'Strategic stake',        cls: 'c-stake' },
+  block:      { label: 'PE / block',             cls: 'c-block' },
+  affiliated: { label: 'Affiliated',             cls: 'c-affil' },
+  structural: { label: 'Structural / micro-cap', cls: 'c-struct' },
+};
+const _BUYER_CLASS_BY_TICKER = {
+  TSLA:'conviction', BHC:'conviction', RSG:'conviction', UA:'conviction', HYMC:'conviction',
+  CTRI:'conviction', KVUE:'conviction', CPNG:'conviction', DASH:'conviction', TTD:'conviction', ASA:'conviction',
+  WRB:'stake', MRUS:'stake',
+  MDLN:'block', KLRA:'block', REZI:'block', SNDA:'block', SHCO:'block', ARTV:'block', KYMR:'block', BETA:'block',
+  NMM:'affiliated', IMVT:'affiliated', BXDC:'affiliated', LNBIX:'affiliated', BGC:'affiliated', GDV:'affiliated', PSUS:'affiliated',
+  COE:'structural',
+};
+function _classifyBuyer(insider, ticker, buys) {
+  const t = String(ticker || '').toUpperCase();
+  if (_BUYER_CLASS_BY_TICKER[t]) return _BUYER_CLASS_BY_TICKER[t];
+  const isEntity = /\b(l\.?p\.?|l\.?l\.?c\.?|inc\.?|ltd\.?|corp|capital|partners|holdings|investments|management|group|fund|associates|ventures|advisors|trust)\b/i.test(String(insider || ''));
+  if (!isEntity) return 'conviction';     // individual officer / director / investor
+  if ((+buys || 0) <= 1) return 'block';   // one-shot entity block = PE / PIPE
+  return 'stake';                          // multi-buy entity = strategic / institutional
+}
 function renderBiggestBuyersPage(rows) {
   const today = new Date();
   const updated = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -2717,18 +2745,38 @@ function renderBiggestBuyersPage(rows) {
     ? `Over the past 12 months, the ${rows.length} most aggressive corporate insiders bought a combined ${_fmtV(totalDeployed)} of their own companies' stock on the open market. These are genuine SEC Form 4 purchases, made with the insiders' own money at market prices, with grants and option exercises stripped out. Leading the list is ${_esc(_displayName(top.insider))}, ${_fmtV(top.total_val)}${top.top ? ` (largely ${_esc(top.top.ticker)})` : ''} across ${top.companies} ${top.companies === 1 ? 'company' : 'companies'}.`
     : `Open-market insider buying has been light over the past 12 months. These figures cover genuine open-market purchases filed on SEC Form 4, with option exercises and awards stripped out.`;
 
+  const _cat = r => _BUYER_CATS[r.cat] || _BUYER_CATS.stake;
   const tr = rows.map((r, i) => {
-    const nm = _esc(_displayName(r.insider));
     const t = r.top;
     return `<tr>
       <td class="rk">${i + 1}</td>
-      <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${nm}</strong></a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
-      <td class="tk">${t ? `<a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span></a>` : '<span class="co">—</span>'}</td>
+      <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${_esc(_displayName(r.insider))}</strong></a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
+      <td class="tk">${t ? `<a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span></a>` : '<span class="co">-</span>'}</td>
+      <td><span class="badge ${_cat(r).cls}">${_cat(r).label}</span></td>
       <td class="num">${r.companies || 0}</td>
       <td class="num">${r.buys || 0}</td>
       <td class="num v">${_fmtV(r.total_val)}</td>
     </tr>`;
   }).join('');
+
+  const conv = rows.filter(r => r.cat === 'conviction');
+  const topConv = conv[0] || null;
+  const nConv = conv.length, nOther = rows.length - nConv;
+  const heroRows = conv.slice(0, 12).map((r, i) => {
+    const t = r.top;
+    return `<tr>
+      <td class="rk">${i + 1}</td>
+      <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${_esc(_displayName(r.insider))}</strong></a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
+      <td class="tk">${t ? `<a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span></a>` : '<span class="co">-</span>'}</td>
+      <td class="num">${r.buys || 0}</td>
+      <td class="num v">${_fmtV(r.total_val)}</td>
+    </tr>`;
+  }).join('');
+  const findings = [];
+  if (top) findings.push(`The single largest insider purchase of the past 12 months was <strong>${_esc(_displayName(top.insider))}</strong>&rsquo;s ${_fmtV(top.total_val)} buy of ${top.top ? _esc(top.top.ticker) : 'stock'}${top.cat && top.cat !== 'conviction' ? `, a ${_cat(top).label.toLowerCase()} rather than a conviction bet` : ''}.`);
+  if (topConv) findings.push(`The biggest genuine open-market conviction buy came from <strong>${_esc(_displayName(topConv.insider))}</strong>${topConv.top ? ` (${_esc(topConv.top.ticker)})` : ''} at ${_fmtV(topConv.total_val)}.`);
+  if (conv.length >= 3) findings.push(`Other heavyweight conviction buyers: ${conv.slice(1, 5).map(r => `<strong>${_esc(_displayName(r.insider))}</strong>${r.top ? ` (${_esc(r.top.ticker)}, ${_fmtV(r.total_val)})` : ''}`).join(', ')}.`);
+  findings.push(`Of the ${rows.length} biggest buyers by dollars, ${nConv} were open-market conviction buys; the other ${nOther} were strategic stakes, PE blocks, or affiliated / structural purchases that a raw dollar ranking can overstate.`);
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -2771,20 +2819,30 @@ td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle
 .ins a{text-decoration:none;color:inherit}.ins strong{color:var(--text);font-weight:700;font-size:14px;display:block}.ins .ti{font-size:11px;color:var(--muted);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 .tk a{text-decoration:none;color:inherit;display:flex;flex-direction:column}.tk strong{color:var(--accent);font-weight:700;font-size:15px}.tk .co{font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:#3a4555}.num.v{color:var(--buy);font-weight:700}
-.note{font-size:13px;color:var(--muted);margin:22px 0 0;line-height:1.7}.note a{color:var(--accent);text-decoration:none}
+.badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.2px;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.c-conv{background:rgba(18,144,95,.1);color:#12905f;border:1px solid rgba(18,144,95,.28)}
+.c-stake{background:rgba(10,111,136,.1);color:#0a6f88;border:1px solid rgba(10,111,136,.28)}
+.c-block{background:rgba(165,117,10,.12);color:#8a6108;border:1px solid rgba(165,117,10,.28)}
+.c-affil{background:rgba(91,102,117,.12);color:#5b6675;border:1px solid rgba(91,102,117,.28)}
+.c-struct{background:rgba(204,59,70,.09);color:#cc3b46;border:1px solid rgba(204,59,70,.24)}
+h2.sec{font-size:20px;font-weight:800;letter-spacing:-.3px;margin:40px 0 6px}
+.findings{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--buy);border-radius:9px;padding:16px 20px;margin:24px 0 8px}
+.findings h3{font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+.findings ul{margin:0;padding-left:18px}.findings li{font-size:14px;color:#3a4555;line-height:1.75;margin-bottom:7px}.findings li:last-child{margin-bottom:0}.findings strong{color:var(--text)}
+.note{font-size:13px;color:var(--muted);margin:22px 0 0;line-height:1.7}.note a{color:var(--accent);text-decoration:none}.note em{font-style:normal;color:var(--text);font-weight:600}
 .cite{font-size:12px;color:var(--muted);background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px;margin-top:20px;line-height:1.6}.cite strong{color:var(--text)}
 .cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:38px}
 .cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
 .btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
 .soft{margin-top:12px}.soft a{font-size:12px;color:var(--muted);text-decoration:none}
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
-@media(max-width:640px){.summary{grid-template-columns:1fr}table{font-size:12px}th,td{padding:9px 8px}.tk .co,.ins .ti{max-width:120px}th:nth-child(4),td:nth-child(4){display:none}}
+@media(max-width:640px){.summary{grid-template-columns:1fr}.wrap{padding:32px 14px 80px}table{font-size:12px}th,td{padding:9px 7px}.tk .co,.ins .ti{max-width:108px}.badge{font-size:9px;padding:2px 6px}.full th:nth-child(5),.full td:nth-child(5),.full th:nth-child(6),.full td:nth-child(6){display:none}.hero th:nth-child(4),.hero td:nth-child(4){display:none}}
 </style></head><body>
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Updated Weekly &nbsp;·&nbsp; Free</div>
   <h1>The Biggest Insider Buyers</h1>
-  <p class="sub">The corporate insiders and investors who bought the most of their own companies' stock on the open market over the past 12 months, ranked by dollars deployed. From SEC Form 4 filings.</p>
+  <p class="sub">Every corporate insider and investor who bought the most of their own companies' stock on the open market over the past 12 months, ranked by dollars deployed and classified by the nature of each purchase. From SEC Form 4 filings.</p>
   <div class="upd">Data through ${updated}</div>
   <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 26px">
     <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
@@ -2796,12 +2854,19 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <p class="intro">${_esc(intro)}</p>
   <div class="summary">
     <div class="card"><div class="k">Combined Buying</div><div class="v g">${_fmtV(totalDeployed)}</div></div>
-    <div class="card"><div class="k">Insiders Ranked</div><div class="v">${rows.length}</div></div>
     <div class="card"><div class="k">Biggest Single Buyer</div><div class="v g">${top ? _fmtV(top.total_val) : '$0'}</div></div>
+    <div class="card"><div class="k">Conviction Buys</div><div class="v">${nConv} of ${rows.length}</div></div>
   </div>
+  ${conv.length ? `<h2 class="sec">Biggest open-market conviction buys</h2>
+  <p class="sub" style="margin-bottom:14px">The largest bets by people and investors buying at market with their own money, with strategic stakes, PE blocks, and affiliated purchases set aside. This is what most readers mean by &ldquo;insider buying.&rdquo;</p>
   <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
-  <table><thead><tr><th>#</th><th>Insider</th><th>Top Buy</th><th class="num">Companies</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${tr}</tbody></table>
-  <p class="note">These are open-market purchases: shares each insider chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Same-day, same-price coordinated events (offerings and conversions) are filtered out of our signal surfaces. See the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, or our study of <a href="/insider-buying-study">which insiders actually beat the market</a>.</p>
+  <table class="lb hero"><thead><tr><th>#</th><th>Insider</th><th>Top Buy</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${heroRows}</tbody></table>` : ''}
+  <div class="findings"><h3>Key findings</h3><ul>${findings.map(f => `<li>${f}</li>`).join('')}</ul></div>
+  <h2 class="sec">The full ranking: ${rows.length} biggest insider purchases</h2>
+  <p class="sub" style="margin-bottom:14px">Every buyer ranked by total open-market dollars over the past 12 months, each classified by the nature of the purchase. Complete and unfiltered.</p>
+  <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
+  <table class="lb full"><thead><tr><th>#</th><th>Insider</th><th>Top Buy</th><th>Type</th><th class="num">Cos</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${tr}</tbody></table>
+  <p class="note"><strong>Methodology.</strong> The ranking covers open-market purchases (SEC transaction code P) filed on Form 4 over the trailing 12 months, aggregated by filer, with grants and option exercises excluded. Each buyer is classified by InsiderTape from the filer's identity and the nature of the transaction: <em>open-market conviction</em> (people and investors buying at market), <em>strategic stake</em> (one company taking a position in another), <em>PE / block</em> (single large negotiated purchases), and <em>affiliated / structural</em> (buyers tied to the issuer, or thinly-traded names). Those classifications are editorial judgments, not the SEC's. See also the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and our study of <a href="/insider-buying-study">which insiders actually beat the market</a>.</p>
   <div class="cite"><strong>Cite this report:</strong> InsiderTape, &ldquo;The Biggest Insider Buyers,&rdquo; data through ${updated}, sourced from SEC Form 4 filings. Free to reference with a link to insidertape.com/biggest-insider-buyers.</div>
   <div class="cta">
     <h3>Follow the biggest buyers in real time</h3>
@@ -2848,6 +2913,7 @@ app.get('/biggest-insider-buyers', async (req, res) => {
       }
       for (const r of rows) r.top = best[r.insider] || null;
     }
+    for (const r of (rows || [])) r.cat = _classifyBuyer(r.insider, r.top ? r.top.ticker : '', r.buys);
     const html = renderBiggestBuyersPage(rows || []);
     _biggestBuyersCache = { html, t: Date.now() };
     res.type('html').send(html);
