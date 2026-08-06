@@ -2236,7 +2236,7 @@ function _fmtDate(d) { if (!d) return ''; const dt = new Date(String(d).slice(0,
 function _emailCapture(source, headline) {
   const h = headline || 'Not ready to subscribe? Get the weekly digest, free.';
   return `
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px 22px;margin-top:34px;text-align:center">
+  <div class="up-hide" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px 22px;margin-top:34px;text-align:center">
     <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">${h}</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">One email every Sunday: the biggest open-market insider buys of the week, grants and noise stripped out.</div>
     <form id="nlForm" onsubmit="return itSub(event)" style="display:flex;gap:8px;flex-wrap:wrap;max-width:440px;margin:0 auto;justify-content:center">
@@ -2247,11 +2247,12 @@ function _emailCapture(source, headline) {
   </div>
   <script>
   function itSub(e){e.preventDefault();var em=(document.getElementById('nlEmail').value||'').trim();var msg=document.getElementById('nlMsg');if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)){msg.style.color='#cc3b46';msg.textContent='Enter a valid email.';return false;}msg.style.color='var(--muted)';msg.textContent='Signing you up...';fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,source:${JSON.stringify(source)}})}).then(function(r){return r.json().catch(function(){return{};}).then(function(d){if(r.ok){document.getElementById('nlForm').style.display='none';msg.style.color='#12905f';msg.textContent=(d.message||"You're in. The first digest lands Sunday.");}else{msg.style.color='#cc3b46';msg.textContent=(d.error||'Could not sign you up. Try again.');}});}).catch(function(){msg.style.color='#cc3b46';msg.textContent='Network error. Try again.';});return false;}
+  (function(){try{fetch('/api/auth/me',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){if(d&&d.isPremium){var els=document.querySelectorAll('.up-hide');for(var i=0;i<els.length;i++){els[i].style.display='none';}}}).catch(function(){});}catch(e){}})();
   </script>`;
 }
 function _chartTeaser(ticker) {
   return `
-  <div style="position:relative;margin:0 0 32px;border-radius:12px;overflow:hidden;border:1px solid var(--border)">
+  <div class="up-hide" style="position:relative;margin:0 0 32px;border-radius:12px;overflow:hidden;border:1px solid var(--border)">
     <div style="filter:blur(2.5px);background:#0b1929">
       <svg viewBox="0 0 800 220" width="100%" height="180" preserveAspectRatio="none" style="display:block">
         <defs><linearGradient id="tg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12905f" stop-opacity="0.35"/><stop offset="1" stop-color="#12905f" stop-opacity="0"/></linearGradient></defs>
@@ -2369,7 +2370,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     ${faqHtml}
   </section>
   ${_emailCapture('ticker-' + ticker, 'Not ready to go premium? Get the free weekly digest.')}
-  <div class="cta">
+  <div class="cta up-hide">
     <h3>Track ${ticker} insider trades in real time</h3>
     <p>InsiderTape plots every ${co} insider buy and sell on the price chart, with buy/sell pressure, cluster detection, and alerts the moment new Form 4s hit. Start a free 7-day trial, cancel anytime.</p>
     <p style="font-size:13px;color:var(--muted);margin:-6px 0 16px">Does it work? In five years of data, insider clusters beat the Russell 2000 about 60% of the time and the CFO's buy was the sharpest signal of all. <a href="/insider-trading-studies" style="color:var(--accent);text-decoration:none">See the backtest →</a></p>
@@ -2712,7 +2713,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
   <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or see the <a href="/biggest-insider-buyers">biggest insider buyers of the past year</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
   ${_emailCapture('biggest-buys', 'Get these buys in your inbox every Sunday, free.')}
-  <div class="cta">
+  <div class="cta up-hide">
     <h3>See these buys plotted on the chart</h3>
     <p>InsiderTape tracks every SEC Form 4 in real time and flags cluster buys, CEO conviction, first buys in years, and buying at the lows the moment they file. Start a free 7-day trial, cancel anytime.</p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
@@ -2915,7 +2916,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <p class="note"><strong>Methodology.</strong> The ranking covers open-market purchases (SEC transaction code P) filed on Form 4 over the trailing 12 months, aggregated by filer, with grants and option exercises excluded. Each buyer is classified by InsiderTape from the filer's identity and the nature of the transaction: <em>open-market conviction</em> (people and investors buying at market), <em>strategic stake</em> (one company taking a position in another), <em>PE / block</em> (single large negotiated purchases), and <em>affiliated / structural</em> (buyers tied to the issuer, or thinly-traded names). Those classifications are editorial judgments, not the SEC's. See also the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and our study of <a href="/insider-buying-study">which insiders actually beat the market</a>.</p>
   <div class="cite"><strong>Cite this report:</strong> InsiderTape, &ldquo;The Biggest Insider Buyers,&rdquo; data through ${updated}, sourced from SEC Form 4 filings. Free to reference with a link to insidertape.com/biggest-insider-buyers.</div>
   ${_emailCapture('biggest-buyers', 'Get the weekly insider buying digest, free.')}
-  <div class="cta">
+  <div class="cta up-hide">
     <h3>Follow the biggest buyers in real time</h3>
     <p>InsiderTape tracks every SEC Form 4 the moment it files and plots each buy and sell right on the price chart, so you see what the smart money is buying as it happens. Start a free 7-day trial, cancel anytime.</p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
