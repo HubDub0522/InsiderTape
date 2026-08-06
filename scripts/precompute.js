@@ -1128,10 +1128,10 @@ async function main() {
 
   // Prune always (cheap, uses the trade_date index). The read-heavy cleanups scan
   // trades + price bars, so run them only on the once/day heavy pass.
-  await prune5yr();
+  await prune5yr().catch(e => log('prune5yr error: ' + e.message));
   if (heavyRun) {
-    await cleanupPlanClusters();
-    await cleanupNonOpenMarket();
+    await cleanupPlanClusters().catch(e => log('cleanup-plan-clusters error: ' + e.message));
+    await cleanupNonOpenMarket().catch(e => log('cleanup-non-open-market error: ' + e.message));
   }
   // Data-hygiene safety nets (bad dates, non-P/S types, implausible values). Each
   // full-scans the table, so run weekly - they rarely delete anything. Moved here
@@ -1144,11 +1144,11 @@ async function main() {
 
   // Light, recent-data caches - every run
   await Promise.all([
-    computeStockLists(),
-    computeFirstBuysMonitor(),
-    computeProximity(),
-    computeMonitorSentiment(),
-    computeScreener90(),
+    computeStockLists().catch(e => log('stock-lists error: ' + e.message)),
+    computeFirstBuysMonitor().catch(e => log('firstbuys-monitor error: ' + e.message)),
+    computeProximity().catch(e => log('proximity error: ' + e.message)),
+    computeMonitorSentiment().catch(e => log('monitor-sentiment error: ' + e.message)),
+    computeScreener90().catch(e => log('screener-90d error: ' + e.message)),
   ]);
 
   // Self-gating caches (sitemap ~weekly, insider-study ~monthly). Run these
@@ -1161,19 +1161,21 @@ async function main() {
   // Heavy caches - once per day. Sentiment is now incremental (~95d scan), so it
   // is cheap to run daily.
   if (heavyRun) {
-    await computeInsiderSentiment();
-    await computeInsiderIndexWeekly();
-    await computeFirstBuys();
+    await computeInsiderSentiment().catch(e => log('insider-sentiment error: ' + e.message));
+    await computeInsiderIndexWeekly().catch(e => log('insider-index error: ' + e.message));
+    await computeFirstBuys().catch(e => log('firstbuys error: ' + e.message));
   }
   // Leaderboard refreshes on the morning heavy run AND the midday run (twice daily).
   if (runLeaderboard) {
-    await computeInsiderLeaderboard();
+    await computeInsiderLeaderboard().catch(e => log('leaderboard error: ' + e.message));
   }
 
-  // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads)
-  await migratePriceCacheTo5yr();
-  await migrateDecodeInsiderNames();
-  await prewarmPrices();
+  // Price pre-warm runs last (longest - many external Yahoo calls, no Turso reads).
+  // Best-effort: a transient Yahoo/Turso 'fetch failed' here must NOT fail the whole
+  // job after the important caches above already succeeded - it self-heals next run.
+  await migratePriceCacheTo5yr().catch(e => log('price-cache-migrate error: ' + e.message));
+  await migrateDecodeInsiderNames().catch(e => log('decode-names error: ' + e.message));
+  await prewarmPrices().catch(e => log('prewarm-prices error: ' + e.message));
   log('=== precompute done ===');
 }
 
