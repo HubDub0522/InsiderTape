@@ -2229,6 +2229,46 @@ function _fmtV(n) { n = +n || 0; const a = Math.abs(n); if (a >= 999.5e6) return
 function _fmtQty(n) { n = +n || 0; const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M'; if (a >= 1e3) return (n / 1e3).toFixed(1) + 'K'; return String(Math.round(n)); }
 function _fmtDate(d) { if (!d) return ''; const dt = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); return isNaN(dt) ? String(d).slice(0, 10) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }); }
 
+// Reusable soft-conversion email capture (visitors not ready to subscribe still
+// become a lead) + a gated chart teaser that makes the premium value tangible.
+// Injected into the ticker, biggest-buys, and biggest-buyers pages. All target
+// pages define --bg/--bg2/--border/--text/--muted/--buy.
+function _emailCapture(source, headline) {
+  const h = headline || 'Not ready to subscribe? Get the weekly digest, free.';
+  return `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px 22px;margin-top:34px;text-align:center">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">${h}</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">One email every Sunday: the biggest open-market insider buys of the week, grants and noise stripped out.</div>
+    <form id="nlForm" onsubmit="return itSub(event)" style="display:flex;gap:8px;flex-wrap:wrap;max-width:440px;margin:0 auto;justify-content:center">
+      <input id="nlEmail" type="email" required placeholder="you@email.com" aria-label="Email address" style="flex:1;min-width:190px;padding:11px 13px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-family:'Inter',sans-serif">
+      <button type="submit" style="padding:11px 22px;border-radius:8px;border:none;background:var(--buy);color:#fff;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;font-family:'Inter',sans-serif">Get the digest &rarr;</button>
+    </form>
+    <div id="nlMsg" style="font-size:12px;margin-top:10px;min-height:16px;color:var(--muted)"></div>
+  </div>
+  <script>
+  function itSub(e){e.preventDefault();var em=(document.getElementById('nlEmail').value||'').trim();var msg=document.getElementById('nlMsg');if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)){msg.style.color='#cc3b46';msg.textContent='Enter a valid email.';return false;}msg.style.color='var(--muted)';msg.textContent='Signing you up...';fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,source:${JSON.stringify(source)}})}).then(function(r){return r.json().catch(function(){return{};}).then(function(d){if(r.ok){document.getElementById('nlForm').style.display='none';msg.style.color='#12905f';msg.textContent=(d.message||"You're in. The first digest lands Sunday.");}else{msg.style.color='#cc3b46';msg.textContent=(d.error||'Could not sign you up. Try again.');}});}).catch(function(){msg.style.color='#cc3b46';msg.textContent='Network error. Try again.';});return false;}
+  </script>`;
+}
+function _chartTeaser(ticker) {
+  return `
+  <div style="position:relative;margin:0 0 32px;border-radius:12px;overflow:hidden;border:1px solid var(--border)">
+    <div style="filter:blur(2.5px);background:#0b1929">
+      <svg viewBox="0 0 800 220" width="100%" height="180" preserveAspectRatio="none" style="display:block">
+        <defs><linearGradient id="tg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12905f" stop-opacity="0.35"/><stop offset="1" stop-color="#12905f" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,60 C120,52 180,100 300,138 C420,176 500,190 560,172 C650,144 720,140 800,120 L800,220 L0,220 Z" fill="url(#tg)"/>
+        <path d="M0,60 C120,52 180,100 300,138 C420,176 500,190 560,172 C650,144 720,140 800,120" fill="none" stroke="#3fb984" stroke-width="2.5"/>
+        <circle cx="70" cy="58" r="9" fill="#cc3b46"/><circle cx="155" cy="80" r="8" fill="#cc3b46"/><circle cx="245" cy="116" r="7" fill="#cc3b46"/>
+        <circle cx="500" cy="188" r="10" fill="#2fd24f"/><circle cx="560" cy="173" r="9" fill="#2fd24f"/><circle cx="625" cy="156" r="8" fill="#2fd24f"/>
+      </svg>
+    </div>
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,25,41,.5),rgba(11,25,41,.8));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px">
+      <div style="font-size:24px;margin-bottom:4px">&#128274;</div>
+      <div style="color:#fff;font-size:17px;font-weight:800;margin-bottom:6px;max-width:440px;line-height:1.3">See every ${ticker} buy and sell plotted on the price chart</div>
+      <div style="color:#c2cdd8;font-size:13px;margin-bottom:16px;max-width:420px;line-height:1.5">Green where insiders buy, red where they sell, so the CFO buying the dip and the exec selling the top jump right out.</div>
+      <a href="/premium" style="display:inline-block;background:#12905f;color:#fff;padding:12px 28px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Unlock the chart, free for 7 days &rarr;</a>
+    </div>
+  </div>`;
+}
 function renderTickerPage(ticker, rows, stats) {
   const company = (rows.find(r => r.company && r.company.trim()) || {}).company || ticker;
   const co = _esc(company);
@@ -2321,12 +2361,14 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="stat"><div class="k">Buy Value</div><div class="v g">${_fmtV(stats.buyval)}</div></div>
     <div class="stat"><div class="k">Insiders</div><div class="v">${stats.insiders || 0}</div></div>
   </div>
+  ${_chartTeaser(ticker)}
   <h2>Recent ${ticker} insider trades</h2>
   <table><thead><tr><th>Date</th><th>Insider</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
   <section class="faq">
     <h2>${ticker} insider trading FAQ</h2>
     ${faqHtml}
   </section>
+  ${_emailCapture('ticker-' + ticker, 'Not ready to go premium? Get the free weekly digest.')}
   <div class="cta">
     <h3>Track ${ticker} insider trades in real time</h3>
     <p>InsiderTape plots every ${co} insider buy and sell on the price chart, with buy/sell pressure, cluster detection, and alerts the moment new Form 4s hit. Start a free 7-day trial, cancel anytime.</p>
@@ -2669,6 +2711,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
   <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or see the <a href="/biggest-insider-buyers">biggest insider buyers of the past year</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
+  ${_emailCapture('biggest-buys', 'Get these buys in your inbox every Sunday, free.')}
   <div class="cta">
     <h3>See these buys plotted on the chart</h3>
     <p>InsiderTape tracks every SEC Form 4 in real time and flags cluster buys, CEO conviction, first buys in years, and buying at the lows the moment they file. Start a free 7-day trial, cancel anytime.</p>
@@ -2871,6 +2914,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <table class="lb full"><thead><tr><th>#</th><th>Insider</th><th>Top Buy</th><th>Type</th><th class="num">Cos</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${tr}</tbody></table>
   <p class="note"><strong>Methodology.</strong> The ranking covers open-market purchases (SEC transaction code P) filed on Form 4 over the trailing 12 months, aggregated by filer, with grants and option exercises excluded. Each buyer is classified by InsiderTape from the filer's identity and the nature of the transaction: <em>open-market conviction</em> (people and investors buying at market), <em>strategic stake</em> (one company taking a position in another), <em>PE / block</em> (single large negotiated purchases), and <em>affiliated / structural</em> (buyers tied to the issuer, or thinly-traded names). Those classifications are editorial judgments, not the SEC's. See also the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and our study of <a href="/insider-buying-study">which insiders actually beat the market</a>.</p>
   <div class="cite"><strong>Cite this report:</strong> InsiderTape, &ldquo;The Biggest Insider Buyers,&rdquo; data through ${updated}, sourced from SEC Form 4 filings. Free to reference with a link to insidertape.com/biggest-insider-buyers.</div>
+  ${_emailCapture('biggest-buyers', 'Get the weekly insider buying digest, free.')}
   <div class="cta">
     <h3>Follow the biggest buyers in real time</h3>
     <p>InsiderTape tracks every SEC Form 4 the moment it files and plots each buy and sell right on the price chart, so you see what the smart money is buying as it happens. Start a free 7-day trial, cancel anytime.</p>
