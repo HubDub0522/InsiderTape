@@ -211,7 +211,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
       // Edge-cache the HTML shell (Vercel purges the CDN cache on each deploy, so
       // this is safe). Slashes Fast Origin Transfer: repeat/crawler hits are served
       // from the edge instead of re-streaming the ~730KB page from the function.
-      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
+      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
     } else if (/\.(js|css|woff2?|ttf|eot)$/.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=3600');
     } else if (/\.(png|jpg|jpeg|gif|svg|ico|webp)$/.test(filePath)) {
@@ -221,7 +221,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 app.use('/articles', express.static(path.join(__dirname, 'articles'), {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
   }
 }));
 
@@ -245,7 +245,7 @@ app.use((req, res, next) => {
 // edge cache, so pages still update on each release.
 app.use((req, res, next) => {
   if (req.method === 'GET' && !req.path.startsWith('/api/')) {
-    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
   }
   next();
 });
@@ -1596,7 +1596,13 @@ app.get('/api/auth/verify', authBruteGuard, async (req, res) => {
     const sessionToken = generateToken();
     const expires = new Date(Date.now() + 30 * 86400000).toISOString();
     await run('INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, sessionToken, expires]);
-    res.setHeader('Set-Cookie', `it_session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}; Secure`);
+    res.setHeader('Set-Cookie', [
+      `it_session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}; Secure`,
+      // Readable (non-HttpOnly) flag so server-rendered SEO pages only call the
+      // per-user /api/auth/me (to hide upsells for members) when someone is logged
+      // in - keeps that call off the ~99% logged-out hits, cutting function CPU.
+      `it_auth=1; Path=/; SameSite=Lax; Max-Age=${30 * 86400}; Secure`,
+    ]);
 
     const sub = await getSubscription(user.id);
     const adminEmail = (ADMIN_EMAIL || '').trim().toLowerCase();
@@ -1614,7 +1620,7 @@ app.get('/api/auth/verify', authBruteGuard, async (req, res) => {
 app.post('/api/auth/logout', async (req, res) => {
   const s = req.session;
   if (s) { try { await run('DELETE FROM sessions WHERE id = ?', [s.id]); } catch(_) {} }
-  res.setHeader('Set-Cookie', 'it_session=; Path=/; Max-Age=0');
+  res.setHeader('Set-Cookie', ['it_session=; Path=/; Max-Age=0', 'it_auth=; Path=/; Max-Age=0']);
   res.json({ ok: true });
 });
 
@@ -2247,7 +2253,7 @@ function _emailCapture(source, headline) {
   </div>
   <script>
   function itSub(e){e.preventDefault();var em=(document.getElementById('nlEmail').value||'').trim();var msg=document.getElementById('nlMsg');if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)){msg.style.color='#cc3b46';msg.textContent='Enter a valid email.';return false;}msg.style.color='var(--muted)';msg.textContent='Signing you up...';fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,source:${JSON.stringify(source)}})}).then(function(r){return r.json().catch(function(){return{};}).then(function(d){if(r.ok){document.getElementById('nlForm').style.display='none';msg.style.color='#12905f';msg.textContent=(d.message||"You're in. The first digest lands Sunday.");}else{msg.style.color='#cc3b46';msg.textContent=(d.error||'Could not sign you up. Try again.');}});}).catch(function(){msg.style.color='#cc3b46';msg.textContent='Network error. Try again.';});return false;}
-  (function(){try{fetch('/api/auth/me',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){if(d&&d.isPremium){var els=document.querySelectorAll('.up-hide');for(var i=0;i<els.length;i++){els[i].style.display='none';}}}).catch(function(){});}catch(e){}})();
+  (function(){try{if(document.cookie.indexOf('it_auth=')===-1)return;fetch('/api/auth/me',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){if(d&&d.isPremium){var els=document.querySelectorAll('.up-hide');for(var i=0;i<els.length;i++){els[i].style.display='none';}}}).catch(function(){});}catch(e){}})();
   </script>`;
 }
 function _chartTeaser(ticker) {
@@ -2542,11 +2548,11 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 </style></head><body>
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
-  <div class="cta" style="margin-top:0">
+  <div class="cta up-hide" style="margin-top:0">
     <h3>Follow ${dn}'s trades in real time</h3>
     <p>InsiderTape plots every Form 4 on the price chart and flags cluster buys, CEO conviction, and first buys in years the moment they file. Start a free 7-day trial, cancel anytime.</p>
     <a class="btn" href="/premium">START FREE TRIAL →</a>
-    <div style="margin-top:12px"><a href="/insider/${encodeURIComponent(name)}" style="font-size:12px;color:var(--muted);text-decoration:none">or open ${dn}'s full profile on InsiderTape →</a></div>
+    <div style="margin-top:12px"><a href="/" style="font-size:12px;color:var(--muted);text-decoration:none">or explore the live screener on InsiderTape →</a></div>
   </div>
   <div class="rel" style="margin-top:28px;margin-bottom:8px">
     <strong>Learn how to read insider signals:</strong>
@@ -2568,12 +2574,24 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   </div>
   <h2>${dn}'s recent insider trades</h2>
   <table><thead><tr><th>Date</th><th>Company</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
+  ${_emailCapture('insider-' + _insiderSlug(name), 'Not ready to go premium? Get the free weekly digest.')}
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
 </body></html>`;
 }
 
 const _insiderPageCache = new Map(); // upper(name) -> { html, t }
+// Consolidate the legacy SPA insider URL (/insider/<name>, indexed both with
+// spaces and slugs) onto the canonical server-rendered profile page. In-app nav
+// uses history.pushState (never hits the server), so this only catches direct /
+// crawler / refresh loads - passing their ranking to the richer profile page.
+app.get('/insider/:name', (req, res) => {
+  let n = req.params.name || '';
+  try { n = decodeURIComponent(n); } catch (_) {}
+  const slug = _insiderSlug(n);
+  if (!slug) return res.redirect(302, '/');
+  res.redirect(301, '/insider-profile/' + slug);
+});
 app.get('/insider-profile/:name', async (req, res) => {
   let raw = req.params.name || '';
   try { raw = decodeURIComponent(raw); } catch (_) {}
@@ -4470,11 +4488,11 @@ app.get('*', (req, res) => {
       ? path.join(__dirname, 'articles', 'index.html')
       : path.join(__dirname, 'articles', /\.[a-z0-9]+$/i.test(rel) ? rel : rel + '.html');
     if (require('fs').existsSync(articlePath)) {
-      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
+      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
       return res.sendFile(articlePath);
     }
   }
-  res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=3600, stale-while-revalidate=86400');
+  res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
   const ov = _spaSeoOverride(req.path);
   if (ov) {
     let html = _getSpaHtml();
