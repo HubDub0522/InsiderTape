@@ -2254,7 +2254,7 @@ function _emailCapture(source, headline) {
   </div>
   <script>
   function itSub(e){e.preventDefault();var em=(document.getElementById('nlEmail').value||'').trim();var msg=document.getElementById('nlMsg');if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)){msg.style.color='#cc3b46';msg.textContent='Enter a valid email.';return false;}msg.style.color='var(--muted)';msg.textContent='Signing you up...';fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,source:${JSON.stringify(source)}})}).then(function(r){return r.json().catch(function(){return{};}).then(function(d){if(r.ok){document.getElementById('nlForm').style.display='none';msg.style.color='#12905f';msg.textContent=(d.message||"You're in. The first digest lands Sunday.");}else{msg.style.color='#cc3b46';msg.textContent=(d.error||'Could not sign you up. Try again.');}});}).catch(function(){msg.style.color='#cc3b46';msg.textContent='Network error. Try again.';});return false;}
-  (function(){try{if(document.cookie.indexOf('it_auth=')===-1)return;fetch('/api/auth/me',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){if(d&&d.isPremium){var els=document.querySelectorAll('.up-hide');for(var i=0;i<els.length;i++){els[i].style.display='none';}}}).catch(function(){});}catch(e){}})();
+  (function(){try{function apply(p){if(p!=='1')return;var h=document.querySelectorAll('.up-hide');for(var i=0;i<h.length;i++){h[i].style.display='none';}var s=document.querySelectorAll('.prem-show');for(var j=0;j<s.length;j++){s[j].style.display='block';}}var c=null;try{c=sessionStorage.getItem('it_prem');}catch(e){}if(c!==null){apply(c);return;}fetch('/api/auth/me',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){var p=(d&&d.isPremium)?'1':'0';try{sessionStorage.setItem('it_prem',p);}catch(e){}apply(p);}).catch(function(){});}catch(e){}})();
   </script>`;
 }
 function _chartTeaser(ticker) {
@@ -2370,6 +2370,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="stat"><div class="k">Insiders</div><div class="v">${stats.insiders || 0}</div></div>
   </div>
   ${_chartTeaser(ticker)}
+  <a class="prem-show" href="/stock/${ticker}" style="display:none;background:var(--bg2);border:1px solid var(--buy);border-radius:12px;padding:15px 20px;margin:0 0 32px;text-decoration:none"><span style="font-size:14px;font-weight:700;color:var(--buy)">&#10003; You're a member.</span> <span style="font-size:14px;color:var(--text)">Open the full interactive ${ticker} chart, with every insider buy and sell plotted on the price &rarr;</span></a>
   <h2>Recent ${ticker} insider trades</h2>
   <table><thead><tr><th>Date</th><th>Insider</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
   <section class="faq">
