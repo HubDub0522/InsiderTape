@@ -2646,7 +2646,7 @@ app.get('/insider-profile/:name', async (req, res) => {
 // entity link (e.g. Cascade = Bill Gates) so searchers connect the dots.
 const FAMOUS_INVESTORS = {
   'greg-abel': { name: 'Greg Abel', entity: 'Berkshire Hathaway', patterns: ['BERKSHIRE HATHAWAY INC', 'BUFFETT WARREN E'],
-    blurb: `Greg Abel became CEO of Berkshire Hathaway at the end of 2025, succeeding Warren Buffett, who remains chairman. Berkshire files SEC Form 4s whenever it owns more than 10% of a public company, so its open-market buys are public, most notably its multi-billion-dollar Occidental Petroleum ($OXY) stake. The filings below are Berkshire's reportable purchases.` },
+    blurb: `Greg Abel took over as CEO of Berkshire Hathaway at the end of 2025, following Warren Buffett's retirement from the role (Buffett stays on as chairman). So if you are wondering what Warren Buffett, or Berkshire, is buying now, this is where to look: Berkshire files SEC Form 4s whenever it owns more than 10% of a public company, so its open-market purchases are public, most notably its multi-billion-dollar Occidental Petroleum ($OXY) stake. The filings below are Berkshire's reportable buys.` },
   'elon-musk': { name: 'Elon Musk', entity: 'Tesla', patterns: ['MUSK ELON'],
     blurb: `As Tesla's CEO and its largest individual shareholder, Elon Musk files an SEC Form 4 every time he buys or sells Tesla ($TSLA) stock on the open market. These are his reportable insider transactions.` },
   'ryan-cohen': { name: 'Ryan Cohen', entity: 'RC Ventures / GameStop', patterns: ['COHEN RYAN', 'RC VENTURES LLC'],
