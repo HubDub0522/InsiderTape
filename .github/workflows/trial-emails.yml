@@ -36,15 +36,21 @@ jobs:
       - name: Debug secret presence (no value exposed)
         run: |
           echo "repo secret STRIPE_SECRET_KEY non-empty? ${{ secrets.STRIPE_SECRET_KEY != '' }}"
-          echo "repo secret STRIPE_SECRET (old)  non-empty? ${{ secrets.STRIPE_SECRET != '' }}"
-          echo "env STRIPE_SECRET_KEY length (0 = not reaching job; ~107 = sk_live key; ~38 = whsec): ${#STRIPE_SECRET_KEY}"
+          echo "repo secret STRIPE_SECRET     non-empty? ${{ secrets.STRIPE_SECRET != '' }}"
+          echo "env STRIPE_SECRET_KEY length: ${#STRIPE_SECRET_KEY}"
+          echo "env STRIPE_SECRET length (0 = not reaching job; ~107 = sk_live key; ~38 = whsec): ${#STRIPE_SECRET}"
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_SECRET:     ${{ secrets.STRIPE_SECRET }}
 
       - name: Send trial lifecycle emails
         run: node scripts/trial-emails.js
         env:
+          # Accept either secret name - the script reads STRIPE_SECRET_KEY first,
+          # then STRIPE_SECRET. Your GitHub secret is named STRIPE_SECRET (holds the
+          # sk_live_ API key), so that one flows through.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_SECRET:     ${{ secrets.STRIPE_SECRET }}
           RESEND_KEY:    ${{ secrets.RESEND_KEY }}
           SITE_URL:      https://www.insidertape.com
           FROM_EMAIL:    ${{ secrets.FROM_EMAIL }}
