@@ -36,7 +36,7 @@ jobs:
       - name: Send trial lifecycle emails
         run: node scripts/trial-emails.js
         env:
-          STRIPE_SECRET: ${{ secrets.STRIPE_SECRET }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           RESEND_KEY:    ${{ secrets.RESEND_KEY }}
           SITE_URL:      https://www.insidertape.com
           FROM_EMAIL:    ${{ secrets.FROM_EMAIL }}

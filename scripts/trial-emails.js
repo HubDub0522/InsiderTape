@@ -20,7 +20,10 @@
 //      TEST_EMAIL -> send one sample of EACH email to that address, touch nothing.
 //      DRY_RUN=1  -> list who WOULD get what, but don't send or write metadata.
 
-const STRIPE_SECRET = process.env.STRIPE_SECRET || '';
+// The app reads the Stripe API key from STRIPE_SECRET_KEY (an sk_live_... secret
+// key). Accept STRIPE_SECRET too as a fallback. NOTE: this must be the API SECRET
+// KEY, not the webhook signing secret (whsec_...), which can't call the API -> 401.
+const STRIPE_SECRET = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || '';
 const RESEND_KEY    = process.env.RESEND_KEY || '';
 const SITE_URL      = (process.env.SITE_URL || 'https://www.insidertape.com').replace(/\/$/, '');
 const FROM_EMAIL    = (() => {
