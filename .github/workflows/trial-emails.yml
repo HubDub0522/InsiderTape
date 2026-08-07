@@ -33,6 +33,14 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Debug secret presence (no value exposed)
+        run: |
+          echo "repo secret STRIPE_SECRET_KEY non-empty? ${{ secrets.STRIPE_SECRET_KEY != '' }}"
+          echo "repo secret STRIPE_SECRET (old)  non-empty? ${{ secrets.STRIPE_SECRET != '' }}"
+          echo "env STRIPE_SECRET_KEY length (0 = not reaching job; ~107 = sk_live key; ~38 = whsec): ${#STRIPE_SECRET_KEY}"
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+
       - name: Send trial lifecycle emails
         run: node scripts/trial-emails.js
         env:
