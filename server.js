@@ -2668,7 +2668,16 @@ const FAMOUS_INVESTORS = {
     blurb: `Sardar Biglari controls Biglari Holdings and the Lion Fund. His concentrated, insider-level positions are reported on SEC Form 4, shown below.` },
 };
 function _investorWhere(patterns) {
-  return { clause: '(' + patterns.map(() => 'UPPER(insider) LIKE ?').join(' OR ') + ')', args: patterns.slice() };
+  // The map stores '%PREFIX%' values, but a LIKE '%x%' full-scans the trades table
+  // and blows the serverless request timeout. Strip the wildcards and match as a
+  // case-normalized PREFIX RANGE on UPPER(insider) so it uses idx_insider_upper
+  // (fast) - safe because SEC stores names surname-first (BUFFETT WARREN E) and
+  // entities entity-first (CASCADE INVESTMENT...). '￿' is an upper sentinel.
+  const prefixes = patterns.map(p => p.replace(/%/g, '').toUpperCase()).filter(Boolean);
+  const clause = '(' + prefixes.map(() => '(UPPER(insider) >= ? AND UPPER(insider) < ?)').join(' OR ') + ')';
+  const args = [];
+  for (const p of prefixes) args.push(p, p + '￿');
+  return { clause, args };
 }
 
 function renderInvestorPage(slug, inv, rows, stats) {
