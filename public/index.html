@@ -2977,6 +2977,9 @@ async function loadStockView(ticker, opts={}) {
   // Stock View is open to everyone; only the plotted price chart + trade
   // markers stay behind the paywall (locked below for non-premium users).
   const chartLocked = !auth.isPremium;
+  // Engaged-visitor nudge: once an anonymous visitor opens a 2nd stock, surface
+  // the free-trial prompt (idempotent + guarded, never shows for logged-in members).
+  if (chartLocked) { _stockViewsSeen++; if (_stockViewsSeen >= 2) setTimeout(maybeShowTrialNudge, 1500); }
   // Cancel any in-flight load - increment sequence so old calls abort themselves
   const mySeq = ++_loadStockViewSeq;
   _loadStockViewInFlight = ticker;
@@ -10978,6 +10981,51 @@ function requirePremium(featureName) {
   showPremiumOverlay(featureName);
   return false;
 }
+
+// ── ANONYMOUS TRIAL NUDGE ─────────────────────────────────────────────────────
+// Engagement-triggered, dismissible upgrade prompt for NOT-logged-in visitors
+// only. In this app, logging in = a paying/trial member, so members must never
+// see it. Fires once the visitor is clearly engaged (2nd stock opened, or ~75s),
+// shows once per session, and is suppressed for 7 days after a dismiss.
+let _trialNudgeShown = false;
+let _stockViewsSeen = 0;
+function maybeShowTrialNudge() {
+  try {
+    if (_trialNudgeShown) return;
+    if (typeof auth === 'undefined' || !auth || !auth.loaded) return;   // decide only after auth resolves
+    if (auth.loggedIn) return;                                          // members never see it
+    if (sessionStorage.getItem('it_nudge_shown')) return;
+    const dism = +(localStorage.getItem('it_nudge_dismiss') || 0);
+    if (dism && Date.now() - dism < 7 * 86400000) return;              // 7-day cooldown after dismiss
+    if (document.getElementById('trialNudge')) return;
+    _trialNudgeShown = true;
+    try { sessionStorage.setItem('it_nudge_shown', '1'); } catch(_) {}
+    const n = document.createElement('div');
+    n.id = 'trialNudge';
+    n.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:7500;max-width:320px;width:calc(100% - 40px);background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 44px rgba(26,32,48,0.28);padding:18px 20px;transform:translateY(24px);opacity:0;transition:transform .35s ease,opacity .35s ease';
+    n.innerHTML = `
+      <button onclick="dismissTrialNudge()" aria-label="Close" style="position:absolute;top:9px;right:12px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1">&#10005;</button>
+      <div style="font-size:22px;margin-bottom:6px">&#128274;</div>
+      <div style="font-family:Inter,sans-serif;font-size:15px;font-weight:800;color:var(--text);margin-bottom:5px">See every insider trade on the chart</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:14px">Start a free 7-day trial to unlock the plotted price chart, cluster alerts, and CFO-buy signals. Cancel anytime.</div>
+      <button onclick="trialNudgeGo()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px;font-family:Inter,sans-serif;font-size:12px;font-weight:700;letter-spacing:.5px;cursor:pointer">START FREE TRIAL &rarr;</button>`;
+    document.body.appendChild(n);
+    requestAnimationFrame(() => { n.style.transform = 'translateY(0)'; n.style.opacity = '1'; });
+    if (typeof gtag === 'function') gtag('event', 'trial_nudge_shown');
+  } catch(_) {}
+}
+function dismissTrialNudge() {
+  try { localStorage.setItem('it_nudge_dismiss', String(Date.now())); } catch(_) {}
+  const n = document.getElementById('trialNudge');
+  if (n) { n.style.transform = 'translateY(24px)'; n.style.opacity = '0'; setTimeout(() => n.remove(), 300); }
+}
+function trialNudgeGo() {
+  if (typeof gtag === 'function') gtag('event', 'trial_nudge_click');
+  const n = document.getElementById('trialNudge'); if (n) n.remove();
+  switchView('premium', null);
+}
+// Time-based fallback trigger (the stock-view counter in loadStockView is the primary one).
+setTimeout(() => { maybeShowTrialNudge(); }, 75000);
 
 function showPremiumOverlay(featureName) {
   // Remove any existing overlay
