@@ -2387,7 +2387,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="rel">
     <strong>Learn more about insider trading signals:</strong>
     <ul>
-      <li><a href="/investors">See what top investors like Warren Buffett and Carl Icahn are buying</a></li>
+      <li><a href="/investors">See what top investors like Carl Icahn and Bill Ackman are buying</a></li>
       ${(() => { const s = getTickerSector(ticker); const sl = s ? _sectorSlugOf(s[0]) : null; return sl ? `<li><a href="/insider-trading/sector/${sl}">${_esc(s[0])} sector insider trading</a></li>` : ''; })()}
       <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
       <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
@@ -2645,8 +2645,8 @@ app.get('/insider-profile/:name', async (req, res) => {
 // stocks is X buying" query. Each page prominently EXPLAINS the person -> filing
 // entity link (e.g. Cascade = Bill Gates) so searchers connect the dots.
 const FAMOUS_INVESTORS = {
-  'warren-buffett': { name: 'Warren Buffett', entity: 'Berkshire Hathaway', patterns: ['BUFFETT WARREN E', 'BERKSHIRE HATHAWAY INC'],
-    blurb: `Warren Buffett built Berkshire Hathaway and, although he handed the CEO role to Greg Abel at the end of 2025, he remains chairman and Berkshire's largest shareholder. When Berkshire owns more than 10% of a public company it files SEC Form 4s just like any insider, and the purchases below are those reportable open-market buys, most notably Berkshire's multi-billion-dollar Occidental Petroleum ($OXY) stake.` },
+  'greg-abel': { name: 'Greg Abel', entity: 'Berkshire Hathaway', patterns: ['BERKSHIRE HATHAWAY INC', 'BUFFETT WARREN E'],
+    blurb: `Greg Abel became CEO of Berkshire Hathaway at the end of 2025, succeeding Warren Buffett, who remains chairman. Berkshire files SEC Form 4s whenever it owns more than 10% of a public company, so its open-market buys are public, most notably its multi-billion-dollar Occidental Petroleum ($OXY) stake. The filings below are Berkshire's reportable purchases.` },
   'elon-musk': { name: 'Elon Musk', entity: 'Tesla', patterns: ['MUSK ELON'],
     blurb: `As Tesla's CEO and its largest individual shareholder, Elon Musk files an SEC Form 4 every time he buys or sells Tesla ($TSLA) stock on the open market. These are his reportable insider transactions.` },
   'ryan-cohen': { name: 'Ryan Cohen', entity: 'RC Ventures / GameStop', patterns: ['COHEN RYAN', 'RC VENTURES LLC'],
