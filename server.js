@@ -2217,7 +2217,8 @@ app.get('/sitemap.xml', async (req, res) => {
   const rolePages = Object.keys(ROLE_DEFS).map(s => ({ url: `/insider-trading/role/${s}`, priority: '0.6', freq: 'daily' }));
   const reportPages = []; let _rw = _reportLatest();
   for (let i = 0; i < 12; i++) { reportPages.push({ url: `/insider-buying-report/${_ymd(_rw)}`, priority: i === 0 ? '0.7' : '0.5', freq: i === 0 ? 'daily' : 'monthly' }); _rw = new Date(_rw); _rw.setUTCDate(_rw.getUTCDate() - 7); }
-  const allPages = [...staticPages, ...articlePages, ...tickerPages, ...insiderPages, ...sectorPages, ...rolePages, ...reportPages];
+  const investorPages = [{ url: '/investors', priority: '0.7', freq: 'weekly' }, ...Object.keys(FAMOUS_INVESTORS).map(s => ({ url: `/investors/${s}`, priority: '0.6', freq: 'weekly' }))];
+  const allPages = [...staticPages, ...articlePages, ...tickerPages, ...insiderPages, ...sectorPages, ...rolePages, ...reportPages, ...investorPages];
   const urls = allPages.map(p => `\n  <url><loc>${base}${p.url}</loc><lastmod>${now}</lastmod><changefreq>${p.freq}</changefreq><priority>${p.priority}</priority></url>`).join('');
   _sitemapCache = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}\n</urlset>`;
   _sitemapCacheTime = Date.now();
@@ -2634,6 +2635,243 @@ app.get('/insider-profile/:name', async (req, res) => {
     _insiderPageCache.set(key, { html, t: Date.now() });
     res.type('html').send(html);
   } catch (e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── SEO FAMILY: "WHAT IS <FAMOUS INVESTOR> BUYING?" ──────────────────────────
+// Curated (small, no crawl blowup) pages for recognizable investors who ARE Form
+// 4 filers - i.e. 10%+ owners / directors, NOT diversified 13F managers (Burry,
+// Druckenmiller, etc. never appear in Form 4). Targets the huge evergreen "what
+// stocks is X buying" query. Each page prominently EXPLAINS the person -> filing
+// entity link (e.g. Cascade = Bill Gates) so searchers connect the dots.
+const FAMOUS_INVESTORS = {
+  'warren-buffett': { name: 'Warren Buffett', entity: 'Berkshire Hathaway', patterns: ['%BUFFETT%', '%BERKSHIRE HATHAWAY%'],
+    blurb: `Warren Buffett built Berkshire Hathaway and, although he handed the CEO role to Greg Abel at the end of 2025, he remains chairman and Berkshire's largest shareholder. When Berkshire owns more than 10% of a public company it files SEC Form 4s just like any insider, and the purchases below are those reportable open-market buys, most notably Berkshire's multi-billion-dollar Occidental Petroleum ($OXY) stake.` },
+  'elon-musk': { name: 'Elon Musk', entity: 'Tesla', patterns: ['%MUSK%'],
+    blurb: `As Tesla's CEO and its largest individual shareholder, Elon Musk files an SEC Form 4 every time he buys or sells Tesla ($TSLA) stock on the open market. These are his reportable insider transactions.` },
+  'ryan-cohen': { name: 'Ryan Cohen', entity: 'RC Ventures / GameStop', patterns: ['%COHEN RYAN%', '%RC VENTURES%'],
+    blurb: `Ryan Cohen, the GameStop chairman and founder of Chewy, invests through RC Ventures. As GameStop's chairman and a 10%+ owner, he files SEC Form 4s for his $GME purchases, shown below.` },
+  'bill-gates': { name: 'Bill Gates', entity: 'Cascade Investment', patterns: ['%CASCADE INVEST%'],
+    blurb: `Cascade Investment is the private holding company that manages Bill Gates' personal fortune. Where Cascade owns more than 10% of a public company, such as Republic Services ($RSG), it files SEC Form 4s, revealing the stocks Gates is buying.` },
+  'carl-icahn': { name: 'Carl Icahn', entity: 'Icahn Enterprises', patterns: ['%ICAHN%'],
+    blurb: `Activist investor Carl Icahn takes large, concentrated stakes and board seats in public companies through Icahn Enterprises and affiliated entities, which makes him an SEC Form 4 filer. These are his reported open-market trades.` },
+  'bill-ackman': { name: 'Bill Ackman', entity: 'Pershing Square', patterns: ['%ACKMAN%', '%PERSHING SQUARE%'],
+    blurb: `Bill Ackman runs Pershing Square Capital Management. When Pershing takes a 10%+ stake or Ackman joins a company's board, his trades are reported on SEC Form 4, shown below.` },
+  'john-paulson': { name: 'John Paulson', entity: 'Paulson & Co', patterns: ['%PAULSON JOHN%', '%PAULSON & CO%'],
+    blurb: `John Paulson, famous for his 2007 bet against subprime mortgages, runs Paulson & Co. As a 10%+ owner and board member of companies like Bausch Health ($BHC), he files SEC Form 4s for his open-market purchases.` },
+  'prem-watsa': { name: 'Prem Watsa', entity: 'Fairfax Financial', patterns: ['%WATSA%', '%FAIRFAX%'],
+    blurb: `Prem Watsa, often called the "Warren Buffett of Canada," runs Fairfax Financial Holdings. Fairfax's 10%+ stakes, such as its large position in Under Armour ($UA), are reported on SEC Form 4.` },
+  'mario-gabelli': { name: 'Mario Gabelli', entity: 'GAMCO Investors', patterns: ['%GABELLI%'],
+    blurb: `Mario Gabelli runs GAMCO Investors. Across the many small- and mid-cap companies where GAMCO holds more than 10%, Gabelli files SEC Form 4s, shown here.` },
+  'eric-sprott': { name: 'Eric Sprott', entity: 'Sprott Inc', patterns: ['%SPROTT%'],
+    blurb: `Billionaire precious-metals investor Eric Sprott takes large stakes in mining companies, frequently exceeding 10%, which he reports on SEC Form 4. These are his open-market buys.` },
+  'sardar-biglari': { name: 'Sardar Biglari', entity: 'Biglari Holdings', patterns: ['%BIGLARI%', '%LION FUND%'],
+    blurb: `Sardar Biglari controls Biglari Holdings and the Lion Fund. His concentrated, insider-level positions are reported on SEC Form 4, shown below.` },
+};
+function _investorWhere(patterns) {
+  return { clause: '(' + patterns.map(() => 'UPPER(insider) LIKE ?').join(' OR ') + ')', args: patterns.slice() };
+}
+
+function renderInvestorPage(slug, inv, rows, stats) {
+  const name = inv.name;
+  const url = `https://www.insidertape.com/investors/${slug}`;
+  const buys = stats.buys || 0, sells = stats.sells || 0;
+  const posture = buys > sells * 1.5 ? 'a net buyer' : sells > buys * 1.5 ? 'a net seller' : 'active on both sides';
+  const desc = `What is ${name} buying? ${name} (${inv.entity}) has filed ${buys} open-market SEC Form 4 purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} across ${stats.companies || 0} ${stats.companies === 1 ? 'company' : 'companies'}. See every stock ${name} has bought, with dates, prices, and dollar amounts.`;
+  const intro = `${name} has reported ${buys} open-market purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} across ${stats.companies || 0} ${stats.companies === 1 ? 'company' : 'companies'} on SEC Form 4, making ${name} ${posture} of the stocks where ${name} is an insider. The most recent filing was ${_fmtDate(stats.latest)}.`;
+
+  const faq = [
+    { q: `What stocks is ${name} buying?`, a: `${name} has filed ${buys} open-market purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} across ${stats.companies || 0} ${stats.companies === 1 ? 'company' : 'companies'} on SEC Form 4. The full list of buys, with tickers, dates, and prices, is above. The most recent was filed ${_fmtDate(stats.latest)}.` },
+    { q: `Does ${name} file SEC Form 4?`, a: `Yes. ${inv.entity} files SEC Form 4 whenever ${name} trades a company where they are a corporate insider or own more than 10% of the stock. Form 4 does not cover smaller (under 5%) or diversified holdings, which are disclosed on Form 13F or Schedule 13D/G instead.` },
+    { q: `How much has ${name} bought?`, a: `In our SEC Form 4 data, ${name} has bought ${_fmtV(stats.buyval)} of stock across ${buys} open-market purchase${buys === 1 ? '' : 's'}, versus ${_fmtV(stats.sellval)} in sales.` },
+  ];
+  const faqHtml = faq.map(f => `<div class="qa"><h3>${_esc(f.q)}</h3><p>${_esc(f.a)}</p></div>`).join('');
+
+  const tableRows = rows.map(r => {
+    const isBuy = r.type === 'P';
+    const badge = isBuy ? '<span class="b buy">BUY</span>' : '<span class="b sell">SELL</span>';
+    return `<tr>
+      <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
+      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td>${badge}</td>
+      <td class="num">${_fmtQty(r.qty)}</td>
+      <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
+      <td class="num val ${isBuy ? 'g' : 'r'}">${_fmtV(r.value)}</td>
+    </tr>`;
+  }).join('');
+
+  const others = Object.entries(FAMOUS_INVESTORS).filter(([s]) => s !== slug).slice(0, 6)
+    .map(([s, i]) => `<a href="/investors/${s}">${_esc(i.name)}</a>`).join(' &nbsp;·&nbsp; ');
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What Is ${name} Buying? ${inv.entity} SEC Form 4 Filings | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="What Is ${name} Buying? ${inv.entity} Insider Filings">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="${ogImg('biggest-buys')}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${ogImg('biggest-buys')}">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: `What Is ${name} Buying?`, description: desc, url })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Investors', item: 'https://www.insidertape.com/investors' }, { '@type': 'ListItem', position: 3, name: name, item: url }] })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:860px;margin:0 auto;padding:44px 24px 90px}
+.crumb{font-size:12px;color:var(--muted);margin-bottom:18px}.crumb a{color:var(--accent);text-decoration:none}
+h1{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:10px}
+.sub{font-size:13px;color:var(--muted);margin-bottom:22px}
+.explain{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:9px;padding:16px 20px;margin-bottom:24px;font-size:14px;color:#3a4555;line-height:1.75}
+.intro{font-size:16px;color:#3a4555;line-height:1.8;margin-bottom:28px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:32px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+.stat .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.stat .v{font-size:20px;font-weight:700}.v.g{color:var(--buy)}.v.r{color:var(--sell)}
+h2{font-size:18px;font-weight:700;margin:8px 0 14px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:11px 14px;border-bottom:2px solid var(--border)}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;color:#3a4555}tr:last-child td{border-bottom:none}
+.dt{white-space:nowrap;color:var(--muted)}.tk a{text-decoration:none;color:inherit;display:flex;flex-direction:column}.tk strong{color:var(--accent);font-weight:700}.tk .co{font-size:11px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.val.g{color:var(--buy);font-weight:600}.val.r{color:var(--sell);font-weight:600}
+.b{font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;background:#eee;color:var(--muted)}.b.buy{background:rgba(18,144,95,.1);color:var(--buy)}.b.sell{background:rgba(204,59,70,.1);color:var(--sell)}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:40px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.rel{margin-top:36px;font-size:13px;color:var(--muted);line-height:1.9}.rel a{color:var(--accent);text-decoration:none}
+.faq{margin-top:40px}.faq h2{margin-bottom:14px}.faq .qa{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px}.faq h3{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)}.faq p{font-size:14px;color:#3a4555;margin:0}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}.tk .co{max-width:130px}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; <a href="/investors">Investors</a> &nbsp;/&nbsp; ${name}</div>
+  <h1>What Is ${name} Buying?</h1>
+  <div class="sub">${_esc(inv.entity)} &nbsp;·&nbsp; SEC Form 4 open-market purchases and sales &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
+  <div class="explain"><strong>Why ${_esc(inv.entity)}?</strong> ${_esc(inv.blurb)}</div>
+  <p class="intro">${_esc(intro)}</p>
+  <div class="stats">
+    <div class="stat"><div class="k">Buys</div><div class="v g">${buys}</div></div>
+    <div class="stat"><div class="k">Sells</div><div class="v r">${sells}</div></div>
+    <div class="stat"><div class="k">Total Bought</div><div class="v g">${_fmtV(stats.buyval)}</div></div>
+    <div class="stat"><div class="k">Companies</div><div class="v">${stats.companies || 0}</div></div>
+  </div>
+  <h2>Every ${name} SEC Form 4 filing</h2>
+  <table><thead><tr><th>Date</th><th>Company</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
+  <section class="faq">
+    <h2>${name} insider trading FAQ</h2>
+    ${faqHtml}
+  </section>
+  ${_emailCapture('investor-' + slug, 'Get the biggest insider buys every week, free.')}
+  <div class="cta up-hide">
+    <h3>Track ${name} and every other insider in real time</h3>
+    <p>InsiderTape flags new SEC Form 4 filings the moment they hit EDGAR and plots every buy and sell on the price chart, with cluster detection and alerts. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+  </div>
+  <div class="rel">
+    <strong>What other top investors are buying:</strong><br>${others}
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
+</body></html>`;
+}
+
+function renderInvestorsHub() {
+  const url = 'https://www.insidertape.com/investors';
+  const desc = `What are top investors buying? Track the SEC Form 4 filings of Warren Buffett, Elon Musk, Ryan Cohen, Bill Gates, Carl Icahn, Bill Ackman and other famous investors, the open-market stock purchases they report as insiders and 10%+ owners.`;
+  const cards = Object.entries(FAMOUS_INVESTORS).map(([s, i]) => `
+    <a class="icard" href="/investors/${s}">
+      <div class="nm">${_esc(i.name)}</div>
+      <div class="en">${_esc(i.entity)}</div>
+      <div class="bl">What is ${_esc(i.name)} buying? &rarr;</div>
+    </a>`).join('');
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What Are Top Investors Buying? SEC Form 4 Filings | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="What Are Top Investors Buying?">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="${ogImg('biggest-buys')}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${ogImg('biggest-buys')}">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'CollectionPage', name: 'What Are Top Investors Buying?', description: desc, url })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:900px;margin:0 auto;padding:44px 24px 90px}
+h1{font-size:clamp(28px,5vw,40px);font-weight:800;letter-spacing:-.5px;line-height:1.12;margin-bottom:12px}
+.lead{font-size:16px;color:#3a4555;line-height:1.8;margin-bottom:30px;max-width:660px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.icard{display:block;background:var(--bg2);border:1px solid var(--border);border-radius:11px;padding:20px 20px;text-decoration:none;transition:border-color .15s,transform .15s}
+.icard:hover{border-color:var(--accent);transform:translateY(-2px)}
+.icard .nm{font-size:18px;font-weight:800;color:var(--text);margin-bottom:3px}
+.icard .en{font-size:12px;color:var(--muted);margin-bottom:14px}
+.icard .bl{font-size:12px;font-weight:700;color:var(--accent)}
+.note{margin-top:34px;font-size:13px;color:var(--muted);line-height:1.7}.note a{color:var(--accent);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2);margin-top:20px}footer a{color:var(--accent);text-decoration:none}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <h1>What are top investors buying?</h1>
+  <p class="lead">Famous investors who take large, insider-level stakes, more than 10% of a company, or a board seat, must report their open-market trades on SEC Form 4, just like any executive. That makes their buying visible. Here is what some of the most-followed investors have been buying, straight from their filings. (Diversified hedge-fund positions under 5% are disclosed on Form 13F instead and are not shown here.)</p>
+  <div class="grid">${cards}</div>
+  <div class="note">These pages cover open-market SEC Form 4 activity only. See also the <a href="/biggest-insider-buyers">biggest insider buyers of the year</a> and the <a href="/biggest-insider-buys">biggest insider buys this week</a>.</div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
+</body></html>`;
+}
+
+const _investorPageCache = new Map();
+app.get('/investors', (req, res) => {
+  const hit = _investorPageCache.get('__hub__');
+  if (hit && Date.now() - hit.t < 12 * 3600000) { res.type('html'); return res.send(hit.html); }
+  const html = renderInvestorsHub();
+  _investorPageCache.set('__hub__', { html, t: Date.now() });
+  res.type('html').send(html);
+});
+app.get('/investors/:slug', async (req, res) => {
+  const slug = (req.params.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const inv = FAMOUS_INVESTORS[slug];
+  if (!inv) return res.redirect(302, '/investors');
+  const hit = _investorPageCache.get(slug);
+  if (hit && Date.now() - hit.t < 12 * 3600000) { res.type('html'); return res.send(hit.html); }
+  try {
+    const w = _investorWhere(inv.patterns);
+    const rows = await query(`
+      SELECT ticker, MAX(company) AS company, MAX(insider) AS insider,
+             trade_date AS trade, MAX(filing_date) AS filing, TRIM(type) AS type,
+             MAX(qty) AS qty, MAX(price) AS price, MAX(value) AS value
+      FROM trades WHERE ${w.clause} AND TRIM(type) IN ('P','S','S-') AND COALESCE(value,0) <= 5000000000
+      GROUP BY ticker, trade_date, TRIM(type)
+      ORDER BY trade_date DESC, filing_date DESC LIMIT 60`, w.args);
+    const st = await queryOne(`
+      SELECT SUM(CASE WHEN type='P' THEN 1 ELSE 0 END) AS buys,
+             SUM(CASE WHEN type IN ('S','S-') THEN 1 ELSE 0 END) AS sells,
+             SUM(CASE WHEN type='P' THEN val ELSE 0 END) AS buyval,
+             SUM(CASE WHEN type IN ('S','S-') THEN val ELSE 0 END) AS sellval,
+             COUNT(DISTINCT ticker) AS companies, MAX(latest) AS latest
+      FROM (SELECT ticker, TRIM(type) AS type, MAX(COALESCE(value,0)) AS val, MAX(trade_date) AS latest
+            FROM trades WHERE ${w.clause} AND TRIM(type) IN ('P','S','S-') AND COALESCE(value,0) <= 5000000000
+            GROUP BY ticker, trade_date, TRIM(type))`, w.args);
+    const html = renderInvestorPage(slug, inv, rows || [], st || {});
+    _investorPageCache.set(slug, { html, t: Date.now() });
+    res.type('html').send(html);
+  } catch (e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/investors">InsiderTape</a></body></html>'); }
 });
 
 // ─── FREE SHAREABLE PAGE: BIGGEST INSIDER BUYS THIS WEEK ───────────────────────
