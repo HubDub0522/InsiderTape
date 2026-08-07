@@ -2644,40 +2644,37 @@ app.get('/insider-profile/:name', async (req, res) => {
 // stocks is X buying" query. Each page prominently EXPLAINS the person -> filing
 // entity link (e.g. Cascade = Bill Gates) so searchers connect the dots.
 const FAMOUS_INVESTORS = {
-  'warren-buffett': { name: 'Warren Buffett', entity: 'Berkshire Hathaway', patterns: ['%BUFFETT%', '%BERKSHIRE HATHAWAY%'],
+  'warren-buffett': { name: 'Warren Buffett', entity: 'Berkshire Hathaway', patterns: ['BUFFETT WARREN E', 'BERKSHIRE HATHAWAY INC'],
     blurb: `Warren Buffett built Berkshire Hathaway and, although he handed the CEO role to Greg Abel at the end of 2025, he remains chairman and Berkshire's largest shareholder. When Berkshire owns more than 10% of a public company it files SEC Form 4s just like any insider, and the purchases below are those reportable open-market buys, most notably Berkshire's multi-billion-dollar Occidental Petroleum ($OXY) stake.` },
-  'elon-musk': { name: 'Elon Musk', entity: 'Tesla', patterns: ['%MUSK%'],
+  'elon-musk': { name: 'Elon Musk', entity: 'Tesla', patterns: ['MUSK ELON'],
     blurb: `As Tesla's CEO and its largest individual shareholder, Elon Musk files an SEC Form 4 every time he buys or sells Tesla ($TSLA) stock on the open market. These are his reportable insider transactions.` },
-  'ryan-cohen': { name: 'Ryan Cohen', entity: 'RC Ventures / GameStop', patterns: ['%COHEN RYAN%', '%RC VENTURES%'],
+  'ryan-cohen': { name: 'Ryan Cohen', entity: 'RC Ventures / GameStop', patterns: ['COHEN RYAN', 'RC VENTURES LLC'],
     blurb: `Ryan Cohen, the GameStop chairman and founder of Chewy, invests through RC Ventures. As GameStop's chairman and a 10%+ owner, he files SEC Form 4s for his $GME purchases, shown below.` },
-  'bill-gates': { name: 'Bill Gates', entity: 'Cascade Investment', patterns: ['%CASCADE INVEST%'],
+  'bill-gates': { name: 'Bill Gates', entity: 'Cascade Investment', patterns: ['CASCADE INVESTMENT, L.L.C.'],
     blurb: `Cascade Investment is the private holding company that manages Bill Gates' personal fortune. Where Cascade owns more than 10% of a public company, such as Republic Services ($RSG), it files SEC Form 4s, revealing the stocks Gates is buying.` },
-  'carl-icahn': { name: 'Carl Icahn', entity: 'Icahn Enterprises', patterns: ['%ICAHN%'],
+  'carl-icahn': { name: 'Carl Icahn', entity: 'Icahn Enterprises', patterns: ['ICAHN CARL C'],
     blurb: `Activist investor Carl Icahn takes large, concentrated stakes and board seats in public companies through Icahn Enterprises and affiliated entities, which makes him an SEC Form 4 filer. These are his reported open-market trades.` },
-  'bill-ackman': { name: 'Bill Ackman', entity: 'Pershing Square', patterns: ['%ACKMAN%', '%PERSHING SQUARE%'],
+  'bill-ackman': { name: 'Bill Ackman', entity: 'Pershing Square', patterns: ['ACKMAN WILLIAM A'],
     blurb: `Bill Ackman runs Pershing Square Capital Management. When Pershing takes a 10%+ stake or Ackman joins a company's board, his trades are reported on SEC Form 4, shown below.` },
-  'john-paulson': { name: 'John Paulson', entity: 'Paulson & Co', patterns: ['%PAULSON JOHN%', '%PAULSON & CO%'],
+  'john-paulson': { name: 'John Paulson', entity: 'Paulson & Co', patterns: ['PAULSON JOHN', 'PAULSON & CO. INC.'],
     blurb: `John Paulson, famous for his 2007 bet against subprime mortgages, runs Paulson & Co. As a 10%+ owner and board member of companies like Bausch Health ($BHC), he files SEC Form 4s for his open-market purchases.` },
-  'prem-watsa': { name: 'Prem Watsa', entity: 'Fairfax Financial', patterns: ['%WATSA%', '%FAIRFAX%'],
+  'prem-watsa': { name: 'Prem Watsa', entity: 'Fairfax Financial', patterns: ['WATSA V PREM ET AL', 'FAIRFAX FINANCIAL HOLDINGS LTD/ CAN'],
     blurb: `Prem Watsa, often called the "Warren Buffett of Canada," runs Fairfax Financial Holdings. Fairfax's 10%+ stakes, such as its large position in Under Armour ($UA), are reported on SEC Form 4.` },
-  'mario-gabelli': { name: 'Mario Gabelli', entity: 'GAMCO Investors', patterns: ['%GABELLI%'],
+  'mario-gabelli': { name: 'Mario Gabelli', entity: 'GAMCO Investors', patterns: ['GABELLI MARIO J', 'GABELLI FUNDS LLC', 'GAMCO INVESTORS, INC. ET AL'],
     blurb: `Mario Gabelli runs GAMCO Investors. Across the many small- and mid-cap companies where GAMCO holds more than 10%, Gabelli files SEC Form 4s, shown here.` },
-  'eric-sprott': { name: 'Eric Sprott', entity: 'Sprott Inc', patterns: ['%SPROTT%'],
+  'eric-sprott': { name: 'Eric Sprott', entity: 'Sprott Inc', patterns: ['SPROTT ERIC'],
     blurb: `Billionaire precious-metals investor Eric Sprott takes large stakes in mining companies, frequently exceeding 10%, which he reports on SEC Form 4. These are his open-market buys.` },
-  'sardar-biglari': { name: 'Sardar Biglari', entity: 'Biglari Holdings', patterns: ['%BIGLARI%', '%LION FUND%'],
+  'sardar-biglari': { name: 'Sardar Biglari', entity: 'Biglari Holdings', patterns: ['BIGLARI, SARDAR', 'LION FUND, L.P.', 'LION FUND II, L.P.', 'BIGLARI CAPITAL CORP.'],
     blurb: `Sardar Biglari controls Biglari Holdings and the Lion Fund. His concentrated, insider-level positions are reported on SEC Form 4, shown below.` },
 };
 function _investorWhere(patterns) {
-  // The map stores '%PREFIX%' values, but a LIKE '%x%' full-scans the trades table
-  // and blows the serverless request timeout. Strip the wildcards and match as a
-  // case-normalized PREFIX RANGE on UPPER(insider) so it uses idx_insider_upper
-  // (fast) - safe because SEC stores names surname-first (BUFFETT WARREN E) and
-  // entities entity-first (CASCADE INVESTMENT...). '￿' is an upper sentinel.
-  const prefixes = patterns.map(p => p.replace(/%/g, '').toUpperCase()).filter(Boolean);
-  const clause = '(' + prefixes.map(() => '(UPPER(insider) >= ? AND UPPER(insider) < ?)').join(' OR ') + ')';
-  const args = [];
-  for (const p of prefixes) args.push(p, p + '￿');
-  return { clause, args };
+  // EXACT match on UPPER(insider). Equality/IN uses idx_insider_upper and returns
+  // fast (like the /insider-profile pages); LIKE '%x%' and range scans both
+  // full-scan the trades table and blow the serverless request timeout (503).
+  // `patterns` are the exact raw insider strings as filed (verified from EDGAR).
+  const vals = patterns.map(p => p.toUpperCase());
+  const clause = 'UPPER(insider) IN (' + vals.map(() => '?').join(',') + ')';
+  return { clause, args: vals };
 }
 
 function renderInvestorPage(slug, inv, rows, stats) {
