@@ -2357,7 +2357,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; Insider Trading &nbsp;/&nbsp; ${ticker}</div>
   <h1>${co} (${ticker}) Insider Trading Activity</h1>
@@ -2387,6 +2387,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="rel">
     <strong>Learn more about insider trading signals:</strong>
     <ul>
+      <li><a href="/investors">See what top investors like Warren Buffett and Carl Icahn are buying</a></li>
       ${(() => { const s = getTickerSector(ticker); const sl = s ? _sectorSlugOf(s[0]) : null; return sl ? `<li><a href="/insider-trading/sector/${sl}">${_esc(s[0])} sector insider trading</a></li>` : ''; })()}
       <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
       <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
@@ -2547,7 +2548,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta up-hide" style="margin-top:0">
     <h3>Follow ${dn}'s trades in real time</h3>
@@ -2953,7 +2954,7 @@ td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.summary{grid-template-columns:1fr}table{font-size:12px}th,td{padding:9px 8px}.tk .co{max-width:130px}th:nth-child(4),td:nth-child(4){display:none}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Updated Daily &nbsp;·&nbsp; Free</div>
   <h1>Biggest Insider Buys This Week</h1>
@@ -3147,7 +3148,7 @@ h2.sec{font-size:20px;font-weight:800;letter-spacing:-.3px;margin:40px 0 6px}
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.summary{grid-template-columns:1fr}.wrap{padding:32px 14px 80px}table{font-size:12px}th,td{padding:9px 7px}.tk .co,.ins .ti{max-width:108px}.badge{font-size:9px;padding:2px 6px}.full th:nth-child(5),.full td:nth-child(5),.full th:nth-child(6),.full td:nth-child(6){display:none}.hero th:nth-child(4),.hero td:nth-child(4){display:none}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Updated Weekly &nbsp;·&nbsp; Free</div>
   <h1>The Biggest Insider Buyers</h1>
@@ -3311,7 +3312,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}th:nth-child(5),td:nth-child(5){display:none}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta" style="margin-top:0">
     <h3>Track ${co} insider buys in real time</h3>
@@ -3455,7 +3456,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 10px}th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){display:none}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta" style="margin-top:0">
     <h3>Get ${role} buys the moment they file</h3>
@@ -3617,7 +3618,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;co
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 @media(max-width:640px){.stats{grid-template-columns:1fr 1fr}table{font-size:12px}th,td{padding:9px 9px}.tk .co{max-width:120px}}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="cta" style="margin-top:0">
     <h3>See these buys plotted on the chart</h3>
@@ -3937,7 +3938,7 @@ ${faq.length ? `<script type="application/ld+json">${JSON.stringify({ '@context'
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Studies', item: 'https://www.insidertape.com/insider-trading-studies' }, { '@type': 'ListItem', position: 3, name: cfg.breadcrumbName, item: url }] })}</script>
 ${_STUDY_STYLE}
 </head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Data Study</div>
   <div style="font-size:12px;margin-bottom:14px"><a href="/insider-trading-studies" style="color:var(--accent);text-decoration:none">← All insider-buying studies</a></div>
@@ -4066,7 +4067,7 @@ function renderStudiesHub(s) {
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Studies', item: url }] })}</script>
 ${_STUDY_STYLE}
 </head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Data Studies</div>
   <h1>Insider trading, backtested</h1>
@@ -4308,7 +4309,7 @@ a.stat:hover .sv{text-decoration:underline}
 @media(max-width:560px){.stats{grid-template-columns:1fr}.greading{font-size:56px}}
 </style>
 </head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/insider-trading-studies">Studies</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Live indicator</div>
   <h1>The Insider Buying Index</h1>
@@ -4526,7 +4527,7 @@ h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;c
 .empty{color:var(--muted);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:18px 20px}.empty a{color:var(--accent)}
 footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2);margin-top:40px}footer a{color:var(--accent);text-decoration:none}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <h1>${hasQ ? `Search results for &ldquo;${qEsc}&rdquo;` : 'Search insider trading'}</h1>
   <form action="/search" method="get" role="search">
@@ -4597,7 +4598,7 @@ a.inline{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(1
 .box.info{background:rgba(10,111,136,.06);border:1px solid rgba(10,111,136,.2);color:var(--accent)}
 footer{border-top:1px solid var(--border);padding:26px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
 </style></head><body>
-<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; ${_esc(name)}</div>
   <h1>${_esc(name)}</h1>
