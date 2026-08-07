@@ -2792,7 +2792,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 
 function renderInvestorsHub() {
   const url = 'https://www.insidertape.com/investors';
-  const desc = `What are top investors buying? Track the SEC Form 4 filings of Warren Buffett, Elon Musk, Ryan Cohen, Bill Gates, Carl Icahn, Bill Ackman and other famous investors, the open-market stock purchases they report as insiders and 10%+ owners.`;
+  const desc = `What are top investors buying? Track the SEC Form 4 filings of Berkshire Hathaway, Elon Musk, Ryan Cohen, Bill Gates, Carl Icahn, Bill Ackman and other famous investors, the open-market stock purchases they report as insiders and 10%+ owners.`;
   const cards = Object.entries(FAMOUS_INVESTORS).map(([s, i]) => `
     <a class="icard" href="/investors/${s}">
       <div class="nm">${_esc(i.name)}</div>
