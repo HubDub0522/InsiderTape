@@ -2893,7 +2893,15 @@ function renderBiggestBuysPage(rows) {
   const totalTrades = rows.reduce((s, r) => s + (+r.trades || 0), 0);
   const url = 'https://www.insidertape.com/biggest-insider-buys';
   const _ogimg = ogImg('biggest-buys');
-  const desc = `The biggest open-market insider buys this week: the ${rows.length} companies where executives and directors bought the most stock, ranked by dollar value. Updated daily from SEC Form 4 filings.`;
+  const desc = `The stocks insiders are buying right now, ranked. The largest open-market insider buying this week: the ${rows.length} companies where executives and directors bought the most of their own stock, updated daily from SEC Form 4 filings.`;
+  const _topCos = rows.slice(0, 3).map(r => '$' + r.ticker).join(', ');
+  const _topRow = rows[0] || null;
+  const faq = [
+    { q: 'What stocks are insiders buying right now?', a: `The stocks with the most open-market insider buying this week include ${_topCos || 'the names ranked above'}, sorted by total dollars bought. The list updates daily from SEC Form 4 filings and shows only genuine open-market purchases, not grants or option exercises.` },
+    { q: 'What is the largest insider buying this week?', a: _topRow ? `The largest insider buying this week was ${_esc(_topRow.company || _topRow.ticker)} ($${_esc(_topRow.ticker)}), with ${_fmtV(_topRow.buy_val)} of open-market insider purchases. The full ranking is above and updates daily.` : `See the ranked list above for this week's largest insider buying, updated daily.` },
+    { q: 'How do I find stocks insiders are buying?', a: `This page ranks the stocks with the biggest open-market insider buying over the past 7 days, straight from SEC EDGAR. For real-time alerts the moment an insider files, plus every buy plotted on the price chart, track them live on InsiderTape.` },
+  ];
+  const faqHtml = faq.map(f => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px"><h3 style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)">${_esc(f.q)}</h3><p style="font-size:14px;color:#3a4555;margin:0">${f.a}</p></div>`).join('');
 
   const tr = rows.map((r, i) => {
     const co = _esc(r.company || r.ticker);
@@ -2909,17 +2917,18 @@ function renderBiggestBuysPage(rows) {
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Biggest Insider Buys This Week (Ranked, Updated Daily) | InsiderTape</title>
+<title>Stocks Insiders Are Buying Now: The Biggest Insider Buys This Week | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
-<meta property="og:title" content="Biggest Insider Buys This Week, Ranked by Dollar Value">
+<meta property="og:title" content="Stocks Insiders Are Buying: The Biggest Insider Buys This Week">
 <meta property="og:description" content="${_esc(desc)}">
 <meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: 'Biggest Insider Buys This Week', description: desc, url, dateModified: today.toISOString().slice(0, 10) })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Biggest Insider Buys This Week', item: url }] })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
@@ -2958,8 +2967,8 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 <header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
 <div class="wrap">
   <div class="tag">Updated Daily &nbsp;·&nbsp; Free</div>
-  <h1>Biggest Insider Buys This Week</h1>
-  <p class="sub">The largest open-market insider purchases filed with the SEC over the past 7 days, ranked by dollar value. Only genuine open-market buys, with option exercises, grants, and plan sales stripped out.</p>
+  <h1>Stocks Insiders Are Buying This Week</h1>
+  <p class="sub">The stocks with the largest insider buying this week: the biggest open-market insider buys filed with the SEC over the past 7 days, ranked by dollar value. Only genuine open-market purchases, with option exercises, grants, and plan sales stripped out.</p>
   <div class="upd">Updated ${updated}</div>
   <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 26px">
     <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
@@ -2976,6 +2985,10 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
   <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or see the <a href="/biggest-insider-buyers">biggest insider buyers of the past year</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
+  <section style="margin-top:40px">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:14px">Stocks insiders are buying: FAQ</h2>
+    ${faqHtml}
+  </section>
   ${_emailCapture('biggest-buys', 'Get these buys in your inbox every Sunday, free.')}
   <div class="cta up-hide">
     <h3>See these buys plotted on the chart</h3>
