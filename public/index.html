@@ -10869,7 +10869,7 @@ async function loadAuth() {
       if (el && el.dataset.blurGated === '1') {
         el.dataset.blurGated = '';
         el.style.position = '';
-        if (id === 'stockContent')    { loadStockLanding(); return; }
+        if (id === 'stockContent')    { const _t = state.currentTicker || _tickerFromPath(location.pathname); if (_t) { loadStockView(_t); } else { loadStockLanding(); } return; }
         if (id === 'insiderViewBody') { insiderLanding(); return; }
         const view = id.replace('ViewBody','').replace('View','');
         if (view === 'sectors')  { _sectorCache = null; loadSectorsPage(); }
