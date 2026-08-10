@@ -2490,6 +2490,26 @@ function renderInsiderPage(name, rows, stats) {
   const intro = `${displayName}${role ? `, ${role.toLowerCase().includes('director') || role.toLowerCase().includes('officer') || /ceo|cfo|chief|president|chair/i.test(role) ? '' : 'a '}${role},` : ''} is a corporate insider tracked by InsiderTape across ${companies} ${companies === 1 ? 'company' : 'companies'}. The public record shows ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}, reported ${span}. Over this period they have been ${posture}.`;
   const desc = `${displayName}${role ? `, ${role}` : ''} insider trading: ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) across ${companies} ${companies === 1 ? 'company' : 'companies'} on SEC Form 4, currently ${posture}. Every open-market trade with dates and dollar values.`;
 
+  // Disclosed holdings from the most recent filing's "shares owned" field. This is
+  // ONLY their reported insider stake in that one company - explicitly NOT net worth.
+  const _latest = rows[0] || {};
+  const _ownedShares = Math.round(+_latest.owned || 0);
+  const _ownedPrice = +_latest.price || 0;
+  const _ownedVal = _ownedShares * _ownedPrice;
+  const _ownedTicker = _latest.ticker || '';
+  const _ownedCo = _latest.company || _latest.ticker || '';
+  const _ownedDate = _fmtDate(_latest.trade || _latest.filing);
+  const _hasHoldings = _ownedShares > 0 && _ownedPrice > 0 && _ownedTicker;
+  const _holdingsBox = _hasHoldings ? `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:9px;padding:16px 20px;margin:0 0 28px;font-size:14px;color:#3a4555;line-height:1.75"><strong style="color:var(--text)">Disclosed holdings:</strong> as of ${dn}'s most recent SEC Form 4 (${_ownedDate}) for ${_esc(_ownedCo)} (${_esc(_ownedTicker)}), they reported owning <strong style="color:var(--text)">${_fmtQty(_ownedShares)} shares</strong>, worth about <strong style="color:var(--text)">${_fmtV(_ownedVal)}</strong> at that price. This is ${dn}'s reported insider stake in ${_esc(_ownedTicker)} from SEC filings, <strong style="color:var(--text)">not their total net worth</strong>.</div>` : '';
+  const faq = [];
+  if (_hasHoldings) {
+    faq.push({ q: `How much is ${displayName} worth?`, a: `We can't state ${displayName}'s total net worth. What public SEC filings show is that, as of their most recent Form 4 (${_ownedDate}), ${displayName} reported owning ${_fmtQty(_ownedShares)} shares of ${_ownedCo} (${_ownedTicker}), worth about ${_fmtV(_ownedVal)} at that price. That is their disclosed insider stake in this one company, not their overall wealth.` });
+    faq.push({ q: `How many shares of ${_ownedCo} does ${displayName} own?`, a: `As of their most recent SEC Form 4 (${_ownedDate}), ${displayName} reported owning ${_fmtQty(_ownedShares)} shares of ${_ownedTicker}. Insider ownership changes with each new filing, so check the latest Form 4 for the current figure.` });
+  }
+  faq.push({ q: `Is ${displayName} buying or selling?`, a: `In the public SEC Form 4 record, ${displayName} filed ${buys} open-market purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)} across ${companies} ${companies === 1 ? 'company' : 'companies'}, making them ${posture}. Every transaction is listed above with dates and prices.` });
+  const faqHtml = faq.map(f => `<div class="qa"><h3>${_esc(f.q)}</h3><p>${_esc(f.a)}</p></div>`).join('');
+  const faqSchema = faq.length ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>` : '';
+
   const tableRows = rows.map(r => {
     const isBuy = r.type === 'P', isSell = r.type === 'S' || r.type === 'S-';
     const badge = isBuy ? '<span class="b buy">BUY</span>' : isSell ? '<span class="b sell">SELL</span>' : '<span class="b">' + _esc(r.type) + '</span>';
@@ -2516,6 +2536,7 @@ function renderInsiderPage(name, rows, stats) {
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'ProfilePage', mainEntity: { '@type': 'Person', name: displayName, jobTitle: role || undefined }, description: desc, url })}</script>
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: `${displayName} Insider Trading`, item: url }] })}</script>
+${faqSchema}
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
@@ -2575,8 +2596,13 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="stat"><div class="k">Buy Value</div><div class="v g">${_fmtV(stats.buyval)}</div></div>
     <div class="stat"><div class="k">Companies</div><div class="v">${companies}</div></div>
   </div>
+  ${_holdingsBox}
   <h2>${dn}'s recent insider trades</h2>
   <table><thead><tr><th>Date</th><th>Company</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
+  <section class="faq">
+    <h2>${dn} insider trading FAQ</h2>
+    ${faqHtml}
+  </section>
   ${_emailCapture('insider-' + _insiderSlug(name), 'Not ready to go premium? Get the free weekly digest.')}
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
@@ -2609,7 +2635,7 @@ app.get('/insider-profile/:name', async (req, res) => {
   const rowSql = where => `
     SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
            trade_date AS trade, MAX(filing_date) AS filing, TRIM(type) AS type,
-           MAX(qty) AS qty, MAX(price) AS price, MAX(value) AS value
+           MAX(qty) AS qty, MAX(price) AS price, MAX(value) AS value, MAX(owned) AS owned
     FROM trades WHERE ${where} AND TRIM(type) IN ('P','S','S-') AND COALESCE(value,0) <= 5000000000
     GROUP BY ticker, trade_date, TRIM(type)
     ORDER BY trade_date DESC, filing_date DESC LIMIT 60`;
