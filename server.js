@@ -753,10 +753,24 @@ app.get('/api/price', async (req, res) => {
   // Fresh cache hit - instant
   const fresh = await getPC(sym);
   if (fresh) return res.json(fresh);
-  // Stale-while-revalidate: return stale cache instantly, refresh in background
+  // Stale-while-revalidate: return stale cache instantly, refresh in background.
   const stale = await getPCAny(sym);
   if (stale) {
-    refreshPriceBars(sym).catch(() => {}); // fire-and-forget
+    // Fire-and-forget is unreliable on serverless: the function can freeze the
+    // moment the response is sent, killing the in-flight Yahoo fetch + Turso
+    // write. A long-tail ticker that falls out of the prewarm set (e.g. UAA) then
+    // stays frozen for days, re-serving stale bars and re-queuing a refresh that
+    // never persists. So if the cached bars are GENUINELY stale (last bar more
+    // than a few days old), AWAIT the refresh so the write actually completes;
+    // keep the fast fire-and-forget only for entries merely past the short TTL.
+    const lastBar  = stale.length ? stale[stale.length - 1].time : '';
+    const daysOld  = lastBar ? Math.floor((Date.now() - Date.parse(lastBar + 'T00:00:00Z')) / 86400000) : 999;
+    if (daysOld > 4) {
+      const fresh = await refreshPriceBars(sym).catch(() => null);
+      if (res.headersSent) return;
+      return res.json(fresh && fresh.length ? fresh : stale);
+    }
+    refreshPriceBars(sym).catch(() => {}); // fire-and-forget for merely-past-TTL
     return res.json(stale);
   }
   // Cold: no cache at all - must fetch now

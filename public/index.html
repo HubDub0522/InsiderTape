@@ -1500,7 +1500,13 @@ function switchView(view, btn, opts={}) {
     if (!analysisBody) return;
     if (!_analysisData) {
       loadAnalysisPage();
-    } else if (!analysisBody.hasChildNodes() || analysisBody.querySelector('.loading-state')) {
+    } else {
+      // Always reset to the main Radar dashboard when the analysis view is entered
+      // directly - a rail-icon click, a nav tap, or a Back that lands on the bare
+      // analysis state. Subpage callers (goBack, popstate, routeFromPath) render
+      // their subpage AFTER switchView returns, so it safely overwrites this.
+      // Without this, a rail click / Back while inside a subpage stayed stuck on
+      // that subpage because the body already had (non-loading) children.
       renderAnalysisDashboard();
     }
   }
@@ -7273,36 +7279,27 @@ function renderRecentWinnersSubpage() {
     </div>
     ${items.length === 0
       ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No recent insider buys are in the green yet.</div>`
-      : `<div style="display:flex;flex-direction:column;gap:14px">${items.map(renderRecentWinnersCard).join('')}</div>`}
+      : `<div class="conviction-grid">${items.map(renderRecentWinnersCard).join('')}</div>`}
   </div>`;
 }
 
 function renderRecentWinnersCard(r) {
-  return `
-  <div onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})"
-       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-       onmouseover="this.style.borderColor='rgba(180,140,0,0.35)'" onmouseout="this.style.borderColor='var(--border)'">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;gap:12px;flex-wrap:wrap">
-      <div style="min-width:0">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;color:var(--accent)">${r.ticker}</span>
-          <span style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">${r.company}</span>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:3px">${r.buyers} insider${r.buyers>1?'s':''} bought ${r.daysSince}d ago · ${fmt(r.totalVal)}</div>
-      </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="font-family:Inter,sans-serif;font-size:20px;color:var(--buy);line-height:1">+${r.ret}%</div>
-        <div style="font-size:8px;letter-spacing:1px;color:var(--muted);margin-top:2px">SINCE BUY</div>
+  return `<div class="conviction-card" onclick="openTickerFromScreener('${r.ticker}',{rangeDays:365,srEnabled:false})">
+    <div class="conviction-card-header">
+      <div><div class="conviction-ticker">${r.ticker}</div><div class="conviction-company">${r.company}</div></div>
+      <div class="conviction-score-badge" style="background:rgba(18,144,95,0.08);border-color:rgba(18,144,95,0.25)">
+        <div class="conviction-score-num" style="color:var(--buy)">+${r.ret}%</div>
+        <div class="conviction-score-label" style="color:var(--buy)">SINCE BUY</div>
       </div>
     </div>
-    <div style="display:flex;border-top:1px solid var(--border)">
-      <div style="padding:9px 16px;flex:1;border-right:1px solid var(--border)">
-        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:3px">INSIDER COST</div>
-        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text)">$${r.avgBuyPrice}</div>
-      </div>
-      <div style="padding:9px 16px;flex:1">
-        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:3px">NOW</div>
-        <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--buy)">$${r.current}</div>
+    <div class="conviction-body">
+      <ul class="conviction-reasons">
+        <li>${r.buyers} insider${r.buyers>1?'s':''} buying · ${r.daysSince}d ago</li>
+        <li>Insider cost $${r.avgBuyPrice} → now $${r.current}</li>
+      </ul>
+      <div class="conviction-footer">
+        <span class="conviction-val">${fmt(r.totalVal)}</span>
+        <span class="conviction-date">${r.daysSince}d ago</span>
       </div>
     </div>
   </div>`;
@@ -7410,52 +7407,29 @@ function renderCatnipSubpage() {
     </div>
     ${items.length === 0
       ? `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted);font-size:13px">No standout stories in the last 30 days.</div>`
-      : `<div style="display:flex;flex-direction:column;gap:16px">${items.map(renderCatnipCard).join('')}</div>`}
+      : `<div class="conviction-grid">${items.map(renderCatnipCard).join('')}</div>`}
   </div>`;
 }
 
 function renderCatnipCard(c) {
   const color  = c.score >= 75 ? 'var(--buy)' : c.score >= 55 ? 'var(--accent)' : 'var(--option)';
-  const bg     = c.score >= 75 ? 'rgba(18,144,95,0.08)' : c.score >= 55 ? 'rgba(10,111,136,0.06)' : 'rgba(154,110,0,0.06)';
-  const border = c.score >= 75 ? 'rgba(18,144,95,0.3)'  : c.score >= 55 ? 'rgba(10,111,136,0.25)' : 'rgba(154,110,0,0.25)';
-  const stats = [
-    { label:'BUYERS',       val: c.buyers,          color:'var(--text)' },
-    { label:'EXECS',        val: c.execCount,       color: c.execCount ? color : 'var(--muted)' },
-    { label:'TOTAL BOUGHT', val: fmt(c.totalVal),   color:'var(--buy)' },
-    { label:'BUYS',         val: c.buyCount,        color:'var(--text)' },
-  ];
-  return `
-  <div onclick="openTickerFromScreener('${c.ticker}',{rangeDays:365,srEnabled:false})"
-       style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s"
-       onmouseover="this.style.borderColor='${border}'" onmouseout="this.style.borderColor='var(--border)'">
-    <div style="height:3px;background:var(--border)"><div style="height:100%;width:${c.score}%;background:${color}"></div></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);gap:12px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:14px;flex:1;min-width:0">
-        <div style="flex-shrink:0">
-          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:16px;font-weight:700;color:var(--accent)">${c.ticker}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</div>
-        </div>
-        <div style="font-size:12px;color:var(--text);font-style:italic;min-width:0;overflow:hidden;text-overflow:ellipsis">“${c.headline}”</div>
-      </div>
-      <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:8px 14px;text-align:center;flex-shrink:0;min-width:78px">
-        <div style="font-family:Inter,sans-serif;font-size:26px;line-height:1;color:${color}">${c.score}</div>
-        <div style="font-size:8px;letter-spacing:1.5px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;color:${color};margin-top:2px">CATNIP</div>
+  const bg     = c.score >= 75 ? 'rgba(18,144,95,0.08)' : c.score >= 55 ? 'rgba(10,111,136,0.08)' : 'rgba(154,110,0,0.08)';
+  const border = c.score >= 75 ? 'rgba(18,144,95,0.25)' : c.score >= 55 ? 'rgba(10,111,136,0.2)'  : 'rgba(154,110,0,0.2)';
+  return `<div class="conviction-card" onclick="openTickerFromScreener('${c.ticker}',{rangeDays:365,srEnabled:false})">
+    <div class="conviction-card-header">
+      <div><div class="conviction-ticker">${c.ticker}</div><div class="conviction-company">${c.company}</div></div>
+      <div class="conviction-score-badge" style="background:${bg};border-color:${border}">
+        <div class="conviction-score-num" style="color:${color}">${c.score}</div>
+        <div class="conviction-score-label" style="color:${color}">CATNIP</div>
       </div>
     </div>
-    <div style="display:flex;border-bottom:1px solid var(--border);overflow-x:auto">
-      ${stats.map(s => `
-        <div style="padding:10px 14px;flex:1;min-width:70px;border-right:1px solid var(--border)">
-          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:8px;letter-spacing:1.2px;color:var(--muted);margin-bottom:4px">${s.label}</div>
-          <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:${s.color};white-space:nowrap">${s.val}</div>
-        </div>`).join('')}
-    </div>
-    <div style="padding:14px 18px">
-      <div style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:9px;letter-spacing:1.5px;color:${color};margin-bottom:8px">WHY IT TRAVELS</div>
-      ${c.reasons.map(r => `
-        <div style="display:flex;align-items:flex-start;gap:7px;margin-bottom:6px">
-          <span style="color:${color};flex-shrink:0;font-size:11px;margin-top:1px">▸</span>
-          <span style="font-size:11px;color:var(--text);line-height:1.5">${r}</span>
-        </div>`).join('')}
+    <div class="conviction-body">
+      <div style="font-size:11px;color:var(--text);font-style:italic;line-height:1.45;margin-bottom:10px">“${c.headline}”</div>
+      <ul class="conviction-reasons">${c.reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+      <div class="conviction-footer">
+        <span class="conviction-val">${fmt(c.totalVal)}</span>
+        <span class="conviction-date">${c.buyers} buyer${c.buyers>1?'s':''} · ${c.buyCount} buy${c.buyCount>1?'s':''}</span>
+      </div>
     </div>
   </div>`;
 }
