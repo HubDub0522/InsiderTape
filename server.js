@@ -2402,10 +2402,12 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="rel">
     <strong>Learn more about insider trading signals:</strong>
     <ul>
+      <li><a href="/biggest-insider-buys">The stocks with the most insider buying this week</a></li>
       <li><a href="/investors">See what top investors like Carl Icahn and Bill Ackman are buying</a></li>
       ${(() => { const s = getTickerSector(ticker); const sl = s ? _sectorSlugOf(s[0]) : null; return sl ? `<li><a href="/insider-trading/sector/${sl}">${_esc(s[0])} sector insider trading</a></li>` : ''; })()}
       <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
       <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
+      <li><a href="/articles/sec-form-4-transaction-codes.html">What every SEC Form 4 transaction code means (P, S, A, M, F)</a></li>
       <li><a href="/articles/what-is-cluster-buying.html">What is cluster buying and why it matters</a></li>
     </ul>
   </div>
@@ -2502,7 +2504,7 @@ function renderInsiderPage(name, rows, stats) {
   const posture = buys > sells * 1.5 ? 'a net buyer' : sells > buys * 1.5 ? 'a net seller' : 'a mix of buying and selling';
   const span = stats.first && stats.latest && stats.first !== stats.latest ? `from ${_fmtDate(stats.first)} to ${_fmtDate(stats.latest)}` : `on ${_fmtDate(stats.latest)}`;
   const intro = `${displayName}${role ? `, ${role.toLowerCase().includes('director') || role.toLowerCase().includes('officer') || /ceo|cfo|chief|president|chair/i.test(role) ? '' : 'a '}${role},` : ''} is a corporate insider tracked by InsiderTape across ${companies} ${companies === 1 ? 'company' : 'companies'}. The public record shows ${buys + sells} open-market SEC Form 4 transaction${buys + sells === 1 ? '' : 's'}: ${buys} purchase${buys === 1 ? '' : 's'} worth ${_fmtV(stats.buyval)} and ${sells} sale${sells === 1 ? '' : 's'} worth ${_fmtV(stats.sellval)}, reported ${span}. Over this period they have been ${posture}.`;
-  const desc = `${displayName}${role ? `, ${role}` : ''} insider trading: ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) across ${companies} ${companies === 1 ? 'company' : 'companies'} on SEC Form 4, currently ${posture}. Every open-market trade with dates and dollar values.`;
+  let desc = `${displayName}${role ? `, ${role}` : ''} insider trading: ${buys} buy${buys === 1 ? '' : 's'} (${_fmtV(stats.buyval)}) and ${sells} sale${sells === 1 ? '' : 's'} (${_fmtV(stats.sellval)}) across ${companies} ${companies === 1 ? 'company' : 'companies'} on SEC Form 4, currently ${posture}. Every open-market trade with dates and dollar values.`;
 
   // Disclosed holdings from the most recent filing's "shares owned" field. This is
   // ONLY their reported insider stake in that one company - explicitly NOT net worth.
@@ -2514,7 +2516,12 @@ function renderInsiderPage(name, rows, stats) {
   const _ownedCo = _latest.company || _latest.ticker || '';
   const _ownedDate = _fmtDate(_latest.trade || _latest.filing);
   const _hasHoldings = _ownedShares > 0 && _ownedPrice > 0 && _ownedTicker;
-  const _holdingsBox = _hasHoldings ? `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:9px;padding:16px 20px;margin:0 0 28px;font-size:14px;color:#3a4555;line-height:1.75"><strong style="color:var(--text)">Disclosed holdings:</strong> as of ${dn}'s most recent SEC Form 4 (${_ownedDate}) for ${_esc(_ownedCo)} (${_esc(_ownedTicker)}), they reported owning <strong style="color:var(--text)">${_fmtQty(_ownedShares)} shares</strong>, worth about <strong style="color:var(--text)">${_fmtV(_ownedVal)}</strong> at that price. This is ${dn}'s reported insider stake in ${_esc(_ownedTicker)} from SEC filings, <strong style="color:var(--text)">not their total net worth</strong>.</div>` : '';
+  const _holdingsBox = _hasHoldings ? `<div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:9px;padding:16px 20px;margin:0 0 28px;font-size:14px;color:#3a4555;line-height:1.75"><div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px">How much stock does ${dn} own?</div><strong style="color:var(--text)">Disclosed holdings:</strong> as of ${dn}'s most recent SEC Form 4 (${_ownedDate}) for ${_esc(_ownedCo)} (${_esc(_ownedTicker)}), they reported owning <strong style="color:var(--text)">${_fmtQty(_ownedShares)} shares</strong>, worth about <strong style="color:var(--text)">${_fmtV(_ownedVal)}</strong> at that price. This is ${dn}'s reported insider stake in ${_esc(_ownedTicker)} from SEC filings, <strong style="color:var(--text)">not their total net worth</strong>.</div>` : '';
+  // Lead the meta description with the disclosed-holdings figure when we have it:
+  // a large share of searches for these names are "<name> net worth", and a real
+  // holdings number in the SERP snippet answers that intent honestly (never a
+  // fabricated net worth) and pulls the click to the trade data.
+  if (_hasHoldings) desc = `${displayName} reported owning about ${_fmtV(_ownedVal)} of ${_ownedTicker} stock in their latest SEC Form 4 (disclosed insider holdings, not net worth). ${desc}`;
   const faq = [];
   if (_hasHoldings) {
     faq.push({ q: `How much is ${displayName} worth?`, a: `We can't state ${displayName}'s total net worth. What public SEC filings show is that, as of their most recent Form 4 (${_ownedDate}), ${displayName} reported owning ${_fmtQty(_ownedShares)} shares of ${_ownedCo} (${_ownedTicker}), worth about ${_fmtV(_ownedVal)} at that price. That is their disclosed insider stake in this one company, not their overall wealth.` });
@@ -2539,7 +2546,7 @@ function renderInsiderPage(name, rows, stats) {
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${dn} Insider Trading: SEC Form 4 Buys and Sells | InsiderTape</title>
+<title>${dn} Insider Trading & Stock Holdings: SEC Form 4 | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
@@ -2598,6 +2605,8 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
       <li><a href="/articles/is-insider-buying-bullish.html">Is insider buying bullish? What the data says</a></li>
       <li><a href="/articles/what-it-means-when-a-ceo-buys-stock.html">What it means when a CEO buys their own stock</a></li>
       <li><a href="/articles/real-insider-buys-vs-option-exercises.html">Real insider buys vs option exercises</a></li>
+      <li><a href="/articles/sec-form-4-transaction-codes.html">What every SEC Form 4 transaction code means (P, S, A, M, F)</a></li>
+      <li><a href="/biggest-insider-buys">See the stocks with the most insider buying this week</a></li>
     </ul>
   </div>
   <div class="crumb" style="margin-top:34px"><a href="/">Home</a> &nbsp;/&nbsp; Insiders &nbsp;/&nbsp; ${dn}</div>
@@ -2940,6 +2949,9 @@ function renderBiggestBuysPage(rows) {
     { q: 'What stocks are insiders buying right now?', a: `The stocks with the most open-market insider buying this week include ${_topCos || 'the names ranked above'}, sorted by total dollars bought. The list updates daily from SEC Form 4 filings and shows only genuine open-market purchases, not grants or option exercises.` },
     { q: 'What is the largest insider buying this week?', a: _topRow ? `The largest insider buying this week was ${_esc(_topRow.company || _topRow.ticker)} ($${_esc(_topRow.ticker)}), with ${_fmtV(_topRow.buy_val)} of open-market insider purchases. The full ranking is above and updates daily.` : `See the ranked list above for this week's largest insider buying, updated daily.` },
     { q: 'How do I find stocks insiders are buying?', a: `This page ranks the stocks with the biggest open-market insider buying over the past 7 days, straight from SEC EDGAR. For real-time alerts the moment an insider files, plus every buy plotted on the price chart, track them live on InsiderTape.` },
+    { q: 'What stocks have the most insider buying?', a: `The stocks with the most insider buying right now are ranked in the table above by total open-market dollars bought over the past 7 days${_topCos ? ', led by ' + _topCos : ''}. Every name is a company where executives, directors, or 10% owners bought their own shares on the open market, updated daily from SEC Form 4 filings.` },
+    { q: 'Which companies are insiders buying?', a: `The companies with the most insider buying this week are listed above. We rank every company by how much insiders spent buying their own stock, so you can see at a glance which companies insiders are buying with real conviction, rather than receiving grants or exercising options.` },
+    { q: 'How do I see the latest insider buys?', a: `This page refreshes daily with the latest and most recent insider buys filed with the SEC. For the newest buys the moment they hit EDGAR, plus real-time alerts and every purchase plotted on the price chart, track them live on InsiderTape.` },
   ];
   const faqHtml = faq.map(f => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px"><h3 style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)">${_esc(f.q)}</h3><p style="font-size:14px;color:#3a4555;margin:0">${f.a}</p></div>`).join('');
 
@@ -3025,6 +3037,11 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
   <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or see the <a href="/biggest-insider-buyers">biggest insider buyers of the past year</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
+  <section style="margin-top:40px">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:10px">The stocks with the most insider buying right now</h2>
+    <p style="font-size:14px;color:#3a4555;line-height:1.75;margin-bottom:8px">The table above ranks the top insider buying stocks of the week by total dollars bought. It is the fastest way to see which companies insiders are buying with their own money: major insider buying by CEOs, CFOs, directors, and 10% owners, filed on SEC Form 4 and updated every day. We strip out grants, option exercises, and pre-planned sales, so what is left is genuine open-market conviction, from the largest insider buys of the week down to the smaller but still notable purchases.</p>
+    <p style="font-size:14px;color:#3a4555;line-height:1.75">Looking for the biggest buyers rather than the biggest buys? See the <a href="/biggest-insider-buyers" style="color:var(--accent);text-decoration:none">biggest insider buyers of the past year</a>, or the running <a href="/insider-buying-report" style="color:var(--accent);text-decoration:none">weekly insider buying report</a>.</p>
+  </section>
   <section style="margin-top:40px">
     <h2 style="font-size:18px;font-weight:700;margin-bottom:14px">Stocks insiders are buying: FAQ</h2>
     ${faqHtml}
