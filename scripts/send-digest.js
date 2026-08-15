@@ -35,6 +35,55 @@ function fmtV(n) {
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+// EDGAR reports names LAST-FIRST in caps ("SIMPSON BOB R"); title-case for email.
+function niceName(s) {
+  return String(s || '').toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase()).replace(/\s+/g, ' ').trim();
+}
+// EDGAR person names are LAST-FIRST; reorder to "First [M] Last". Only the
+// spotlight uses this and it is always a person (filtered to exec titles), so
+// the simple move-first-token-to-end heuristic is safe (entities never match).
+function displayName(s) {
+  const parts = niceName(s).split(' ').filter(Boolean);
+  if (parts.length >= 2 && parts.length <= 4) { const last = parts.shift(); return parts.join(' ') + ' ' + last; }
+  return niceName(s);
+}
+function shortRole(title) {
+  const t = (title || '').toUpperCase();
+  if (/\bCEO\b|CHIEF EXEC/.test(t)) return 'CEO';
+  if (/\bCFO\b|CHIEF FINANC/.test(t)) return 'CFO';
+  if (/CHAIR/.test(t)) return 'chairman';
+  if (/FOUNDER/.test(t)) return 'founder';
+  if (/PRESIDENT/.test(t)) return 'president';
+  return 'insider';
+}
+function spotlightWhy(title) {
+  const t = (title || '').toUpperCase();
+  if (/\bCEO\b|CHIEF EXEC/.test(t)) return "A CEO buying their own stock in the open market is one of the strongest signals on a Form 4: they know the business better than anyone, and they're betting their own cash on it.";
+  if (/\bCFO\b|CHIEF FINANC/.test(t)) return "In our five-year study the CFO's buy was the single sharpest signal, the person who knows the numbers best putting their own money down.";
+  if (/FOUNDER|CHAIR/.test(t)) return "A founder or chairman adding to their own company is conviction from the person with the most at stake.";
+  if (/PRESIDENT/.test(t)) return "A company president buying in the open market is real skin in the game, not a grant or an option exercise.";
+  return "An insider buying with their own money, not a grant or an option exercise.";
+}
+// The single most compelling buy of the week, to open the email with a story
+// rather than a table. Prefer the biggest open-market buy by a top executive
+// (CEO/CFO/founder/chairman/president) - the roles that carry the sharpest
+// signal - and let the ranked table below carry the rest.
+async function getSpotlight() {
+  const rows = await query(`
+    SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+           SUM(COALESCE(value,0)) AS ins_val, COUNT(*) AS buys, MAX(price) AS price
+    FROM trades
+    WHERE TRIM(type)='P' AND trade_date >= date('now','-7 days')
+      AND COALESCE(value,0) >= 100000
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CHIEF EXEC%'
+        OR UPPER(title) LIKE '%CFO%' OR UPPER(title) LIKE '%CHIEF FINANC%'
+        OR UPPER(title) LIKE '%FOUNDER%' OR UPPER(title) LIKE '%CHAIR%'
+        OR UPPER(title) LIKE '%PRESIDENT%')
+    GROUP BY ticker, insider
+    ORDER BY ins_val DESC LIMIT 1`);
+  return rows[0] || null;
+}
 
 async function ensureNewsletter() {
   await exec(`CREATE TABLE IF NOT EXISTS newsletter_subscribers (
@@ -66,9 +115,17 @@ async function getBiggestBuys() {
     ORDER BY buy_val DESC LIMIT 12`);
 }
 
-function buildEmail(rows, unsubToken) {
+function buildEmail(rows, unsubToken, spotlight) {
   const unsubUrl = `${SITE_URL}/api/unsubscribe?token=${encodeURIComponent(unsubToken)}`;
   const totalVal = rows.reduce((s, r) => s + (Number(r.buy_val) || 0), 0);
+  const spotlightHtml = spotlight ? `
+    <div style="background:#fff;border:1px solid #d0d4db;border-left:4px solid #12905f;border-radius:12px;padding:22px 20px;margin-bottom:14px">
+      <div style="font-family:Arial,sans-serif;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#12905f;font-weight:700;margin-bottom:9px">Buy of the week</div>
+      <div style="font-family:Arial,sans-serif;font-size:18px;font-weight:800;color:#1a2030;line-height:1.4;margin-bottom:9px">
+        ${esc(displayName(spotlight.insider))}, ${esc(shortRole(spotlight.title))} of ${esc(spotlight.company || spotlight.ticker)}, just bought ${fmtV(spotlight.ins_val)} of <a href="${SITE_URL}/insider-trading/${encodeURIComponent(spotlight.ticker)}" style="color:#0a6f88;text-decoration:none">$${esc(spotlight.ticker)}</a> in the open market.
+      </div>
+      <div style="font-family:Arial,sans-serif;font-size:13px;color:#6e7a8a;line-height:1.65">${esc(spotlightWhy(spotlight.title))}</div>
+    </div>` : '';
   const bodyRows = rows.map((r, i) => {
     const co = esc((r.company || r.ticker).slice(0, 34));
     return `<tr>
@@ -88,7 +145,7 @@ function buildEmail(rows, unsubToken) {
       <span style="font-family:Arial,sans-serif;font-size:18px;font-weight:800;letter-spacing:3px;color:#1a2030">INSIDER<span style="color:#0a6f88">TAPE</span></span>
     </div>
     <div style="text-align:center;font-family:Arial,sans-serif;font-size:11px;letter-spacing:1px;color:#8a95a3;text-transform:uppercase;margin-bottom:22px">Weekly Insider Digest</div>
-
+${spotlightHtml}
     <div style="background:#fff;border:1px solid #d0d4db;border-radius:12px;padding:22px 20px">
       <div style="font-family:Arial,sans-serif;font-size:19px;font-weight:800;color:#1a2030;margin-bottom:6px">The biggest insider buys this week</div>
       <div style="font-family:Arial,sans-serif;font-size:13px;color:#6e7a8a;line-height:1.6;margin-bottom:18px">
@@ -127,12 +184,19 @@ function buildEmail(rows, unsubToken) {
 
 // Plain-text alternative. A multipart (text + html) email looks less like bulk
 // marketing to Gmail and lands in Primary far more often than html-only.
-function buildText(rows, unsubToken) {
+function buildText(rows, unsubToken, spotlight) {
   const unsubUrl = `${SITE_URL}/api/unsubscribe?token=${encodeURIComponent(unsubToken)}`;
   const lines = rows.map((r, i) => `${i + 1}. $${r.ticker} - ${(r.company || '').slice(0, 34)} - ${r.insiders} insider${r.insiders == 1 ? '' : 's'} - ${fmtV(r.buy_val)} bought`);
+  const spot = spotlight ? [
+    'BUY OF THE WEEK',
+    `${displayName(spotlight.insider)}, ${shortRole(spotlight.title)} of ${spotlight.company || spotlight.ticker}, just bought ${fmtV(spotlight.ins_val)} of $${spotlight.ticker} in the open market.`,
+    spotlightWhy(spotlight.title),
+    '',
+  ] : [];
   return [
     'INSIDERTAPE - Weekly Insider Digest',
     '',
+    ...spot,
     'The biggest open-market insider buys filed with the SEC this week, ranked by dollar value. Grants, option exercises, and coordinated plan buys stripped out:',
     '',
     ...lines,
@@ -153,6 +217,8 @@ async function main() {
 
   const rows = await getBiggestBuys();
   if (!rows.length) { console.log('No qualifying buys this week; skipping send.'); return; }
+  let spotlight = null;
+  try { spotlight = await getSpotlight(); } catch (e) { console.error('spotlight query failed (continuing):', e && e.message); }
 
   let subs;
   if (TEST_EMAIL) {
@@ -168,11 +234,16 @@ async function main() {
   }
   if (!subs.length) { console.log('No active subscribers to send to.'); return; }
 
-  const subject = rows.length >= 2
-    ? `This week's biggest insider buys: $${rows[0].ticker}, $${rows[1].ticker} + more`
-    : `This week's biggest insider buys`;
+  // Lead the subject with the spotlight story (far better open rates than a
+  // generic "biggest buys" line); fall back to the ranked tickers.
+  const subject = spotlight
+    ? `The ${spotlight.company ? String(spotlight.company).replace(/[",]/g, '').split(' ').slice(0, 3).join(' ') : spotlight.ticker} ${shortRole(spotlight.title)} just bought ${fmtV(spotlight.ins_val)} of their own stock`
+    : rows.length >= 2
+      ? `This week's biggest insider buys: $${rows[0].ticker}, $${rows[1].ticker} + more`
+      : `This week's biggest insider buys`;
 
   console.log(`${DRY_RUN ? '[DRY RUN] ' : ''}Recipients: ${subs.length} | Buys: ${rows.length} | Subject: ${subject}`);
+  if (spotlight) console.log(`Spotlight: ${displayName(spotlight.insider)} (${shortRole(spotlight.title)}) ${spotlight.ticker} ${fmtV(spotlight.ins_val)}`);
   if (DRY_RUN) {
     console.log('Top rows:', rows.slice(0, 5).map(r => `${r.ticker} ${fmtV(r.buy_val)} (${r.insiders} ins)`).join(' | '));
     return;
@@ -186,8 +257,8 @@ async function main() {
       const unsubUrl = `${SITE_URL}/api/unsubscribe?token=${encodeURIComponent(s.unsub_token)}`;
       const opts = {
         from: FROM_EMAIL, to: s.email, subject,
-        html: buildEmail(rows, s.unsub_token),
-        text: buildText(rows, s.unsub_token),
+        html: buildEmail(rows, s.unsub_token, spotlight),
+        text: buildText(rows, s.unsub_token, spotlight),
         headers: { 'List-Unsubscribe': `<${unsubUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
       };
       if (REPLY_TO) opts.replyTo = REPLY_TO;

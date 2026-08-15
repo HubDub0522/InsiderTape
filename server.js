@@ -2197,6 +2197,7 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/', priority: '1.0', freq: 'daily' },
     { url: '/biggest-insider-buys', priority: '0.9', freq: 'daily' },
     { url: '/biggest-insider-buyers', priority: '0.8', freq: 'weekly' },
+    { url: '/ceos-buying-stock', priority: '0.8', freq: 'daily' },
     { url: '/insider-buying-index', priority: '0.8', freq: 'daily' },
     { url: '/insider-buying-study', priority: '0.8', freq: 'weekly' },
     { url: '/insider-trading-studies', priority: '0.7', freq: 'weekly' },
@@ -3040,7 +3041,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   </div>
   <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
   <table><thead><tr><th>#</th><th>Company</th><th class="num">Insiders</th><th class="num">Buys</th><th class="num">Total Bought</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
-  <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or see the <a href="/biggest-insider-buyers">biggest insider buyers of the past year</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
+  <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or see the <a href="/biggest-insider-buyers">biggest insider buyers of the past year</a>, which <a href="/ceos-buying-stock">CEOs are buying their own stock</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
   <section style="margin-top:40px">
     <h2 style="font-size:18px;font-weight:700;margin-bottom:10px">The stocks with the most insider buying right now</h2>
     <p style="font-size:14px;color:#3a4555;line-height:1.75;margin-bottom:8px">The table above ranks the top insider buying stocks of the week by total dollars bought. It is the fastest way to see which companies insiders are buying with their own money: major insider buying by CEOs, CFOs, directors, and 10% owners, filed on SEC Form 4 and updated every day. We strip out grants, option exercises, and pre-planned sales, so what is left is genuine open-market conviction, from the largest insider buys of the week down to the smaller but still notable purchases.</p>
@@ -3082,6 +3083,149 @@ app.get('/biggest-insider-buys', async (req, res) => {
       ORDER BY buy_val DESC LIMIT 30`);
     const html = renderBiggestBuysPage(rows || []);
     _biggestBuysCache = { html, t: Date.now() };
+    res.type('html').send(html);
+  } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── DATA ASSET: CEOs BUYING THEIR OWN STOCK ──────────────────────────────────
+// Live leaderboard of chief-executive open-market purchases (trailing 90 days),
+// ranked by dollars. Targets the evergreen "CEOs buying their own stock" query,
+// reinforces the CEO/CFO conviction thesis, and is shareable/citeable (real
+// names). One row per CEO+ticker; grants/options are excluded (code P only).
+function renderCeosBuyingPage(rows) {
+  const today = new Date();
+  const updated = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const totalVal = rows.reduce((s, r) => s + (+r.buy_val || 0), 0);
+  const url = 'https://www.insidertape.com/ceos-buying-stock';
+  const _ogimg = ogImg('biggest-buys');
+  const _top = rows[0] || null;
+  const _topName = _top ? _displayName(_top.insider) : '';
+  const _topCo = _top ? (_top.company || _top.ticker) : '';
+  const desc = `The CEOs buying their own company's stock on the open market right now, ranked by dollar value. Every chief-executive open-market purchase from SEC Form 4 filings over the past 90 days${_top ? `, led by ${_topName} at ${_topCo}` : ''}. Updated daily.`;
+  const faq = [
+    { q: 'Which CEOs are buying their own stock right now?', a: `The CEOs buying the most of their own stock right now${_top ? `, led by ${_esc(_topName)} at ${_esc(_topCo)} ($${_esc(_top.ticker)}),` : ''} are ranked in the table above by total open-market dollars bought over the past 90 days, straight from SEC Form 4 filings. The list updates daily and shows only genuine open-market purchases, not grants or option exercises.` },
+    { q: 'Is it a good sign when a CEO buys their own stock?', a: `A CEO buying their own stock on the open market is one of the most watched signals in investing: the person who knows the business best is putting their own money down. It is not a guarantee, but open-market CEO purchases have historically carried a far stronger signal than the routine selling that fills most Form 4 filings.` },
+    { q: 'How do I find out which CEOs are buying stock?', a: `This page ranks every open-market purchase by a chief executive filed with the SEC over the past 90 days. For CEO and insider buys the moment they file, plus every purchase plotted on the price chart, track them live on InsiderTape.` },
+  ];
+  const faqHtml = faq.map(f => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px"><h3 style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)">${_esc(f.q)}</h3><p style="font-size:14px;color:#3a4555;margin:0">${f.a}</p></div>`).join('');
+  const tr = rows.map((r, i) => `<tr>
+      <td class="rk">${i + 1}</td>
+      <td><strong style="color:var(--text);font-size:14px">${_esc(_displayName(r.insider))}</strong><div style="font-size:11px;color:var(--muted)">${_esc(r.title || 'Chief Executive Officer')}</div></td>
+      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="num v">${_fmtV(r.buy_val)}</td>
+      <td class="num bcol">${r.buys || 0}</td>
+      <td class="dt">${_fmtDate(r.latest)}</td>
+    </tr>`).join('');
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CEOs Buying Their Own Stock Right Now | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="CEOs Buying Their Own Stock Right Now">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: 'CEOs Buying Their Own Stock', description: desc, url, dateModified: today.toISOString().slice(0, 10) })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'CEOs Buying Their Own Stock', item: url }] })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:880px;margin:0 auto;padding:44px 24px 90px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(18,144,95,.08);border:1px solid rgba(18,144,95,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--buy);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+h1{font-size:clamp(28px,5vw,42px);font-weight:800;letter-spacing:-.5px;line-height:1.12;margin-bottom:12px}
+.sub{font-size:15px;color:#3a4555;line-height:1.7;margin-bottom:8px;max-width:640px}
+.upd{font-size:12px;color:var(--muted);margin-bottom:26px}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:30px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:14px 16px}
+.card .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}.card .v{font-size:22px;font-weight:800}.card .v.g{color:var(--buy)}
+.tbl-brand{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-bottom:none;border-radius:10px 10px 0 0;padding:11px 15px}
+.tbl-brand .bl{font-size:14px;font-weight:800;letter-spacing:2px;color:var(--text)}.tbl-brand .bl span{color:var(--accent)}
+.tbl-brand .br{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--accent);font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 10px 10px;overflow:hidden;font-size:14px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:12px 14px;border-bottom:2px solid var(--border)}
+td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(10,111,136,.03)}
+.rk{color:var(--muted);font-weight:700;width:34px;font-variant-numeric:tabular-nums}
+.tk a{text-decoration:none;color:inherit;display:flex;flex-direction:column}.tk strong{color:var(--accent);font-weight:700;font-size:15px}.tk .co{font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:#3a4555}.num.v{color:var(--buy);font-weight:700}
+.dt{text-align:right;white-space:nowrap;color:var(--muted);font-size:12px}
+.note{font-size:13px;color:var(--muted);margin:22px 0 0;line-height:1.7}.note a{color:var(--accent);text-decoration:none}
+.cite{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.7;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:9px}.cite a{color:var(--accent);text-decoration:none}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:38px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.soft{margin-top:12px}.soft a{font-size:12px;color:var(--muted);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.summary{grid-template-columns:1fr}table{font-size:12px}th,td{padding:9px 8px}.tk .co{max-width:120px}.bcol,th:nth-child(5){display:none}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Updated Daily &nbsp;·&nbsp; Free</div>
+  <h1>CEOs Buying Their Own Stock</h1>
+  <p class="sub">The chief executives buying the most of their own company's stock on the open market, ranked by dollar value over the past 90 days. Only genuine open-market purchases, with grants, option exercises, and pre-planned sales stripped out, straight from SEC Form 4 filings.</p>
+  <div class="upd">Updated ${updated}</div>
+  <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 26px">
+    <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
+    <a href="#" onclick="return sx('x')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">Post on X</a>
+    <a href="#" onclick="return sx('reddit')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">Reddit</a>
+    <button type="button" onclick="sx('copy',this)" style="font-size:12px;font-weight:600;color:#1a2030;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit">Copy link</button>
+  </div>
+  <div class="summary">
+    <div class="card"><div class="k">CEOs Buying</div><div class="v">${rows.length}</div></div>
+    <div class="card"><div class="k">Window</div><div class="v">90d</div></div>
+    <div class="card"><div class="k">Total CEO Buying</div><div class="v g">${_fmtV(totalVal)}</div></div>
+  </div>
+  <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
+  <table><thead><tr><th>#</th><th>CEO</th><th>Company</th><th class="num">Bought</th><th class="num bcol">Buys</th><th class="dt">Latest</th></tr></thead><tbody>${tr}</tbody></table>
+  <p class="note">These are open-market purchases: shares a CEO chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Want the biggest buys across every role, not just CEOs? See the <a href="/biggest-insider-buys">biggest insider buys this week</a> and the <a href="/biggest-insider-buyers">biggest insider buyers of the year</a>. Curious whether the CEO or the CFO is the sharper signal? See our study of <a href="/insider-buying-study">which insiders actually beat the market</a>.</p>
+  <div class="cite"><strong>Cite this page:</strong> InsiderTape, &ldquo;CEOs Buying Their Own Stock,&rdquo; data through ${updated}, sourced from SEC Form 4 filings. Free to reference with a link to insidertape.com/ceos-buying-stock.</div>
+  <section style="margin-top:40px">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:10px">Why CEO buying is worth watching</h2>
+    <p style="font-size:14px;color:#3a4555;line-height:1.75">A CEO buying their own stock on the open market is the purest form of insider conviction: the person with the most information and the most at stake, spending their own cash. Most Form 4 activity is selling, so the CEOs buying stand out. This page ranks the chief executives putting the most money into their own companies right now, updated daily. It is the fastest way to see which CEOs are buying their own stock, from the largest purchases down to the smaller but still notable ones.</p>
+  </section>
+  <section style="margin-top:40px">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:14px">CEOs buying their own stock: FAQ</h2>
+    ${faqHtml}
+  </section>
+  ${_emailCapture('ceos-buying', 'Get the biggest insider and CEO buys every week, free.')}
+  <div class="cta up-hide">
+    <h3>See these CEO buys plotted on the chart</h3>
+    <p>InsiderTape tracks every SEC Form 4 in real time and flags CEO conviction, cluster buys, first buys in years, and buying at the lows the moment they file. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium">START FREE TRIAL →</a>
+    <div class="soft"><a href="/">or explore the live screener free →</a></div>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
+<script>function sx(k,el){var u=encodeURIComponent(location.href.split('#')[0]);var t=encodeURIComponent((document.title||'').split('|')[0].trim());var m={x:'https://twitter.com/intent/tweet?text='+t+'&url='+u,reddit:'https://www.reddit.com/submit?url='+u+'&title='+t};if(k==='copy'){try{navigator.clipboard.writeText(location.href.split('#')[0]);}catch(e){}if(el){var o=el.textContent;el.textContent='Copied!';setTimeout(function(){el.textContent=o;},1500);}return false;}window.open(m[k],'_blank','noopener,noreferrer,width=600,height=520');return false;}</script>
+</body></html>`;
+}
+
+let _ceosBuyingCache = null;
+app.get('/ceos-buying-stock', async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
+  if (_ceosBuyingCache && Date.now() - _ceosBuyingCache.t < 3 * 3600000) { res.type('html'); return res.send(_ceosBuyingCache.html); }
+  try {
+    const rows = await query(`
+      SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
+             SUM(COALESCE(value,0)) AS buy_val, COUNT(*) AS buys, MAX(trade_date) AS latest
+      FROM trades
+      WHERE TRIM(type)='P' AND trade_date >= date('now','-90 days')
+        AND COALESCE(value,0) >= 25000
+        AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+        AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL')
+        AND (UPPER(title) LIKE '%CEO%' OR UPPER(title) LIKE '%CHIEF EXECUTIVE%')
+      GROUP BY ticker, insider HAVING buy_val > 0
+      ORDER BY buy_val DESC LIMIT 40`);
+    const html = renderCeosBuyingPage(rows || []);
+    _ceosBuyingCache = { html, t: Date.now() };
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
@@ -3251,7 +3395,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <p class="sub" style="margin-bottom:14px">Every buyer ranked by total open-market dollars over the past 12 months, each classified by the nature of the purchase. Complete and unfiltered.</p>
   <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com</span></div>
   <table class="lb full"><thead><tr><th>#</th><th>Insider</th><th>Top Buy</th><th>Type</th><th class="num">Cos</th><th class="num">Buys</th><th class="num">Total Bought</th></tr></thead><tbody>${tr}</tbody></table>
-  <p class="note"><strong>Methodology.</strong> The ranking covers open-market purchases (SEC transaction code P) filed on Form 4 over the trailing 12 months, aggregated by filer, with grants and option exercises excluded. Each buyer is classified by InsiderTape from the filer's identity and the nature of the transaction: <em>open-market conviction</em> (people and investors buying at market), <em>strategic stake</em> (one company taking a position in another), <em>PE / block</em> (single large negotiated purchases), and <em>affiliated / structural</em> (buyers tied to the issuer, or thinly-traded names). Those classifications are editorial judgments, not the SEC's. See also the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and our study of <a href="/insider-buying-study">which insiders actually beat the market</a>.</p>
+  <p class="note"><strong>Methodology.</strong> The ranking covers open-market purchases (SEC transaction code P) filed on Form 4 over the trailing 12 months, aggregated by filer, with grants and option exercises excluded. Each buyer is classified by InsiderTape from the filer's identity and the nature of the transaction: <em>open-market conviction</em> (people and investors buying at market), <em>strategic stake</em> (one company taking a position in another), <em>PE / block</em> (single large negotiated purchases), and <em>affiliated / structural</em> (buyers tied to the issuer, or thinly-traded names). Those classifications are editorial judgments, not the SEC's. See also the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/ceos-buying-stock">CEOs buying their own stock</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and our study of <a href="/insider-buying-study">which insiders actually beat the market</a>.</p>
   <div class="cite"><strong>Cite this report:</strong> InsiderTape, &ldquo;The Biggest Insider Buyers,&rdquo; data through ${updated}, sourced from SEC Form 4 filings. Free to reference with a link to insidertape.com/biggest-insider-buyers.</div>
   ${_emailCapture('biggest-buyers', 'Get the weekly insider buying digest, free.')}
   <div class="cta up-hide">
