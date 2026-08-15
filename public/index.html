@@ -10846,7 +10846,7 @@ async function loadAuth() {
 
   // Re-render any page that was gated before auth loaded
   if (auth.isPremium) {
-    ['stockContent','insiderViewBody','analysisViewBody','monitorViewBody','sectorsViewBody','compareViewBody','watchlistViewBody'].forEach(id => {
+    ['insiderViewBody','analysisViewBody','monitorViewBody','sectorsViewBody','compareViewBody','watchlistViewBody'].forEach(id => {
       const el = document.getElementById(id);
       if (el && el.dataset.blurGated === '1') {
         el.dataset.blurGated = '';
@@ -10871,21 +10871,23 @@ async function loadAuth() {
       window.scrollTo(0, _sy);
     }
 
-    // Re-render stock landing with premium sections if it's currently showing
+    // Stock view: now that premium is confirmed, reload it correctly. On a fresh
+    // /stock/<ticker> load, init() routes to loadStockView BEFORE loadAuth runs,
+    // so the chart first renders LOCKED (auth not resolved yet) and must be
+    // reloaded once premium is known. Do this whenever a ticker detail is open,
+    // rather than gating on dataset.chartLocked — that flag is set late in the
+    // initial async render, so gating on it races and can leave a member's chart
+    // stuck on a spinner. If it's the landing (no ticker), refresh that instead.
     const stockContent = document.getElementById('stockContent');
-    if (stockContent && _stockListsCache) {
-      const viewStock = document.getElementById('view-stock');
-      if (viewStock && viewStock.classList.contains('active')) {
+    const viewStock = document.getElementById('view-stock');
+    if (stockContent && viewStock && viewStock.classList.contains('active')) {
+      const t = state.currentTicker || _tickerFromPath(location.pathname);
+      if (t) {
+        stockContent.dataset.chartLocked = '';
+        loadStockView(t, { fromPopstate: true });
+      } else if (_stockListsCache) {
         renderStockLanding(_stockListsCache);
       }
-    }
-
-    // If a stock detail rendered a locked chart before auth resolved, reload it
-    // now that the user is confirmed premium so the real chart appears.
-    if (stockContent && stockContent.dataset.chartLocked === '1') {
-      stockContent.dataset.chartLocked = '';
-      const t = state.currentTicker || _tickerFromPath(location.pathname);
-      if (t) loadStockView(t, { fromPopstate: true });
     }
 
     // Re-render insider profile if it loaded before auth resolved
