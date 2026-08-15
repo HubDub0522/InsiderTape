@@ -51,6 +51,7 @@ async function computeStockLists() {
              FROM trades WHERE trade_date >= date('now','-14 days') AND trade_date <= date('now')
                AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
              GROUP BY ticker HAVING buys >= 1 AND buy_val >= 1000
+               AND NOT (COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) >= 2 AND COUNT(DISTINCT CASE WHEN TRIM(type)='P' AND price>0 THEN price END) <= 1 AND COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN trade_date END) <= 1)
              ORDER BY buyers DESC, buy_val DESC LIMIT 24`),
     dbQuery(`SELECT ticker, MAX(company) AS company,
                COUNT(DISTINCT CASE WHEN TRIM(type)='P' THEN insider END) AS buyers,
@@ -60,6 +61,7 @@ async function computeStockLists() {
                AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
                AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL') AND TRIM(type)='P'
              GROUP BY ticker HAVING buyers >= 1 AND buy_val >= 50000
+               AND NOT (COUNT(DISTINCT insider) >= 2 AND COUNT(DISTINCT CASE WHEN price>0 THEN price END) <= 1 AND COUNT(DISTINCT trade_date) <= 1)
              ORDER BY buy_val DESC LIMIT 16`),
     dbQuery(`SELECT ticker, MAX(company) AS company,
                COUNT(DISTINCT insider) AS buyer_count,
@@ -68,6 +70,7 @@ async function computeStockLists() {
                AND TRIM(type)='P' AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
                AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL')
              GROUP BY ticker HAVING buyer_count >= 3
+               AND NOT (COUNT(DISTINCT CASE WHEN price>0 THEN price END) <= 1 AND COUNT(DISTINCT trade_date) <= 1)
              ORDER BY buyer_count DESC, total_val DESC LIMIT 12`),
     dbQuery(`SELECT ticker, MAX(company) AS company, MAX(insider) AS insider,
                MAX(value) AS val, MAX(trade_date) AS date
@@ -75,7 +78,8 @@ async function computeStockLists() {
                AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
                AND COALESCE(company,'') NOT IN ('','N/A','NA','None','NULL')
                AND COALESCE(value,0) >= 25000
-             GROUP BY ticker ORDER BY val DESC LIMIT 16`),
+             GROUP BY ticker HAVING NOT (COUNT(DISTINCT insider) >= 2 AND COUNT(DISTINCT CASE WHEN price>0 THEN price END) <= 1 AND COUNT(DISTINCT trade_date) <= 1)
+             ORDER BY val DESC LIMIT 16`),
     dbQuery(`SELECT ticker, MAX(company) AS company,
                COUNT(DISTINCT insider) AS seller_count,
                SUM(CASE WHEN TRIM(type) IN ('S','S-') THEN COALESCE(value,0) ELSE 0 END) AS sell_val

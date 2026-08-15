@@ -2052,14 +2052,14 @@ function renderConvictionCards(trades) {
 
 // ── REPEAT BUYING ─────────────────────────────────────────────────────────
 // Flags stocks where ONE insider is deliberately working into a larger position:
-// 3+ separate open-market buys on distinct days within ~90 days (accumulation).
+// 3+ separate open-market buys on distinct days within ~30 days (accumulation).
 // This is distinct from a multi-insider cluster. Insider names are normalized
 // (HTML entities decoded, case/space folded) so "&" vs "&amp;" count as one.
 function _decIns(s){return String(s||'').replace(/&#x([0-9a-f]+);/gi,(_,n)=>String.fromCharCode(parseInt(n,16))).replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();}
 function _insKey(s){return _decIns(s).toUpperCase();}
 function _shortIns(s){const d=_decIns(s);return d.length>24?d.slice(0,23)+'…':d;}
 function buildRepeatBuyingData(trades){
-  const cutoff=new Date(Date.now()-90*86400000).toISOString().slice(0,10);
+  const cutoff=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
   const byTicker={};
   trades.forEach(t=>{
     if(t.type!=='P')return;
@@ -2099,7 +2099,7 @@ function buildRepeatBuyingData(trades){
 }
 function renderRepeatBuyingCards(trades){
   const top=buildRepeatBuyingData(trades);
-  if(!top.length)return '<div style="color:var(--muted);font-size:12px;padding:16px">No repeat-buying accumulation found in the last 90 days.</div>';
+  if(!top.length)return '<div style="color:var(--muted);font-size:12px;padding:16px">No repeat-buying accumulation found in the last 30 days.</div>';
   return top.map(c=>{
     const col=c.buys>=5?'var(--buy)':c.buys>=4?'var(--accent)':'var(--option)';
     const bg=c.buys>=5?'rgba(18,144,95,0.08)':c.buys>=4?'rgba(10,111,136,0.08)':'rgba(154,110,0,0.08)';
@@ -5857,7 +5857,7 @@ function renderAnalysisDashboard() {
       id: 'repeatbuying',
       icon: '🔁',
       name: 'Repeat Buying',
-      desc: 'Flags stocks where one insider is working into a larger position: 3+ separate open-market buys on different days within 90 days. Deliberate accumulation, not a one-off.',
+      desc: 'Flags stocks where one insider is working into a larger position: 3+ separate open-market buys on different days within 30 days. Deliberate accumulation, not a one-off.',
       count: _repeatData.length,
       countLabel: 'accumulating',
       loading: false,
@@ -6104,7 +6104,7 @@ function renderAnalysisSubpage(id, opts={}) {
       ${backBtn}
       <div style="margin-bottom:20px">
         <div style="font-family:Inter,sans-serif;font-size:24px;letter-spacing:2.5px;color:var(--text)">🔁 REPEAT BUYING</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:4px">One insider working into a larger position: 3+ open-market buys on different days · Last 90D</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px">One insider working into a larger position: 3+ open-market buys on different days · Last 30D</div>
       </div>
       <div class="conviction-grid">${convHtml}</div>
     </div>`;
@@ -9749,8 +9749,10 @@ async function loadMonitorPage() {
   const body = document.getElementById('monitorViewBody');
   if (!body) return;
   renderMonitorShell(body);
-  // Warm up server before firing heavy parallel fetches (prevents cold-start timeout)
-  try { await fetch('/api/ping'); } catch(_) {}
+  // Warm the server in the background (non-blocking). The screener/sentiment
+  // endpoints are edge-cached so they rarely hit a cold function, and awaiting
+  // this ping just added a full round-trip to every Monitor load.
+  try { fetch('/api/ping').catch(() => {}); } catch(_) {}
   await runMonitorWindow(_monitorTab, body);
 }
 
@@ -9923,13 +9925,18 @@ async function runMonitorWindow(tab, body) {
     let allTrades, firstBuysFull, sentimentData;
     const today = lastTradingDate();
 
-    const needsSignalFetch = !(_monitorCache['_allTrades'] && _monitorCache['_allTradesDate'] === today);
+    // Fetch only the window the current tab needs. Today/week/month all look back
+    // <=45 days; the wider 90-day pull (a ~2.5MB payload, the main cause of a slow
+    // first load) is deferred until the quarter tab is actually opened.
+    const needDays = tab === 'quarter' ? 90 : 45;
+    const haveDays = _monitorCache['_allTradesWindow'] || 0;
+    const needsSignalFetch = !(_monitorCache['_allTrades'] && _monitorCache['_allTradesDate'] === today && haveDays >= needDays);
     const needsSentimentFetch = !(_monitorCache['_sentiment'] && _monitorCache['_allTradesDate'] === today);
 
     if (needsSignalFetch || needsSentimentFetch) {
       const fetches = [];
       if (needsSignalFetch) {
-        fetches.push(apiFetch('/api/screener?days=90').catch(e => { console.warn('screener fetch failed:', e); return []; }));
+        fetches.push(apiFetch('/api/screener?days=' + needDays).catch(e => { console.warn('screener fetch failed:', e); return []; }));
         fetches.push(apiFetch('/api/firstbuys?mingap=730&lookback=92&limit=100').catch(() => []));
       } else {
         fetches.push(Promise.resolve(null));
@@ -9943,6 +9950,7 @@ async function runMonitorWindow(tab, body) {
         allTrades     = Array.isArray(resp) ? resp : (resp.trades || []);
         firstBuysFull = Array.isArray(fb) ? fb.map(r => buildFirstBuySignal(r)) : [];
         _monitorCache['_allTrades']     = allTrades;
+        _monitorCache['_allTradesWindow'] = needDays;
         _monitorCache['_firstBuysFull'] = firstBuysFull;
       } else {
         allTrades     = _monitorCache['_allTrades'];
