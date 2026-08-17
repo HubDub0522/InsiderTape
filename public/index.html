@@ -1307,6 +1307,10 @@
   <div id="accountPageBody"></div>
 </div>
 
+<div id="view-feedback" class="view">
+  <div id="feedbackPageBody"></div>
+</div>
+
 </main>
 <div class="toast" id="toast"></div>
 
@@ -1575,6 +1579,12 @@ function switchView(view, btn, opts={}) {
     else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _ra, { once: true });
     else setTimeout(_ra, 0);
   }
+  if (view === 'feedback') {
+    const _rf = () => { if (typeof loadFeedbackPage === 'function') loadFeedbackPage(); };
+    if (typeof loadFeedbackPage === 'function') loadFeedbackPage();
+    else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _rf, { once: true });
+    else setTimeout(_rf, 0);
+  }
   if (!opts.fromPopstate) {
     const url = view === 'screener' ? '/' : '/' + view;
     history.pushState({view, subview: null}, '', url);
@@ -1583,7 +1593,7 @@ function switchView(view, btn, opts={}) {
 }
 
 function updateTitle(view, extra) {
-  const titles = {screener:'INSIDERTAPE - The Tape', stock:'INSIDERTAPE - Stock View', insider:'INSIDERTAPE - Insider', analysis:'INSIDERTAPE - Radar', monitor:'INSIDERTAPE - Monitor', sectors:'INSIDERTAPE - Sectors', compare:'INSIDERTAPE - Compare', watchlist:'INSIDERTAPE - Watchlist', premium:'INSIDERTAPE - Premium', signup:'INSIDERTAPE - Sign In', account:'INSIDERTAPE - Account'};
+  const titles = {screener:'INSIDERTAPE - The Tape', stock:'INSIDERTAPE - Stock View', insider:'INSIDERTAPE - Insider', analysis:'INSIDERTAPE - Radar', monitor:'INSIDERTAPE - Monitor', sectors:'INSIDERTAPE - Sectors', compare:'INSIDERTAPE - Compare', watchlist:'INSIDERTAPE - Watchlist', premium:'INSIDERTAPE - Premium', signup:'INSIDERTAPE - Sign In', account:'INSIDERTAPE - Account', feedback:'INSIDERTAPE - Feedback'};
   document.title = extra ? `INSIDERTAPE - ${extra}` : (titles[view] || 'INSIDERTAPE');
 }
 function globalSearch() {
@@ -10479,6 +10489,7 @@ function routeFromPath(path, fromPopstate) {
   if (path.startsWith('/watchlist')){ switchView('watchlist', null, {fromPopstate}); return; }
   if (path.startsWith('/premium'))  { switchView('premium',   null, {fromPopstate}); return; }
   if (path.startsWith('/signup'))   { switchView('signup',    null, {fromPopstate}); return; }
+  if (path.startsWith('/feedback')) { switchView('feedback',  null, {fromPopstate}); return; }
   if (path.startsWith('/account'))  { switchView('account',   null, {fromPopstate}); return; }
   // default → screener
   switchView('screener', null, {fromPopstate});
@@ -10916,16 +10927,75 @@ function renderAuthHeader() {
   if (auth.loggedIn) {
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="switchView('feedback',null)" class="feedback-link" style="background:transparent;border:none;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;cursor:pointer;letter-spacing:0.3px;padding:9px 6px;font-weight:500;white-space:nowrap" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Provide Feedback</button>
         ${auth.isPremium ? '<span style="font-size:10px;color:var(--accent);border:1px solid rgba(10,111,136,0.35);border-radius:4px;padding:3px 8px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-weight:600">PREMIUM</span>' : ''}
         <button onclick="switchView('account',null)" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:9px 18px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text);cursor:pointer;letter-spacing:0.5px;font-weight:600">ACCOUNT</button>
       </div>`;
   } else {
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="switchView('feedback',null)" class="feedback-link" style="background:transparent;border:none;color:var(--muted);font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;cursor:pointer;letter-spacing:0.3px;padding:9px 6px;font-weight:500;white-space:nowrap" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">Provide Feedback</button>
         <button onclick="switchView('signup',null)" style="background:transparent;border:1px solid var(--border);border-radius:8px;padding:9px 18px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;color:var(--text);cursor:pointer;letter-spacing:0.5px;font-weight:600">SIGN IN</button>
         <button onclick="switchView('premium',null)" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.5px">GET PREMIUM</button>
       </div>`;
   }
+}
+
+function loadFeedbackPage() {
+  const el = document.getElementById('feedbackPageBody');
+  if (!el) return;
+  if (typeof gtag === 'function') gtag('event', 'feedback_view');
+  const inS = "width:100%;padding:11px 13px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-family:'Inter',sans-serif";
+  const lbl = "display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-family:Inter,sans-serif;letter-spacing:0.3px";
+  el.innerHTML = `
+    <div style="max-width:600px;margin:0 auto;padding:56px 24px 90px">
+      <div style="text-align:center;margin-bottom:30px">
+        <div style="font-family:Inter,sans-serif;font-size:32px;letter-spacing:3px;color:var(--text);margin-bottom:10px">PROVIDE FEEDBACK</div>
+        <div style="font-size:14px;color:var(--muted);line-height:1.7;max-width:460px;margin:0 auto">Found a bug, want a feature, or just have a thought? Tell us. We read every message.</div>
+      </div>
+      <form id="fbForm" onsubmit="return submitFeedback(event)" style="display:flex;flex-direction:column;gap:16px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:28px 26px">
+        <div>
+          <label for="fbName" style="${lbl}">Name <span style="color:var(--sell)">*</span></label>
+          <input id="fbName" type="text" required maxlength="120" placeholder="Your name" style="${inS}">
+        </div>
+        <div>
+          <label for="fbEmail" style="${lbl}">Email <span style="color:var(--muted)">(optional, only if you'd like a reply)</span></label>
+          <input id="fbEmail" type="email" maxlength="200" placeholder="you@email.com" style="${inS}">
+        </div>
+        <div>
+          <label for="fbMsg" style="${lbl}">Feedback <span style="color:var(--sell)">*</span></label>
+          <textarea id="fbMsg" required maxlength="4000" rows="6" placeholder="What's on your mind?" style="${inS};resize:vertical;min-height:120px;line-height:1.6"></textarea>
+        </div>
+        <button type="submit" style="padding:13px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:0.5px">Send feedback &rarr;</button>
+        <div id="fbMsgOut" style="font-size:13px;min-height:18px;text-align:center;color:var(--muted);line-height:1.5"></div>
+      </form>
+    </div>`;
+}
+
+function submitFeedback(e) {
+  e.preventDefault();
+  const name = (document.getElementById('fbName').value || '').trim();
+  const email = (document.getElementById('fbEmail').value || '').trim();
+  const msg = (document.getElementById('fbMsg').value || '').trim();
+  const out = document.getElementById('fbMsgOut');
+  if (!name) { out.style.color = 'var(--sell)'; out.textContent = 'Please enter your name.'; return false; }
+  if (!msg)  { out.style.color = 'var(--sell)'; out.textContent = 'Please enter some feedback.'; return false; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { out.style.color = 'var(--sell)'; out.textContent = 'That email address looks off. Leave it blank or fix it.'; return false; }
+  out.style.color = 'var(--muted)'; out.textContent = 'Sending…';
+  fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, email: email, feedback: msg, page: location.pathname }) })
+    .then(function(r) { return r.json().catch(function(){ return {}; }).then(function(d) {
+      if (r.ok) {
+        document.getElementById('fbForm').style.display = 'none';
+        out.style.color = 'var(--buy)';
+        out.textContent = (d.message || 'Thank you! Your feedback came through. We read every one.');
+        try { gtag('event', 'feedback_submit'); } catch(_) {}
+      } else {
+        out.style.color = 'var(--sell)';
+        out.textContent = (d.error || 'Could not send that. Please try again.');
+      }
+    }); })
+    .catch(function() { out.style.color = 'var(--sell)'; out.textContent = 'Network error. Please try again.'; });
+  return false;
 }
 
 function checkUrlAuthParams() {

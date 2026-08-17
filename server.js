@@ -2057,6 +2057,61 @@ app.post('/api/subscribe', express.json(), async (req, res) => {
   } catch(e) { res.status(500).json({ error: 'Could not sign you up. Try again.' }); }
 });
 
+// ─── FEEDBACK ─────────────────────────────────────────────────────────────────
+// "Provide Feedback" form. Name + feedback required, email optional. Stored in a
+// feedback table (reliable) and emailed to the owner as a notification (best
+// effort). Set ADMIN_EMAIL in the env to change the recipient.
+const _fbRate = new Map();
+let _fbTableReady = false;
+async function ensureFeedbackTable() {
+  if (_fbTableReady) return;
+  await exec(`CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT,
+    feedback TEXT NOT NULL,
+    page TEXT,
+    ip TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  _fbTableReady = true;
+}
+app.post('/api/feedback', express.json(), async (req, res) => {
+  try {
+    const name     = String((req.body && req.body.name)     || '').trim().slice(0, 120);
+    const email    = String((req.body && req.body.email)    || '').trim().toLowerCase().slice(0, 200);
+    const feedback = String((req.body && req.body.feedback) || '').trim().slice(0, 4000);
+    const page     = String((req.body && req.body.page)     || '').slice(0, 200);
+    if (!name)     return res.status(400).json({ error: 'Please enter your name.' });
+    if (!feedback) return res.status(400).json({ error: 'Please enter some feedback.' });
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'That email looks invalid. Leave it blank or fix it.' });
+    }
+    const ip  = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || '';
+    const now = Date.now();
+    if (ip && _fbRate.get(ip) && now - _fbRate.get(ip) < 10000) {
+      return res.status(429).json({ error: 'One sec, try again in a moment.' });
+    }
+    if (ip) _fbRate.set(ip, now);
+    await ensureFeedbackTable();
+    await run('INSERT INTO feedback (name, email, feedback, page, ip) VALUES (?,?,?,?,?)',
+      [name, email || null, feedback, page, ip]);
+    // Best-effort email notification to the owner (never blocks a successful save).
+    const to = ADMIN_EMAIL || 'mr.friedewald@gmail.com';
+    if (RESEND_KEY && to) {
+      try {
+        const { Resend } = require('resend');
+        await new Resend(RESEND_KEY).emails.send({
+          from: FROM_EMAIL, to,
+          subject: `InsiderTape feedback from ${name}`,
+          text: `Name: ${name}\nEmail: ${email || '(not provided)'}\nPage: ${page || '(unknown)'}\n\n${feedback}`,
+        });
+      } catch(e) { slog('feedback email failed: ' + (e && e.message)); }
+    }
+    res.json({ ok: true, message: 'Thank you! Your feedback came through. We read every one.' });
+  } catch(e) { res.status(500).json({ error: 'Could not send that. Please try again.' }); }
+});
+
 app.get('/api/unsubscribe', async (req, res) => {
   const token = String(req.query.token || '').trim();
   res.set('Content-Type', 'text/html; charset=utf-8');
