@@ -2256,6 +2256,7 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/cfos-buying-stock', priority: '0.8', freq: 'daily' },
     { url: '/insiders-buying-the-dip', priority: '0.8', freq: 'daily' },
     { url: '/insider-buying-index', priority: '0.8', freq: 'daily' },
+    { url: '/insider-edge', priority: '0.7', freq: 'monthly' },
     { url: '/insider-buying-study', priority: '0.8', freq: 'weekly' },
     { url: '/insider-trading-studies', priority: '0.7', freq: 'weekly' },
     { url: '/cluster-buying-study', priority: '0.7', freq: 'weekly' },
@@ -2325,16 +2326,18 @@ function _gaHead() {
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-LD6MQT3Q4H');</script>`;
 }
 function _emailCapture(source, headline) {
-  const h = headline || 'Not ready to subscribe? Get the weekly digest, free.';
+  const h = headline || 'Get the Insider Edge, free every Sunday';
   return `
-  <div class="up-hide" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px 22px;margin-top:34px;text-align:center">
-    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">${h}</div>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">One email every Sunday: the biggest open-market insider buys of the week, grants and noise stripped out.</div>
+  <div class="up-hide" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:26px 22px;margin-top:34px;text-align:center">
+    <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--buy);font-weight:700;margin-bottom:8px">Free weekly report</div>
+    <div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:6px">${h}</div>
+    <div style="font-size:13px;color:var(--muted);margin:0 auto 16px;line-height:1.65;max-width:430px">Every Sunday, the week's insider buying decoded: the biggest open-market buys, the CEO and CFO conviction trades, and the clusters that backtested best. Grants and noise stripped out.</div>
     <form id="nlForm" onsubmit="return itSub(event)" style="display:flex;gap:8px;flex-wrap:wrap;max-width:440px;margin:0 auto;justify-content:center">
       <input id="nlEmail" type="email" required placeholder="you@email.com" aria-label="Email address" style="flex:1;min-width:190px;padding:11px 13px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-family:'Inter',sans-serif">
-      <button type="submit" style="padding:11px 22px;border-radius:8px;border:none;background:var(--buy);color:#fff;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;font-family:'Inter',sans-serif">Get the digest &rarr;</button>
+      <button type="submit" style="padding:11px 22px;border-radius:8px;border:none;background:var(--buy);color:#fff;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;font-family:'Inter',sans-serif">Get the free report &rarr;</button>
     </form>
     <div id="nlMsg" style="font-size:12px;margin-top:10px;min-height:16px;color:var(--muted)"></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:12px;opacity:0.85">Free forever &middot; one email a week &middot; unsubscribe anytime</div>
   </div>
   <script>
   function itSub(e){e.preventDefault();var em=(document.getElementById('nlEmail').value||'').trim();var msg=document.getElementById('nlMsg');if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)){msg.style.color='#cc3b46';msg.textContent='Enter a valid email.';return false;}msg.style.color='var(--muted)';msg.textContent='Signing you up...';fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,source:${JSON.stringify(source)}})}).then(function(r){return r.json().catch(function(){return{};}).then(function(d){if(r.ok){document.getElementById('nlForm').style.display='none';msg.style.color='#12905f';msg.textContent=(d.message||"You're in. The first digest lands Sunday.");try{gtag('event','newsletter_signup',{source:${JSON.stringify(source)}});}catch(_){}}else{msg.style.color='#cc3b46';msg.textContent=(d.error||'Could not sign you up. Try again.');}});}).catch(function(){msg.style.color='#cc3b46';msg.textContent='Network error. Try again.';});return false;}
@@ -3602,6 +3605,74 @@ app.get('/insiders-buying-the-dip', async (req, res) => {
     _dipBuyingCache = { html, t: Date.now() };
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── LEAD MAGNET: /insider-edge (free weekly report signup landing page) ──────
+// A dedicated, conversion-focused email-capture page. Email is the site's #1
+// traffic channel (GA: mail.google.com is the top session source), so this is a
+// clean, linkable URL to grow the list from X bio, tweets, and elsewhere.
+function renderInsiderEdgePage() {
+  const url = 'https://www.insidertape.com/insider-edge';
+  const _ogimg = ogImg('biggest-buys');
+  const desc = "The Insider Edge: a free weekly email with the insider buying that actually matters. The biggest open-market buys, the CEO and CFO conviction trades, and the clusters that backtested best. Grants and noise stripped out.";
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Insider Edge: Free Weekly Insider-Buying Report | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="The Insider Edge: Free Weekly Insider-Buying Report">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
+${_gaHead()}
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: 'The Insider Edge', description: desc, url })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:640px;margin:0 auto;padding:52px 24px 90px;text-align:center}
+.tag{display:inline-block;padding:3px 10px;background:rgba(18,144,95,.08);border:1px solid rgba(18,144,95,.2);border-radius:20px;font-size:10px;font-weight:700;color:var(--buy);letter-spacing:.5px;text-transform:uppercase;margin-bottom:18px}
+h1{font-size:clamp(30px,6vw,46px);font-weight:800;letter-spacing:-.5px;line-height:1.1;margin-bottom:14px}
+.sub{font-size:16px;color:#3a4555;line-height:1.75;margin:0 auto 8px;max-width:520px}
+.gets{max-width:440px;margin:36px auto 0;text-align:left;background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:22px 24px}
+.gets .gh{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:14px}
+.gets ul{list-style:none;display:flex;flex-direction:column;gap:11px}
+.gets li{font-size:14px;color:#3a4555;line-height:1.5;display:flex;align-items:flex-start;gap:10px}
+.gets li b{color:var(--text);font-weight:700}
+.gets .ck{color:var(--buy);flex-shrink:0;font-weight:800;margin-top:1px}
+.note{font-size:13px;color:var(--muted);margin:28px 0 0;line-height:1.7}.note a{color:var(--accent);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Free &nbsp;·&nbsp; Every Sunday</div>
+  <h1>The Insider Edge</h1>
+  <p class="sub">A free weekly email with the insider buying that actually matters. The biggest open-market buys, the CEO and CFO conviction trades, and the clusters our five-year backtest found beat the market. Grants and noise stripped out.</p>
+  ${_emailCapture('insider-edge', 'Get it free, every Sunday')}
+  <div class="gets">
+    <div class="gh">What lands in your inbox</div>
+    <ul>
+      <li><span class="ck">&#10003;</span><span>The <b>biggest open-market insider buys</b> of the week, ranked by dollars</span></li>
+      <li><span class="ck">&#10003;</span><span><b>CEO and CFO conviction buys</b> flagged, the sharpest signals in our study</span></li>
+      <li><span class="ck">&#10003;</span><span><b>Cluster buys</b>: when 3+ insiders buy the same stock together</span></li>
+      <li><span class="ck">&#10003;</span><span>Zero grants, option exercises, or noise, just real purchases</span></li>
+    </ul>
+  </div>
+  <p class="note">Want a taste of the data first? Browse the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/ceos-buying-stock">CEOs buying their own stock</a>, or our study of <a href="/insider-buying-study">which insiders beat the market</a>.</p>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice</footer>
+</body></html>`;
+}
+app.get('/insider-edge', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=0, s-maxage=86400, stale-while-revalidate=86400');
+  res.type('html').send(renderInsiderEdgePage());
 });
 
 // ─── DATA-JOURNALISM ASSET: BIGGEST INSIDER BUYERS (12-MONTH LEADERBOARD) ──────
