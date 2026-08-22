@@ -2742,6 +2742,20 @@ app.get('/insider-profile/:name', async (req, res) => {
     let rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [spaced]);
     // Fall back to the raw slug (with hyphens kept) for genuinely hyphenated surnames.
     if (!rows.length && raw !== spaced) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [raw]);
+    // Slugs strip punctuation ("MERCK & CO., INC." -> merck-co-inc), so the exact
+    // reverse match above misses every fund/LP and any name with a comma or
+    // apostrophe - those were 404ing. Resolve by matching the requested slug
+    // against candidates found via an indexed first-token prefix (idx_insider_upper
+    // supports the GLOB prefix), then re-slugifying each to confirm the exact one.
+    if (!rows.length) {
+      const want = _insiderSlug(spaced);
+      const tok = want.split('-')[0] || '';
+      if (tok.length >= 2) {
+        const cands = await query(`SELECT DISTINCT insider FROM trades WHERE UPPER(insider) GLOB ? LIMIT 300`, [tok.toUpperCase() + '*']);
+        const m = cands.find(c => _insiderSlug(c.insider) === want);
+        if (m) rows = await query(rowSql('UPPER(insider) = UPPER(?)'), [m.insider]);
+      }
+    }
     if (!rows.length) {
       res.status(404).type('html');
       return res.send(`<!DOCTYPE html><html><head><meta name="robots" content="noindex"><title>${_esc(name)} | InsiderTape</title><meta http-equiv="refresh" content="0;url=/"></head><body>No insider trading data for ${_esc(name)}. <a href="/">InsiderTape</a></body></html>`);
@@ -2977,6 +2991,10 @@ app.get('/investors', (req, res) => {
   res.type('html').send(html);
 });
 app.get('/investors/:slug', async (req, res) => {
+  // Edge-cache 6h: some investors (e.g. Biglari/Lion Fund) aggregate thousands of
+  // filings and cold-render slowly, which was 5xx-ing for Googlebot on repeat cold
+  // hits. Cache once, serve fast for everyone (incl. the crawler) afterward.
+  res.set('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
   const slug = (req.params.slug || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
   const inv = FAMOUS_INVESTORS[slug];
   if (!inv) return res.redirect(302, '/investors');
