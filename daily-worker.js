@@ -280,11 +280,14 @@ async function fetchViaAtom(sinceDate) {
 async function fetchFullIndex(startDate, endDate) {
   const filings = [];
   const quarters = new Set();
-  const cur = new Date(startDate + 'T12:00:00Z');
-  while (cur <= new Date(endDate + 'T12:00:00Z')) {
-    const yr = cur.getUTCFullYear(), q = Math.ceil((cur.getUTCMonth() + 1) / 3);
-    quarters.add(`${yr}|${q}`);
-    cur.setUTCMonth(cur.getUTCMonth() + 3);
+  // Step month-by-month from the 1st of the start month so EVERY quarter in the
+  // range is included. (Stepping +3 months from an arbitrary day could overshoot
+  // and skip a quarter - e.g. Jun 16 -> Sep 16 skipped QTR3 entirely.)
+  const cur = new Date(startDate.slice(0, 7) + '-01T12:00:00Z');
+  const endD = new Date(endDate + 'T12:00:00Z');
+  while (cur <= endD) {
+    quarters.add(`${cur.getUTCFullYear()}|${Math.ceil((cur.getUTCMonth() + 1) / 3)}`);
+    cur.setUTCMonth(cur.getUTCMonth() + 1);
   }
   for (const qkey of quarters) {
     const [yr, q] = qkey.split('|');
