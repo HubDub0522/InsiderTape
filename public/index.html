@@ -2992,9 +2992,25 @@ async function loadStockView(ticker, opts={}) {
   setActiveNav('stock');
   // Stock View is open to everyone; only the plotted price chart + trade
   // markers stay behind the paywall (locked below for non-premium users).
-  const chartLocked = !auth.isPremium;
-  // Engaged-visitor nudge: once an anonymous visitor opens a 2nd stock, surface
-  // the free-trial prompt (idempotent + guarded, never shows for logged-in members).
+  // FREE TASTE: a non-member's FIRST chart renders fully (the "aha" moment),
+  // and that one ticker stays unlocked for them forever; every other ticker is
+  // gated. Tracked client-side so it survives reloads but not a new browser.
+  let chartLocked;
+  if (auth.isPremium) {
+    chartLocked = false;
+  } else {
+    let freeTicker = null;
+    try { freeTicker = localStorage.getItem('it_free_chart'); } catch(_) {}
+    if (!freeTicker) {
+      // Grant this visitor their one free chart on the stock they just opened.
+      chartLocked = false;
+      try { localStorage.setItem('it_free_chart', ticker); } catch(_) {}
+    } else {
+      chartLocked = (freeTicker.toUpperCase() !== ticker.toUpperCase());
+    }
+  }
+  // Engaged-visitor nudge: once an anonymous visitor hits a 2nd (gated) stock,
+  // surface the free-trial prompt (idempotent + guarded, never for members).
   if (chartLocked) { _stockViewsSeen++; if (_stockViewsSeen >= 2) setTimeout(maybeShowTrialNudge, 1500); }
   // Cancel any in-flight load - increment sequence so old calls abort themselves
   const mySeq = ++_loadStockViewSeq;
@@ -3056,6 +3072,7 @@ async function loadStockView(ticker, opts={}) {
         <div class="stock-price-block">
           <div class="stock-price">${last?'$'+last.close.toFixed(2):'-'}</div>
           <div class="stock-change" style="color:${chgColor}">${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today</div>
+          <div id="priceStaleNote" style="display:none;margin-top:3px;font-size:10px;color:var(--muted);font-family:Inter,sans-serif">Price data may be delayed</div>
         </div>
         <div class="stat-grid" style="flex-wrap:wrap;order:1">
           <div class="stat-item"><div class="stat-label" id="statHighLabel">1Y High</div><div class="stat-val" id="statHigh">$${h52.toFixed(2)}</div></div>
@@ -3139,6 +3156,12 @@ async function loadStockView(ticker, opts={}) {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block">
                   <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                   <circle cx="12" cy="13" r="3.5"/>
+                </svg>
+              </button>
+              <button id="chartShareBtn" onclick="shareStock('${ticker}', this)" class="tf-btn ct-btn" title="Share this stock" style="padding:4px 8px" aria-label="Share">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block">
+                  <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                  <line x1="8.6" y1="10.5" x2="15.4" y2="6.5"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/>
                 </svg>
               </button>
             </div>
@@ -3263,6 +3286,18 @@ function updateStockHeaderStats(priceData) {
   if (elP && last) elP.textContent = '$'+last.close.toFixed(2);
   const elC = document.querySelector('.stock-change');
   if (elC) { elC.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chg>=0?'+':''}${chgPct.toFixed(2)}%) today`; elC.style.color=chgColor; }
+  // Honesty signal: only when the feed is genuinely frozen (last bar > 5 days old,
+  // well past any weekend/holiday gap) tell the user prices may be delayed. Silent
+  // in the normal case so it never cries wolf.
+  const elS = document.getElementById('priceStaleNote');
+  if (elS) {
+    let daysOld = 999;
+    if (last && last.time) { const t = Date.parse(String(last.time).slice(0,10)+'T00:00:00Z'); if (!isNaN(t)) daysOld = Math.floor((Date.now()-t)/86400000); }
+    if (daysOld > 5) {
+      elS.textContent = `Price data may be delayed · last update ${last.time}`;
+      elS.style.display = '';
+    } else { elS.style.display = 'none'; }
+  }
   const elH = document.getElementById('statHigh'); if(elH) elH.textContent = h52>0?'$'+h52.toFixed(2):'-';
   const elL = document.getElementById('statLow');  if(elL) elL.textContent = l52<Infinity?'$'+l52.toFixed(2):'-';
 }
@@ -9084,6 +9119,27 @@ function _openShareMenu(url, title, anchor) {
 // header stats + chart (with insider circles + pressure) + the right-side
 // trades panel, but NOT the big transactions table or the activity summary.
 function screenshotStock(ticker, btn) { _openShotMenu(ticker, btn); }
+
+// Growth loop: share the ticker's crawlable page so the recipient sees the
+// branded OG card, clicks through, and lands on their one free chart. Native
+// share sheet on mobile; clipboard copy + toast on desktop.
+async function shareStock(ticker, btn) {
+  const t = String(ticker || state.currentTicker || '').toUpperCase();
+  if (!t) return;
+  const url = 'https://www.insidertape.com/insider-trading/' + t;
+  const title = t + ' insider trading - InsiderTape';
+  const text = 'Every SEC Form 4 insider buy and sell for ' + t + ', on InsiderTape:';
+  try { if (typeof gtag === 'function') gtag('event', 'share', { method: 'chart_button', content_type: 'ticker', item_id: t }); } catch(_) {}
+  try {
+    if (navigator.share) { await navigator.share({ title, text, url }); return; }
+  } catch(_) { /* user dismissed the native sheet - fall through to copy */ return; }
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('Link copied - paste it anywhere to share ' + t);
+  } catch(_) {
+    showToast('Copy failed - ' + url, true);
+  }
+}
 
 function _loadHtml2Canvas() {
   if (window.html2canvas) return Promise.resolve();
