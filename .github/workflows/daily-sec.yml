@@ -16,11 +16,13 @@ on:
         required: false
         default: '3'
 
-# Never let two ingestion runs overlap — a new run cancels an in-progress one.
-# Safe because inserts are idempotent (UNIQUE constraint + seen_filings dedup).
+# Scheduled runs still cancel each other (no point stacking short daily runs).
+# But a MANUAL run (workflow_dispatch) gets its own group and is never cancelled,
+# so a long recovery backfill can't be killed mid-flight by a cron that fires.
+# Overlap is safe: inserts are idempotent (UNIQUE constraint + seen_filings dedup).
 concurrency:
-  group: sec-ingest
-  cancel-in-progress: true
+  group: sec-ingest-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   ingest:
