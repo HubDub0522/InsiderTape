@@ -2255,6 +2255,7 @@ app.get('/sitemap.xml', async (req, res) => {
     { url: '/ceos-buying-stock', priority: '0.8', freq: 'daily' },
     { url: '/cfos-buying-stock', priority: '0.8', freq: 'daily' },
     { url: '/insiders-buying-the-dip', priority: '0.8', freq: 'daily' },
+    { url: '/track-record', priority: '0.9', freq: 'daily' },
     { url: '/insider-buying-index', priority: '0.8', freq: 'daily' },
     { url: '/insider-edge', priority: '0.7', freq: 'monthly' },
     { url: '/insider-buying-study', priority: '0.8', freq: 'weekly' },
@@ -3133,7 +3134,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <p class="note">These are open-market purchases: shares insiders chose to buy at the market price with their own money, which historically carries a far stronger signal than grants or option exercises. Curious which of these buyers actually beat the market? See our study of <a href="/insider-buying-study">which insiders outperform</a> (spoiler: the CFO). Or see the <a href="/biggest-insider-buyers">biggest insider buyers of the past year</a>, which <a href="/ceos-buying-stock">CEOs</a> and <a href="/cfos-buying-stock">CFOs are buying their own stock</a>, <a href="/insiders-buying-the-dip">insiders buying the dip</a>, the <a href="/insider-buying-report">weekly insider buying report</a>, and read <a href="/articles/is-insider-buying-bullish.html">whether insider buying is bullish</a> and <a href="/articles/what-is-cluster-buying.html">what cluster buying means</a>.</p>
   <section style="margin-top:40px">
     <h2 style="font-size:18px;font-weight:700;margin-bottom:10px">The stocks with the most insider buying right now</h2>
-    <p style="font-size:14px;color:#3a4555;line-height:1.75;margin-bottom:8px">The table above ranks the top insider buying stocks of the week by total dollars bought. It is the fastest way to see which companies insiders are buying with their own money: major insider buying by CEOs, CFOs, directors, and 10% owners, filed on SEC Form 4 and updated every day. We strip out grants, option exercises, and pre-planned sales, so what is left is genuine open-market conviction, from the largest insider buys of the week down to the smaller but still notable purchases.</p>
+    <p style="font-size:14px;color:#3a4555;line-height:1.75;margin-bottom:8px">The table above ranks the top insider buying stocks of the week by total dollars bought. It is the fastest way to see which companies insiders are buying with their own money: major insider buying by CEOs, CFOs, directors, and 10% owners, filed on SEC Form 4 and updated every day. We strip out grants, option exercises, and pre-planned sales, so what is left is genuine open-market conviction, from the largest insider buys of the week down to the smaller but still notable purchases. Want proof it works? See our live <a href="/track-record">insider signal track record</a>: every cluster and CFO buy we flag, measured at 30, 60, and 90 days against the market.</p>
     <p style="font-size:14px;color:#3a4555;line-height:1.75">Looking for the biggest buyers rather than the biggest buys? See the <a href="/biggest-insider-buyers" style="color:var(--accent);text-decoration:none">biggest insider buyers of the past year</a>, or the running <a href="/insider-buying-report" style="color:var(--accent);text-decoration:none">weekly insider buying report</a>.</p>
   </section>
   <section style="margin-top:40px">
@@ -3621,6 +3622,184 @@ app.get('/insiders-buying-the-dip', async (req, res) => {
       .slice(0, 40);
     const html = renderDipBuyingPage(rows);
     _dipBuyingCache = { html, t: Date.now() };
+    res.type('html').send(html);
+  } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
+});
+
+// ─── SIGNAL SCOREBOARD: /track-record (live forward-return proof) ────────────
+// The flagship trust asset: every insider CLUSTER (3+ insiders) and CFO buy we
+// flag, measured at fixed 30/60/90-day horizons against the Russell 2000. No
+// cherry-picking - winners and losers both shown. Data precomputed nightly into
+// computed_cache key 'signal-scoreboard' (server can't compute it live).
+function renderSignalScoreboardPage(data) {
+  const today = new Date();
+  const updated = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const url = 'https://www.insidertape.com/track-record';
+  const _ogimg = ogImg('biggest-buys');
+  const hasData = data && data.all && ((data.all['30d'].n || 0) + (data.all['60d'].n || 0) + (data.all['90d'].n || 0) > 0);
+  const pct = x => (x == null) ? '—' : `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}%`;
+  const pctPts = x => (x == null) ? '—' : `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)} pts`;
+  const pctUp = x => (x == null) ? '—' : `${Math.round(x * 100)}%`;
+  const col = x => (x == null) ? 'var(--muted)' : (x > 0 ? 'var(--buy)' : (x < 0 ? 'var(--sell)' : 'var(--text)'));
+  const A = (data && data.all) || { '30d': {}, '60d': {}, '90d': {} };
+  const h90 = A['90d'] || {}, h60 = A['60d'] || {}, h30 = A['30d'] || {};
+
+  // Money sentence for the hero + description (only when we have a matured 90d sample).
+  const bestH = (h90.n ? h90 : (h60.n ? h60 : h30));
+  const bestLbl = (h90.n ? '90 days' : (h60.n ? '60 days' : '30 days'));
+  const heroLine = hasData
+    ? `Across ${(data.counts && data.counts.total) || 0} insider cluster and CFO buys flagged in the last ~5 months, the average stock was <strong style="color:${col(bestH.avgRet)}">${pct(bestH.avgRet)}</strong> at ${bestLbl}, with <strong>${pctUp(bestH.pctPositive)}</strong> finishing higher${bestH.avgExcess != null ? ` and a <strong style="color:${col(bestH.avgExcess)}">${pctPts(bestH.avgExcess)}</strong> edge over the Russell 2000` : ''}.`
+    : `The scoreboard is warming up - it recomputes nightly. Check back shortly for the live returns.`;
+  const desc = hasData
+    ? `Live track record of insider buying signals: every cluster (3+ insiders) and CFO buy we flag, measured at 30/60/90 days vs the Russell 2000. Average ${pct(bestH.avgRet)} at ${bestLbl}, ${pctUp(bestH.pctPositive)} positive. Updated daily, no cherry-picking.`
+    : `Live track record of insider buying signals: every insider cluster and CFO buy we flag, measured at 30/60/90 days against the Russell 2000. Updated daily.`;
+
+  const faq = [
+    { q: 'Does following insider buying actually work?', a: hasData ? `Over the signals tracked here, insider clusters and CFO buys averaged ${pct(bestH.avgRet)} at ${bestLbl} with ${pctUp(bestH.pctPositive)} of stocks higher${bestH.avgExcess != null ? `, beating the Russell 2000 by ${pctPts(bestH.avgExcess)} on average` : ''}. It is not magic and plenty of individual names lose, but the two signals with a real edge in our five-year study - a cluster of insiders buying, or the CFO buying - are the ones tracked on this page, in real time.` : `This page tracks it live. It measures every insider cluster and CFO buy we flag at fixed 30/60/90-day horizons against the Russell 2000, so you can see the real hit rate rather than a cherry-picked highlight reel.` },
+    { q: 'How is the return measured?', a: `Each signal is measured from the first filing date of the buy to a fixed horizon: 30, 60, and 90 trading days later. A horizon only counts once it has fully matured, so a gain is locked in at that mark and never diluted by later drift. Returns use daily closes; the market benchmark is the Russell 2000, which fits the small and mid-cap insider universe better than the S&P 500.` },
+    { q: 'Which insider signals are on the scoreboard?', a: `Two, because they are the two that held up in our five-year backtest: a cluster (three or more distinct insiders buying the same stock on the open market within 30 days) and a CFO open-market buy. Grants, option exercises, and coordinated offerings or plan buys are excluded, so every entry is genuine open-market conviction.` },
+    { q: 'Is this every signal or just the winners?', a: `Every signal. The table below shows all of them, winners and losers, and the averages are computed across the whole set with no cherry-picking. That is the point: a track record you can check, not a highlight reel.` },
+  ];
+  const faqHtml = faq.map(f => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px"><h3 style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)">${_esc(f.q)}</h3><p style="font-size:14px;color:#3a4555;margin:0">${f.a}</p></div>`).join('');
+
+  const retCell = x => `<td class="num" style="color:${col(x)};font-weight:${x == null ? '400' : '700'}">${pct(x)}</td>`;
+  const sigRows = hasData ? (data.signals || []).slice(0, 60).map(s => {
+    const badge = s.type === 'cluster'
+      ? `<span class="sig sig-cl">CLUSTER</span>`
+      : `<span class="sig sig-cfo">CFO</span>`;
+    const detail = s.type === 'cluster' ? `${s.size} insiders` : 'CFO buy';
+    return `<tr>
+      <td class="tk"><a href="/insider-trading/${_esc(s.ticker)}"><strong>${_esc(s.ticker)}</strong></a></td>
+      <td class="sigc">${badge}<span class="sz">${_esc(detail)}</span></td>
+      <td class="dt">${_fmtDate(s.date)}</td>
+      ${retCell(s.ret30)}${retCell(s.ret60)}${retCell(s.ret90)}
+    </tr>`;
+  }).join('') : '';
+
+  const typeRow = (label, h) => `<tr><td><strong>${label}</strong></td><td class="num">${h.n || 0}</td><td class="num" style="color:${col(h.avgRet)};font-weight:700">${pct(h.avgRet)}</td><td class="num">${pctUp(h.pctPositive)}</td><td class="num" style="color:${col(h.avgExcess)}">${pctPts(h.avgExcess)}</td></tr>`;
+  const cl90 = (data && data.byType && data.byType.cluster && data.byType.cluster['90d']) || {};
+  const cf90 = (data && data.byType && data.byType.cfo && data.byType.cfo['90d']) || {};
+
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Does Insider Buying Work? The Live Signal Track Record | InsiderTape</title>
+<meta name="description" content="${_esc(desc)}">
+<meta name="robots" content="${hasData ? 'index, follow' : 'noindex, follow'}">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="website"><meta property="og:url" content="${url}">
+<meta property="og:title" content="The Insider Signal Track Record - Does Insider Buying Work?">
+<meta property="og:description" content="${_esc(desc)}">
+<meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
+${_gaHead()}
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: 'Insider Signal Track Record', description: desc, url, dateModified: today.toISOString().slice(0, 10) })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Home', item: 'https://www.insidertape.com/' }, { '@type': 'ListItem', position: 2, name: 'Track Record', item: url }] })}</script>
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%230f172a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='none' stroke='%2300d4ff' stroke-width='1.5' opacity='0.5'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%2300d4ff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'"><noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"></noscript>
+<style>
+:root{--bg:#f0f2f5;--bg2:#fff;--border:#d0d4db;--text:#1a2030;--muted:#6e7a8a;--accent:#0a6f88;--accent2:#075a70;--buy:#12905f;--sell:#cc3b46}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;font-size:16px;line-height:1.7}
+header{position:sticky;top:0;z-index:10;height:60px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px}
+.logo{font-size:17px;font-weight:800;letter-spacing:3px;color:var(--text);text-decoration:none}.logo span{color:var(--accent)}
+header nav a{color:var(--muted);font-size:12px;font-weight:500;text-decoration:none;padding:7px 14px;border:1px solid transparent;border-radius:5px}header nav a:hover{color:var(--text);border-color:var(--border)}
+.wrap{max-width:880px;margin:0 auto;padding:44px 24px 90px}
+.tag{display:inline-block;padding:3px 10px;background:rgba(18,144,95,.08);border:1px solid rgba(18,144,95,.22);border-radius:20px;font-size:10px;font-weight:700;color:var(--buy);letter-spacing:.5px;text-transform:uppercase;margin-bottom:16px}
+h1{font-size:clamp(28px,5vw,42px);font-weight:800;letter-spacing:-.5px;line-height:1.12;margin-bottom:12px}
+.sub{font-size:15px;color:#3a4555;line-height:1.7;margin-bottom:8px;max-width:660px}
+.hero-stat{font-size:16px;color:var(--text);line-height:1.6;margin:16px 0 6px;max-width:660px}
+.upd{font-size:12px;color:var(--muted);margin-bottom:26px}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px}
+.card .k{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+.card .v{font-size:30px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.card .sub2{font-size:11px;color:var(--muted);margin-top:8px;font-variant-numeric:tabular-nums}
+.bench{font-size:12px;color:var(--muted);margin:0 0 30px;font-variant-numeric:tabular-nums}
+.tbl-brand{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg2);border:1px solid var(--border);border-bottom:none;border-radius:10px 10px 0 0;padding:11px 15px;margin-top:8px}
+.tbl-brand .bl{font-size:14px;font-weight:800;letter-spacing:2px;color:var(--text)}.tbl-brand .bl span{color:var(--accent)}
+.tbl-brand .br{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--accent);font-variant-numeric:tabular-nums}
+h2.sec{font-size:18px;font-weight:700;margin:34px 0 12px}
+table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:0 0 10px 10px;overflow:hidden;font-size:14px}
+th{text-align:left;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);padding:12px 14px;border-bottom:2px solid var(--border)}
+td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle}tr:last-child td{border-bottom:none}tr:hover td{background:rgba(10,111,136,.03)}
+.tk a{text-decoration:none;color:inherit}.tk strong{color:var(--accent);font-weight:700;font-size:15px}
+.sigc{white-space:nowrap}.sz{font-size:11px;color:var(--muted);margin-left:8px}
+.sig{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.5px;padding:2px 7px;border-radius:4px;vertical-align:middle}
+.sig-cl{background:rgba(10,111,136,.1);color:var(--accent);border:1px solid rgba(10,111,136,.25)}
+.sig-cfo{background:rgba(120,80,160,.1);color:#7850a0;border:1px solid rgba(120,80,160,.25)}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:#3a4555}
+.dt{text-align:right;white-space:nowrap;color:var(--muted);font-size:12px}
+.mini{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:14px}
+.mini th{border-bottom:2px solid var(--border)}.mini td{padding:11px 14px}
+.note{font-size:13px;color:var(--muted);margin:22px 0 0;line-height:1.7}.note a{color:var(--accent);text-decoration:none}
+.cite{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.7;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:9px}.cite a{color:var(--accent);text-decoration:none}
+.cta{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:30px;text-align:center;margin-top:38px}
+.cta h3{font-size:20px;font-weight:700;margin-bottom:8px}.cta p{color:var(--muted);font-size:14px;margin-bottom:18px}
+.btn{display:inline-block;background:var(--accent);color:#fff;padding:11px 26px;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none}.btn:hover{background:var(--accent2)}
+.soft{margin-top:12px}.soft a{font-size:12px;color:var(--muted);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;font-size:11px;color:var(--muted);background:var(--bg2)}footer a{color:var(--accent);text-decoration:none}
+@media(max-width:640px){.summary{grid-template-columns:1fr}table,.mini{font-size:12px}th,td{padding:9px 8px}}
+</style></head><body>
+<header><a class="logo" href="/">INSIDER<span>TAPE</span></a><nav><a href="/">The Tape</a><a href="/biggest-insider-buys">Top Buys</a><a href="/investors">Investors</a><a href="/articles/">Learn</a></nav></header>
+<div class="wrap">
+  <div class="tag">Live Track Record &nbsp;·&nbsp; Updated Daily</div>
+  <h1>Does insider buying actually work?</h1>
+  <p class="sub">We track it in the open. Every insider <strong>cluster</strong> (three or more insiders buying) and every <strong>CFO</strong> open-market buy we flag, measured at fixed 30, 60, and 90-day horizons against the Russell 2000. Winners and losers both. No cherry-picking.</p>
+  <p class="hero-stat">${heroLine}</p>
+  <div class="upd">Data through ${updated}</div>
+  <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 26px">
+    <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
+    <a href="#" onclick="return sx('x')" style="font-size:12px;font-weight:600;color:#1a2030;text-decoration:none;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer">Post on X</a>
+    <button type="button" onclick="sx('copy',this)" style="font-size:12px;font-weight:600;color:#1a2030;background:#fff;border:1px solid #d0d4db;border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit">Copy link</button>
+  </div>
+  <div class="summary">
+    <div class="card"><div class="k">Avg return · 30 days</div><div class="v" style="color:${col(h30.avgRet)}">${pct(h30.avgRet)}</div><div class="sub2">${pctUp(h30.pctPositive)} positive · ${h30.n || 0} signals</div></div>
+    <div class="card"><div class="k">Avg return · 60 days</div><div class="v" style="color:${col(h60.avgRet)}">${pct(h60.avgRet)}</div><div class="sub2">${pctUp(h60.pctPositive)} positive · ${h60.n || 0} signals</div></div>
+    <div class="card"><div class="k">Avg return · 90 days</div><div class="v" style="color:${col(h90.avgRet)}">${pct(h90.avgRet)}</div><div class="sub2">${pctUp(h90.pctPositive)} positive · ${h90.n || 0} signals</div></div>
+  </div>
+  ${hasData && h90.avgExcess != null ? `<p class="bench">At 90 days the average signal beat the Russell 2000 by <strong style="color:${col(h90.avgExcess)}">${pctPts(h90.avgExcess)}</strong>.</p>` : '<div style="margin-bottom:24px"></div>'}
+
+  <h2 class="sec">By signal type</h2>
+  <table class="mini"><thead><tr><th>Signal</th><th class="num">Sample (90d)</th><th class="num">Avg 90d</th><th class="num">% up</th><th class="num">vs Russell</th></tr></thead><tbody>
+    ${typeRow('Insider cluster (3+)', cl90)}
+    ${typeRow('CFO buy', cf90)}
+  </tbody></table>
+
+  <h2 class="sec">Every signal we flagged</h2>
+  <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com/track-record</span></div>
+  <table><thead><tr><th>Ticker</th><th>Signal</th><th class="dt">Flagged</th><th class="num">30d</th><th class="num">60d</th><th class="num">90d</th></tr></thead><tbody>
+    ${sigRows || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:28px">The scoreboard recomputes nightly. Live returns will appear here shortly.</td></tr>`}
+  </tbody></table>
+  <p class="note">A blank cell means that horizon has not matured yet (the buy is too recent). Every entry is a genuine open-market signal, filed on SEC Form 4, with grants, option exercises, and coordinated offerings excluded. Want to see these plotted on the price chart as they file? Start with the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/cfos-buying-stock">CFOs buying</a>, or the full <a href="/insider-buying-study">five-year study</a> behind these two signals.</p>
+  <div class="cite"><strong>Cite this page:</strong> InsiderTape, &ldquo;Insider Signal Track Record,&rdquo; data through ${updated}, sourced from SEC Form 4 filings and daily price data. Free to reference with a link to insidertape.com/track-record.</div>
+  <section style="margin-top:40px">
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:14px">Track record: FAQ</h2>
+    ${faqHtml}
+  </section>
+  ${_emailCapture('track-record', 'Get the insider buys that beat the market, free every week.')}
+  <div class="cta up-hide">
+    <h3>See tomorrow's signals the moment they file</h3>
+    <p>InsiderTape flags every cluster and CFO buy in real time, plotted on the price chart, the instant the Form 4 hits. Start a free 7-day trial, cancel anytime.</p>
+    <a class="btn" href="/premium" onclick="try{gtag('event','cta_start_trial',{location:'track-record'})}catch(e){}">START FREE TRIAL →</a>
+    <div class="soft"><a href="/">or explore the live screener free →</a></div>
+  </div>
+</div>
+<footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Past performance is not indicative of future results &nbsp;·&nbsp; Not financial advice</footer>
+<script>function sx(k,el){var u=encodeURIComponent(location.href.split('#')[0]);var t=encodeURIComponent((document.title||'').split('|')[0].trim());var m={x:'https://twitter.com/intent/tweet?text='+t+'&url='+u};if(k==='copy'){try{navigator.clipboard.writeText(location.href.split('#')[0]);}catch(e){}if(el){var o=el.textContent;el.textContent='Copied!';setTimeout(function(){el.textContent=o;},1500);}return false;}window.open(m[k],'_blank','noopener,noreferrer,width=600,height=520');return false;}</script>
+</body></html>`;
+}
+
+let _scoreboardCache = null;
+app.get('/track-record', async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=0, s-maxage=21600, stale-while-revalidate=86400');
+  if (_scoreboardCache && Date.now() - _scoreboardCache.t < 3 * 3600000) { res.type('html'); return res.send(_scoreboardCache.html); }
+  try {
+    let data = null;
+    const row = await queryOne("SELECT value_json FROM computed_cache WHERE key = 'signal-scoreboard'");
+    if (row && row.value_json) { try { data = JSON.parse(row.value_json); } catch(_) {} }
+    const html = renderSignalScoreboardPage(data);
+    _scoreboardCache = { html, t: Date.now() };
     res.type('html').send(html);
   } catch(e) { res.status(500).type('html').send('<!DOCTYPE html><html><body>Temporarily unavailable. <a href="/">InsiderTape</a></body></html>'); }
 });
@@ -4500,6 +4679,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 
   <h2>The role that matters most</h2>
   <p>Of all the ways to slice insider buying, the buyer's role is one of the more telling - and among the roles, one stands out. Sorting the same ${nAll} buys by who did the buying, CFO purchases averaged <strong>${sp(cfo30.meanRet)} at 30 days</strong> and <strong>${sp(cfo90.meanRet)} at 90 days</strong>, and beat the Russell 2000 more often than they trailed it at every horizon - the only large role that did. CEO buys - the ones that get the headlines - were the weakest of the executive roles here: fewer than half were even positive over 90 days (${pu(ceo90.pctPositive)}). That doesn't make a CEO buy meaningless (see the first-buy pattern below), but if you're picking one role to watch, the numbers point at the CFO: the person who knows the cash-flow statement line by line.</p>
+  <p style="margin-top:14px">This is a five-year backtest. To see the same two signals working in real time, on the buys filing right now, check the live <a href="/track-record">insider signal track record</a>: every cluster and CFO buy we flag, scored at 30, 60, and 90 days against the Russell 2000.</p>
   ${tbl(roleRows)}
   <div class="callout" style="border-left-color:var(--buy)"><strong>Why the CFO?</strong> The chief financial officer sees revenue and cash flow before anyone outside the company does. When they put personal money in, it's the closest thing to an informed vote on the numbers - and over five years it was the most reliable role-based signal in the data.</div>
 

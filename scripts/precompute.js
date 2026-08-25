@@ -1109,6 +1109,141 @@ async function computeSearchIndex() {
   log(`search-index cached: ${index.length} tickers`);
 }
 
+// ─── SIGNAL SCOREBOARD ──────────────────────────────────────────────────────
+// A live, forward-looking track record of the two backtested "tells": insider
+// CLUSTERS (>=3 distinct insiders buying within 30 days) and CFO open-market
+// buys, flagged over the trailing ~5.5 months. Each is measured at FIXED
+// 30/60/90 trading-day horizons (~30/60/90 calendar days) so a gain is locked
+// in at its horizon and never diluted by later drift. Prices come from the
+// already-prewarmed price_cache; one Yahoo call warms the Russell 2000 so we
+// can report excess-vs-market. Lightweight (recent signals only) so it runs on
+// the regular cadence. Served from computed_cache key 'signal-scoreboard'.
+async function computeSignalScoreboard() {
+  log('Computing signal-scoreboard (live cluster + CFO track record)...');
+  const DAY = 86400000;
+  const shiftDate = (ymd, n) => { const x = new Date(ymd + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+
+  // Russell 2000 benchmark (fairer than the S&P for the small/mid-cap insider set).
+  const rutClose = {};
+  try {
+    const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 400 * 86400;
+    const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5ERUT?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const d = await resp.json(); const r = d?.chart?.result?.[0];
+    if (r?.timestamp) { const q = r.indicators.quote[0]; r.timestamp.forEach((t, i) => { const c = q.close?.[i]; if (c > 0) rutClose[new Date(t * 1000).toISOString().slice(0, 10)] = c; }); }
+  } catch(_) {}
+  const onOrBefore = (map, date) => { for (let i = 0; i <= 6; i++) { const dd = shiftDate(date, -i); if (map[dd] != null) return map[dd]; } return null; };
+
+  // Price bars for active tickers (already warmed by prewarmPrices).
+  const barsByTicker = {};
+  try {
+    const priceRows = await dbQuery('SELECT symbol, bars_json FROM price_cache');
+    for (const pr of priceRows) { try { const arr = JSON.parse(pr.bars_json).filter(b => b.close > 0).map(b => ({ t: b.time, c: b.close })); arr.sort((a, b) => a.t < b.t ? -1 : 1); if (arr.length > 30) barsByTicker[pr.symbol] = arr; } catch(_) {} }
+  } catch(_) {}
+
+  // Recent open-market buys (last ~168 days so the 90d bucket has matured rows).
+  const buys = await dbQuery(`
+    SELECT ticker, insider, trade_date AS d, MAX(title) AS title,
+           MAX(COALESCE(value,0)) AS value, MAX(COALESCE(price,0)) AS price
+    FROM trades
+    WHERE TRIM(type)='P' AND COALESCE(value,0) >= 25000
+      AND trade_date >= date('now','-168 days') AND trade_date <= date('now')
+      AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
+      AND insider IS NOT NULL AND insider != ''
+    GROUP BY ticker, insider, trade_date`);
+  const roleOf = t => { const u = (t || '').toUpperCase(); if (u.includes('CFO') || u.includes('CHIEF FINANCIAL')) return 'cfo'; if ((u.includes('CEO') || u.includes('CHIEF EXECUTIVE')) && !u.includes('DEPUTY')) return 'ceo'; return 'other'; };
+
+  const byTicker = {};
+  for (const b of buys) { const d = (b.d || '').slice(0, 10); (byTicker[b.ticker] || (byTicker[b.ticker] = [])).push({ d, insider: b.insider, role: roleOf(b.title), value: +b.value || 0, price: +b.price || 0 }); }
+
+  const CLUSTER_WIN = 30, COOLDOWN = 90, MIN_CLUSTER = 3;
+  const WIN = { '30d': 21, '60d': 42, '90d': 63 };
+
+  // Forward returns at each matured horizon for an entry date (null where a
+  // horizon has not matured yet). Mirrors computeInsiderStudy's measure().
+  function measure(bars, entryDate) {
+    const ei = bars.findIndex(x => x.t >= entryDate);
+    if (ei < 0) return null;
+    if (new Date(bars[ei].t) - new Date(entryDate) > 6 * DAY) return null;
+    const entry = bars[ei].c; if (!(entry > 0)) return null;
+    const rE = onOrBefore(rutClose, bars[ei].t);
+    const out = { entry };
+    for (const [k, n] of Object.entries(WIN)) {
+      const fi = ei + n; if (fi >= bars.length) { out[k] = null; continue; }
+      const fwd = bars[fi].c; if (!(fwd > 0)) { out[k] = null; continue; }
+      const ret = fwd / entry - 1; if (ret > 4 || ret < -0.95) { out[k] = null; continue; }
+      let rx = null; if (rE) { const rF = onOrBefore(rutClose, bars[fi].t); if (rF) rx = ret - (rF / rE - 1); }
+      out[k] = { ret, rx };
+    }
+    return out;
+  }
+
+  const signals = [];
+  for (const ticker of Object.keys(byTicker)) {
+    const list = byTicker[ticker].sort((a, b) => a.d < b.d ? -1 : 1);
+    const bars = barsByTicker[ticker];
+    if (!bars) continue; // no price series -> cannot score; skip
+    // CLUSTER waves: >=MIN_CLUSTER distinct insiders within a trailing 30d window,
+    // deduped by a 90d cooldown so one wave counts once.
+    let last = null;
+    for (let i = 0; i < list.length; i++) {
+      const end = new Date(list[i].d + 'T12:00:00Z').getTime();
+      const bound = end - CLUSTER_WIN * DAY;
+      const seen = new Set(); const members = [];
+      for (let j = i; j >= 0; j--) { const dj = new Date(list[j].d + 'T12:00:00Z').getTime(); if (dj < bound) break; if (!seen.has(list[j].insider)) { seen.add(list[j].insider); members.push(list[j]); } }
+      if (seen.size >= MIN_CLUSTER && (last === null || end - last > COOLDOWN * DAY)) {
+        // Exclude coordinated offerings/conversions: everyone same day AND same price.
+        const dates = new Set(members.map(m => m.d));
+        const prices = new Set(members.filter(m => m.price > 0).map(m => m.price.toFixed(2)));
+        if (!(dates.size <= 1 && prices.size <= 1)) {
+          last = end;
+          const m = measure(bars, list[i].d);
+          if (m) signals.push({ ticker, date: list[i].d, type: 'cluster', size: seen.size, ...m });
+        }
+      }
+    }
+    // CFO conviction buys (a single CFO open-market buy of decent size).
+    for (const b of list) {
+      if (b.role === 'cfo' && b.value >= 50000) {
+        const m = measure(bars, b.d);
+        if (m) signals.push({ ticker, date: b.d, type: 'cfo', size: 1, insider: b.insider, ...m });
+      }
+    }
+  }
+  signals.sort((a, b) => a.date < b.date ? 1 : -1); // most recent first
+
+  // Aggregate a subset per horizon; only MATURED entries count toward the stats.
+  function agg(subset) {
+    const h = {};
+    for (const k of Object.keys(WIN)) {
+      const cells = subset.map(s => s[k]).filter(x => x && x.ret != null);
+      const rets = cells.map(x => x.ret);
+      const rxs = cells.map(x => x.rx).filter(x => x != null);
+      const n = rets.length;
+      h[k] = {
+        n,
+        avgRet: n ? rets.reduce((a, c) => a + c, 0) / n : null,
+        pctPositive: n ? rets.filter(r => r > 0).length / n : null,
+        avgExcess: rxs.length ? rxs.reduce((a, c) => a + c, 0) / rxs.length : null
+      };
+    }
+    return h;
+  }
+
+  const result = {
+    version: 1,
+    updatedThrough: new Date().toISOString().slice(0, 10),
+    all: agg(signals),
+    byType: { cluster: agg(signals.filter(s => s.type === 'cluster')), cfo: agg(signals.filter(s => s.type === 'cfo')) },
+    counts: { total: signals.length, cluster: signals.filter(s => s.type === 'cluster').length, cfo: signals.filter(s => s.type === 'cfo').length },
+    signals: signals.slice(0, 150).map(s => ({
+      ticker: s.ticker, date: s.date, type: s.type, size: s.size, insider: s.insider || null,
+      ret30: s['30d'] ? s['30d'].ret : null, ret60: s['60d'] ? s['60d'].ret : null, ret90: s['90d'] ? s['90d'].ret : null
+    }))
+  };
+  await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('signal-scoreboard', ?, ?)`, [JSON.stringify(result), Date.now()]);
+  log(`signal-scoreboard cached: ${signals.length} signals (${result.counts.cluster} cluster / ${result.counts.cfo} CFO), matured 90d sample = ${result.all['90d'].n}`);
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
@@ -1180,6 +1315,8 @@ async function main() {
   await migratePriceCacheTo5yr().catch(e => log('price-cache-migrate error: ' + e.message));
   await migrateDecodeInsiderNames().catch(e => log('decode-names error: ' + e.message));
   await prewarmPrices().catch(e => log('prewarm-prices error: ' + e.message));
+  // Scoreboard runs after prewarm so it scores against the freshest bars.
+  await computeSignalScoreboard().catch(e => log('signal-scoreboard error: ' + e.message));
   log('=== precompute done ===');
 }
 
