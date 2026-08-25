@@ -3109,6 +3109,13 @@ async function loadStockView(ticker, opts={}) {
         </div>
       </div>
       <div class="chart-area">
+        <div id="freePreviewBanner" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;padding:9px 13px;background:linear-gradient(90deg,rgba(10,111,136,0.10),rgba(10,111,136,0.03));border:1px solid var(--accent);border-radius:8px">
+          <div style="flex:1;min-width:220px;font-family:Inter,sans-serif;font-size:11.5px;line-height:1.55;color:var(--text)">
+            <span style="display:inline-block;background:var(--accent);color:#fff;font-size:9px;font-weight:700;letter-spacing:.5px;padding:2px 7px;border-radius:4px;margin-right:7px;vertical-align:middle">★ FREE PREVIEW</span>
+            This is your free members-only view. Every insider buy and sell is plotted right on the price chart, on <strong>every stock</strong>, with a membership.
+          </div>
+          <button onclick="switchView('premium',null)" style="flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:7px;padding:9px 16px;font-family:Inter,sans-serif;font-size:11px;font-weight:700;letter-spacing:.4px;cursor:pointer;white-space:nowrap">START FREE TRIAL &rarr;</button>
+        </div>
         <div class="chart-controls" style="flex-wrap:wrap;gap:6px 0;">
           <span style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums;font-size:10px;color:var(--muted);margin-right:4px">RANGE:</span>
           <button class="tf-btn" onclick="setRange(90,this)">3M</button>
@@ -3156,12 +3163,6 @@ async function loadStockView(ticker, opts={}) {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block">
                   <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                   <circle cx="12" cy="13" r="3.5"/>
-                </svg>
-              </button>
-              <button id="chartShareBtn" onclick="shareStock('${ticker}', this)" class="tf-btn ct-btn" title="Share this stock" style="padding:4px 8px" aria-label="Share">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="display:block">
-                  <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                  <line x1="8.6" y1="10.5" x2="15.4" y2="6.5"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/>
                 </svg>
               </button>
             </div>
@@ -3228,6 +3229,9 @@ async function loadStockView(ticker, opts={}) {
     // Chart stays locked for non-premium; header stats + trade tables are visible.
   } else if (priceData.length) {
     if (cc) cc.innerHTML = ''; // clear spinner
+    // On a non-member's one free chart, show the "this is Premium" ribbon so the
+    // aha moment doubles as the pitch. (Members never see it.)
+    if (!auth.isPremium) { const _fpb = document.getElementById('freePreviewBanner'); if (_fpb) _fpb.style.display = 'flex'; }
     await buildChart(priceData, insiderData, []);
 
     // Apply requested range and S/R state - runs after buildChart's own setTimeout(60ms)
@@ -9086,6 +9090,7 @@ async function fetchCompareData(ticker) {
 // a small X / Reddit / Copy menu on desktop.
 function shareStock(ticker, evt) {
   if (evt) { try { evt.stopPropagation(); } catch(_){} }
+  try { if (typeof gtag === 'function') gtag('event', 'share', { method: 'chart_button', content_type: 'ticker', item_id: String(ticker).toUpperCase() }); } catch(_) {}
   const url = 'https://www.insidertape.com/insider-trading/' + encodeURIComponent(ticker);
   const title = ticker + ' insider trading activity on InsiderTape';
   if (navigator.share) { navigator.share({ title, text: title, url }).catch(function(){}); return; }
@@ -9119,27 +9124,6 @@ function _openShareMenu(url, title, anchor) {
 // header stats + chart (with insider circles + pressure) + the right-side
 // trades panel, but NOT the big transactions table or the activity summary.
 function screenshotStock(ticker, btn) { _openShotMenu(ticker, btn); }
-
-// Growth loop: share the ticker's crawlable page so the recipient sees the
-// branded OG card, clicks through, and lands on their one free chart. Native
-// share sheet on mobile; clipboard copy + toast on desktop.
-async function shareStock(ticker, btn) {
-  const t = String(ticker || state.currentTicker || '').toUpperCase();
-  if (!t) return;
-  const url = 'https://www.insidertape.com/insider-trading/' + t;
-  const title = t + ' insider trading - InsiderTape';
-  const text = 'Every SEC Form 4 insider buy and sell for ' + t + ', on InsiderTape:';
-  try { if (typeof gtag === 'function') gtag('event', 'share', { method: 'chart_button', content_type: 'ticker', item_id: t }); } catch(_) {}
-  try {
-    if (navigator.share) { await navigator.share({ title, text, url }); return; }
-  } catch(_) { /* user dismissed the native sheet - fall through to copy */ return; }
-  try {
-    await navigator.clipboard.writeText(url);
-    showToast('Link copied - paste it anywhere to share ' + t);
-  } catch(_) {
-    showToast('Copy failed - ' + url, true);
-  }
-}
 
 function _loadHtml2Canvas() {
   if (window.html2canvas) return Promise.resolve();
