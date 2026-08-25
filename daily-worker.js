@@ -320,6 +320,47 @@ async function fetchFullIndex(startDate, endDate) {
   return filings;
 }
 
+// Complete per-day index of ALL filings for a date range. This is the reliable
+// source for the recent window: the atom feed is hard-capped (~1 day of Form 4s)
+// and EFTS under-returns ownership forms (it indexed only ~15 of Aug 24's ~1400
+// Form 4s), so filings that scrolled past the atom window were silently missed
+// and never backfilled. The daily-index form.YYYYMMDD.idx lists every filing for
+// that day, uncapped. Today's file may not exist until end of day (404 -> skip;
+// the atom feed covers same-day).
+async function fetchDailyIndex(startDate, endDate) {
+  const filings = [];
+  const d = new Date(startDate + 'T12:00:00Z');
+  const end = new Date(endDate + 'T12:00:00Z');
+  while (d <= end) {
+    const ds = d.toISOString().slice(0, 10);
+    const yr = d.getUTCFullYear(), q = Math.ceil((d.getUTCMonth() + 1) / 3);
+    const ymd = ds.replace(/-/g, '');
+    const url = `https://www.sec.gov/Archives/edgar/daily-index/${yr}/QTR${q}/form.${ymd}.idx`;
+    try {
+      const { status, body } = await get(url, 45000);
+      if (status === 200) {
+        let pastHeader = false, n = 0;
+        for (const line of body.split('\n')) {
+          if (!pastHeader) { if (/^-{5}/.test(line.trim())) pastHeader = true; continue; }
+          if (line.length < 30) continue;
+          const formType = line.slice(0, 12).trim();
+          if (formType !== '4' && formType !== '4/A') continue;
+          const fm = line.match(/edgar\/data\/(\d+)\/([\d-]+)\.txt/i);
+          if (!fm) continue;
+          const parts = fm[2].split('-');
+          if (parts.length !== 3) continue;
+          filings.push({ accession: `${parts[0].padStart(10, '0')}-${parts[1]}-${parts[2]}`, xmlFile: null, ciks: [fm[1]], filingDate: ds, formType });
+          n++;
+        }
+        log(`daily-index ${ds}: ${n} Form 4`);
+      } else if (status !== 404) { log(`daily-index HTTP ${status} for ${ds}`); }
+    } catch(e) { log(`daily-index error ${ds}: ${e.message}`); }
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  log(`Daily-index: ${filings.length} Form 4 filings for ${startDate}→${endDate}`);
+  return filings;
+}
+
 async function fetchRecentFilings(sinceDate) {
   const seen = new Set(), filings = [];
   try {
@@ -438,10 +479,18 @@ async function runBackfill(daysBack) {
   log(`Backfill: ${startDate} → ${today}`);
 
   let allFilings = [];
+  // Older part of the window (>5 days): quarterly full-index (complete).
   if (startDate < recentCutoff) {
     const idxFilings = await fetchFullIndex(startDate, recentCutoff);
     allFilings = allFilings.concat(idxFilings);
   }
+  // Recent window: the COMPLETE per-day daily-index. This replaces the capped
+  // atom feed + under-indexing EFTS as the source of truth for recent filings,
+  // which is what caused recent Form 4s (e.g. Alibaba's) to be silently dropped.
+  const recentStart = (startDate < recentCutoff) ? recentCutoff : startDate;
+  allFilings = allFilings.concat(await fetchDailyIndex(recentStart, today));
+  // Atom feed too, for same-day filings not yet in the daily-index. Dedup in
+  // processBatch handles the overlap.
   const rssFilings = await fetchRecentFilings(recentCutoff);
   allFilings = allFilings.concat(rssFilings);
 
