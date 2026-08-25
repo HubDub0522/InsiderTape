@@ -511,7 +511,11 @@ async function runBackfill(daysBack) {
   await dbBatch(logStmts).catch(() => {});
 
   // Prune seen_filings older than 45 days
-  await dbRun("DELETE FROM seen_filings WHERE seen_at < datetime('now','-45 days')").catch(() => {});
+  // Keep 130 days (was 45): a deep backfill re-fetches every filing whose dedup
+  // record was pruned, even the ~90% that carry no P/S trade. A longer horizon
+  // means backfills up to ~4 months skip already-processed filings instead of
+  // re-downloading tens of thousands of them.
+  await dbRun("DELETE FROM seen_filings WHERE seen_at < datetime('now','-130 days')").catch(() => {});
 
   log(`Backfill complete: ${inserted} trades across ${Object.keys(byDate).length} days`);
 }
