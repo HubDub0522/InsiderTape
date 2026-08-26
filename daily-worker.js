@@ -571,6 +571,20 @@ async function runIssuer(cikRaw) {
   log(`=== issuer re-fetch done: ${inserted} trades inserted, ${failed} fetch failures ===`);
 }
 
+// Systematic recovery: clear the dedup cache for a recent window and re-fetch it
+// completely, so BOTH never-fetched AND poisoned (wrongly-"seen") filings across
+// ALL tickers get re-processed. Bounded to N days so it fits the job timeout;
+// re-fetches every Form 4 in the window not already in trades (~a few hours for
+// ~1-2 weeks). Trades already present are skipped via the trades check, and
+// re-inserts are idempotent. Usage: node daily-worker.js resweep <days>
+async function runResweep(daysRaw) {
+  const days = Math.max(1, Math.min(21, parseInt(daysRaw, 10) || 7)); // cap so it fits the timeout
+  log(`=== resweep: clearing dedup for the last ${days} days, then re-fetching ===`);
+  await dbRun(`DELETE FROM seen_filings WHERE seen_at >= datetime('now','-${days} days')`).catch(e => log('resweep clear error: ' + e.message));
+  await runBackfill(days);
+  log('=== resweep done ===');
+}
+
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 const arg1 = process.argv[2] || '3';
 const arg2 = process.argv[3] || '';
@@ -580,6 +594,12 @@ async function main() {
   if (arg1 === 'issuer') {
     log(`=== daily-worker v10 (Turso) start, issuer mode ===`);
     await runIssuer(arg2);
+    log('=== daily-worker done ===');
+    return;
+  }
+  if (arg1 === 'resweep') {
+    log(`=== daily-worker v10 (Turso) start, resweep mode ===`);
+    await runResweep(arg2);
     log('=== daily-worker done ===');
     return;
   }

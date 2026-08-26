@@ -19,6 +19,10 @@ on:
         description: 'Recover one issuer: re-fetch ALL its recent Form 4s by CIK (e.g. 1577552 = Alibaba), bypassing dedup. Leave blank for a normal backfill.'
         required: false
         default: ''
+      resweep_days:
+        description: 'Systematic recovery: clear dedup for the last N days and re-fetch that window completely for ALL tickers (max 21). Leave blank for a normal backfill.'
+        required: false
+        default: ''
 
 # Scheduled runs still cancel each other (no point stacking short daily runs).
 # But a MANUAL run (workflow_dispatch) gets its own group and is never cancelled,
@@ -49,6 +53,8 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.refetch_cik }}" ]; then
             node daily-worker.js issuer "${{ github.event.inputs.refetch_cik }}"
+          elif [ -n "${{ github.event.inputs.resweep_days }}" ]; then
+            node daily-worker.js resweep "${{ github.event.inputs.resweep_days }}"
           else
             node daily-worker.js ${{ github.event.inputs.days_back || '3' }} backfill
           fi
