@@ -2403,12 +2403,12 @@ function renderTickerPage(ticker, rows, stats) {
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${ticker} Insider Trading: ${co} SEC Form 4 Buys and Sells | InsiderTape</title>
+<title>${co} (${ticker}) Insider Trading: SEC Form 4 Buys &amp; Sells | InsiderTape</title>
 <meta name="description" content="${_esc(desc)}">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="${url}">
 <meta property="og:type" content="website"><meta property="og:url" content="${url}">
-<meta property="og:title" content="${ticker} Insider Trading - ${co}">
+<meta property="og:title" content="${co} (${ticker}) Insider Trading">
 <meta property="og:description" content="${_esc(desc)}">
 <meta property="og:image" content="${_ogimg}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${_ogimg}">
@@ -2455,6 +2455,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <h1>${co} (${ticker}) Insider Trading Activity</h1>
   <div class="sub">SEC Form 4 open-market purchases and sales by corporate insiders &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
   <p class="intro">${_esc(intro)}</p>
+  <p class="intro" style="font-size:13px;color:var(--muted);margin-top:-6px">New to these filings? Learn <a href="/articles/sec-form-4-transaction-codes.html" style="color:var(--accent);text-decoration:none">what each SEC Form 4 transaction code means</a> (P = open-market buy, S = sale, M and F = option/tax, and the rest).</p>
   <div class="stats">
     <div class="stat"><div class="k">Buys (1Y)</div><div class="v g">${buys}</div></div>
     <div class="stat"><div class="k">Sells (1Y)</div><div class="v r">${sells}</div></div>
@@ -3118,7 +3119,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 <div class="wrap">
   <div class="tag">Updated Daily &nbsp;·&nbsp; Free</div>
   <h1>Stocks Insiders Are Buying This Week</h1>
-  <p class="sub">The stocks with the largest insider buying this week: the biggest open-market insider buys filed with the SEC over the past 7 days, ranked by dollar value. Only genuine open-market purchases, with option exercises, grants, and plan sales stripped out.</p>
+  <p class="sub">The stocks with the most insider buying this week: the companies where executives and directors bought the most of their own stock on the open market, filed with the SEC over the past 7 days and ranked by dollar value. These are the top insider stock buys, with option exercises, grants, and plan sales stripped out.</p>
   <div class="upd">Updated ${updated}</div>
   <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 26px">
     <span style="font-size:11px;color:#6e7a8a;letter-spacing:1px;text-transform:uppercase;font-weight:600">Share</span>
