@@ -482,15 +482,21 @@ async function cleanupPlanClusters() {
 // signal windows and avoid split-adjustment false positives on old trades.
 async function cleanupNonOpenMarket() {
   log('Cleaning non-open-market buys (price far below trading range)...');
+  // Load recent P AND S/S- (with price). Only BUYS are ever deleted, but the sells
+  // help establish the ticker's TRUE insider trading price level: ADRs/foreign
+  // issuers report transactions in ordinary shares priced far below the ADR chart
+  // (e.g. Alibaba insiders trade ~$14 ordinary vs the ~$119 BABA ADR), consistently
+  // across buys and sells. Comparing a buy only to the chart wrongly deletes those.
   const rows = await dbQuery(`
-    SELECT id, ticker, trade_date, price FROM trades
-    WHERE TRIM(type)='P' AND COALESCE(price,0) > 0
+    SELECT id, ticker, trade_date, price, TRIM(type) AS ty FROM trades
+    WHERE TRIM(type) IN ('P','S','S-') AND COALESCE(price,0) > 0
       AND trade_date >= date('now','-180 days')
       AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
   `);
   const byTicker = {};
   rows.forEach(r => { (byTicker[r.ticker] || (byTicker[r.ticker] = [])).push(r); });
   const tickers = Object.keys(byTicker);
+  const _median = arr => { if (!arr.length) return null; const s = arr.slice().sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
 
   // Batch-load the cached price bars for these tickers
   const lowByTicker = {}; // ticker -> { 'YYYY-MM-DD': low }
@@ -512,12 +518,23 @@ async function cleanupNonOpenMarket() {
   for (const [ticker, trs] of Object.entries(byTicker)) {
     const lowMap = lowByTicker[ticker];
     if (!lowMap) continue; // no cached bars - can't verify, leave it
+    // The ticker's own insider price level, from ALL its buys AND sells - this is
+    // the real unit the insiders trade in (the ADR ordinary-share price for BABA).
+    const level = _median(trs.map(t => t.price).filter(p => p > 0));
     for (const t of trs) {
+      if (t.ty !== 'P') continue; // only ever delete buys
       const d = (t.trade_date || '').slice(0, 10);
       let low = lowMap[d];
       // Exact date may be a weekend/holiday/gap - check the nearest few days
       for (let i = 1; i <= 3 && low == null; i++) low = lowMap[shift(d, -i)] ?? lowMap[shift(d, i)];
-      if (low != null && low > 0 && t.price < low * 0.7) toDelete.push(t.id);
+      if (low == null || !(low > 0)) continue;
+      const farBelowChart = t.price < low * 0.7;
+      // Only an anomaly if it's ALSO far below the ticker's OWN insider trades. A
+      // price consistent with the ticker's other filings (e.g. ordinary shares of
+      // an ADR) is legitimate and kept; a lone option-exercise-priced buy among
+      // market-priced ones is the real target and still gets removed.
+      const anomalousVsPeers = level != null && level > 0 && t.price < level * 0.5;
+      if (farBelowChart && anomalousVsPeers) toDelete.push(t.id);
     }
   }
 
@@ -527,7 +544,7 @@ async function cleanupNonOpenMarket() {
     const res = await dbRun(`DELETE FROM trades WHERE id IN (${batch.map(() => '?').join(',')})`, batch);
     removed += res.rowsAffected || batch.length;
   }
-  log(`Non-open-market cleanup: checked ${rows.length} buys across ${tickers.length} tickers, removed ${removed}`);
+  log(`Non-open-market cleanup: checked ${rows.length} P/S trades across ${tickers.length} tickers, removed ${removed} buys`);
 }
 
 // Pre-compute the Insider Sentiment index (heavy 120-month aggregation + S&P 500)
