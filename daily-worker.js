@@ -210,13 +210,16 @@ async function fetchForm4(accession, filingDate, xmlFile, ciks) {
   }
 
   for (const cik of allCiks) {
-    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml']) {
+    for (const name of [`${accession}.xml`, 'form4.xml', 'wf-form4.xml', 'ownership.xml']) {
       const xml = await tryXml(`https://www.sec.gov/Archives/edgar/data/${cik}/${acc}/${name}`);
       if (xml) return parseForm4(xml, filingDate, accession);
     }
   }
 
-  return [];
+  // Could not retrieve the XML at all (network timeout, moved doc, etc.). Return
+  // null - distinct from [] (fetched fine, just no P/S trade) - so the caller does
+  // NOT mark this filing "seen" and will retry it next run instead of dropping it.
+  return null;
 }
 
 // ─── EDGAR filing discovery ────────────────────────────────────────────────────
@@ -448,6 +451,7 @@ async function processBatch(filings, label) {
 
   let inserted = 0;
   const CONCURRENCY = 8;
+  const fetchedOk = []; // only accessions whose fetch actually succeeded get marked seen
 
   for (let i = 0; i < newFilings.length; i += CONCURRENCY) {
     const chunk = newFilings.slice(i, i + CONCURRENCY);
@@ -457,9 +461,15 @@ async function processBatch(filings, label) {
     const insertRows = [], amendRows = [];
     for (let j = 0; j < results.length; j++) {
       const r = results[j];
-      if (r.status === 'fulfilled' && r.value?.length) {
-        if (chunk[j].formType === '4/A') amendRows.push(...r.value);
-        else insertRows.push(...r.value);
+      // Array (even empty) = fetched fine; empty just means no P/S trade -> mark seen.
+      // null or rejected = fetch failed -> do NOT mark seen, retry it next run. This
+      // is the fix for filings being permanently dropped after a transient timeout.
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        fetchedOk.push(chunk[j].accession);
+        if (r.value.length) {
+          if (chunk[j].formType === '4/A') amendRows.push(...r.value);
+          else insertRows.push(...r.value);
+        }
       }
     }
     if (insertRows.length) inserted += await doInsertBatch(insertRows);
@@ -468,7 +478,7 @@ async function processBatch(filings, label) {
     await new Promise(r => setTimeout(r, 25)); // brief yield
   }
 
-  await markSeenBatch(newFilings.map(f => f.accession));
+  await markSeenBatch(fetchedOk);
   log(`${label}: done — ${inserted} trades from ${newFilings.length} new filings`);
   return inserted;
 }
@@ -520,12 +530,61 @@ async function runBackfill(daysBack) {
   log(`Backfill complete: ${inserted} trades across ${Object.keys(byDate).length} days`);
 }
 
+// ─── Targeted issuer re-fetch ─────────────────────────────────────────────────
+// Force-reprocess ALL recent Form 4/4A filings for one issuer CIK, straight from
+// its EDGAR submissions feed, BYPASSING seen_filings. Recovers filings that were
+// wrongly marked "seen" (e.g. after a transient fetch timeout) without a slow
+// full-window backfill. Reusable for any ticker showing a gap.
+// Usage: node daily-worker.js issuer <CIK>
+async function runIssuer(cikRaw) {
+  const cik = String(cikRaw || '').replace(/\D/g, '');
+  if (!cik) { log('issuer mode: no CIK given'); return; }
+  const padded = cik.padStart(10, '0');
+  log(`=== issuer re-fetch: CIK ${cik} ===`);
+  const { status, body } = await get(`https://data.sec.gov/submissions/CIK${padded}.json`, 30000);
+  if (status !== 200) { log(`submissions HTTP ${status} for CIK ${cik}`); return; }
+  let j; try { j = JSON.parse(body); } catch(_) { log('submissions JSON parse failed'); return; }
+  const r = j.filings?.recent || {};
+  const targets = [];
+  for (let i = 0; i < (r.accessionNumber || []).length; i++) {
+    if (r.form[i] === '4' || r.form[i] === '4/A') {
+      targets.push({ accession: r.accessionNumber[i], filingDate: r.filingDate[i], formType: r.form[i], ciks: [cik] });
+    }
+  }
+  log(`issuer ${j.name || cik}: ${targets.length} Form 4/4A filings in the recent feed`);
+  let inserted = 0, failed = 0;
+  const CONCURRENCY = 6;
+  for (let i = 0; i < targets.length; i += CONCURRENCY) {
+    const chunk = targets.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(chunk.map(f => fetchForm4(f.accession, f.filingDate, f.xmlFile, f.ciks)));
+    const insertRows = [], amendRows = [];
+    for (let k = 0; k < results.length; k++) {
+      const v = results[k];
+      if (v.status === 'fulfilled' && Array.isArray(v.value)) {
+        if (chunk[k].formType === '4/A') amendRows.push(...v.value); else insertRows.push(...v.value);
+      } else { failed++; }
+    }
+    if (insertRows.length) inserted += await doInsertBatch(insertRows);
+    if (amendRows.length)  inserted += await doInsertAmendmentBatch(amendRows);
+    await new Promise(r => setTimeout(r, 40));
+  }
+  log(`=== issuer re-fetch done: ${inserted} trades inserted, ${failed} fetch failures ===`);
+}
+
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
-const daysBack = parseInt(process.argv[2] || '3');
+const arg1 = process.argv[2] || '3';
+const arg2 = process.argv[3] || '';
 
 async function main() {
-  log(`=== daily-worker v10 (Turso) start, daysBack=${daysBack} ===`);
   await initSchema();
+  if (arg1 === 'issuer') {
+    log(`=== daily-worker v10 (Turso) start, issuer mode ===`);
+    await runIssuer(arg2);
+    log('=== daily-worker done ===');
+    return;
+  }
+  const daysBack = parseInt(arg1, 10) || 3;
+  log(`=== daily-worker v10 (Turso) start, daysBack=${daysBack} ===`);
 
   // NOTE: data-hygiene safety-net DELETEs (bad dates, non-P/S types, implausible
   // values) used to run here every ingestion, but each full-scans the trades

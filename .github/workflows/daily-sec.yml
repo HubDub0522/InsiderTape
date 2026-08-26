@@ -15,6 +15,10 @@ on:
         description: 'Number of days to backfill'
         required: false
         default: '3'
+      refetch_cik:
+        description: 'Recover one issuer: re-fetch ALL its recent Form 4s by CIK (e.g. 1577552 = Alibaba), bypassing dedup. Leave blank for a normal backfill.'
+        required: false
+        default: ''
 
 # Scheduled runs still cancel each other (no point stacking short daily runs).
 # But a MANUAL run (workflow_dispatch) gets its own group and is never cancelled,
@@ -42,7 +46,12 @@ jobs:
         run: npm install
 
       - name: Run SEC Form 4 ingestion
-        run: node daily-worker.js ${{ github.event.inputs.days_back || '3' }} backfill
+        run: |
+          if [ -n "${{ github.event.inputs.refetch_cik }}" ]; then
+            node daily-worker.js issuer "${{ github.event.inputs.refetch_cik }}"
+          else
+            node daily-worker.js ${{ github.event.inputs.days_back || '3' }} backfill
+          fi
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
