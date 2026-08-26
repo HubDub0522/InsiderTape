@@ -570,7 +570,8 @@ app.get('/api/screener', async (req, res) => {
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
-             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
+             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession,
+             MAX(footnote) AS footnote
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days') AND trade_date <= date('now')
         AND TRIM(type) IN ('P','S','S-')
@@ -612,7 +613,8 @@ app.get('/api/history', async (req, res) => {
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
-             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
+             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession,
+             MAX(footnote) AS footnote
       FROM trades
       WHERE trade_date >= date('now', '-' || ? || ' days') AND trade_date <= date('now')
         AND TRIM(type) IN ('P','S','S-')
