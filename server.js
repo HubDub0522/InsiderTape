@@ -635,7 +635,8 @@ app.get('/api/ticker', async (req, res) => {
       SELECT ticker, MAX(company) AS company, insider, MAX(title) AS title,
              trade_date AS trade, MAX(filing_date) AS filing,
              TRIM(type) AS type, MAX(qty) AS qty, MAX(price) AS price,
-             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession
+             MAX(value) AS value, MAX(owned) AS owned, MAX(accession) AS accession,
+             MAX(footnote) AS footnote
       FROM trades WHERE ticker = ? AND TRIM(type) IN ('P','S','S-')
       GROUP BY ticker, insider, trade_date, type
       ORDER BY trade_date DESC, filing_date DESC LIMIT 5000

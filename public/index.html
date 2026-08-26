@@ -3216,6 +3216,9 @@ async function loadStockView(ticker, opts={}) {
   // Abort if superseded by a newer loadStockView call
   if (mySeq !== _loadStockViewSeq) { _loadStockViewInFlight = null; return; }
   state.currentPriceData = priceData;
+  // Detect ADR unit ratio (ordinary-share filings vs the ADR chart) so trade
+  // prices are labeled clearly instead of looking like a $14-on-a-$119 bug.
+  state.adrRatio = _computeAdrRatio(state.tickerTrades || [], priceData);
 
   // Render sidebar and trades table with Form 4 data
   renderSidebarGated(state.tickerTrades || []);
@@ -4139,6 +4142,55 @@ function renderTradeMarkerList(trades) {
 
 }
 
+// Escape plain text for safe HTML insertion (footnotes come straight from EDGAR).
+function _escText(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+// ADR unit detection: foreign issuers (e.g. Alibaba) file insider trades in the
+// local ORDINARY shares, priced at a fraction of the US-listed ADR shown on the
+// chart. We infer the ratio (median of chart-close / trade-price) so we can label
+// prices clearly instead of showing a bare "$14" on a $119 stock (which reads as
+// a bug). Returns 1 for normal tickers, an integer >=2 for ADRs.
+function _computeAdrRatio(trades, priceData) {
+  try {
+    if (!trades || !trades.length || !priceData || !priceData.length) return 1;
+    const closeByDate = {};
+    for (const b of priceData) if (b && b.time) closeByDate[b.time] = b.close;
+    const sh = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    const closeNear = d => { if (closeByDate[d] != null) return closeByDate[d]; for (let i = 1; i <= 5; i++) { const a = closeByDate[sh(d, -i)], b = closeByDate[sh(d, i)]; if (a != null) return a; if (b != null) return b; } return null; };
+    const ratios = [];
+    for (const t of trades) {
+      const p = +t.price || 0; if (p <= 0) continue;
+      const d = String(t.trade || t.filing || '').slice(0, 10); if (!d) continue;
+      const c = closeNear(d); if (c == null || c <= 0) continue;
+      ratios.push(c / p);
+    }
+    if (!ratios.length) return 1;
+    ratios.sort((a, b) => a - b);
+    const med = ratios[Math.floor(ratios.length / 2)];
+    const R = Math.round(med);
+    // Only treat as an ADR ratio if it's a clean integer >=2 and consistent.
+    return (R >= 2 && Math.abs(med - R) / R < 0.2) ? R : 1;
+  } catch (_) { return 1; }
+}
+// Price HTML for a trade: normal tickers show "$14.47"; ADR tickers add the
+// ADS-equivalent so it lines up with the chart and doesn't look broken.
+function _tradePriceHtml(price) {
+  const p = +price || 0;
+  const R = state.adrRatio || 1;
+  if (R >= 2 && p > 0) {
+    const tk = state.currentTicker || 'This stock';
+    const tip = (tk + ' trades as an ADR: 1 ADS ≈ ' + R + ' ordinary shares. Insiders file in ordinary shares, so the filed price is about 1/' + R + ' of the ADR price on the chart. The dollar value is exact either way.').replace(/"/g, '&quot;');
+    return '$' + p.toFixed(2) + '<span style="color:var(--muted);font-size:0.82em;cursor:help" title="' + tip + '"> /ord · ≈$' + (p * R).toFixed(2) + '/ADS</span>';
+  }
+  return '$' + p.toFixed(2);
+}
+// One-line explainer shown above ADR trade lists so "$14" is never mistaken for a bug.
+function _adrNoteHtml() {
+  const R = state.adrRatio || 1;
+  if (R < 2) return '';
+  const tk = state.currentTicker || 'This company';
+  return '<div style="background:rgba(10,111,136,0.06);border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:10px;font-size:11px;color:var(--muted);line-height:1.55">ℹ️ <strong style="color:var(--text)">' + tk + ' files in ordinary shares.</strong> It trades in the US as an ADR (1 ADS ≈ ' + R + ' ordinary shares), so the filed prices below are ~1/' + R + ' of the ADR price on the chart. Dollar values are exact.</div>';
+}
+
 function renderSidebarTrades(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
   const cards = trades.map(t => {
@@ -4151,7 +4203,7 @@ function renderSidebarTrades(trades) {
       + '<div class="trade-role">' + (t.title||'') + '</div>'
       + '<div class="trade-numbers">'
       + '<div class="trade-num-item"><div class="trade-num-label">Shares</div><div class="trade-num-val">' + fmtShares(t.qty) + '</div></div>'
-      + '<div class="trade-num-item"><div class="trade-num-label">Price</div><div class="trade-num-val">$' + (t.price||0).toFixed(2) + '</div></div>'
+      + '<div class="trade-num-item"><div class="trade-num-label">Price</div><div class="trade-num-val">' + _tradePriceHtml(t.price) + '</div></div>'
       + '<div class="trade-num-item" style="grid-column:1/-1"><div class="trade-num-label">Total Value</div><div class="trade-num-val" style="color:' + color + '">' + fmt(t.value) + '</div></div>'
       + '</div></div>'
     };
@@ -4161,7 +4213,7 @@ function renderSidebarTrades(trades) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div>No insider trades found</div></div>';
     return;
   }
-  el.innerHTML = cards.map(c => c.html).join('');
+  el.innerHTML = _adrNoteHtml() + cards.map(c => c.html).join('');
 }
 function renderSidebarSummary(trades) {
   const el=document.getElementById('sidebarContent'); if(!el)return;
@@ -4203,7 +4255,7 @@ function renderStockTradesTable(trades) {
       + '<div style="background:rgba(10,111,136,0.03);border-top:1px solid var(--border);padding:14px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 20px">'
       + cell('Company', t.company||'-')
       + cell('Trade Type', typeLabel, typeColor)
-      + cell('Price per Share', '$' + (t.price||0).toFixed(2))
+      + cell('Price per Share', _tradePriceHtml(t.price))
       + cell('Total Value', fmt(t.value||0), typeColor)
       + cell('Trade Date', fmtDate(t.trade||t.filing))
       + cell('Filing Date', fmtDate(t.filing))
@@ -4211,6 +4263,7 @@ function renderStockTradesTable(trades) {
       + '<div><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">SEC Filing</div><div style="font-size:12px">'
       + (secUrl ? '<a href="' + secUrl + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:var(--accent);font-size:11px;font-weight:500;text-decoration:none">View on SEC ↗</a>' : '<span style="color:var(--muted)">-</span>')
       + '</div></div>'
+      + (t.footnote ? '<div style="grid-column:1/-1;margin-top:2px"><div style="font-size:9px;color:var(--muted);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Explanation of responses (from the SEC filing)</div><div style="font-size:11px;color:var(--text);line-height:1.5;font-style:italic">' + _escText(t.footnote) + '</div></div>' : '')
       + '</div></td></tr>';
     const toggleFn = "var d=document.getElementById('" + rid + "d');var open=d.style.display!=='none';d.style.display=open?'none':'table-row';var a=document.querySelector('#" + rid + " .ra');if(a)a.style.transform=open?'rotate(0deg)':'rotate(90deg)';event.stopPropagation();";
     return { date: t.trade||t.filing||'', html:
@@ -4222,7 +4275,7 @@ function renderStockTradesTable(trades) {
       + insiderRoleBadge(t.title||'') + '</td>'
       + '<td><span class="badge ' + badgeClass(t.type) + '">' + tradeLabel(t.type) + '</span></td>'
       + '<td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">' + fmtShares(t.qty) + '</td>'
-      + '<td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">$' + (t.price||0).toFixed(2) + '</td>'
+      + '<td style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">' + _tradePriceHtml(t.price) + '</td>'
       + '<td class="' + (tradeClass(t.type)==='buy'?'val-positive':tradeClass(t.type)==='sell'?'val-negative':'val-neutral') + '" style="font-family:Inter,sans-serif;font-variant-numeric:tabular-nums">' + fmt(t.value) + '</td>'
       + '</tr>' + detailHtml
     };
