@@ -9,6 +9,7 @@ on:
     - cron: '0 16 * * 1-5'    # ~12:00 PM ET  (midday, light + leaderboard refresh)
     - cron: '14 20 * * 1-5'   # ~4:14 PM ET   (just after close, light)
     - cron: '0 13 * * 0,6'    # ~9:00 AM ET   (once each weekend day)
+    - cron: '0 11 * * 0'      # ~7:00 AM ET Sunday - WEEKLY heavy backtest study (FORCE_FULL)
   workflow_dispatch:
     inputs:
       days_back:
@@ -73,6 +74,6 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN:   ${{ secrets.TURSO_AUTH_TOKEN }}
           # The heavy market-wide backtest study (thousands of Yahoo calls, ~30+ min)
-          # ONLY runs when explicitly requested via the force_full input - not as a
-          # side effect of every manual run. Recovery/backfill runs stay fast.
-          FORCE_FULL: ${{ github.event.inputs.force_full == 'true' && '1' || '' }}
+          # runs ONCE A WEEK on the Sunday cron, or on an explicit force_full manual
+          # run. Every other scheduled run and every recovery/backfill stays fast.
+          FORCE_FULL: ${{ (github.event.inputs.force_full == 'true' || github.event.schedule == '0 11 * * 0') && '1' || '' }}
