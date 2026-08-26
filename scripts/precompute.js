@@ -1137,19 +1137,10 @@ async function computeSearchIndex() {
 // can report excess-vs-market. Lightweight (recent signals only) so it runs on
 // the regular cadence. Served from computed_cache key 'signal-scoreboard'.
 async function computeSignalScoreboard() {
-  log('Computing signal-scoreboard (live cluster + CFO track record)...');
+  log('Computing signal-scoreboard (gains since flagged: cluster / CFO / first-buy)...');
   const DAY = 86400000;
+  const today = new Date().toISOString().slice(0, 10);
   const shiftDate = (ymd, n) => { const x = new Date(ymd + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
-
-  // Russell 2000 benchmark (fairer than the S&P for the small/mid-cap insider set).
-  const rutClose = {};
-  try {
-    const endTs = Math.floor(Date.now() / 1000), startTs = endTs - 400 * 86400;
-    const resp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5ERUT?interval=1d&period1=${startTs}&period2=${endTs}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const d = await resp.json(); const r = d?.chart?.result?.[0];
-    if (r?.timestamp) { const q = r.indicators.quote[0]; r.timestamp.forEach((t, i) => { const c = q.close?.[i]; if (c > 0) rutClose[new Date(t * 1000).toISOString().slice(0, 10)] = c; }); }
-  } catch(_) {}
-  const onOrBefore = (map, date) => { for (let i = 0; i <= 6; i++) { const dd = shiftDate(date, -i); if (map[dd] != null) return map[dd]; } return null; };
 
   // Price bars for active tickers (already warmed by prewarmPrices).
   const barsByTicker = {};
@@ -1158,13 +1149,18 @@ async function computeSignalScoreboard() {
     for (const pr of priceRows) { try { const arr = JSON.parse(pr.bars_json).filter(b => b.close > 0).map(b => ({ t: b.time, c: b.close })); arr.sort((a, b) => a.t < b.t ? -1 : 1); if (arr.length > 30) barsByTicker[pr.symbol] = arr; } catch(_) {} }
   } catch(_) {}
 
-  // Recent open-market buys (last ~168 days so the 90d bucket has matured rows).
+  const SCORE_DAYS = 400;  // signals flagged within this trailing window are shown
+  const GAP_DAYS = 365;    // "first buy in a year+" = no prior buy on the ticker within a year
+  const scoreFrom = shiftDate(today, -SCORE_DAYS);
+
+  // Buys over a longer history than the score window, so first-buy gaps can be
+  // detected for even the oldest scored signals (score window + gap).
   const buys = await dbQuery(`
     SELECT ticker, insider, trade_date AS d, MAX(title) AS title,
            MAX(COALESCE(value,0)) AS value, MAX(COALESCE(price,0)) AS price
     FROM trades
     WHERE TRIM(type)='P' AND COALESCE(value,0) >= 25000
-      AND trade_date >= date('now','-168 days') AND trade_date <= date('now')
+      AND trade_date >= date('now','-800 days') AND trade_date <= date('now')
       AND ticker GLOB '[A-Z]*' AND LENGTH(ticker) BETWEEN 1 AND 6
       AND insider IS NOT NULL AND insider != ''
     GROUP BY ticker, insider, trade_date`);
@@ -1176,21 +1172,18 @@ async function computeSignalScoreboard() {
   const CLUSTER_WIN = 30, COOLDOWN = 90, MIN_CLUSTER = 3;
   const WIN = { '30d': 21, '60d': 42, '90d': 63 };
 
-  // Forward returns at each matured horizon for an entry date (null where a
-  // horizon has not matured yet). Mirrors computeInsiderStudy's measure().
+  // Raw gain since the flag date at each fixed horizon; null until that horizon matures.
   function measure(bars, entryDate) {
     const ei = bars.findIndex(x => x.t >= entryDate);
     if (ei < 0) return null;
     if (new Date(bars[ei].t) - new Date(entryDate) > 6 * DAY) return null;
     const entry = bars[ei].c; if (!(entry > 0)) return null;
-    const rE = onOrBefore(rutClose, bars[ei].t);
-    const out = { entry };
+    const out = {};
     for (const [k, n] of Object.entries(WIN)) {
       const fi = ei + n; if (fi >= bars.length) { out[k] = null; continue; }
       const fwd = bars[fi].c; if (!(fwd > 0)) { out[k] = null; continue; }
       const ret = fwd / entry - 1; if (ret > 4 || ret < -0.95) { out[k] = null; continue; }
-      let rx = null; if (rE) { const rF = onOrBefore(rutClose, bars[fi].t); if (rF) rx = ret - (rF / rE - 1); }
-      out[k] = { ret, rx };
+      out[k] = ret;
     }
     return out;
   }
@@ -1200,6 +1193,10 @@ async function computeSignalScoreboard() {
     const list = byTicker[ticker].sort((a, b) => a.d < b.d ? -1 : 1);
     const bars = barsByTicker[ticker];
     if (!bars) continue; // no price series -> cannot score; skip
+    // Every prior buy date per insider on this ticker (for the first-buy gap test).
+    const datesByInsider = {};
+    for (const b of list) { (datesByInsider[b.insider] || (datesByInsider[b.insider] = [])).push(b.d); }
+
     // CLUSTER waves: >=MIN_CLUSTER distinct insiders within a trailing 30d window,
     // deduped by a 90d cooldown so one wave counts once.
     let last = null;
@@ -1209,22 +1206,27 @@ async function computeSignalScoreboard() {
       const seen = new Set(); const members = [];
       for (let j = i; j >= 0; j--) { const dj = new Date(list[j].d + 'T12:00:00Z').getTime(); if (dj < bound) break; if (!seen.has(list[j].insider)) { seen.add(list[j].insider); members.push(list[j]); } }
       if (seen.size >= MIN_CLUSTER && (last === null || end - last > COOLDOWN * DAY)) {
-        // Exclude coordinated offerings/conversions: everyone same day AND same price.
         const dates = new Set(members.map(m => m.d));
         const prices = new Set(members.filter(m => m.price > 0).map(m => m.price.toFixed(2)));
         if (!(dates.size <= 1 && prices.size <= 1)) {
           last = end;
-          const m = measure(bars, list[i].d);
-          if (m) signals.push({ ticker, date: list[i].d, type: 'cluster', size: seen.size, ...m });
+          if (list[i].d >= scoreFrom) { const m = measure(bars, list[i].d); if (m) signals.push({ ticker, date: list[i].d, type: 'cluster', size: seen.size, ...m }); }
         }
       }
     }
     // CFO conviction buys (a single CFO open-market buy of decent size).
     for (const b of list) {
-      if (b.role === 'cfo' && b.value >= 50000) {
-        const m = measure(bars, b.d);
-        if (m) signals.push({ ticker, date: b.d, type: 'cfo', size: 1, insider: b.insider, ...m });
+      if (b.role === 'cfo' && b.value >= 50000 && b.d >= scoreFrom) {
+        const m = measure(bars, b.d); if (m) signals.push({ ticker, date: b.d, type: 'cfo', size: 1, insider: b.insider, ...m });
       }
+    }
+    // FIRST buy in a year+ : no prior buy by this insider on this ticker within GAP_DAYS.
+    for (const b of list) {
+      if (b.d < scoreFrom || b.value < 25000) continue;
+      const dts = datesByInsider[b.insider] || [];
+      let recentPrior = false;
+      for (const dd of dts) { if (dd < b.d) { const gap = (new Date(b.d + 'T12:00:00Z') - new Date(dd + 'T12:00:00Z')) / DAY; if (gap < GAP_DAYS) { recentPrior = true; break; } } }
+      if (!recentPrior) { const m = measure(bars, b.d); if (m) signals.push({ ticker, date: b.d, type: 'firstbuy', size: 1, insider: b.insider, ...m }); }
     }
   }
   signals.sort((a, b) => a.date < b.date ? 1 : -1); // most recent first
@@ -1233,33 +1235,35 @@ async function computeSignalScoreboard() {
   function agg(subset) {
     const h = {};
     for (const k of Object.keys(WIN)) {
-      const cells = subset.map(s => s[k]).filter(x => x && x.ret != null);
-      const rets = cells.map(x => x.ret);
-      const rxs = cells.map(x => x.rx).filter(x => x != null);
+      const rets = subset.map(s => s[k]).filter(x => x != null);
       const n = rets.length;
-      h[k] = {
-        n,
-        avgRet: n ? rets.reduce((a, c) => a + c, 0) / n : null,
-        pctPositive: n ? rets.filter(r => r > 0).length / n : null,
-        avgExcess: rxs.length ? rxs.reduce((a, c) => a + c, 0) / rxs.length : null
-      };
+      h[k] = { n, avgRet: n ? rets.reduce((a, c) => a + c, 0) / n : null, pctPositive: n ? rets.filter(r => r > 0).length / n : null };
     }
     return h;
   }
-
+  const byType = {
+    cluster: agg(signals.filter(s => s.type === 'cluster')),
+    cfo: agg(signals.filter(s => s.type === 'cfo')),
+    firstbuy: agg(signals.filter(s => s.type === 'firstbuy')),
+  };
   const result = {
-    version: 1,
-    updatedThrough: new Date().toISOString().slice(0, 10),
+    version: 2,
+    updatedThrough: today,
     all: agg(signals),
-    byType: { cluster: agg(signals.filter(s => s.type === 'cluster')), cfo: agg(signals.filter(s => s.type === 'cfo')) },
-    counts: { total: signals.length, cluster: signals.filter(s => s.type === 'cluster').length, cfo: signals.filter(s => s.type === 'cfo').length },
-    signals: signals.slice(0, 150).map(s => ({
+    byType,
+    counts: {
+      total: signals.length,
+      cluster: signals.filter(s => s.type === 'cluster').length,
+      cfo: signals.filter(s => s.type === 'cfo').length,
+      firstbuy: signals.filter(s => s.type === 'firstbuy').length,
+    },
+    signals: signals.slice(0, 250).map(s => ({
       ticker: s.ticker, date: s.date, type: s.type, size: s.size, insider: s.insider || null,
-      ret30: s['30d'] ? s['30d'].ret : null, ret60: s['60d'] ? s['60d'].ret : null, ret90: s['90d'] ? s['90d'].ret : null
+      ret30: s['30d'] != null ? s['30d'] : null, ret60: s['60d'] != null ? s['60d'] : null, ret90: s['90d'] != null ? s['90d'] : null
     }))
   };
   await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('signal-scoreboard', ?, ?)`, [JSON.stringify(result), Date.now()]);
-  log(`signal-scoreboard cached: ${signals.length} signals (${result.counts.cluster} cluster / ${result.counts.cfo} CFO), matured 90d sample = ${result.all['90d'].n}`);
+  log(`signal-scoreboard cached: ${signals.length} signals (${result.counts.cluster} cluster / ${result.counts.cfo} CFO / ${result.counts.firstbuy} first-buy), matured 90d = ${result.all['90d'].n}`);
 }
 
 async function main() {
@@ -1333,7 +1337,8 @@ async function main() {
   await migratePriceCacheTo5yr().catch(e => log('price-cache-migrate error: ' + e.message));
   await migrateDecodeInsiderNames().catch(e => log('decode-names error: ' + e.message));
   await prewarmPrices().catch(e => log('prewarm-prices error: ' + e.message));
-  // Scoreboard runs after prewarm so it scores against the freshest bars.
+  // Scoreboard runs after prewarm so it scores against the freshest bars. Reads
+  // cached price_cache only (no Yahoo), so it's cheap to refresh every pass.
   await computeSignalScoreboard().catch(e => log('signal-scoreboard error: ' + e.message));
   log('=== precompute done ===');
 }

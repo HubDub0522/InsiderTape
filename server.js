@@ -3651,37 +3651,40 @@ function renderSignalScoreboardPage(data) {
   const bestH = (h90.n ? h90 : (h60.n ? h60 : h30));
   const bestLbl = (h90.n ? '90 days' : (h60.n ? '60 days' : '30 days'));
   const heroLine = hasData
-    ? `Across ${(data.counts && data.counts.total) || 0} insider cluster and CFO buys flagged in the last ~5 months, the average stock was <strong style="color:${col(bestH.avgRet)}">${pct(bestH.avgRet)}</strong> at ${bestLbl}, with <strong>${pctUp(bestH.pctPositive)}</strong> finishing higher${bestH.avgExcess != null ? ` and a <strong style="color:${col(bestH.avgExcess)}">${pctPts(bestH.avgExcess)}</strong> edge over the Russell 2000` : ''}.`
-    : `The scoreboard is warming up - it recomputes nightly. Check back shortly for the live returns.`;
+    ? `Across ${(data.counts && data.counts.total) || 0} insider signals flagged in the last year, the average stock was <strong style="color:${col(bestH.avgRet)}">${pct(bestH.avgRet)}</strong> at ${bestLbl}, with <strong>${pctUp(bestH.pctPositive)}</strong> finishing higher - the raw gain from the day we flagged it, i.e. what buying alongside the insider would have returned.`
+    : `The scoreboard is warming up - it recomputes daily. Check back shortly for the live returns.`;
   const desc = hasData
-    ? `Live track record of insider buying signals: every cluster (3+ insiders) and CFO buy we flag, measured at 30/60/90 days vs the Russell 2000. Average ${pct(bestH.avgRet)} at ${bestLbl}, ${pctUp(bestH.pctPositive)} positive. Updated daily, no cherry-picking.`
-    : `Live track record of insider buying signals: every insider cluster and CFO buy we flag, measured at 30/60/90 days against the Russell 2000. Updated daily.`;
+    ? `Live track record of insider buying signals: every cluster, CFO buy, and first-buy-in-years we flag, and the raw gain since the flag date at 30/60/90 days. Average ${pct(bestH.avgRet)} at ${bestLbl}, ${pctUp(bestH.pctPositive)} positive. Winners and losers, no cherry-picking.`
+    : `Live track record of insider buying signals: every cluster, CFO buy, and first-buy-in-years we flag, and the gain since we flagged it at 30/60/90 days. Updated daily.`;
 
   const faq = [
-    { q: 'Does following insider buying actually work?', a: hasData ? `Over the signals tracked here, insider clusters and CFO buys averaged ${pct(bestH.avgRet)} at ${bestLbl} with ${pctUp(bestH.pctPositive)} of stocks higher${bestH.avgExcess != null ? `, beating the Russell 2000 by ${pctPts(bestH.avgExcess)} on average` : ''}. It is not magic and plenty of individual names lose, but the two signals with a real edge in our five-year study - a cluster of insiders buying, or the CFO buying - are the ones tracked on this page, in real time.` : `This page tracks it live. It measures every insider cluster and CFO buy we flag at fixed 30/60/90-day horizons against the Russell 2000, so you can see the real hit rate rather than a cherry-picked highlight reel.` },
-    { q: 'How is the return measured?', a: `Each signal is measured from the first filing date of the buy to a fixed horizon: 30, 60, and 90 trading days later. A horizon only counts once it has fully matured, so a gain is locked in at that mark and never diluted by later drift. Returns use daily closes; the market benchmark is the Russell 2000, which fits the small and mid-cap insider universe better than the S&P 500.` },
-    { q: 'Which insider signals are on the scoreboard?', a: `Two, because they are the two that held up in our five-year backtest: a cluster (three or more distinct insiders buying the same stock on the open market within 30 days) and a CFO open-market buy. Grants, option exercises, and coordinated offerings or plan buys are excluded, so every entry is genuine open-market conviction.` },
-    { q: 'Is this every signal or just the winners?', a: `Every signal. The table below shows all of them, winners and losers, and the averages are computed across the whole set with no cherry-picking. That is the point: a track record you can check, not a highlight reel.` },
+    { q: 'Does following insider buying actually work?', a: hasData ? `Over the signals tracked here, they averaged ${pct(bestH.avgRet)} at ${bestLbl} with ${pctUp(bestH.pctPositive)} of stocks higher - the plain gain from the day each was flagged. It is not magic and plenty of individual names lose, but these are the setups that held up over a five-year backtest, tracked live so you can check them.` : `This page tracks it live. It measures the raw gain on every cluster, CFO buy, and first-buy-in-years we flag, at fixed 30/60/90-day horizons, so you can see the real hit rate rather than a cherry-picked highlight reel.` },
+    { q: 'How is the return measured?', a: `The raw gain from the flag date (the buy's filing) to a fixed horizon: 30, 60, and 90 trading days later, using daily closes. A horizon only counts once it has fully matured, so the number is locked in at that mark and never diluted by later drift. No benchmark is subtracted - this is simply what a buyer following the signal would have seen.` },
+    { q: 'Why only these three signals - don’t you track more?', a: `InsiderTape surfaces many signals across the app: repeat buying, buying at 52-week lows, pre-earnings purchases, exit warnings, and more. The scoreboard deliberately tracks the three that held up best across our <a href="/insider-buying-study" style="color:var(--accent)">five-year backtest</a> - insider clusters, CFO buys, and first-buys-in-years - rather than diluting the record with weaker setups. The others are on the live screener; these are the ones with the strongest historical edge.` },
+    { q: 'Is this every signal or just the winners?', a: `Every one that qualifies. The table below shows all of them, winners and losers, and the averages are computed across the whole set with no cherry-picking. That is the point: a track record you can check, not a highlight reel.` },
   ];
   const faqHtml = faq.map(f => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px"><h3 style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)">${_esc(f.q)}</h3><p style="font-size:14px;color:#3a4555;margin:0">${f.a}</p></div>`).join('');
 
   const retCell = x => `<td class="num" style="color:${col(x)};font-weight:${x == null ? '400' : '700'}">${pct(x)}</td>`;
-  const sigRows = hasData ? (data.signals || []).slice(0, 60).map(s => {
-    const badge = s.type === 'cluster'
-      ? `<span class="sig sig-cl">CLUSTER</span>`
-      : `<span class="sig sig-cfo">CFO</span>`;
-    const detail = s.type === 'cluster' ? `${s.size} insiders` : 'CFO buy';
-    return `<tr>
+  const sigBadge = t => t === 'cluster' ? `<span class="sig sig-cl">CLUSTER</span>` : t === 'cfo' ? `<span class="sig sig-cfo">CFO</span>` : `<span class="sig sig-fb">FIRST BUY</span>`;
+  const sigDetail = s => s.type === 'cluster' ? `${s.size} insiders` : s.type === 'cfo' ? 'CFO buy' : 'first buy in a year+';
+  // Only show signals matured enough to have a 30-day result, so the table is
+  // populated rather than a wall of blanks; the very newest ones are still maturing.
+  const matured = hasData ? (data.signals || []).filter(s => s.ret30 != null) : [];
+  const stillMaturing = hasData ? (data.signals || []).length - matured.length : 0;
+  const sigRows = matured.slice(0, 80).map(s => `<tr>
       <td class="tk"><a href="/insider-trading/${_esc(s.ticker)}"><strong>${_esc(s.ticker)}</strong></a></td>
-      <td class="sigc">${badge}<span class="sz">${_esc(detail)}</span></td>
+      <td class="sigc">${sigBadge(s.type)}<span class="sz">${_esc(sigDetail(s))}</span></td>
       <td class="dt">${_fmtDate(s.date)}</td>
       ${retCell(s.ret30)}${retCell(s.ret60)}${retCell(s.ret90)}
-    </tr>`;
-  }).join('') : '';
+    </tr>`).join('');
 
-  const typeRow = (label, h) => `<tr><td><strong>${label}</strong></td><td class="num">${h.n || 0}</td><td class="num" style="color:${col(h.avgRet)};font-weight:700">${pct(h.avgRet)}</td><td class="num">${pctUp(h.pctPositive)}</td><td class="num" style="color:${col(h.avgExcess)}">${pctPts(h.avgExcess)}</td></tr>`;
-  const cl90 = (data && data.byType && data.byType.cluster && data.byType.cluster['90d']) || {};
-  const cf90 = (data && data.byType && data.byType.cfo && data.byType.cfo['90d']) || {};
+  const typeRow = (label, bt) => {
+    const t30 = (bt && bt['30d']) || {}, t60 = (bt && bt['60d']) || {}, t90 = (bt && bt['90d']) || {};
+    const n = t30.n || t60.n || t90.n || 0;
+    return `<tr><td><strong>${label}</strong></td><td class="num">${n}</td><td class="num" style="color:${col(t30.avgRet)};font-weight:600">${pct(t30.avgRet)}</td><td class="num" style="color:${col(t60.avgRet)};font-weight:600">${pct(t60.avgRet)}</td><td class="num" style="color:${col(t90.avgRet)};font-weight:700">${pct(t90.avgRet)}</td><td class="num">${pctUp(t90.pctPositive)}</td></tr>`;
+  };
+  const bt = (data && data.byType) || {};
 
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -3731,6 +3734,7 @@ td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:middle
 .sig{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.5px;padding:2px 7px;border-radius:4px;vertical-align:middle}
 .sig-cl{background:rgba(10,111,136,.1);color:var(--accent);border:1px solid rgba(10,111,136,.25)}
 .sig-cfo{background:rgba(120,80,160,.1);color:#7850a0;border:1px solid rgba(120,80,160,.25)}
+.sig-fb{background:rgba(180,120,20,.1);color:#9a6e00;border:1px solid rgba(180,120,20,.28)}
 .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:#3a4555}
 .dt{text-align:right;white-space:nowrap;color:var(--muted);font-size:12px}
 .mini{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:14px}
@@ -3748,7 +3752,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
 <div class="wrap">
   <div class="tag">Live Track Record &nbsp;·&nbsp; Updated Daily</div>
   <h1>Does insider buying actually work?</h1>
-  <p class="sub">We track it in the open. Every insider <strong>cluster</strong> (three or more insiders buying) and every <strong>CFO</strong> open-market buy we flag, measured at fixed 30, 60, and 90-day horizons against the Russell 2000. Winners and losers both. No cherry-picking.</p>
+  <p class="sub">We track it in the open. Every insider <strong>cluster</strong>, <strong>CFO buy</strong>, and <strong>first-buy-in-a-year</strong> we flag, shown as the plain gain from the day it was flagged at 30, 60, and 90 days - what buying alongside the insider would have returned. Winners and losers both, no cherry-picking. These are the three signals that held up best in our <a href="/insider-buying-study" style="color:var(--accent)">five-year backtest</a>; the rest run live on the screener.</p>
   <p class="hero-stat">${heroLine}</p>
   <div class="upd">Data through ${updated}</div>
   <div class="share-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 26px">
@@ -3761,29 +3765,31 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="card"><div class="k">Avg return · 60 days</div><div class="v" style="color:${col(h60.avgRet)}">${pct(h60.avgRet)}</div><div class="sub2">${pctUp(h60.pctPositive)} positive · ${h60.n || 0} signals</div></div>
     <div class="card"><div class="k">Avg return · 90 days</div><div class="v" style="color:${col(h90.avgRet)}">${pct(h90.avgRet)}</div><div class="sub2">${pctUp(h90.pctPositive)} positive · ${h90.n || 0} signals</div></div>
   </div>
-  ${hasData && h90.avgExcess != null ? `<p class="bench">At 90 days the average signal beat the Russell 2000 by <strong style="color:${col(h90.avgExcess)}">${pctPts(h90.avgExcess)}</strong>.</p>` : '<div style="margin-bottom:24px"></div>'}
+  <div style="margin-bottom:24px"></div>
 
   <h2 class="sec">By signal type</h2>
-  <table class="mini"><thead><tr><th>Signal</th><th class="num">Sample (90d)</th><th class="num">Avg 90d</th><th class="num">% up</th><th class="num">vs Russell</th></tr></thead><tbody>
-    ${typeRow('Insider cluster (3+)', cl90)}
-    ${typeRow('CFO buy', cf90)}
+  <table class="mini"><thead><tr><th>Signal</th><th class="num">Signals</th><th class="num">Avg 30d</th><th class="num">Avg 60d</th><th class="num">Avg 90d</th><th class="num">% up</th></tr></thead><tbody>
+    ${typeRow('Insider cluster (3+)', bt.cluster)}
+    ${typeRow('CFO buy', bt.cfo)}
+    ${typeRow('First buy in a year+', bt.firstbuy)}
   </tbody></table>
+  <p class="note" style="margin-top:10px">Each figure is the average raw gain since the flag date. These are the three signals with the strongest edge in our <a href="/insider-buying-study">five-year study</a>; the app tracks many more (repeat buying, buying at the lows, pre-earnings, exit warnings), but the scoreboard sticks to the proven few rather than dilute the record.</p>
 
   <h2 class="sec">Every signal we flagged</h2>
   <div class="tbl-brand"><span class="bl">INSIDER<span>TAPE</span></span><span class="br">insidertape.com/track-record</span></div>
   <table><thead><tr><th>Ticker</th><th>Signal</th><th class="dt">Flagged</th><th class="num">30d</th><th class="num">60d</th><th class="num">90d</th></tr></thead><tbody>
-    ${sigRows || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:28px">The scoreboard recomputes nightly. Live returns will appear here shortly.</td></tr>`}
+    ${sigRows || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:28px">The scoreboard recomputes daily. Live returns will appear here shortly.</td></tr>`}
   </tbody></table>
-  <p class="note">A blank cell means that horizon has not matured yet (the buy is too recent). Every entry is a genuine open-market signal, filed on SEC Form 4, with grants, option exercises, and coordinated offerings excluded. Want to see these plotted on the price chart as they file? Start with the <a href="/biggest-insider-buys">biggest insider buys this week</a>, the <a href="/cfos-buying-stock">CFOs buying</a>, or the full <a href="/insider-buying-study">five-year study</a> behind these two signals.</p>
+  <p class="note">Each number is the gain from the flag date at that horizon; a blank cell just means that horizon has not matured yet. ${stillMaturing > 0 ? `${stillMaturing} more signal${stillMaturing === 1 ? '' : 's'} flagged too recently to have a 30-day result are not shown yet. ` : ''}Every entry is a genuine open-market buy filed on SEC Form 4, with grants, options, and coordinated offerings excluded. Want them plotted on the chart the moment they file? See the <a href="/biggest-insider-buys">biggest insider buys</a>, the <a href="/cfos-buying-stock">CFOs buying</a>, or the <a href="/insider-buying-study">five-year study</a> behind these signals.</p>
   <div class="cite"><strong>Cite this page:</strong> InsiderTape, &ldquo;Insider Signal Track Record,&rdquo; data through ${updated}, sourced from SEC Form 4 filings and daily price data. Free to reference with a link to insidertape.com/track-record.</div>
   <section style="margin-top:40px">
     <h2 style="font-size:18px;font-weight:700;margin-bottom:14px">Track record: FAQ</h2>
     ${faqHtml}
   </section>
-  ${_emailCapture('track-record', 'Get the insider buys that beat the market, free every week.')}
+  ${_emailCapture('track-record', 'Get the insider buys that actually move, free every week.')}
   <div class="cta up-hide">
     <h3>See tomorrow's signals the moment they file</h3>
-    <p>InsiderTape flags every cluster and CFO buy in real time, plotted on the price chart, the instant the Form 4 hits. Start a free 7-day trial, cancel anytime.</p>
+    <p>InsiderTape flags every cluster, CFO buy, and first-buy-in-years in real time, plotted on the price chart, the instant the Form 4 hits. Start a free 7-day trial, cancel anytime.</p>
     <a class="btn" href="/premium" onclick="try{gtag('event','cta_start_trial',{location:'track-record'})}catch(e){}">START FREE TRIAL →</a>
     <div class="soft"><a href="/">or explore the live screener free →</a></div>
   </div>
