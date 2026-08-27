@@ -3132,7 +3132,9 @@ async function loadStockView(ticker, opts={}) {
             <button class="tf-btn cf-btn active" id="chartFilter-S" data-color="var(--sell)" onclick="toggleChartFilter('S',this)">SELLS</button>
             <span style="width:1px;background:var(--border);height:18px;display:inline-block;margin:0 2px;vertical-align:middle"></span>
             <button class="tf-btn cf-btn rf-btn active" id="chartRole-all" data-role="all" data-color="var(--accent)" onclick="toggleRoleFilter('all',this)" title="All insiders">ALL</button>
-            <button class="tf-btn cf-btn rf-btn" id="chartRole-exec" data-role="exec" data-color="#a78bfa" onclick="toggleRoleFilter('exec',this)" title="CEO, CFO, COO, President, Chairman">EXEC</button>
+            <button class="tf-btn cf-btn rf-btn" id="chartRole-ceo" data-role="ceo" data-color="#d97706" onclick="toggleRoleFilter('ceo',this)" title="Chief Executive Officer">CEO</button>
+            <button class="tf-btn cf-btn rf-btn" id="chartRole-cfo" data-role="cfo" data-color="#0d9488" onclick="toggleRoleFilter('cfo',this)" title="Chief Financial Officer">CFO</button>
+            <button class="tf-btn cf-btn rf-btn" id="chartRole-exec" data-role="exec" data-color="#a78bfa" onclick="toggleRoleFilter('exec',this)" title="Other executives: COO, President, Chairman, CTO and other officers (not CEO/CFO)">EXEC</button>
             <button class="tf-btn cf-btn rf-btn" id="chartRole-director" data-role="director" data-color="#60a5fa" onclick="toggleRoleFilter('director',this)" title="Board Directors">DIR</button>
             
             <div style="margin-left:auto;display:flex;gap:4px">
@@ -3933,7 +3935,7 @@ function setRange(days,btn) {
 }
 
 const chartActiveFilters=new Set(['P','S']);
-const chartActiveRoles=new Set(['all']); // 'all','exec','director','owner10'
+const chartActiveRoles=new Set(['all']); // 'all','ceo','cfo','exec','director','owner10'
 let _activeRangeDays = 365;
 const OPTION_TYPES=new Set(['C','X','M','A']),BUY_TYPES=new Set(['P']),SELL_TYPES=new Set(['S','D']);
 function tradeFilterGroup(type){if(BUY_TYPES.has(type))return'P';if(SELL_TYPES.has(type))return'S';if(OPTION_TYPES.has(type))return'O';return'X';}
@@ -3942,8 +3944,16 @@ function tradeMatchesRoleFilter(t) {
   if (chartActiveRoles.has('all')) return true;
   const title = (t.title||'').toUpperCase();
   const insider = (t.insider||'').toUpperCase();
+  if (chartActiveRoles.has('ceo')) {
+    if (/\b(CEO|CHIEF EXECUTIVE)\b/.test(title)) return true;
+  }
+  if (chartActiveRoles.has('cfo')) {
+    if (/\b(CFO|CHIEF FINANCIAL)\b/.test(title)) return true;
+  }
   if (chartActiveRoles.has('exec')) {
-    if (/\b(CEO|CFO|COO|CTO|PRESIDENT|CHAIRMAN|CHIEF)\b/.test(title)) return true;
+    // Other executives only - CEO and CFO have their own buttons now.
+    if (/\b(COO|CTO|CIO|CMO|CAO|PRESIDENT|CHAIRMAN|CHAIRPERSON|CHIEF|EVP|EXECUTIVE VICE|OFFICER)\b/.test(title)
+        && !/\b(CEO|CHIEF EXECUTIVE|CFO|CHIEF FINANCIAL)\b/.test(title)) return true;
   }
   if (chartActiveRoles.has('director')) {
     if (/\bDIRECTOR\b/.test(title)) return true;
