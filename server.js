@@ -3672,7 +3672,7 @@ function renderSignalScoreboardPage(data) {
   // Only show signals matured enough to have a 30-day result, so the table is
   // populated rather than a wall of blanks; the very newest ones are still maturing.
   const matured = hasData ? (data.signals || []).filter(s => s.ret30 != null) : [];
-  const stillMaturing = hasData ? (data.signals || []).length - matured.length : 0;
+  const stillMaturing = hasData ? (data.stillMaturing != null ? data.stillMaturing : ((data.signals || []).length - matured.length)) : 0;
   const sigRows = matured.slice(0, 80).map(s => `<tr>
       <td class="tk"><a href="/insider-trading/${_esc(s.ticker)}"><strong>${_esc(s.ticker)}</strong></a></td>
       <td class="sigc">${sigBadge(s.type)}<span class="sz">${_esc(sigDetail(s))}</span></td>

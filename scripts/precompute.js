@@ -1246,6 +1246,10 @@ async function computeSignalScoreboard() {
     cfo: agg(signals.filter(s => s.type === 'cfo')),
     firstbuy: agg(signals.filter(s => s.type === 'firstbuy')),
   };
+  // The per-signal table should list MATURED signals (those with at least a 30d
+  // result) so it's populated - the newest signals are all still maturing, so
+  // slicing "most recent" gave an empty table. Keep a count of the un-matured ones.
+  const maturedSignals = signals.filter(s => s['30d'] != null);
   const result = {
     version: 2,
     updatedThrough: today,
@@ -1257,7 +1261,8 @@ async function computeSignalScoreboard() {
       cfo: signals.filter(s => s.type === 'cfo').length,
       firstbuy: signals.filter(s => s.type === 'firstbuy').length,
     },
-    signals: signals.slice(0, 250).map(s => ({
+    stillMaturing: signals.length - maturedSignals.length,
+    signals: maturedSignals.slice(0, 250).map(s => ({
       ticker: s.ticker, date: s.date, type: s.type, size: s.size, insider: s.insider || null,
       ret30: s['30d'] != null ? s['30d'] : null, ret60: s['60d'] != null ? s['60d'] : null, ret90: s['90d'] != null ? s['90d'] : null
     }))
