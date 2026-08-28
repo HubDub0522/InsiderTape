@@ -1698,6 +1698,9 @@ document.addEventListener('click', e => { if (!e.target.closest('.search-wrap'))
 (function() {
   const _origScrollTo = window.scrollTo.bind(window);
   window.scrollTo = function(x, y) {
+    // During a Back/Forward restore, ignore the view loaders' auto scroll-to-top
+    // so the user lands where they were instead of jumping to the top.
+    if (window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) return;
     _origScrollTo(x, y);
     if (x === 0 && (y === 0 || y === undefined)) {
       // Defer DOM writes to avoid forced reflow
@@ -1708,6 +1711,33 @@ document.addEventListener('click', e => { if (!e.target.closest('.search-wrap'))
     }
   };
 })();
+
+// ── SPA scroll restoration: Back returns you to your previous scroll position ──
+// Continuously remember the scroll position per URL; on a Back/Forward nav,
+// suppress the loaders' scroll-to-top and restore the saved position (retrying a
+// few frames while async lists/tables finish rendering so the page is tall enough).
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+window._suppressAutoTop = false;
+const _scrollPos = Object.create(null);
+const _scrollKey = () => location.pathname + location.search;
+window.addEventListener('scroll', () => {
+  if (!window._suppressAutoTop) _scrollPos[_scrollKey()] = window.scrollY || window.pageYOffset || 0;
+}, { passive: true });
+function _restoreScrollForCurrent() {
+  const target = _scrollPos[_scrollKey()] || 0;
+  window._suppressAutoTop = true;
+  setTimeout(function() { window._suppressAutoTop = false; }, 1200); // safety unlock
+  if (target <= 2) { window._suppressAutoTop = false; return; }
+  let tries = 0;
+  (function step() {
+    const maxScroll = (document.documentElement.scrollHeight || 0) - window.innerHeight;
+    if (maxScroll >= target) {
+      window.scrollTo(0, target);
+      if (Math.abs((window.scrollY || 0) - target) <= 2) { window._suppressAutoTop = false; return; }
+    }
+    if (tries++ < 30) requestAnimationFrame(step); else window._suppressAutoTop = false;
+  })();
+}
 
 const API_BASE = '';
 async function apiFetch(path, opts={}) {
@@ -10509,6 +10539,11 @@ function shareSignal(ticker, headline, detail, type) {
 
 // ── URL ROUTING ───────────────────────────────────────────────────
 window.addEventListener('popstate', e => {
+  window._suppressAutoTop = true;   // don't let loaders yank to top; restore below
+  _routePopstate(e);
+  requestAnimationFrame(_restoreScrollForCurrent);
+});
+function _routePopstate(e) {
   const s = e.state;
   if (!s) { routeFromPath(location.pathname, true); return; }
   if (s.view === 'stock' && s.ticker) {
@@ -10543,7 +10578,7 @@ window.addEventListener('popstate', e => {
   } else {
     switchView(s.view || 'screener', null, {fromPopstate: true});
   }
-});
+}
 
 function routeFromPath(path, fromPopstate) {
   // /stock/AAPL
