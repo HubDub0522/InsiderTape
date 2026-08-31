@@ -1246,10 +1246,16 @@ async function computeSignalScoreboard() {
     cfo: agg(signals.filter(s => s.type === 'cfo')),
     firstbuy: agg(signals.filter(s => s.type === 'firstbuy')),
   };
-  // The per-signal table should list MATURED signals (those with at least a 30d
-  // result) so it's populated - the newest signals are all still maturing, so
-  // slicing "most recent" gave an empty table. Keep a count of the un-matured ones.
-  const maturedSignals = signals.filter(s => s['30d'] != null);
+  // The per-signal table lists only signals with a COMPLETE 30/60/90-day record
+  // so every column is filled; a signal joins once its 90-day mark hits. Interleave
+  // the three types so the list stays varied instead of a wall of first-buys.
+  const fullyMatured = signals.filter(s => s['30d'] != null && s['60d'] != null && s['90d'] != null);
+  const _bt = { cluster: [], cfo: [], firstbuy: [] };
+  for (const s of fullyMatured) (_bt[s.type] || (_bt[s.type] = [])).push(s); // each already most-recent-first
+  const _mixed = [];
+  while (_mixed.length < 250 && (_bt.cluster.length || _bt.cfo.length || _bt.firstbuy.length)) {
+    for (const tp of ['cluster', 'cfo', 'firstbuy']) if (_bt[tp].length) _mixed.push(_bt[tp].shift());
+  }
   const result = {
     version: 2,
     updatedThrough: today,
@@ -1261,10 +1267,10 @@ async function computeSignalScoreboard() {
       cfo: signals.filter(s => s.type === 'cfo').length,
       firstbuy: signals.filter(s => s.type === 'firstbuy').length,
     },
-    stillMaturing: signals.length - maturedSignals.length,
-    signals: maturedSignals.slice(0, 250).map(s => ({
+    stillMaturing: signals.length - fullyMatured.length,
+    signals: _mixed.slice(0, 250).map(s => ({
       ticker: s.ticker, date: s.date, type: s.type, size: s.size, insider: s.insider || null,
-      ret30: s['30d'] != null ? s['30d'] : null, ret60: s['60d'] != null ? s['60d'] : null, ret90: s['90d'] != null ? s['90d'] : null
+      ret30: s['30d'], ret60: s['60d'], ret90: s['90d']
     }))
   };
   await dbRun(`INSERT OR REPLACE INTO computed_cache (key, value_json, computed_at) VALUES ('signal-scoreboard', ?, ?)`, [JSON.stringify(result), Date.now()]);

@@ -3671,7 +3671,7 @@ function renderSignalScoreboardPage(data) {
   const sigDetail = s => s.type === 'cluster' ? `${s.size} insiders` : s.type === 'cfo' ? 'CFO buy' : 'first buy in a year+';
   // Only show signals matured enough to have a 30-day result, so the table is
   // populated rather than a wall of blanks; the very newest ones are still maturing.
-  const matured = hasData ? (data.signals || []).filter(s => s.ret30 != null) : [];
+  const matured = hasData ? (data.signals || []).filter(s => s.ret90 != null) : [];
   const stillMaturing = hasData ? (data.stillMaturing != null ? data.stillMaturing : ((data.signals || []).length - matured.length)) : 0;
   const sigRows = matured.slice(0, 80).map(s => `<tr>
       <td class="tk"><a href="/insider-trading/${_esc(s.ticker)}"><strong>${_esc(s.ticker)}</strong></a></td>
@@ -3781,7 +3781,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <table><thead><tr><th>Ticker</th><th>Signal</th><th class="dt">Flagged</th><th class="num">30d</th><th class="num">60d</th><th class="num">90d</th></tr></thead><tbody>
     ${sigRows || `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:28px">The scoreboard recomputes daily. Live returns will appear here shortly.</td></tr>`}
   </tbody></table>
-  <p class="note">Each number is the gain from the flag date at that horizon; a blank cell just means that horizon has not matured yet. ${stillMaturing > 0 ? `${stillMaturing} more signal${stillMaturing === 1 ? '' : 's'} flagged too recently to have a 30-day result are not shown yet. ` : ''}Every entry is a genuine open-market buy filed on SEC Form 4, with grants, options, and coordinated offerings excluded. Want them plotted on the chart the moment they file? See the <a href="/biggest-insider-buys">biggest insider buys</a>, the <a href="/cfos-buying-stock">CFOs buying</a>, or the <a href="/insider-buying-study">five-year study</a> behind these signals.</p>
+  <p class="note">Each number is the gain from the flag date at that horizon. Only signals with a complete 30, 60, and 90-day record are listed here; ${stillMaturing > 0 ? `${stillMaturing} more flagged too recently to have a full 90-day result yet will join as they mature. ` : ''}Every entry is a genuine open-market buy filed on SEC Form 4, with grants, options, and coordinated offerings excluded. Want them plotted on the chart the moment they file? See the <a href="/biggest-insider-buys">biggest insider buys</a>, the <a href="/cfos-buying-stock">CFOs buying</a>, or the <a href="/insider-buying-study">five-year study</a> behind these signals.</p>
   <div class="cite"><strong>Cite this page:</strong> InsiderTape, &ldquo;Insider Signal Track Record,&rdquo; data through ${updated}, sourced from SEC Form 4 filings and daily price data. Free to reference with a link to insidertape.com/track-record.</div>
   <section style="margin-top:40px">
     <h2 style="font-size:18px;font-weight:700;margin-bottom:14px">Track record: FAQ</h2>
