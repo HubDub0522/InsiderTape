@@ -2348,7 +2348,11 @@ function _emailCapture(source, headline) {
   (function(){try{function apply(p){if(p!=='1')return;var h=document.querySelectorAll('.up-hide');for(var i=0;i<h.length;i++){h[i].style.display='none';}var s=document.querySelectorAll('.prem-show');for(var j=0;j<s.length;j++){s[j].style.display='block';}}var c=null;try{c=sessionStorage.getItem('it_prem');}catch(e){}if(c!==null){apply(c);return;}fetch('/api/auth/me',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){var p=(d&&d.isPremium)?'1':'0';try{sessionStorage.setItem('it_prem',p);}catch(e){}apply(p);}).catch(function(){});}catch(e){}})();
   </script>`;
 }
-function _chartTeaser(ticker) {
+function _chartTeaser(ticker, stats) {
+  const buys = (stats && stats.buys) || 0;
+  const lead = buys > 0
+    ? `${buys} insider purchase${buys === 1 ? '' : 's'} on ${ticker} in the past year, each plotted exactly where it landed. `
+    : '';
   return `
   <div class="up-hide" style="position:relative;margin:0 0 32px;border-radius:12px;overflow:hidden;border:1px solid var(--border)">
     <div style="filter:blur(2.5px);background:#0b1929">
@@ -2360,11 +2364,12 @@ function _chartTeaser(ticker) {
         <circle cx="500" cy="188" r="10" fill="#2fd24f"/><circle cx="560" cy="173" r="9" fill="#2fd24f"/><circle cx="625" cy="156" r="8" fill="#2fd24f"/>
       </svg>
     </div>
-    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,25,41,.5),rgba(11,25,41,.8));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px">
-      <div style="font-size:24px;margin-bottom:4px">&#128274;</div>
-      <div style="color:#fff;font-size:17px;font-weight:800;margin-bottom:6px;max-width:440px;line-height:1.3">See every ${ticker} buy and sell plotted on the price chart</div>
-      <div style="color:#c2cdd8;font-size:13px;margin-bottom:16px;max-width:420px;line-height:1.5">Green where insiders buy, red where they sell, so the CFO buying the dip and the exec selling the top jump right out.</div>
-      <a href="/premium" style="display:inline-block;background:#12905f;color:#fff;padding:12px 28px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">Unlock the chart, free for 7 days &rarr;</a>
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,25,41,.5),rgba(11,25,41,.84));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px">
+      <div style="font-size:22px;margin-bottom:4px">&#128274;</div>
+      <div style="color:#fff;font-size:17px;font-weight:800;margin-bottom:6px;max-width:470px;line-height:1.3">See every ${ticker} insider buy and sell on the price chart</div>
+      <div style="color:#c2cdd8;font-size:13px;margin-bottom:15px;max-width:450px;line-height:1.55">${lead}Green where insiders buy, red where they sell, so conviction and exits jump right out. And get an alert the moment the next ${ticker} Form 4 files, before it's old news.</div>
+      <a href="/premium" onclick="try{gtag('event','cta_start_trial',{location:'ticker-teaser'})}catch(e){}" style="display:inline-block;background:#12905f;color:#fff;padding:13px 32px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none">Unlock the live chart + alerts, free for 7 days &rarr;</a>
+      <div style="color:#8ea3b5;font-size:11px;margin-top:10px">No charge for 7 days &middot; cancel anytime</div>
     </div>
   </div>`;
 }
@@ -2462,7 +2467,7 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="stat"><div class="k">Buy Value</div><div class="v g">${_fmtV(stats.buyval)}</div></div>
     <div class="stat"><div class="k">Insiders</div><div class="v">${stats.insiders || 0}</div></div>
   </div>
-  ${_chartTeaser(ticker)}
+  ${_chartTeaser(ticker, stats)}
   <a class="prem-show" href="/stock/${ticker}" style="display:none;background:var(--bg2);border:1px solid var(--buy);border-radius:12px;padding:15px 20px;margin:0 0 32px;text-decoration:none"><span style="font-size:14px;font-weight:700;color:var(--buy)">&#10003; You're a member.</span> <span style="font-size:14px;color:var(--text)">Open the full interactive ${ticker} chart, with every insider buy and sell plotted on the price &rarr;</span></a>
   <h2>Recent ${ticker} insider trades</h2>
   <table><thead><tr><th>Date</th><th>Insider</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
