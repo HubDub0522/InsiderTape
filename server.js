@@ -2459,8 +2459,6 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   <div class="crumb"><a href="/">Home</a> &nbsp;/&nbsp; Insider Trading &nbsp;/&nbsp; ${ticker}</div>
   <h1>${co} (${ticker}) Insider Trading Activity</h1>
   <div class="sub">SEC Form 4 open-market purchases and sales by corporate insiders &nbsp;·&nbsp; Sourced from SEC EDGAR</div>
-  <p class="intro">${_esc(intro)}</p>
-  <p class="intro" style="font-size:13px;color:var(--muted);margin-top:-6px">New to these filings? Learn <a href="/articles/sec-form-4-transaction-codes.html" style="color:var(--accent);text-decoration:none">what each SEC Form 4 transaction code means</a> (P = open-market buy, S = sale, M and F = option/tax, and the rest).</p>
   <div class="stats">
     <div class="stat"><div class="k">Buys (1Y)</div><div class="v g">${buys}</div></div>
     <div class="stat"><div class="k">Sells (1Y)</div><div class="v r">${sells}</div></div>
@@ -2468,6 +2466,8 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
     <div class="stat"><div class="k">Insiders</div><div class="v">${stats.insiders || 0}</div></div>
   </div>
   ${_chartTeaser(ticker, stats)}
+  <p class="intro">${_esc(intro)}</p>
+  <p class="intro" style="font-size:13px;color:var(--muted);margin-top:-6px">New to these filings? Learn <a href="/articles/sec-form-4-transaction-codes.html" style="color:var(--accent);text-decoration:none">what each SEC Form 4 transaction code means</a> (P = open-market buy, S = sale, M and F = option/tax, and the rest).</p>
   <a class="prem-show" href="/stock/${ticker}" style="display:none;background:var(--bg2);border:1px solid var(--buy);border-radius:12px;padding:15px 20px;margin:0 0 32px;text-decoration:none"><span style="font-size:14px;font-weight:700;color:var(--buy)">&#10003; You're a member.</span> <span style="font-size:14px;color:var(--text)">Open the full interactive ${ticker} chart, with every insider buy and sell plotted on the price &rarr;</span></a>
   <h2>Recent ${ticker} insider trades</h2>
   <table><thead><tr><th>Date</th><th>Insider</th><th>Type</th><th class="num">Shares</th><th class="num">Price</th><th class="num">Value</th></tr></thead><tbody>${tableRows}</tbody></table>
@@ -2497,6 +2497,11 @@ footer{border-top:1px solid var(--border);padding:28px 24px;text-align:center;fo
   </div>
 </div>
 <footer><a href="/">InsiderTape</a> &nbsp;·&nbsp; Insider data sourced from SEC EDGAR (Form 4) &nbsp;·&nbsp; Not financial advice. Past insider activity does not predict future results.</footer>
+<div class="up-hide" style="height:70px"></div>
+<div class="up-hide" style="position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--bg2);border-top:1px solid var(--border);box-shadow:0 -6px 20px rgba(0,0,0,0.14);padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:12px 16px;flex-wrap:wrap">
+  <span style="font-size:13px;color:var(--text);font-weight:600;text-align:center">See every ${ticker} insider buy &amp; sell on the chart, live &middot; alerts on the next filing</span>
+  <a href="/premium" onclick="try{gtag('event','cta_start_trial',{location:'sticky-bar'})}catch(e){}" style="background:var(--accent);color:#fff;padding:9px 22px;border-radius:7px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">Start free 7-day trial &rarr;</a>
+</div>
 </body></html>`;
 }
 
