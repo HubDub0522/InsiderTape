@@ -1725,7 +1725,7 @@ function _sdbg(evt, extra) {
     el.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:99999;max-width:min(92vw,520px);max-height:45vh;overflow:auto;background:rgba(0,0,0,.86);color:#0f0;font:10px/1.35 monospace;padding:8px 10px;border:1px solid #0a0;border-radius:6px;white-space:pre-wrap;pointer-events:none';
     (document.body||document.documentElement).appendChild(el);
   }
-  var saved = Object.keys(_scrollPos).map(function(k){return '  '+k+' = '+_scrollPos[k];}).join('\n');
+  var saved = Object.keys(_scrollPos).map(function(k){return '  '+k+' = '+JSON.stringify(_scrollPos[k]);}).join('\n');
   el.textContent = '[scrolldbg]  suppress=' + (window._suppressAutoTop?1:0) + ' ignore=' + (window._ignoreScrollSave?1:0) +
     '\nSAVED POSITIONS:\n' + (saved||'  (none)') + '\n\n' + window._sdbgLog.join('\n');
 }
@@ -1735,13 +1735,10 @@ function _sdbg(evt, extra) {
   window.scrollTo = function(x, y) {
     // During a Back/Forward restore, ignore the loaders' auto scroll-to-top.
     if (window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) { _sdbg('SCROLLTO-suppressed'); return; }
-    // A programmatic scroll-to-top nearly always precedes a navigation (loaders
-    // scroll to top, THEN pushState). Capture the OUTGOING scroll for the current
-    // URL first - scrollY still reflects where the user was and the URL is still
-    // the old one - then ignore the scroll-to-0 event so it can't overwrite it.
+    // A programmatic scroll-to-top precedes navigation. Suppress the resulting
+    // scroll-to-0 event briefly so the capture-phase save listener below can't
+    // overwrite the position we saved for the outgoing page with a bogus 0.
     if (!window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) {
-      var sy = window.scrollY || window.pageYOffset || 0;
-      if (sy > 2) { _scrollPos[_scrollKey()] = sy; _sdbg('CAPTURE(scrollTo0)', 'saved=' + sy); }
       window._ignoreScrollSave = true;
       setTimeout(function() { window._ignoreScrollSave = false; }, 250);
     }
@@ -1753,41 +1750,87 @@ function _sdbg(evt, extra) {
   };
 })();
 
-// Continuously remember the scroll position per URL (skipped during a restore or
-// while a programmatic top-scroll is in flight, so navigation can't clobber it).
-window.addEventListener('scroll', () => {
-  if (!window._suppressAutoTop && !window._ignoreScrollSave) {
-    _scrollPos[_scrollKey()] = window.scrollY || window.pageYOffset || 0;
-    _sdbg('save');
-  } else {
-    _sdbg('save-SKIPPED');
+// Build a stable-ish CSS selector for an element so we can re-find the same
+// scroll container after a re-render (the content inside it is replaced, but
+// the container - or one matching this selector - reappears).
+function _cssPath(el) {
+  const esc = (window.CSS && CSS.escape) ? CSS.escape : (s => String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
+  const parts = [];
+  while (el && el.nodeType === 1 && el !== document.body && el !== document.documentElement && parts.length < 6) {
+    if (el.id) { parts.unshift('#' + esc(el.id)); break; }
+    let sel = el.tagName.toLowerCase();
+    const cls = (typeof el.className === 'string' ? el.className.trim().split(/\s+/) : []).filter(Boolean);
+    if (cls.length) sel += '.' + cls.map(esc).join('.');
+    const parent = el.parentElement;
+    if (parent) {
+      const sibs = Array.prototype.filter.call(parent.children, c => c.tagName === el.tagName);
+      if (sibs.length > 1) sel += ':nth-of-type(' + (Array.prototype.indexOf.call(parent.children, el) + 1) + ')';
+    }
+    parts.unshift(sel);
+    el = el.parentElement;
   }
-}, { passive: true });
+  return parts.join('>');
+}
+// Given a saved {sel}, return a uniform handle to the actual scroller (window
+// OR a nested overflow container), or null if not in the DOM yet.
+function _resolveScroller(sel) {
+  if (!sel || sel === '@window') {
+    return {
+      max: () => (document.documentElement.scrollHeight || 0) - window.innerHeight,
+      top: () => window.scrollY || document.documentElement.scrollTop || 0,
+      setTop: (v) => window.scrollTo(0, v),
+    };
+  }
+  let el; try { el = document.querySelector(sel); } catch(_) { el = null; }
+  if (!el) return null;
+  return {
+    max: () => (el.scrollHeight || 0) - el.clientHeight,
+    top: () => el.scrollTop,
+    setTop: (v) => { el.scrollTop = v; },
+  };
+}
+// Continuously remember scroll position per URL, tracking WHICHEVER element is
+// actually scrolling (window or a nested overflow container). scroll events
+// don't bubble, so we listen in the CAPTURE phase on document to catch them all.
+document.addEventListener('scroll', (e) => {
+  if (window._suppressAutoTop || window._ignoreScrollSave) { _sdbg('save-SKIPPED'); return; }
+  const t = e.target;
+  const isDoc = (t === document || t === window || t === document.documentElement || t === document.body);
+  const sel = isDoc ? '@window' : _cssPath(t);
+  const top = isDoc ? (window.scrollY || document.documentElement.scrollTop || 0) : (t.scrollTop || 0);
+  _scrollPos[_scrollKey()] = { sel, top };
+  _sdbg('save', 'sel=' + sel + ' top=' + top);
+}, { capture: true, passive: true });
+
 function _restoreScrollForCurrent() {
-  const target = _scrollPos[_scrollKey()] || 0;
-  let done = false;
+  const saved = _scrollPos[_scrollKey()];
+  const target = saved ? saved.top : 0;
+  const sel = saved ? saved.sel : '@window';
+  let done = false, landedAt = 0;
   window._suppressAutoTop = true;
-  _sdbg('RESTORE-begin', 'target=' + target);
+  _sdbg('RESTORE-begin', 'sel=' + sel + ' target=' + target);
   // Bail if the user starts scrolling/interacting themselves - never fight them.
   const onUser = () => finish();
   function cleanup() { window.removeEventListener('wheel', onUser); window.removeEventListener('touchstart', onUser); window.removeEventListener('keydown', onUser); }
-  function finish() { if (done) return; done = true; window._suppressAutoTop = false; cleanup(); }
+  function finish() { if (done) return; done = true; window._suppressAutoTop = false; cleanup(); _sdbg('RESTORE-done'); }
   setTimeout(finish, 3200); // hard safety unlock
   if (target <= 2) { finish(); return; }
   window.addEventListener('wheel', onUser, { passive: true });
   window.addEventListener('touchstart', onUser, { passive: true });
   window.addEventListener('keydown', onUser);
-  // Async lists (the Radar ranker, etc.) fetch then re-render, so the page may be
-  // short for up to a second or two. Keep retrying until it's tall enough to reach
-  // the saved position, then land it. Stops the moment we succeed.
+  // Async lists (the Radar ranker, etc.) fetch then re-render, so the scroller
+  // may not exist / be tall enough yet, and may re-render a SECOND time after we
+  // land. Retry until it's tall enough, then HOLD the position (re-asserting each
+  // frame) for ~900ms so a late re-render can't dump us back to the top.
   const start = Date.now();
   (function step() {
     if (done) return;
-    const maxScroll = (document.documentElement.scrollHeight || 0) - window.innerHeight;
-    if (maxScroll >= target - 2) {
-      window.scrollTo(0, target);
-      if (Math.abs((window.scrollY || 0) - target) <= 2) { finish(); return; }
+    const sc = _resolveScroller(sel);
+    if (sc && (sc.max() >= target - 2 || Date.now() - start > 1500)) {
+      sc.setTop(target);
+      if (!landedAt && Math.abs(sc.top() - target) <= 2) { landedAt = Date.now(); _sdbg('RESTORE-landed', 'top=' + sc.top()); }
     }
+    if (landedAt && Date.now() - landedAt > 900) { finish(); return; }
     if (Date.now() - start < 3000) requestAnimationFrame(step); else finish();
   })();
 }
