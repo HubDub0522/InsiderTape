@@ -1725,17 +1725,29 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 function _restoreScrollForCurrent() {
   const target = _scrollPos[_scrollKey()] || 0;
+  let done = false;
   window._suppressAutoTop = true;
-  setTimeout(function() { window._suppressAutoTop = false; }, 1200); // safety unlock
-  if (target <= 2) { window._suppressAutoTop = false; return; }
-  let tries = 0;
+  // Bail if the user starts scrolling/interacting themselves - never fight them.
+  const onUser = () => finish();
+  function cleanup() { window.removeEventListener('wheel', onUser); window.removeEventListener('touchstart', onUser); window.removeEventListener('keydown', onUser); }
+  function finish() { if (done) return; done = true; window._suppressAutoTop = false; cleanup(); }
+  setTimeout(finish, 3200); // hard safety unlock
+  if (target <= 2) { finish(); return; }
+  window.addEventListener('wheel', onUser, { passive: true });
+  window.addEventListener('touchstart', onUser, { passive: true });
+  window.addEventListener('keydown', onUser);
+  // Async lists (the Radar ranker, etc.) fetch then re-render, so the page may be
+  // short for up to a second or two. Keep retrying until it's tall enough to reach
+  // the saved position, then land it. Stops the moment we succeed.
+  const start = Date.now();
   (function step() {
+    if (done) return;
     const maxScroll = (document.documentElement.scrollHeight || 0) - window.innerHeight;
-    if (maxScroll >= target) {
+    if (maxScroll >= target - 2) {
       window.scrollTo(0, target);
-      if (Math.abs((window.scrollY || 0) - target) <= 2) { window._suppressAutoTop = false; return; }
+      if (Math.abs((window.scrollY || 0) - target) <= 2) { finish(); return; }
     }
-    if (tries++ < 30) requestAnimationFrame(step); else window._suppressAutoTop = false;
+    if (Date.now() - start < 3000) requestAnimationFrame(step); else finish();
   })();
 }
 
