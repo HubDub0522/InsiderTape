@@ -1703,18 +1703,45 @@ window._ignoreScrollSave = false;
 const _scrollPos = Object.create(null);
 const _scrollKey = () => location.pathname + location.search;
 
+// ── TEMP DEBUG: turn on with ?scrolldbg=1 (persists via localStorage). ──
+// Shows a live readout of every scroll save/capture/restore so we can see
+// exactly what's happening. Remove once the back-button issue is nailed.
+(function(){
+  try {
+    if (/[?&]scrolldbg=1/.test(location.search)) localStorage.setItem('it_scrolldbg','1');
+    if (/[?&]scrolldbg=0/.test(location.search)) localStorage.removeItem('it_scrolldbg');
+    window._SDBG = localStorage.getItem('it_scrolldbg') === '1';
+  } catch(_) { window._SDBG = false; }
+})();
+window._sdbgLog = [];
+function _sdbg(evt, extra) {
+  if (!window._SDBG) return;
+  var line = evt + '  key=' + _scrollKey() + '  y=' + Math.round(window.scrollY||0) + (extra ? '  ' + extra : '');
+  window._sdbgLog.push(line);
+  if (window._sdbgLog.length > 12) window._sdbgLog.shift();
+  var el = document.getElementById('_sdbgBox');
+  if (!el) {
+    el = document.createElement('div'); el.id = '_sdbgBox';
+    el.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:99999;max-width:min(92vw,520px);max-height:45vh;overflow:auto;background:rgba(0,0,0,.86);color:#0f0;font:10px/1.35 monospace;padding:8px 10px;border:1px solid #0a0;border-radius:6px;white-space:pre-wrap;pointer-events:none';
+    (document.body||document.documentElement).appendChild(el);
+  }
+  var saved = Object.keys(_scrollPos).map(function(k){return '  '+k+' = '+_scrollPos[k];}).join('\n');
+  el.textContent = '[scrolldbg]  suppress=' + (window._suppressAutoTop?1:0) + ' ignore=' + (window._ignoreScrollSave?1:0) +
+    '\nSAVED POSITIONS:\n' + (saved||'  (none)') + '\n\n' + window._sdbgLog.join('\n');
+}
+
 (function() {
   const _origScrollTo = window.scrollTo.bind(window);
   window.scrollTo = function(x, y) {
     // During a Back/Forward restore, ignore the loaders' auto scroll-to-top.
-    if (window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) return;
+    if (window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) { _sdbg('SCROLLTO-suppressed'); return; }
     // A programmatic scroll-to-top nearly always precedes a navigation (loaders
     // scroll to top, THEN pushState). Capture the OUTGOING scroll for the current
     // URL first - scrollY still reflects where the user was and the URL is still
     // the old one - then ignore the scroll-to-0 event so it can't overwrite it.
     if (!window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) {
       var sy = window.scrollY || window.pageYOffset || 0;
-      if (sy > 2) _scrollPos[_scrollKey()] = sy;
+      if (sy > 2) { _scrollPos[_scrollKey()] = sy; _sdbg('CAPTURE(scrollTo0)', 'saved=' + sy); }
       window._ignoreScrollSave = true;
       setTimeout(function() { window._ignoreScrollSave = false; }, 250);
     }
@@ -1729,12 +1756,18 @@ const _scrollKey = () => location.pathname + location.search;
 // Continuously remember the scroll position per URL (skipped during a restore or
 // while a programmatic top-scroll is in flight, so navigation can't clobber it).
 window.addEventListener('scroll', () => {
-  if (!window._suppressAutoTop && !window._ignoreScrollSave) _scrollPos[_scrollKey()] = window.scrollY || window.pageYOffset || 0;
+  if (!window._suppressAutoTop && !window._ignoreScrollSave) {
+    _scrollPos[_scrollKey()] = window.scrollY || window.pageYOffset || 0;
+    _sdbg('save');
+  } else {
+    _sdbg('save-SKIPPED');
+  }
 }, { passive: true });
 function _restoreScrollForCurrent() {
   const target = _scrollPos[_scrollKey()] || 0;
   let done = false;
   window._suppressAutoTop = true;
+  _sdbg('RESTORE-begin', 'target=' + target);
   // Bail if the user starts scrolling/interacting themselves - never fight them.
   const onUser = () => finish();
   function cleanup() { window.removeEventListener('wheel', onUser); window.removeEventListener('touchstart', onUser); window.removeEventListener('keydown', onUser); }
