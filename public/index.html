@@ -1695,33 +1695,41 @@ document.addEventListener('click', e => { if (!e.target.closest('.search-wrap'))
 
 // F2: Reliable scroll-to-top - window.scrollTo(0,0) alone fails on iOS Safari
 // and some Android browsers. Override it globally to always hit both paths.
+// ── SPA scroll restoration: Back returns you to your previous scroll position ──
+// State declared first so the scrollTo override below can use it.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+window._suppressAutoTop = false;
+window._ignoreScrollSave = false;
+const _scrollPos = Object.create(null);
+const _scrollKey = () => location.pathname + location.search;
+
 (function() {
   const _origScrollTo = window.scrollTo.bind(window);
   window.scrollTo = function(x, y) {
-    // During a Back/Forward restore, ignore the view loaders' auto scroll-to-top
-    // so the user lands where they were instead of jumping to the top.
+    // During a Back/Forward restore, ignore the loaders' auto scroll-to-top.
     if (window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) return;
+    // A programmatic scroll-to-top nearly always precedes a navigation (loaders
+    // scroll to top, THEN pushState). Capture the OUTGOING scroll for the current
+    // URL first - scrollY still reflects where the user was and the URL is still
+    // the old one - then ignore the scroll-to-0 event so it can't overwrite it.
+    if (!window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) {
+      var sy = window.scrollY || window.pageYOffset || 0;
+      if (sy > 2) _scrollPos[_scrollKey()] = sy;
+      window._ignoreScrollSave = true;
+      setTimeout(function() { window._ignoreScrollSave = false; }, 250);
+    }
     _origScrollTo(x, y);
     if (x === 0 && (y === 0 || y === undefined)) {
       // Defer DOM writes to avoid forced reflow
-      requestAnimationFrame(function() {
-        document.documentElement.scrollTop = 0;
-        document.body.scrollTop = 0;
-      });
+      requestAnimationFrame(function() { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; });
     }
   };
 })();
 
-// ── SPA scroll restoration: Back returns you to your previous scroll position ──
-// Continuously remember the scroll position per URL; on a Back/Forward nav,
-// suppress the loaders' scroll-to-top and restore the saved position (retrying a
-// few frames while async lists/tables finish rendering so the page is tall enough).
-if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-window._suppressAutoTop = false;
-const _scrollPos = Object.create(null);
-const _scrollKey = () => location.pathname + location.search;
+// Continuously remember the scroll position per URL (skipped during a restore or
+// while a programmatic top-scroll is in flight, so navigation can't clobber it).
 window.addEventListener('scroll', () => {
-  if (!window._suppressAutoTop) _scrollPos[_scrollKey()] = window.scrollY || window.pageYOffset || 0;
+  if (!window._suppressAutoTop && !window._ignoreScrollSave) _scrollPos[_scrollKey()] = window.scrollY || window.pageYOffset || 0;
 }, { passive: true });
 function _restoreScrollForCurrent() {
   const target = _scrollPos[_scrollKey()] || 0;
