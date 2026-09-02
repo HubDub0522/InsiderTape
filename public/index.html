@@ -1703,38 +1703,11 @@ window._ignoreScrollSave = false;
 const _scrollPos = Object.create(null);
 const _scrollKey = () => location.pathname + location.search;
 
-// ── TEMP DEBUG: turn on with ?scrolldbg=1 (persists via localStorage). ──
-// Shows a live readout of every scroll save/capture/restore so we can see
-// exactly what's happening. Remove once the back-button issue is nailed.
-(function(){
-  try {
-    if (/[?&]scrolldbg=1/.test(location.search)) localStorage.setItem('it_scrolldbg','1');
-    if (/[?&]scrolldbg=0/.test(location.search)) localStorage.removeItem('it_scrolldbg');
-    window._SDBG = localStorage.getItem('it_scrolldbg') === '1';
-  } catch(_) { window._SDBG = false; }
-})();
-window._sdbgLog = [];
-function _sdbg(evt, extra) {
-  if (!window._SDBG) return;
-  var line = evt + '  key=' + _scrollKey() + '  y=' + Math.round(window.scrollY||0) + (extra ? '  ' + extra : '');
-  window._sdbgLog.push(line);
-  if (window._sdbgLog.length > 12) window._sdbgLog.shift();
-  var el = document.getElementById('_sdbgBox');
-  if (!el) {
-    el = document.createElement('div'); el.id = '_sdbgBox';
-    el.style.cssText = 'position:fixed;left:6px;bottom:6px;z-index:99999;max-width:min(92vw,520px);max-height:45vh;overflow:auto;background:rgba(0,0,0,.86);color:#0f0;font:10px/1.35 monospace;padding:8px 10px;border:1px solid #0a0;border-radius:6px;white-space:pre-wrap;pointer-events:none';
-    (document.body||document.documentElement).appendChild(el);
-  }
-  var saved = Object.keys(_scrollPos).map(function(k){return '  '+k+' = '+JSON.stringify(_scrollPos[k]);}).join('\n');
-  el.textContent = '[scrolldbg]  suppress=' + (window._suppressAutoTop?1:0) + ' ignore=' + (window._ignoreScrollSave?1:0) +
-    '\nSAVED POSITIONS:\n' + (saved||'  (none)') + '\n\n' + window._sdbgLog.join('\n');
-}
-
 (function() {
   const _origScrollTo = window.scrollTo.bind(window);
   window.scrollTo = function(x, y) {
     // During a Back/Forward restore, ignore the loaders' auto scroll-to-top.
-    if (window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) { _sdbg('SCROLLTO-suppressed'); return; }
+    if (window._suppressAutoTop && x === 0 && (y === 0 || y === undefined)) return;
     // A programmatic scroll-to-top precedes navigation. Suppress the resulting
     // scroll-to-0 event briefly so the capture-phase save listener below can't
     // overwrite the position we saved for the outgoing page with a bogus 0.
@@ -1794,7 +1767,7 @@ function _resolveScroller(sel) {
 // actually scrolling (window or a nested overflow container). scroll events
 // don't bubble, so we listen in the CAPTURE phase on document to catch them all.
 document.addEventListener('scroll', (e) => {
-  if (window._suppressAutoTop || window._ignoreScrollSave) { _sdbg('save-SKIPPED'); return; }
+  if (window._suppressAutoTop || window._ignoreScrollSave) return;
   const t = e.target;
   const isDoc = (t === document || t === window || t === document.documentElement || t === document.body);
   const de = document.documentElement, bd = document.body, se = document.scrollingElement || de;
@@ -1806,7 +1779,6 @@ document.addEventListener('scroll', (e) => {
     ? Math.max(window.scrollY || 0, de.scrollTop || 0, bd.scrollTop || 0, se.scrollTop || 0)
     : (t.scrollTop || 0);
   _scrollPos[_scrollKey()] = { sel, top };
-  _sdbg('save', 'sel=' + sel + ' top=' + top + (isDoc ? ' [wy=' + (window.scrollY|0) + ' de=' + (de.scrollTop|0) + ' bd=' + (bd.scrollTop|0) + ' se=' + (se.scrollTop|0) + ']' : ''));
 }, { capture: true, passive: true });
 
 function _restoreScrollForCurrent() {
@@ -1815,11 +1787,10 @@ function _restoreScrollForCurrent() {
   const sel = saved ? saved.sel : '@window';
   let done = false, landedAt = 0;
   window._suppressAutoTop = true;
-  _sdbg('RESTORE-begin', 'sel=' + sel + ' target=' + target);
   // Bail if the user starts scrolling/interacting themselves - never fight them.
   const onUser = () => finish();
   function cleanup() { window.removeEventListener('wheel', onUser); window.removeEventListener('touchstart', onUser); window.removeEventListener('keydown', onUser); }
-  function finish() { if (done) return; done = true; window._suppressAutoTop = false; cleanup(); _sdbg('RESTORE-done'); }
+  function finish() { if (done) return; done = true; window._suppressAutoTop = false; cleanup(); }
   setTimeout(finish, 3200); // hard safety unlock
   if (target <= 2) { finish(); return; }
   window.addEventListener('wheel', onUser, { passive: true });
@@ -1835,7 +1806,7 @@ function _restoreScrollForCurrent() {
     const sc = _resolveScroller(sel);
     if (sc && (sc.max() >= target - 2 || Date.now() - start > 1500)) {
       sc.setTop(target);
-      if (!landedAt && Math.abs(sc.top() - target) <= 2) { landedAt = Date.now(); _sdbg('RESTORE-landed', 'top=' + sc.top()); }
+      if (!landedAt && Math.abs(sc.top() - target) <= 2) landedAt = Date.now();
     }
     if (landedAt && Date.now() - landedAt > 900) { finish(); return; }
     if (Date.now() - start < 3000) requestAnimationFrame(step); else finish();
