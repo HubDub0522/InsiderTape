@@ -1776,9 +1776,10 @@ function _cssPath(el) {
 function _resolveScroller(sel) {
   if (!sel || sel === '@window') {
     return {
-      max: () => (document.documentElement.scrollHeight || 0) - window.innerHeight,
-      top: () => window.scrollY || document.documentElement.scrollTop || 0,
-      setTop: (v) => window.scrollTo(0, v),
+      max: () => Math.max(document.documentElement.scrollHeight || 0, document.body.scrollHeight || 0) - window.innerHeight,
+      top: () => Math.max(window.scrollY || 0, document.documentElement.scrollTop || 0, document.body.scrollTop || 0),
+      // Write every candidate; only the browser's real scroller reacts, the rest no-op.
+      setTop: (v) => { window.scrollTo(0, v); document.documentElement.scrollTop = v; document.body.scrollTop = v; },
     };
   }
   let el; try { el = document.querySelector(sel); } catch(_) { el = null; }
@@ -1796,10 +1797,16 @@ document.addEventListener('scroll', (e) => {
   if (window._suppressAutoTop || window._ignoreScrollSave) { _sdbg('save-SKIPPED'); return; }
   const t = e.target;
   const isDoc = (t === document || t === window || t === document.documentElement || t === document.body);
+  const de = document.documentElement, bd = document.body, se = document.scrollingElement || de;
   const sel = isDoc ? '@window' : _cssPath(t);
-  const top = isDoc ? (window.scrollY || document.documentElement.scrollTop || 0) : (t.scrollTop || 0);
+  // The document-level scroll offset can live on window / documentElement / body
+  // / scrollingElement depending on the browser + CSS. Read the max so we never
+  // record a phantom 0 while another property holds the real position.
+  const top = isDoc
+    ? Math.max(window.scrollY || 0, de.scrollTop || 0, bd.scrollTop || 0, se.scrollTop || 0)
+    : (t.scrollTop || 0);
   _scrollPos[_scrollKey()] = { sel, top };
-  _sdbg('save', 'sel=' + sel + ' top=' + top);
+  _sdbg('save', 'sel=' + sel + ' top=' + top + (isDoc ? ' [wy=' + (window.scrollY|0) + ' de=' + (de.scrollTop|0) + ' bd=' + (bd.scrollTop|0) + ' se=' + (se.scrollTop|0) + ']' : ''));
 }, { capture: true, passive: true });
 
 function _restoreScrollForCurrent() {
