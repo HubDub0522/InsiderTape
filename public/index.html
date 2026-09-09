@@ -11357,8 +11357,11 @@ function showTrialPromo() {
   document.body.appendChild(overlay);
 }
 
-// Fire the promo 60s after load for logged-out visitors
-setTimeout(showTrialPromo, 60000);
+// NOTE: the 60s full-screen trial modal auto-fire was removed. It overlapped the
+// corner trial nudge (maybeShowTrialNudge) so a logged-out visitor could get hit
+// by two upgrade prompts in one session. The corner nudge is now the single timed
+// prompt: dismissible, once per session, 7-day cooldown, and never shown to logged-in
+// members. showTrialPromo() is kept for explicit/manual triggers only.
 
 // ── Screener filter guard (30D+ requires premium) ────────────
 function requirePremiumForPeriod(days) {
