@@ -2286,7 +2286,7 @@ app.get('/sitemap.xml', async (req, res) => {
     const row = await queryOne("SELECT value_json FROM computed_cache WHERE key = 'sitemap-lists'");
     if (row) {
       const lists = JSON.parse(row.value_json);
-      tickerPages = (lists.tickers || []).map(t => ({ url: `/insider-trading/${t}`, priority: '0.5', freq: 'weekly' }));
+      tickerPages = (lists.tickers || []).filter(isValidTicker).map(t => ({ url: `/insider-trading/${String(t).toUpperCase().trim()}`, priority: '0.5', freq: 'weekly' }));
       const seen = new Set();
       for (const name of (lists.insiders || [])) {
         const slug = _insiderSlug(name);
@@ -2313,6 +2313,20 @@ app.get('/sitemap.xml', async (req, res) => {
 // per ticker, targeting long-tail "<company> insider trading" searches. Rendered
 // HTML is cached in-memory per ticker to keep Turso rows-read low.
 function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+// A value is a linkable/sitemappable ticker only if it looks like a real symbol.
+// Guards against junk in the data (N/A, "SEI C", "BTAI ]", NONE) becoming
+// crawlable /insider-trading/<junk> URLs that GSC then flags.
+function isValidTicker(t) {
+  const s = String(t == null ? '' : t).toUpperCase().trim();
+  return /^[A-Z][A-Z0-9.\-]{0,9}$/.test(s) && !/^(NONE|NA|NAN|NULL|NIL|UNKNOWN)$/.test(s);
+}
+// Render a ticker cell as a link ONLY when the ticker is a real symbol; otherwise
+// emit the inner markup as plain text so we never generate a junk crawlable URL.
+function _tkLink(ticker, inner) {
+  return isValidTicker(ticker)
+    ? `<a href="/insider-trading/${_esc(String(ticker).toUpperCase().trim())}">${inner}</a>`
+    : inner;
+}
 function _fmtV(n) { n = +n || 0; const a = Math.abs(n); if (a >= 999.5e6) return '$' + (n / 1e9).toFixed(1) + 'B'; if (a >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M'; if (a >= 1e3) return '$' + Math.round(n / 1e3) + 'K'; return '$' + Math.round(n); }
 function _fmtQty(n) { n = +n || 0; const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M'; if (a >= 1e3) return (n / 1e3).toFixed(1) + 'K'; return String(Math.round(n)); }
 function _fmtDate(d) { if (!d) return ''; const dt = new Date(String(d).slice(0, 10) + 'T12:00:00Z'); return isNaN(dt) ? String(d).slice(0, 10) : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }); }
@@ -2628,7 +2642,7 @@ function renderInsiderPage(name, rows, stats) {
     const badge = isBuy ? '<span class="b buy">BUY</span>' : isSell ? '<span class="b sell">SELL</span>' : '<span class="b">' + _esc(r.type) + '</span>';
     return `<tr>
       <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
-      <td class="ins"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong></a>${r.company ? `<span class="ti">${_esc(r.company)}</span>` : ''}</td>
+      <td class="ins">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong>`)}${r.company ? `<span class="ti">${_esc(r.company)}</span>` : ''}</td>
       <td>${badge}</td>
       <td class="num">${_fmtQty(r.qty)}</td>
       <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
@@ -2855,7 +2869,7 @@ function renderInvestorPage(slug, inv, rows, stats) {
     const badge = isBuy ? '<span class="b buy">BUY</span>' : '<span class="b sell">SELL</span>';
     return `<tr>
       <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span>`)}</td>
       <td>${badge}</td>
       <td class="num">${_fmtQty(r.qty)}</td>
       <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
@@ -3070,7 +3084,7 @@ function renderBiggestBuysPage(rows) {
     const co = _esc(r.company || r.ticker);
     return `<tr>
       <td class="rk">${i + 1}</td>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${co}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${co}</span>`)}</td>
       <td class="num">${r.insiders || 0}</td>
       <td class="num">${r.trades || 0}</td>
       <td class="num v">${_fmtV(r.buy_val)}</td>
@@ -3218,7 +3232,7 @@ function renderCeosBuyingPage(rows) {
   const tr = rows.map((r, i) => `<tr>
       <td class="rk">${i + 1}</td>
       <td><strong style="color:var(--text);font-size:14px">${_esc(_displayName(r.insider))}</strong><div style="font-size:11px;color:var(--muted)">${_esc(r.title || 'Chief Executive Officer')}</div></td>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span>`)}</td>
       <td class="num v">${_fmtV(r.buy_val)}</td>
       <td class="num bcol">${r.buys || 0}</td>
       <td class="dt">${_fmtDate(r.latest)}</td>
@@ -3360,7 +3374,7 @@ function renderCfosBuyingPage(rows) {
   const tr = rows.map((r, i) => `<tr>
       <td class="rk">${i + 1}</td>
       <td><strong style="color:var(--text);font-size:14px">${_esc(_displayName(r.insider))}</strong><div style="font-size:11px;color:var(--muted)">${_esc(r.title || 'Chief Financial Officer')}</div></td>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span>`)}</td>
       <td class="num v">${_fmtV(r.buy_val)}</td>
       <td class="num bcol">${r.buys || 0}</td>
       <td class="dt">${_fmtDate(r.latest)}</td>
@@ -3500,7 +3514,7 @@ function renderDipBuyingPage(rows) {
   const faqHtml = faq.map(f => `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:16px 18px;margin-bottom:10px"><h3 style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--text)">${_esc(f.q)}</h3><p style="font-size:14px;color:#3a4555;margin:0">${f.a}</p></div>`).join('');
   const tr = rows.map((r, i) => `<tr>
       <td class="rk">${i + 1}</td>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span>`)}</td>
       <td class="num v">${_fmtV(r.buy_val)}</td>
       <td class="num bcol">${r.insiders || 0}</td>
       <td class="num" style="color:var(--sell);font-weight:700">-${Math.round((r.offHigh || 0) * 100)}%</td>
@@ -3687,7 +3701,7 @@ function renderSignalScoreboardPage(data) {
   const matured = hasData ? (data.signals || []).filter(s => s.ret90 != null) : [];
   const stillMaturing = hasData ? (data.stillMaturing != null ? data.stillMaturing : ((data.signals || []).length - matured.length)) : 0;
   const sigRows = matured.slice(0, 80).map(s => `<tr>
-      <td class="tk"><a href="/insider-trading/${_esc(s.ticker)}"><strong>${_esc(s.ticker)}</strong></a></td>
+      <td class="tk">${_tkLink(s.ticker, `<strong>${_esc(s.ticker)}</strong>`)}</td>
       <td class="sigc">${sigBadge(s.type)}<span class="sz">${_esc(sigDetail(s))}</span></td>
       <td class="dt">${_fmtDate(s.date)}</td>
       ${retCell(s.ret30)}${retCell(s.ret60)}${retCell(s.ret90)}
@@ -3945,7 +3959,7 @@ function renderBiggestBuyersPage(rows) {
     return `<tr>
       <td class="rk">${i + 1}</td>
       <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${_esc(_displayName(r.insider))}</strong></a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
-      <td class="tk">${t ? `<a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span></a>` : '<span class="co">-</span>'}</td>
+      <td class="tk">${t ? `${_tkLink(t.ticker, `<strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span>`)}` : '<span class="co">-</span>'}</td>
       <td><span class="badge ${_cat(r).cls}">${_cat(r).label}</span></td>
       <td class="num">${r.companies || 0}</td>
       <td class="num">${r.buys || 0}</td>
@@ -3961,7 +3975,7 @@ function renderBiggestBuyersPage(rows) {
     return `<tr>
       <td class="rk">${i + 1}</td>
       <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${_esc(_displayName(r.insider))}</strong></a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
-      <td class="tk">${t ? `<a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span></a>` : '<span class="co">-</span>'}</td>
+      <td class="tk">${t ? `${_tkLink(t.ticker, `<strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span>`)}` : '<span class="co">-</span>'}</td>
       <td class="num">${r.buys || 0}</td>
       <td class="num v">${_fmtV(r.total_val)}</td>
     </tr>`;
@@ -4140,7 +4154,7 @@ function renderSectorPage(sector, slug, rows, stats) {
   const tableRows = rows.map(r => {
     const sentiment = (r.buy_val + r.sell_val) > 0 ? Math.round(r.buy_val / (r.buy_val + r.sell_val) * 100) : 0;
     return `<tr>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span>`)}</td>
       <td class="num g">${r.buy_count || 0}</td>
       <td class="num r">${r.sell_count || 0}</td>
       <td class="num v">${_fmtV(r.buy_val)}</td>
@@ -4287,7 +4301,7 @@ function renderRolePage(slug, def, rows, stats) {
   const tableRows = rows.map(r => `<tr>
       <td class="dt">${_fmtDate(r.trade || r.filing)}</td>
       <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}"><strong>${_esc(_displayName(r.insider))}</strong></a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span>`)}</td>
       <td class="num">${_fmtQty(r.qty)}</td>
       <td class="num">${r.price ? '$' + (+r.price).toFixed(2) : '-'}</td>
       <td class="num v">${_fmtV(r.value)}</td>
@@ -4434,14 +4448,14 @@ function renderReportPage(endYmd, startYmd, data) {
 
   const bigRows = data.biggest.map((r, i) => `<tr>
       <td class="rk">${i + 1}</td>
-      <td class="tk"><a href="/insider-trading/${_esc(r.ticker)}"><strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(r.ticker, `<strong>${_esc(r.ticker)}</strong><span class="co">${_esc(r.company || r.ticker)}</span>`)}</td>
       <td class="ins"><a href="/insider-profile/${_insiderSlug(r.insider)}">${_esc(_displayName(r.insider))}</a>${r.title ? `<span class="ti">${_esc(r.title)}</span>` : ''}</td>
       <td class="dt">${_fmtDate(r.trade_date)}</td>
       <td class="num v">${_fmtV(r.value)}</td>
     </tr>`).join('');
 
   const mostRows = data.mostBought.map(t => `<tr>
-      <td class="tk"><a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span></a></td>
+      <td class="tk">${_tkLink(t.ticker, `<strong>${_esc(t.ticker)}</strong><span class="co">${_esc(t.company || t.ticker)}</span>`)}</td>
       <td class="num">${t.buyers}</td>
       <td class="num">${t.buys}</td>
       <td class="num v">${_fmtV(t.buyval)}</td>
@@ -5388,7 +5402,7 @@ function renderSearchPage(q, results) {
     : 'Search insider trading activity by ticker, company, or insider name. Find SEC Form 4 open-market buys and sells for any US stock or corporate insider on InsiderTape.';
   const tk = results.tickers || [], ins = results.insiders || [];
   const rows = [];
-  if (tk.length) rows.push(`<h2>Companies</h2><ul class="res">${tk.map(t => `<li><a href="/insider-trading/${_esc(t.ticker)}"><strong>${_esc(t.ticker)}</strong> <span>${_esc(t.company)}</span></a></li>`).join('')}</ul>`);
+  if (tk.length) rows.push(`<h2>Companies</h2><ul class="res">${tk.map(t => `<li>${_tkLink(t.ticker, `<strong>${_esc(t.ticker)}</strong> <span>${_esc(t.company)}</span>`)}</li>`).join('')}</ul>`);
   if (ins.length) rows.push(`<h2>Insiders</h2><ul class="res">${ins.map(i => `<li><a href="/insider-profile/${_insiderSlug(i.name)}"><strong>${_esc(_displayName(i.name))}</strong>${i.title ? ` <span>${_esc(i.title)}</span>` : ''}</a></li>`).join('')}</ul>`);
   const body = hasQ
     ? (rows.length ? rows.join('') : `<p class="empty">No companies or insiders matched <strong>"${qEsc}"</strong>. Try a ticker symbol (e.g. <a href="/search?q=AAPL">AAPL</a>) or an insider's name.</p>`)
