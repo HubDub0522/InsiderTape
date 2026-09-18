@@ -1312,6 +1312,21 @@ async function main() {
     await dbRun(`DELETE FROM trades WHERE trade_date < '2000-01-01' OR trade_date > '2030-12-31'`).catch(() => {});
     await dbRun(`DELETE FROM trades WHERE TRIM(type) NOT IN ('P','S','S-')`).catch(() => {});
     await dbRun(`DELETE FROM trades WHERE value > 5000000000 OR price > 1500000 OR qty > 500000000`).catch(() => {});
+    // Remove rows whose ticker isn't a real symbol - junk from older ingests
+    // ("SEI C", "BTAI ]", "Z AND ZG", NONE) that became crawlable /insider-trading
+    // URLs GSC flagged. New junk is now blocked at write time in daily-worker.
+    // Filtered in JS (not SQL GLOB, which is inconsistent across libSQL) against
+    // the same rule the server uses, then deleted by exact symbol. Idempotent.
+    try {
+      const okRe = /^[A-Z][A-Z0-9.\-]{0,9}$/;
+      const sentinels = new Set(['NONE', 'NULL', 'N/A', 'NA', 'NAN', 'NIL', 'UNKNOWN', 'FALSE', 'TRUE']);
+      const distinct = await dbQuery(`SELECT DISTINCT ticker FROM trades`);
+      const bad = distinct
+        .map(r => r.ticker)
+        .filter(t => { const s = String(t == null ? '' : t).toUpperCase().trim(); return !okRe.test(s) || sentinels.has(s); });
+      for (const t of bad) await dbRun(`DELETE FROM trades WHERE ticker = ?`, [t]).catch(() => {});
+      if (bad.length) log(`removed ${bad.length} invalid-ticker symbol(s): ${bad.slice(0, 20).join(', ')}`);
+    } catch (e) { log('invalid-ticker cleanup error: ' + e.message); }
   }
 
   // Light, recent-data caches - every run

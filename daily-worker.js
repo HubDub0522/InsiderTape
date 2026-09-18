@@ -128,8 +128,10 @@ function parseForm4(xml, filingDate, accession) {
   if (!_parts.length) { if (_flag('isOfficer')) _parts.push('Officer'); else if (_flag('isOther')) _parts.push('Other'); }
   const title   = _parts.join(', ');
   const period  = parseDate(xmlGet(xml, 'periodOfReport'));
-  const INVALID = new Set(['NONE', 'NULL', 'N/A', 'NA', '--', '-', '.', '0', 'FALSE', 'TRUE']);
-  if (!ticker || INVALID.has(ticker) || !/^[A-Z]/.test(ticker) || ticker.length > 10) return [];
+  const INVALID = new Set(['NONE', 'NULL', 'N/A', 'NA', 'NAN', 'NIL', 'UNKNOWN', '--', '-', '.', '0', 'FALSE', 'TRUE']);
+  // Whole-string match (not just the first char) so junk with internal spaces,
+  // slashes or brackets ("SEI C", "BTAI ]", "Z AND ZG") is rejected, not stored.
+  if (!ticker || INVALID.has(ticker) || !/^[A-Z][A-Z0-9.\-]{0,9}$/.test(ticker)) return [];
 
   const rows = [];
   function parseBlock(block) {
