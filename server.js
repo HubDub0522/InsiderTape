@@ -2343,16 +2343,24 @@ function _gaHead() {
   return `<script async src="https://www.googletagmanager.com/gtag/js?id=G-LD6MQT3Q4H"></script>
 <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-LD6MQT3Q4H');</script>`;
 }
-function _emailCapture(source, headline) {
-  const h = headline || 'Get the Insider Edge, free every Sunday';
+function _emailCapture(source, headline, example) {
+  const h = headline || 'Get the biggest insider buy of the week, free';
+  // Sell the real email, not a vague "digest": show the actual hook of a recent
+  // issue. This default is a genuine past subject line - refresh it occasionally,
+  // or pass `example` to inject a live spotlight on pages that compute one.
+  const ex = example || 'The GameStop CEO just bought $27.6M of his own stock';
   return `
   <div class="up-hide nl-hide" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:26px 22px;margin-top:34px;text-align:center">
-    <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--buy);font-weight:700;margin-bottom:8px">Free weekly report</div>
-    <div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:6px">${h}</div>
-    <div style="font-size:13px;color:var(--muted);margin:0 auto 16px;line-height:1.65;max-width:430px">Every Sunday, the week's insider buying decoded: the biggest open-market buys, the CEO and CFO conviction trades, and the clusters that backtested best. Grants and noise stripped out.</div>
+    <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--buy);font-weight:700;margin-bottom:8px">Free weekly email</div>
+    <div style="font-size:19px;font-weight:800;color:var(--text);margin-bottom:12px;line-height:1.25">${h}</div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-left:3px solid var(--buy);border-radius:7px;padding:11px 14px;margin:0 auto 14px;max-width:440px;text-align:left">
+      <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:4px">A recent issue opened with</div>
+      <div style="font-size:14px;color:var(--text);line-height:1.45;font-weight:700">&ldquo;${ex}&rdquo;</div>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin:0 auto 16px;line-height:1.6;max-width:440px">One email, every Sunday. The biggest open-market insider buys of the week, plus the CFO and cluster trades that backtested best. Grants and noise stripped out.</div>
     <form id="nlForm" onsubmit="return itSub(event)" style="display:flex;gap:8px;flex-wrap:wrap;max-width:440px;margin:0 auto;justify-content:center">
       <input id="nlEmail" type="email" required placeholder="you@email.com" aria-label="Email address" style="flex:1;min-width:190px;padding:11px 13px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;font-family:'Inter',sans-serif">
-      <button type="submit" style="padding:11px 22px;border-radius:8px;border:none;background:var(--buy);color:#fff;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;font-family:'Inter',sans-serif">Get the free report &rarr;</button>
+      <button type="submit" style="padding:11px 22px;border-radius:8px;border:none;background:var(--buy);color:#fff;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;font-family:'Inter',sans-serif">Get it free &rarr;</button>
     </form>
     <div id="nlMsg" style="font-size:12px;margin-top:10px;min-height:16px;color:var(--muted)"></div>
     <div style="font-size:11px;color:var(--muted);margin-top:12px;opacity:0.85">Free forever &middot; one email a week &middot; unsubscribe anytime</div>
