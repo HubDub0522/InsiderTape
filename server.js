@@ -2232,6 +2232,15 @@ app.get('/api/debug', async (req, res) => {
 
 app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
 
+// ─── INDEXNOW ─────────────────────────────────────────────────────────────────
+// IndexNow lets us instantly tell Bing + Yandex (and, via Bing's index, the AI
+// answer engines) when pages change, instead of waiting to be crawled. The key
+// is PUBLIC by design: it's served here at /<key>.txt so IndexNow can verify we
+// own the domain. The actual pings of changed URLs run daily from the precompute
+// worker (scripts/precompute.js), not here, so they add no Vercel cost.
+const INDEXNOW_KEY = '388e0f2120761afca72eafdfe03749d1';
+app.get('/' + INDEXNOW_KEY + '.txt', (req, res) => { res.type('text/plain').send(INDEXNOW_KEY); });
+
 // ─── ROBOTS / SITEMAP ─────────────────────────────────────────────────────────
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain');

@@ -1277,6 +1277,36 @@ async function computeSignalScoreboard() {
   log(`signal-scoreboard cached: ${signals.length} signals (${result.counts.cluster} cluster / ${result.counts.cfo} CFO / ${result.counts.firstbuy} first-buy), matured 90d = ${result.all['90d'].n}`);
 }
 
+// ── IndexNow: tell Bing/Yandex (and, via Bing's index, the AI answer engines)
+// which URLs changed today, so they get recrawled fast instead of waiting. Key
+// is public and served by the app at /<key>.txt. Pings the daily-updating hub
+// pages + any ticker page with a fresh Form 4 (= actually changed).
+const INDEXNOW_KEY = '388e0f2120761afca72eafdfe03749d1';
+async function pingIndexNow() {
+  try {
+    if (typeof fetch !== 'function') { log('IndexNow skipped (no fetch)'); return; }
+    const host = 'www.insidertape.com';
+    const base = 'https://' + host;
+    const okRe = /^[A-Z][A-Z0-9.\-]{0,9}$/;
+    const sentinels = new Set(['NONE', 'NULL', 'N/A', 'NA', 'NAN', 'NIL', 'UNKNOWN', 'FALSE', 'TRUE']);
+    const hubs = ['/', '/biggest-insider-buys', '/biggest-insider-buyers', '/ceos-buying-stock',
+      '/cfos-buying-stock', '/insiders-buying-the-dip', '/track-record', '/insider-buying-index'];
+    let recent = [];
+    try {
+      const rows = await dbQuery(`SELECT DISTINCT ticker FROM trades WHERE filing_date >= date('now','-3 days') LIMIT 2000`);
+      recent = rows.map(r => r.ticker)
+        .filter(t => { const s = String(t == null ? '' : t).toUpperCase().trim(); return okRe.test(s) && !sentinels.has(s); })
+        .map(t => '/insider-trading/' + String(t).toUpperCase().trim());
+    } catch (e) { log('IndexNow recent-ticker query failed: ' + e.message); }
+    const urlList = [...new Set([...hubs, ...recent])].map(p => base + p);
+    const body = { host, key: INDEXNOW_KEY, keyLocation: base + '/' + INDEXNOW_KEY + '.txt', urlList };
+    const resp = await fetch('https://api.indexnow.org/indexnow', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    log(`IndexNow pinged ${urlList.length} URLs -> HTTP ${resp.status}`);
+  } catch (e) { log('IndexNow ping error: ' + e.message); }
+}
+
 async function main() {
   log('=== precompute start ===');
   await ensureComputedCacheTable();
@@ -1342,6 +1372,7 @@ async function main() {
   // BEFORE the heavy block - and regardless of light/heavy mode - so the slower
   // leaderboard can never block the study, and a run does not depend on FORCE_FULL.
   await computeSitemapLists().catch(e => log('sitemap-lists error: ' + e.message));
+  await pingIndexNow();
   await computeSearchIndex().catch(e => log('search-index error: ' + e.message));
   await computeInsiderStudy().catch(e => log('insider-study error: ' + e.message));
 
